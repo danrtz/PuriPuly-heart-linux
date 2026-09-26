@@ -11,16 +11,26 @@ Windows Rust runtime for the VR subtitle overlay.
   - `src/puripuly_heart/core/runtime/overlay.py`
   - `src/puripuly_heart/ui/desktop_overlay.py`
 
-The shared bridge is version 12 with execution contract r2 and exclusive native
+The shared bridge is version 13 with execution contract r2 and exclusive native
 presentation retries. Authentication and readiness require
-`speaker_identity_presentation: {"version":1,"policy":"immutable_first_readable_style"}`;
-the version 11 transition handshake is incompatible. Python fixes a caption's
-`speaker_style` at first readable publication and sends only that style, not
-speaker identity. SELF remains white; peers use 15 stable per-scope styles
-(gold, cyan, then p02–p14), or gray when unattributed or unavailable. The
-canonical style colors live in `src/renderer/types.rs`. The same selected color
-applies to source and translation and participates in native render-cache
-invalidation and replay.
+`speaker_identity_presentation: {"version":2,"policy":"immutable_first_readable_style"}`;
+version 12 (15-entry palette, no divider) and the version 11 transition
+handshake are incompatible. Python fixes a caption's `speaker_style` at first
+readable publication and sends only that style, not speaker identity. SELF
+remains white; peers use four stable per-scope styles (gold `#FFD700`, cyan
+`#40DBFF`, coral `#FF7F5C`, blue `#7593FF`), or gray `#B4B4B4` when
+unattributed, unavailable, handed off, or past the fourth speaker in a scope.
+The canonical style colors live in `src/renderer/types.rs`. The same selected
+color applies to source and translation and participates in native
+render-cache invalidation and replay.
+
+The snapshot's `speaker_divider` flag asks native to draw a gray band between
+the two caption slots. Python sets it only when both visible blocks are peer
+captions frozen as palette overflow for different speakers in the same scope;
+native draws it only while both slots are occupied. The band is centered in the
+slot gap and on the caption center, 1320 × 12 surface px (8 px `#E6E6E6` fill,
+2 px black outline, rounded ends), fixed in surface pixels, and is part of frame
+identity and damage tracking.
 
 Python owns caption expiry and send-time pruning; native renders the accepted
 snapshot without a validity-lease exchange or autonomous caption-expiry Hide.

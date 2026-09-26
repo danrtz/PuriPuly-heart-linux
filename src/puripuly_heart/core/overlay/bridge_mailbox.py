@@ -136,7 +136,7 @@ class OverlayBridgeMailbox:
             startup_runtime_controls=startup_runtime_controls,
         )
         if len(envelope.message.encode("utf-8")) > self._scene_byte_limit:
-            safety_snapshot = replace(snapshot, blocks=[])
+            safety_snapshot = replace(snapshot, blocks=[], speaker_divider=False)
             envelope = self.make_scene(
                 safety_snapshot,
                 {},
@@ -260,6 +260,7 @@ class OverlayBridgeMailbox:
         snapshot = replace(
             envelope.snapshot,
             blocks=valid_blocks,
+            speaker_divider=False,
             native_fresh_render_targets=NativeFreshRenderTargets(
                 self=self_target,
                 peer=peer_target,

@@ -5,41 +5,8 @@ from typing import Literal
 
 ChannelId = Literal["self", "peer"]
 U64_MAX = (1 << 64) - 1
-SPEAKER_IDENTITY_STYLES = (
-    "gold",
-    "cyan",
-    "p02",
-    "p03",
-    "p04",
-    "p05",
-    "p06",
-    "p07",
-    "p08",
-    "p09",
-    "p10",
-    "p11",
-    "p12",
-    "p13",
-    "p14",
-)
-SpeakerStyle = Literal[
-    "gray",
-    "gold",
-    "cyan",
-    "p02",
-    "p03",
-    "p04",
-    "p05",
-    "p06",
-    "p07",
-    "p08",
-    "p09",
-    "p10",
-    "p11",
-    "p12",
-    "p13",
-    "p14",
-]
+SPEAKER_IDENTITY_STYLES = ("gold", "cyan", "coral", "blue")
+SpeakerStyle = Literal["gray", "gold", "cyan", "coral", "blue"]
 # `active_peer` remains a reserved compatibility/fallback variant. Normal
 # product peer rows are primary-visible only after translation arrival.
 BlockVariant = Literal["active_self", "active_peer", "finalized"]
@@ -310,6 +277,7 @@ class OverlayPresentationSnapshot:
     native_fresh_render_targets: NativeFreshRenderTargets | None = None
     native_quiet_tail_episodes: NativeQuietTailEpisodes | None = None
     semantic_retirement_frontiers: list[SemanticRetirementFrontier] = field(default_factory=list)
+    speaker_divider: bool = False
 
     def __post_init__(self) -> None:
         generations = self.native_fresh_render_generations
@@ -340,6 +308,8 @@ class OverlayPresentationSnapshot:
             payload["semantic_retirement_frontiers"] = [
                 frontier.to_dict() for frontier in self.semantic_retirement_frontiers
             ]
+        if self.speaker_divider:
+            payload["speaker_divider"] = True
         return payload
 
     @classmethod
@@ -396,6 +366,7 @@ class OverlayPresentationSnapshot:
                 for frontier in raw_frontiers
                 if isinstance(frontier, dict)
             ],
+            speaker_divider=_optional_bool_field(data, "speaker_divider", default=False),
         )
 
 

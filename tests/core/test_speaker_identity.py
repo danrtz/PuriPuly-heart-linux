@@ -60,15 +60,29 @@ def test_new_connection_drops_mapping_without_contamination_from_late_old_comple
     assert next_speaker.palette_index == 1
 
 
-def test_palette_capacity_grays_sixteenth_distinct_key_without_aliasing():
+def test_same_scope_peers_a_to_f_get_four_colors_then_overflow_without_reuse():
     allocator = PeerSpeakerIdentityAllocator()
-    palette = [
-        allocator.observe(_transcript(f"speaker-{index}", "session", index + 1), child_sequence=0)
-        for index in range(16)
+    speakers = ["A", "B", "C", "D", "E", "F"]
+    first_pass = [
+        allocator.observe(_transcript(speaker, "session", order), child_sequence=0)
+        for order, speaker in enumerate(speakers, start=1)
     ]
-    assert [item.palette_index for item in palette[:15]] == list(range(15))
-    assert palette[15].palette_index is None
-    assert (
-        allocator.observe(_transcript("speaker-0", "session", 17), child_sequence=0).palette_index
-        == 0
-    )
+    assert [item.palette_index for item in first_pass] == [0, 1, 2, 3, None, None]
+    assert [item.palette_overflow for item in first_pass] == [False] * 4 + [True, True]
+
+    returning = [
+        allocator.observe(_transcript(speaker, "session", order), child_sequence=0)
+        for order, speaker in enumerate(["F", "E", "D", "C", "B", "A"], start=7)
+    ]
+    assert [item.palette_index for item in returning] == [None, None, 3, 2, 1, 0]
+    assert [item.palette_overflow for item in returning] == [True, True] + [False] * 4
+
+
+def test_unattributed_and_stale_results_are_not_palette_overflow():
+    allocator = PeerSpeakerIdentityAllocator()
+    for order, speaker in enumerate(["A", "B", "C", "D"], start=1):
+        allocator.observe(_transcript(speaker, "session", order), child_sequence=0)
+    missing = allocator.observe(_transcript(None, "session", 5), child_sequence=0)
+    stale = allocator.observe(_transcript("E", "session", 4), child_sequence=0)
+    assert missing.palette_index is None and not missing.palette_overflow
+    assert stale.palette_index is None and not stale.palette_overflow

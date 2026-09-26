@@ -16,22 +16,21 @@ _DESKTOP_CAPTION_WHITE = "#FFFFFF"
 
 _DESKTOP_SPEAKER_COLORS = {
     "gold": "#FFD700",
-    "cyan": "#33D6FF",
-    "gray": "#9AA0A6",
-    "p02": "#FF6B6B",
-    "p03": "#7CFF6B",
-    "p04": "#C77DFF",
-    "p05": "#FF9F1C",
-    "p06": "#FF5D8F",
-    "p07": "#4DFFC8",
-    "p08": "#B8FF3C",
-    "p09": "#FF4D4D",
-    "p10": "#6C8CFF",
-    "p11": "#E6FF4D",
-    "p12": "#FF7AD9",
-    "p13": "#5CFFEA",
-    "p14": "#FFB020",
+    "cyan": "#40DBFF",
+    "coral": "#FF7F5C",
+    "blue": "#7593FF",
+    "gray": "#B4B4B4",
 }
+
+_DESKTOP_SPEAKER_DIVIDER_FILL = "#E6E6E6"
+
+_DESKTOP_SPEAKER_DIVIDER_OUTLINE = "#000000"
+
+_DESKTOP_SPEAKER_DIVIDER_WIDTH_EM = 10.0
+
+_DESKTOP_SPEAKER_DIVIDER_FILL_EM = 8.0 / 132.0
+
+_DESKTOP_SPEAKER_DIVIDER_OUTLINE_EM = 2.0 / 132.0
 
 _DESKTOP_CAPTION_FONT_FAMILY = FONT_FAMILY_NOTO_SANS_CJK_JP
 
@@ -351,6 +350,10 @@ class DesktopCaptionPlan:
     background_color: str
     surface_visible: bool
     full_window_background_visible: bool
+    speaker_divider: bool = False
+    speaker_divider_width: float = 0.0
+    speaker_divider_fill_height: float = 0.0
+    speaker_divider_outline_width: float = 0.0
     no_scrollbars: bool = True
     max_visible_lines: int = _DESKTOP_CAPTION_MAX_VISIBLE_LINES
     max_visible_slots: int = _DESKTOP_CAPTION_MAX_VISIBLE_SLOTS
@@ -443,3 +446,4 @@ class _RetainedDesktopCaptionSurface:
     primary_texts: tuple[Any, ...]
     secondary_texts: tuple[Any, ...]
     empty_lock_action: Any
+    speaker_divider: Any

@@ -667,6 +667,7 @@ class OverlayPresenter(OverlaySink):
                 active_entry.ever_visible = True
         rendered_entries = selection.rendered_entries
         rendered_entries = self._apply_speaker_presentation(rendered_entries)
+        speaker_divider = self._speaker_divider(rendered_entries)
         next_blocks = [block for _, block in rendered_entries]
         next_calibration = _calibration_from_overlay(self.calibration)
         fresh_render_channel = self._eligible_fresh_render_channel(
@@ -686,6 +687,7 @@ class OverlayPresenter(OverlaySink):
         )
         if (
             next_rendered_signature == previous_rendered_signature
+            and speaker_divider == previous_snapshot.speaker_divider
             and next_calibration == previous_snapshot.calibration
             and fresh_render_channel is None
             and not force_protocol_publish
@@ -712,6 +714,7 @@ class OverlayPresenter(OverlaySink):
             ),
             entry_ordering=self._acceptance.entry_ordering,
             semantic_retirement_frontiers=self._acceptance.retired_turn_frontiers,
+            speaker_divider=speaker_divider,
         )
         next_occupants = {block.id for block in snapshot.blocks}
         if next_occupants - previous_occupants:
@@ -835,25 +838,61 @@ class OverlayPresenter(OverlaySink):
             if entry is None:
                 continue
             if entry.speaker_style is None:
-                assignment = entry.speaker_assignment
-                attribution = None if assignment is None else assignment.attribution
-                scope = (
-                    (attribution.source, attribution.speaker_scope_id)
-                    if attribution is not None
-                    else None
+                entry.speaker_style, entry.speaker_gray_reason = self._first_readable_speaker_style(
+                    entry,
+                    colored_old_scope=colored_old_scope,
                 )
-                index = None if assignment is None else assignment.palette_index
-                if (
-                    index is not None
-                    and 0 <= index < len(SPEAKER_IDENTITY_STYLES)
-                    and scope == self._active_speaker_scope
-                    and not colored_old_scope
-                ):
-                    entry.speaker_style = SPEAKER_IDENTITY_STYLES[index]
-                else:
-                    entry.speaker_style = "gray"
             styled.append((key, replace(block, speaker_style=entry.speaker_style)))
         return styled
+
+    def _first_readable_speaker_style(
+        self,
+        entry: _LogicalTurnEntry,
+        *,
+        colored_old_scope: bool,
+    ) -> tuple[str, str | None]:
+        assignment = entry.speaker_assignment
+        if assignment is None:
+            return "gray", "not_ready"
+        attribution = assignment.attribution
+        if attribution.state != "identified":
+            return "gray", attribution.state
+        if attribution.key is None:
+            return "gray", "malformed"
+        scope = (attribution.source, attribution.speaker_scope_id)
+        if scope != self._active_speaker_scope or colored_old_scope:
+            return "gray", "scope_handoff"
+        index = assignment.palette_index
+        if index is not None and 0 <= index < len(SPEAKER_IDENTITY_STYLES):
+            return SPEAKER_IDENTITY_STYLES[index], None
+        if assignment.palette_overflow:
+            return "gray", "palette_overflow"
+        return "gray", "unallocated"
+
+    def _speaker_divider(
+        self,
+        rendered_entries: list[tuple[tuple[str, UUID], OverlayPresentationBlock]],
+    ) -> bool:
+        if len(rendered_entries) != 2:
+            return False
+        speaker_keys = []
+        for key, block in rendered_entries:
+            entry = self._entries.get(key)
+            if (
+                block.channel != "peer"
+                or entry is None
+                or entry.speaker_gray_reason != "palette_overflow"
+                or entry.speaker_assignment is None
+                or entry.speaker_assignment.attribution.key is None
+            ):
+                return False
+            speaker_keys.append(entry.speaker_assignment.attribution.key)
+        first, second = speaker_keys
+        return (
+            first.source == second.source
+            and first.speaker_scope_id == second.speaker_scope_id
+            and first != second
+        )
 
     def _next_appearance_seq(self) -> int:
         self._appearance_seq += 1

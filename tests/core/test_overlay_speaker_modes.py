@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
@@ -91,4 +92,170 @@ async def test_late_old_scope_result_cannot_reclaim_new_palette() -> None:
     blocks = {block.id: block for block in presenter.snapshot().blocks}
     assert blocks[f"peer:{new}"].speaker_style == "gold"
     assert blocks[f"peer:{old}"].speaker_style == "gray"
+    await presenter.close()
+
+
+def _overflow(scope: str, speaker: str, order: int):
+    return replace(_assignment(scope, speaker, order, None), palette_overflow=True)
+
+
+async def _divider_after(events) -> tuple[bool, dict[str, str | None]]:
+    clock = FakeClock(_now=50.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    for kind, assignment in events:
+        clock.advance(1)
+        turn = uuid4()
+        if kind == "self":
+            await presenter.emit(
+                adapter.transcript_final(
+                    Transcript(turn, "self words", True, channel="self"),
+                    source_language="en",
+                    target_language="ko",
+                )
+            )
+        else:
+            await presenter.emit(_peer_event(adapter, turn, f"peer {turn}", assignment))
+    snapshot = presenter.snapshot()
+    styles = {block.id: block.speaker_style for block in snapshot.blocks}
+    assert snapshot.to_dict().get("speaker_divider", False) is snapshot.speaker_divider
+    await presenter.close()
+    return snapshot.speaker_divider, styles
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("events", "expected"),
+    [
+        pytest.param(
+            [("peer", _overflow("s", "E", 5)), ("peer", _overflow("s", "F", 6))],
+            True,
+            id="overflow-E+overflow-F",
+        ),
+        pytest.param(
+            [("peer", _overflow("s", "F", 5)), ("peer", _overflow("s", "E", 6))],
+            True,
+            id="swapped-order",
+        ),
+        pytest.param(
+            [("peer", _overflow("s", "E", 5)), ("peer", _overflow("s", "E", 6))],
+            False,
+            id="E+E",
+        ),
+        pytest.param(
+            [("peer", _assignment("s", None, 5, None)), ("peer", _overflow("s", "E", 6))],
+            False,
+            id="unknown+E",
+        ),
+        pytest.param(
+            [("peer", _assignment("s", None, 5, None)), ("peer", _assignment("s", None, 6, None))],
+            False,
+            id="unknown+unknown",
+        ),
+        pytest.param(
+            [("peer", _overflow("old", "E", 5)), ("peer", _overflow("new", "F", 6))],
+            False,
+            id="old-scope-overflow+new-scope-overflow",
+        ),
+        pytest.param(
+            [("peer", _assignment("s", "A", 5, 0)), ("peer", _overflow("s", "E", 6))],
+            False,
+            id="gold+E",
+        ),
+        pytest.param(
+            [("self", None), ("peer", _overflow("s", "E", 6))],
+            False,
+            id="self+E",
+        ),
+        pytest.param([("peer", _overflow("s", "E", 5))], False, id="single"),
+        pytest.param(
+            [("peer", None), ("peer", _overflow("s", "E", 6))],
+            False,
+            id="not-ready+E",
+        ),
+    ],
+)
+async def test_speaker_divider_matrix(events, expected: bool) -> None:
+    divider, styles = await _divider_after(events)
+    assert divider is expected
+    assert len(styles) == len(events)
+    for kind, assignment in events:
+        if kind == "peer" and assignment is not None and assignment.palette_overflow:
+            assert "gray" in styles.values()
+
+
+@pytest.mark.asyncio
+async def test_handoff_gray_next_to_overflow_draws_no_divider() -> None:
+    clock = FakeClock(_now=60.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    old, handoff, overflow = uuid4(), uuid4(), uuid4()
+    await presenter.emit(_peer_event(adapter, old, "old", _assignment("old", "A", 1, 0)))
+    await presenter.emit(_peer_event(adapter, handoff, "handoff", _assignment("new", "X", 2, 0)))
+    assert presenter._entries[("peer", handoff)].speaker_gray_reason == "scope_handoff"
+    clock.advance(1)
+    await presenter.emit(_peer_event(adapter, overflow, "overflow", _overflow("new", "F", 3)))
+    snapshot = presenter.snapshot()
+    assert [block.id for block in snapshot.blocks] == [f"peer:{handoff}", f"peer:{overflow}"]
+    assert presenter._entries[("peer", overflow)].speaker_gray_reason == "palette_overflow"
+    assert snapshot.speaker_divider is False
+    await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_gray_reasons_keep_overflow_distinct_from_missing_attribution() -> None:
+    clock = FakeClock(_now=70.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    missing, overflow = uuid4(), uuid4()
+    await presenter.emit(_peer_event(adapter, missing, "m", _assignment("s", None, 1, None)))
+    await presenter.emit(_peer_event(adapter, overflow, "o", _overflow("s", "E", 2)))
+    assert presenter._entries[("peer", missing)].speaker_gray_reason == "missing"
+    assert presenter._entries[("peer", overflow)].speaker_gray_reason == "palette_overflow"
+    assert {block.speaker_style for block in presenter.snapshot().blocks} == {"gray"}
+    await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_divider_is_frozen_against_late_attribution_metadata() -> None:
+    clock = FakeClock(_now=80.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    first, second = uuid4(), uuid4()
+    await presenter.emit(_peer_event(adapter, first, "e", _overflow("s", "E", 5)))
+    await presenter.emit(_peer_event(adapter, second, "f", _overflow("s", "F", 6)))
+    assert presenter.snapshot().speaker_divider is True
+    revision = presenter.snapshot().revision
+    await presenter.emit(_peer_event(adapter, first, "e revised", _assignment("s", "E", 5, 0)))
+    snapshot = presenter.snapshot()
+    assert snapshot.revision > revision
+    assert snapshot.speaker_divider is True
+    assert {block.speaker_style for block in snapshot.blocks} == {"gray"}
+    await presenter.close()
+
+    clock = FakeClock(_now=90.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    await presenter.emit(_peer_event(adapter, first, "e", None))
+    await presenter.emit(_peer_event(adapter, second, "f", _overflow("s", "F", 6)))
+    await presenter.emit(_peer_event(adapter, first, "e late", _overflow("s", "E", 5)))
+    assert presenter.snapshot().speaker_divider is False
+    await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_divider_leaves_when_either_block_expires() -> None:
+    clock = FakeClock(_now=100.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    first, second = uuid4(), uuid4()
+    await presenter.emit(_peer_event(adapter, first, "e", _overflow("s", "E", 5)))
+    clock.advance(3)
+    await presenter.emit(_peer_event(adapter, second, "f", _overflow("s", "F", 6)))
+    assert presenter.snapshot().speaker_divider is True
+    clock.advance(30)
+    await presenter.emit(_peer_event(adapter, uuid4(), "g", _assignment("s", None, 7, None)))
+    snapshot = presenter.snapshot()
+    assert f"peer:{first}" not in {block.id for block in snapshot.blocks}
+    assert snapshot.speaker_divider is False
     await presenter.close()

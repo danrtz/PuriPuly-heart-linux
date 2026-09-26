@@ -26,24 +26,19 @@ pub(crate) const TEXT_OUTLINE_OVERHANG_PX: f32 = 5.0;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) const SELF_TEXT_FILL_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 1.0);
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) const PEER_TEXT_FILL_COLORS: [(f32, f32, f32, f32); 16] = [
-    (154.0 / 255.0, 160.0 / 255.0, 166.0 / 255.0, 1.0),
+pub(crate) const PEER_TEXT_FILL_COLORS: [(f32, f32, f32, f32); 5] = [
+    (180.0 / 255.0, 180.0 / 255.0, 180.0 / 255.0, 1.0),
     (1.0, 215.0 / 255.0, 0.0, 1.0),
-    (51.0 / 255.0, 214.0 / 255.0, 1.0, 1.0),
-    (1.0, 107.0 / 255.0, 107.0 / 255.0, 1.0),
-    (124.0 / 255.0, 1.0, 107.0 / 255.0, 1.0),
-    (199.0 / 255.0, 125.0 / 255.0, 1.0, 1.0),
-    (1.0, 159.0 / 255.0, 28.0 / 255.0, 1.0),
-    (1.0, 93.0 / 255.0, 143.0 / 255.0, 1.0),
-    (77.0 / 255.0, 1.0, 200.0 / 255.0, 1.0),
-    (184.0 / 255.0, 1.0, 60.0 / 255.0, 1.0),
-    (1.0, 77.0 / 255.0, 77.0 / 255.0, 1.0),
-    (108.0 / 255.0, 140.0 / 255.0, 1.0, 1.0),
-    (230.0 / 255.0, 1.0, 77.0 / 255.0, 1.0),
-    (1.0, 122.0 / 255.0, 217.0 / 255.0, 1.0),
-    (92.0 / 255.0, 1.0, 234.0 / 255.0, 1.0),
-    (1.0, 176.0 / 255.0, 32.0 / 255.0, 1.0),
+    (64.0 / 255.0, 219.0 / 255.0, 1.0, 1.0),
+    (1.0, 127.0 / 255.0, 92.0 / 255.0, 1.0),
+    (117.0 / 255.0, 147.0 / 255.0, 1.0, 1.0),
 ];
+pub(crate) const SPEAKER_DIVIDER_WIDTH_PX: f32 = 1320.0;
+pub(crate) const SPEAKER_DIVIDER_FILL_HEIGHT_PX: f32 = 8.0;
+pub(crate) const SPEAKER_DIVIDER_OUTLINE_PX: f32 = 2.0;
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) const SPEAKER_DIVIDER_FILL_COLOR: (f32, f32, f32, f32) =
+    (230.0 / 255.0, 230.0 / 255.0, 230.0 / 255.0, 1.0);
 #[cfg(windows)]
 pub(crate) const TEXT_OUTLINE_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 1.0);
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -99,7 +94,8 @@ pub enum SpeakerStyle {
     Gray,
     Gold,
     Cyan,
-    Palette(u8),
+    Coral,
+    Blue,
 }
 
 impl SpeakerStyle {
@@ -107,19 +103,8 @@ impl SpeakerStyle {
         match token {
             Some("gold") => Self::Gold,
             Some("cyan") => Self::Cyan,
-            Some("p02") => Self::Palette(2),
-            Some("p03") => Self::Palette(3),
-            Some("p04") => Self::Palette(4),
-            Some("p05") => Self::Palette(5),
-            Some("p06") => Self::Palette(6),
-            Some("p07") => Self::Palette(7),
-            Some("p08") => Self::Palette(8),
-            Some("p09") => Self::Palette(9),
-            Some("p10") => Self::Palette(10),
-            Some("p11") => Self::Palette(11),
-            Some("p12") => Self::Palette(12),
-            Some("p13") => Self::Palette(13),
-            Some("p14") => Self::Palette(14),
+            Some("coral") => Self::Coral,
+            Some("blue") => Self::Blue,
             _ => Self::Gray,
         }
     }
@@ -129,7 +114,8 @@ impl SpeakerStyle {
             Self::Gray => 0,
             Self::Gold => 1,
             Self::Cyan => 2,
-            Self::Palette(index) => index as usize + 1,
+            Self::Coral => 3,
+            Self::Blue => 4,
         }
     }
 }
@@ -363,6 +349,47 @@ pub struct VisibleCaptionBlock {
     pub truncated_secondary: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpeakerDividerBand {
+    pub left_px: f32,
+    pub top_px: f32,
+    pub right_px: f32,
+    pub bottom_px: f32,
+}
+
+impl SpeakerDividerBand {
+    pub(crate) fn centered(center_x_px: f32, center_y_px: f32) -> Self {
+        let height_px = SPEAKER_DIVIDER_FILL_HEIGHT_PX + SPEAKER_DIVIDER_OUTLINE_PX * 2.0;
+        let top_px = (center_y_px - height_px * 0.5).round();
+        let left_px = (center_x_px - SPEAKER_DIVIDER_WIDTH_PX * 0.5).round();
+        Self {
+            left_px,
+            top_px,
+            right_px: left_px + SPEAKER_DIVIDER_WIDTH_PX,
+            bottom_px: top_px + height_px,
+        }
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn fill_band(self) -> Self {
+        Self {
+            left_px: self.left_px + SPEAKER_DIVIDER_OUTLINE_PX,
+            top_px: self.top_px + SPEAKER_DIVIDER_OUTLINE_PX,
+            right_px: self.right_px - SPEAKER_DIVIDER_OUTLINE_PX,
+            bottom_px: self.bottom_px - SPEAKER_DIVIDER_OUTLINE_PX,
+        }
+    }
+
+    pub(crate) fn as_block_bounds(self) -> BlockBounds {
+        BlockBounds {
+            left_px: self.left_px,
+            top_px: self.top_px,
+            right_px: self.right_px,
+            bottom_px: self.bottom_px,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptionLayoutResult {
     pub visible_blocks: Vec<VisibleCaptionBlock>,
@@ -370,12 +397,14 @@ pub struct CaptionLayoutResult {
     pub surface_width_px: u32,
     pub surface_height_px: u32,
     pub damage_band: Option<DamageBand>,
+    pub speaker_divider: Option<SpeakerDividerBand>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptionPresentation {
     pub background_alpha: f32,
     pub text_scale: f32,
+    pub speaker_divider: bool,
 }
 
 impl Default for CaptionPresentation {
@@ -383,6 +412,7 @@ impl Default for CaptionPresentation {
         Self {
             background_alpha: 0.24,
             text_scale: 1.0,
+            speaker_divider: false,
         }
     }
 }
@@ -464,6 +494,7 @@ pub struct ResolvedFrameLayout {
     pub surface_width_px: u32,
     pub surface_height_px: u32,
     pub damage_band: Option<DamageBand>,
+    pub speaker_divider: Option<SpeakerDividerBand>,
 }
 
 impl From<ResolvedLineLayout> for CaptionLineLayout {
@@ -506,6 +537,7 @@ impl From<ResolvedFrameLayout> for CaptionLayoutResult {
             surface_width_px: value.surface_width_px,
             surface_height_px: value.surface_height_px,
             damage_band: value.damage_band,
+            speaker_divider: value.speaker_divider,
         }
     }
 }

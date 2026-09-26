@@ -32,6 +32,7 @@ class SpeakerAssignment:
     attribution: SpeakerAttribution
     scope_order: tuple[int, int, int] = (0, 0, 0)
     palette_index: int | None = None
+    palette_overflow: bool = False
     source_text_range: tuple[int, int] | None = None
     source_text_revision: str | None = None
 

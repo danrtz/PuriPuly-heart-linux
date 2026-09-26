@@ -64,6 +64,7 @@ class OverlayLogicalTurnEntry:
     translation_logical_turn_key: str | None = None
     speaker_assignment: SpeakerAssignment | None = None
     speaker_style: str | None = None
+    speaker_gray_reason: str | None = None
     translation_seq: int | None = None
     occupant_key: str = ""
     appearance_seq: int | None = None
@@ -862,6 +863,7 @@ class OverlayPresentationState:
         native_quiet_tail_episodes: NativeQuietTailEpisodes | None = None,
         entry_ordering: Mapping[OverlayEntryKey, tuple[str, int, int]] | None = None,
         semantic_retirement_frontiers: Mapping[tuple[str, int], int] | None = None,
+        speaker_divider: bool = False,
     ) -> OverlayPresentationSnapshot:
         ordering = entry_ordering or {}
         blocks = []
@@ -889,6 +891,7 @@ class OverlayPresentationState:
                     (semantic_retirement_frontiers or {}).items()
                 )
             ],
+            speaker_divider=speaker_divider,
         )
         self._snapshot = snapshot
         return snapshot

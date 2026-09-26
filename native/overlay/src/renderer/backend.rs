@@ -26,7 +26,7 @@ use windows::Win32::Graphics::Direct2D::{
     ID2D1SolidColorBrush, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
     D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_INTERPOLATION_MODE_LINEAR, D2D1_LAYER_OPTIONS1_NONE,
-    D2D1_LAYER_PARAMETERS1, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+    D2D1_LAYER_PARAMETERS1, D2D1_ROUNDED_RECT, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 #[cfg(windows)]
 use windows::Win32::Graphics::Direct3D::{
@@ -76,8 +76,9 @@ use super::layout::{resolved_layout_has_drawable_text, CaptionLayoutPolicy};
 use super::types::{
     contains_cjk, effective_background_alpha, fill_color_for_channel, outline_offsets_px,
     BlockCacheKey, CaptionBlockVariant, CaptionChannel, LineCacheKey, LineRole,
-    ResolvedBlockLayout, ResolvedLineLayout, ResolvedTextStyle, DEFAULT_FONT_SIZE_PX,
-    DEFAULT_SURFACE_HEIGHT_PX, DEFAULT_SURFACE_WIDTH_PX, SECONDARY_FONT_SCALE, TEXT_OUTLINE_COLOR,
+    ResolvedBlockLayout, ResolvedLineLayout, ResolvedTextStyle, SpeakerDividerBand,
+    DEFAULT_FONT_SIZE_PX, DEFAULT_SURFACE_HEIGHT_PX, DEFAULT_SURFACE_WIDTH_PX,
+    SECONDARY_FONT_SCALE, SPEAKER_DIVIDER_FILL_COLOR, TEXT_OUTLINE_COLOR,
 };
 use super::types::{
     BlockBounds, CaptionDebugOverlay, CaptionLayoutResult, CaptionPresentation, CaptionRenderError,
@@ -691,6 +692,7 @@ struct WindowsCaptionRenderer {
     cache_outline_brush: ID2D1SolidColorBrush,
     cache_self_text_brush: ID2D1SolidColorBrush,
     cache_peer_text_brushes: Vec<ID2D1SolidColorBrush>,
+    speaker_divider_fill_brush: ID2D1SolidColorBrush,
     target_bitmap: ID2D1Bitmap1,
     texture: ID3D11Texture2D,
     caches: WindowsRendererCaches,
@@ -786,6 +788,11 @@ impl WindowsCaptionRenderer {
                     .map_err(|error| CaptionRenderError::Init(error.to_string()))?
             });
         }
+        let speaker_divider_fill_brush = unsafe {
+            d2d_context
+                .CreateSolidColorBrush(&d2d_color(SPEAKER_DIVIDER_FILL_COLOR), None)
+                .map_err(|error| CaptionRenderError::Init(error.to_string()))?
+        };
         let mut renderer = Self {
             d2d_factory,
             dwrite_factory,
@@ -798,6 +805,7 @@ impl WindowsCaptionRenderer {
             cache_outline_brush,
             cache_self_text_brush,
             cache_peer_text_brushes,
+            speaker_divider_fill_brush,
             target_bitmap,
             texture,
             caches: WindowsRendererCaches::default(),
@@ -1320,6 +1328,29 @@ impl WindowsCaptionRenderer {
         })
     }
 
+    fn draw_speaker_divider(&self, band: SpeakerDividerBand) {
+        let rounded = |band: SpeakerDividerBand| {
+            let radius = (band.bottom_px - band.top_px) * 0.5;
+            D2D1_ROUNDED_RECT {
+                rect: D2D_RECT_F {
+                    left: band.left_px,
+                    top: band.top_px,
+                    right: band.right_px,
+                    bottom: band.bottom_px,
+                },
+                radiusX: radius,
+                radiusY: radius,
+            }
+        };
+        unsafe {
+            self.d2d_context.SetTransform(&identity_matrix());
+            self.d2d_context
+                .FillRoundedRectangle(&rounded(band), &self.cache_outline_brush);
+            self.d2d_context
+                .FillRoundedRectangle(&rounded(band.fill_band()), &self.speaker_divider_fill_brush);
+        }
+    }
+
     fn draw_debug_overlay_visual(&self, visual: &CachedLineVisual) {
         let offset = Vector2 { X: 32.0, Y: 24.0 };
         unsafe {
@@ -1536,6 +1567,12 @@ impl WindowsCaptionRenderer {
                         block.render_height_scale,
                     )?;
                 }
+            }
+            if let Some(band) = layout
+                .speaker_divider
+                .filter(|band| bounds_intersect_damage_band(band.as_block_bounds(), damage_band))
+            {
+                self.draw_speaker_divider(band);
             }
             if let Some(debug_overlay_visual) = debug_overlay_visual.as_ref() {
                 self.draw_debug_overlay_visual(debug_overlay_visual);
@@ -2384,10 +2421,27 @@ fn compute_damage_band(
             changed_bounds.push(*bounds);
         }
     }
-
-    DamageBand::from_bounds(changed_bounds).map(|damage_band| {
+    let block_damage = DamageBand::from_bounds(changed_bounds).map(|damage_band| {
         expand_damage_band_for_render(damage_band, next_layout.surface_height_px)
-    })
+    });
+    let divider_damage = if previous_layout.speaker_divider != next_layout.speaker_divider {
+        DamageBand::from_bounds(
+            previous_layout
+                .speaker_divider
+                .iter()
+                .chain(next_layout.speaker_divider.iter())
+                .map(|band| band.as_block_bounds()),
+        )
+    } else {
+        None
+    };
+    match (block_damage, divider_damage) {
+        (Some(block), Some(divider)) => Some(DamageBand {
+            top_px: block.top_px.min(divider.top_px),
+            bottom_px: block.bottom_px.max(divider.bottom_px),
+        }),
+        (block, divider) => block.or(divider),
+    }
 }
 
 fn expand_damage_band_for_render(damage_band: DamageBand, surface_height_px: u32) -> DamageBand {
@@ -2462,77 +2516,22 @@ mod tests {
             (
                 CaptionChannel::PeerChannel,
                 SpeakerStyle::Cyan,
-                [51, 214, 255],
+                [64, 219, 255],
             ),
             (
                 CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(2),
-                [255, 107, 107],
+                SpeakerStyle::Coral,
+                [255, 127, 92],
             ),
             (
                 CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(3),
-                [124, 255, 107],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(4),
-                [199, 125, 255],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(5),
-                [255, 159, 28],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(6),
-                [255, 93, 143],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(7),
-                [77, 255, 200],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(8),
-                [184, 255, 60],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(9),
-                [255, 77, 77],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(10),
-                [108, 140, 255],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(11),
-                [230, 255, 77],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(12),
-                [255, 122, 217],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(13),
-                [92, 255, 234],
-            ),
-            (
-                CaptionChannel::PeerChannel,
-                SpeakerStyle::Palette(14),
-                [255, 176, 32],
+                SpeakerStyle::Blue,
+                [117, 147, 255],
             ),
             (
                 CaptionChannel::PeerChannel,
                 SpeakerStyle::Gray,
-                [154, 160, 166],
+                [180, 180, 180],
             ),
             (
                 CaptionChannel::SelfChannel,
@@ -2599,6 +2598,114 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_graphics_speaker_divider_band_pixels_appear_and_clear() {
+        use crate::renderer::SpeakerStyle;
+
+        let mut renderer = super::WindowsCaptionRenderer::new(None).unwrap();
+        let blocks = vec![
+            CaptionBlock::new("upper", "EEEE")
+                .with_channel(CaptionChannel::PeerChannel)
+                .with_speaker_style(SpeakerStyle::Gray)
+                .with_secondary_text("eeee", true)
+                .with_slot(0, 40.0),
+            CaptionBlock::new("lower", "FFFF")
+                .with_channel(CaptionChannel::PeerChannel)
+                .with_speaker_style(SpeakerStyle::Gray)
+                .with_secondary_text("ffff", true)
+                .with_slot(1, 544.0),
+        ];
+        let width = super::DEFAULT_SURFACE_WIDTH_PX as usize;
+        let render = |renderer: &mut super::WindowsCaptionRenderer, speaker_divider: bool| {
+            renderer
+                .render(
+                    &CaptionLayoutPolicy::default(),
+                    &CaptionPresentation {
+                        speaker_divider,
+                        ..CaptionPresentation::default()
+                    },
+                    blocks.clone(),
+                    super::DEFAULT_SURFACE_WIDTH_PX,
+                    super::DEFAULT_SURFACE_HEIGHT_PX,
+                    None,
+                )
+                .unwrap()
+        };
+        let pixel = |pixels: &[u8], x: usize, y: usize| {
+            let offset = (y * width + x) * 4;
+            [
+                pixels[offset + 2],
+                pixels[offset + 1],
+                pixels[offset],
+                pixels[offset + 3],
+            ]
+        };
+
+        render(&mut renderer, false);
+        let before = texture_pixels(&renderer);
+        for y in 515..538 {
+            assert_eq!(pixel(&before, 2048, y)[3], 0, "row {y} before divider");
+        }
+
+        let frame = render(&mut renderer, true);
+        let band = frame.layout().speaker_divider.unwrap();
+        assert_eq!(
+            (band.left_px, band.top_px, band.right_px, band.bottom_px),
+            (1388.0, 520.0, 2708.0, 532.0)
+        );
+        let pixels = texture_pixels(&renderer);
+        for x in [1400, 2048, 2690] {
+            for y in [519, 532] {
+                assert_eq!(pixel(&pixels, x, y)[3], 0, "outside row {y} at x={x}");
+            }
+            for y in [520, 521, 530, 531] {
+                assert_eq!(
+                    pixel(&pixels, x, y),
+                    [0, 0, 0, 255],
+                    "outline row {y} at x={x}"
+                );
+            }
+            for y in 522..530 {
+                assert_eq!(
+                    pixel(&pixels, x, y),
+                    [230, 230, 230, 255],
+                    "fill row {y} at x={x}"
+                );
+            }
+        }
+        for y in [525, 526] {
+            assert_eq!(pixel(&pixels, 1387, y)[3], 0, "left edge row {y}");
+            assert_eq!(pixel(&pixels, 2708, y)[3], 0, "right edge row {y}");
+            for x in [1389, 2706] {
+                assert_eq!(pixel(&pixels, x, y), [0, 0, 0, 255], "end outline {x},{y}");
+            }
+            for x in [1388, 2707] {
+                let [r, g, b, a] = pixel(&pixels, x, y);
+                assert!(a > 200 && r == 0 && g == 0 && b == 0, "rounded end {x},{y}");
+            }
+        }
+
+        let removed = render(&mut renderer, false);
+        let damage_band = removed.layout().damage_band.unwrap();
+        assert_eq!((damage_band.top_px, damage_band.bottom_px), (520.0, 532.0));
+        let after = texture_pixels(&renderer);
+        let differing = (0..after.len() / 4)
+            .filter(|index| after[index * 4..index * 4 + 4] != before[index * 4..index * 4 + 4])
+            .map(|index| (index % width, index / width))
+            .collect::<Vec<_>>();
+        assert!(
+            differing.is_empty(),
+            "{} pixels differ after divider removal, first {:?}",
+            differing.len(),
+            differing
+                .iter()
+                .take(8)
+                .map(|(x, y)| (x, y, pixel(&before, *x, *y), pixel(&after, *x, *y)))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[cfg(windows)]
@@ -2840,6 +2947,7 @@ mod tests {
             surface_width_px: 1024,
             surface_height_px: height_px,
             damage_band: None,
+            speaker_divider: None,
         }
     }
 

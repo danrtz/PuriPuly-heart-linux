@@ -100,10 +100,12 @@ def _block(
     ("style", "color"),
     [
         ("gold", "#FFD700"),
-        ("cyan", "#33D6FF"),
-        ("p14", "#FFB020"),
-        ("gray", "#9AA0A6"),
-        (None, "#9AA0A6"),
+        ("cyan", "#40DBFF"),
+        ("coral", "#FF7F5C"),
+        ("blue", "#7593FF"),
+        ("gray", "#B4B4B4"),
+        ("p14", "#B4B4B4"),
+        (None, "#B4B4B4"),
     ],
 )
 @pytest.mark.asyncio
@@ -129,6 +131,66 @@ async def test_desktop_overlay_uses_same_speaker_color_for_both_text_lines(
         assert model is not None
         assert model.primary_texts[0].color == color
         assert model.secondary_texts[0].color == color
+    finally:
+        await window.close()
+
+
+def _overflow_pair_snapshot(revision: int, *, speaker_divider: bool, count: int = 2):
+    blocks = [
+        _block(
+            f"peer-{index}",
+            channel="peer",
+            block_variant="finalized",
+            appearance_seq=index + 1,
+            primary_text=f"peer {index}",
+            secondary_text="source",
+            secondary_enabled=True,
+            speaker_style="gray",
+        )
+        for index in range(count)
+    ]
+    return OverlayPresentationSnapshot(
+        revision=revision,
+        blocks=blocks,
+        speaker_divider=speaker_divider,
+    )
+
+
+def test_desktop_divider_plan_uses_proportional_geometry_between_two_slots() -> None:
+    plan = desktop_overlay.build_desktop_caption_plan(
+        _overflow_pair_snapshot(1, speaker_divider=True)
+    )
+    assert plan.speaker_divider is True
+    assert plan.speaker_divider_width == pytest.approx(plan.primary_font_size * 10)
+    assert plan.speaker_divider_fill_height == pytest.approx(plan.primary_font_size * 8 / 132)
+    assert plan.speaker_divider_outline_width == pytest.approx(plan.primary_font_size * 2 / 132)
+    single = desktop_overlay.build_desktop_caption_plan(
+        _overflow_pair_snapshot(2, speaker_divider=True, count=1)
+    )
+    assert single.speaker_divider is False
+    unflagged = desktop_overlay.build_desktop_caption_plan(
+        _overflow_pair_snapshot(3, speaker_divider=False)
+    )
+    assert unflagged.speaker_divider is False
+
+
+@pytest.mark.asyncio
+async def test_desktop_divider_control_follows_snapshot_and_centers_in_slot_gap() -> None:
+    app = FakeFletApp()
+    window = desktop_overlay.FletDesktopRendererWindow(app_runner=app.run)
+    try:
+        await window.start(_overflow_pair_snapshot(1, speaker_divider=True))
+        model = window._retained_caption_surface
+        assert model is not None
+        divider = model.speaker_divider
+        assert divider.visible is True
+        assert divider.bgcolor == "#E6E6E6"
+        assert divider.left + divider.width / 2 == pytest.approx(model.root.width / 2)
+        assert divider.top + divider.height / 2 == pytest.approx(model.root.height / 2)
+        await window.dispatch_snapshot(_overflow_pair_snapshot(2, speaker_divider=False))
+        assert model.speaker_divider.visible is False
+        await window.dispatch_snapshot(_overflow_pair_snapshot(3, speaker_divider=True, count=1))
+        assert model.speaker_divider.visible is False
     finally:
         await window.close()
 

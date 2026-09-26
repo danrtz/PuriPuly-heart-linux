@@ -11,7 +11,7 @@ from puripuly_heart.domain.models import (
 
 
 class PeerSpeakerIdentityAllocator:
-    CAPACITY = 15
+    CAPACITY = 4
 
     def __init__(self) -> None:
         self._scope: tuple[str, str] | None = None
@@ -43,6 +43,7 @@ class PeerSpeakerIdentityAllocator:
                 self._scope = scope
                 self._keys.clear()
         palette_index = None
+        palette_overflow = False
         key = attribution.key
         if self._last_order is None or order > self._last_order:
             self._last_order = order
@@ -52,10 +53,13 @@ class PeerSpeakerIdentityAllocator:
                 elif len(self._keys) < self.CAPACITY:
                     palette_index = len(self._keys)
                     self._keys[key] = palette_index
+                else:
+                    palette_overflow = True
         self._assignments[transcript.utterance_id] = SpeakerAssignment(
             attribution,
             scope_order=order,
             palette_index=palette_index,
+            palette_overflow=palette_overflow,
             source_text_range=transcript.source_text_range,
             source_text_revision=transcript.source_text_revision,
         )

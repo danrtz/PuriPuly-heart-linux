@@ -231,6 +231,7 @@ fn overlay_state_snapshot_replaces_stale_blocks() {
         revision: 2,
         calibration: OverlayPresentationCalibration::default(),
         blocks: vec![block("peer:2", "peer", "there", "원문", false)],
+        speaker_divider: false,
     }));
 
     assert_eq!(state.blocks().len(), 1);
@@ -273,6 +274,7 @@ fn overlay_state_ignores_lower_revision_snapshots() {
         revision: 3,
         calibration: OverlayPresentationCalibration::default(),
         blocks: vec![block("self:3", "self", "latest", "", true)],
+        speaker_divider: false,
     }));
 
     assert!(!state.apply_snapshot(&OverlayPresentationSnapshot {
@@ -281,6 +283,7 @@ fn overlay_state_ignores_lower_revision_snapshots() {
         native_fresh_render_generations: None,
         semantic_retirement_frontiers: Vec::new(),
         blocks: vec![block("peer:2", "peer", "stale", "", true)],
+        speaker_divider: false,
     }));
 
     assert_eq!(state.snapshot().revision, 3);
@@ -297,6 +300,7 @@ fn overlay_state_treats_equal_revision_snapshots_as_noop() {
         revision: 4,
         calibration: OverlayPresentationCalibration::default(),
         blocks: vec![block("self:4", "self", "keep", "", true)],
+        speaker_divider: false,
     }));
 
     assert!(!state.apply_snapshot(&OverlayPresentationSnapshot {
@@ -305,6 +309,7 @@ fn overlay_state_treats_equal_revision_snapshots_as_noop() {
         native_fresh_render_generations: None,
         semantic_retirement_frontiers: Vec::new(),
         blocks: vec![block("peer:4", "peer", "ignore", "", true)],
+        speaker_divider: false,
     }));
 }
 
@@ -321,6 +326,7 @@ fn overlay_state_keeps_slot_two_anchor_when_slot_one_disappears() {
             slot_block("self:1", "self:1", 1, "self", "one", "", true),
             slot_block("peer:2", "peer:2", 2, "peer", "two", "", true),
         ],
+        speaker_divider: false,
     }));
 
     let second_top = state.scene().slots()[1].as_ref().unwrap().anchor_top_px;
@@ -331,6 +337,7 @@ fn overlay_state_keeps_slot_two_anchor_when_slot_one_disappears() {
         revision: 2,
         calibration: OverlayPresentationCalibration::default(),
         blocks: vec![slot_block("peer:2", "peer:2", 2, "peer", "two", "", true)],
+        speaker_divider: false,
     }));
 
     assert!(state.scene().slots()[0].is_none());
@@ -365,6 +372,7 @@ fn overlay_state_promotes_matching_occupant_key_without_reassigning_slot() {
             session_scope: None,
             ..Default::default()
         }],
+        speaker_divider: false,
     }));
     let original_slot = state.scene().slots()[0].as_ref().unwrap().slot_index;
     let original_anchor_top = state.scene().slots()[0].as_ref().unwrap().anchor_top_px;
@@ -384,6 +392,7 @@ fn overlay_state_promotes_matching_occupant_key_without_reassigning_slot() {
             "",
             true,
         )],
+        speaker_divider: false,
     }));
 
     let slot = state.scene().slots()[0].as_ref().unwrap();
@@ -419,6 +428,7 @@ fn overlay_state_promotes_active_peer_matching_occupant_key_without_reassigning_
             session_scope: None,
             ..Default::default()
         }],
+        speaker_divider: false,
     }));
     let original_slot = state.scene().slots()[0].as_ref().unwrap().slot_index;
     let original_entry_order = state.scene().slots()[0].as_ref().unwrap().slot_entry_order;
@@ -444,6 +454,7 @@ fn overlay_state_promotes_active_peer_matching_occupant_key_without_reassigning_
             session_scope: None,
             ..Default::default()
         }],
+        speaker_divider: false,
     }));
 
     let slot = state.scene().slots()[0].as_ref().unwrap();
@@ -470,6 +481,7 @@ fn overlay_state_fills_first_empty_slot_before_replacing_again() {
             slot_block("self:1", "self:1", 1, "self", "one", "", true),
             slot_block("peer:2", "peer:2", 2, "peer", "two", "", true),
         ],
+        speaker_divider: false,
     }));
 
     assert!(state.apply_snapshot(&OverlayPresentationSnapshot {
@@ -478,6 +490,7 @@ fn overlay_state_fills_first_empty_slot_before_replacing_again() {
         native_fresh_render_generations: None,
         semantic_retirement_frontiers: Vec::new(),
         blocks: vec![slot_block("peer:2", "peer:2", 2, "peer", "two", "", true)],
+        speaker_divider: false,
     }));
 
     assert!(state.apply_snapshot(&OverlayPresentationSnapshot {
@@ -489,6 +502,7 @@ fn overlay_state_fills_first_empty_slot_before_replacing_again() {
             slot_block("self:3", "self:3", 3, "self", "three", "", true),
             slot_block("peer:2", "peer:2", 2, "peer", "two", "", true),
         ],
+        speaker_divider: false,
     }));
 
     assert_eq!(

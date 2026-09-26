@@ -288,7 +288,7 @@ pub enum SnapshotApplyOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct LogicalCaptionIdentity(Vec<LogicalCaptionBlockIdentity>);
+struct LogicalCaptionIdentity(Vec<LogicalCaptionBlockIdentity>, bool);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LogicalCaptionBlockIdentity {
@@ -688,7 +688,7 @@ impl PresentationRuntime {
                     "ownership": "exclusive"
                 },
                 "speaker_identity_presentation": {
-                    "version": 1,
+                    "version": 2,
                     "policy": "immutable_first_readable_style"
                 }
             }
@@ -748,6 +748,7 @@ impl PresentationRuntime {
         let presentation = CaptionPresentation {
             background_alpha: self.state.calibration().background_alpha,
             text_scale: self.state.calibration().text_scale,
+            speaker_divider: self.state.speaker_divider(),
         };
         renderer.set_presentation(presentation.clone());
         openvr
@@ -1332,6 +1333,7 @@ fn frame_content_identity(blocks: &[CaptionBlock], presentation: &CaptionPresent
     }
     presentation.background_alpha.to_bits().hash(&mut hasher);
     presentation.text_scale.to_bits().hash(&mut hasher);
+    presentation.speaker_divider.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -2384,6 +2386,7 @@ fn logical_caption_identity(state: &OverlayState) -> LogicalCaptionIdentity {
                 speaker_style: slot.speaker_style.clone(),
             })
             .collect(),
+        state.speaker_divider(),
     )
 }
 
@@ -2541,7 +2544,7 @@ pub async fn run_cli(args: &[String]) -> i32 {
                 "app_version": env!("CARGO_PKG_VERSION"),
                 "execution_contract": {"version": 1, "revision": "r2"},
                 "native_presentation_retry": {"version": 1, "ownership": "exclusive"},
-                "speaker_identity_presentation": {"version": 1, "policy": "immutable_first_readable_style"},
+                "speaker_identity_presentation": {"version": 2, "policy": "immutable_first_readable_style"},
             })
         );
         return 0;
