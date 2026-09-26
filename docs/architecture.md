@@ -342,10 +342,13 @@ LLM-backed Peer turns with multiple eligible source segments use one structured
 whole-parent request containing ordered indices, source languages, and text
 without speaker keys or labels. Results must contain each requested index exactly
 once; incomplete or mismatched responses take the existing explicit failure and
-source-only publication path without a second provider request. Single eligible
-segments and non-LLM routes retain their existing requests. Unsupported-language
-segments remain source-only. Context is prepared at parent admission, and
-publication preserves source order regardless of provider completion order.
+source-only publication path without a second provider request. The child
+translation watchdog also bounds a whole-parent batch; a stalled batch is
+cancelled and every child follows the same source-only path so successors can
+publish. Single eligible segments and non-LLM routes retain their existing
+requests. Unsupported-language segments remain source-only. Context is
+prepared at parent admission, and publication preserves source order regardless
+of provider completion order.
 
 Self speculative selection remains in the Self owner. Once a turn is admitted, the turn lifecycle owns subsequent translation and publication.
 
@@ -400,8 +403,10 @@ Each generation owns its tasks and shutdown. Python owns caption lifetime; nativ
 `OverlayPresenter` owns provider-independent Peer subtitle admission and pacing (`core/overlay/presenter.py`); output retains bounded waiting work.
 
 `PeerSpeakerIdentityAllocator` (`core/speaker_identity.py`) allocates 15 stable
-source-ordered palette entries per Soniox connection scope before asynchronous
-translation. Unknown and SELF text do not consume entries. The presenter fixes
+source-ordered palette entries per Soniox connection scope. Every child's
+identity is allocated together during parent admission, before asynchronous
+child UI publication or translation can interleave later parents. Unknown and
+SELF text do not consume entries. The presenter fixes
 each Peer block's style at its first readable selection: gold `#FFD700`, cyan
 `#33D6FF`, then p02–p14 (`#FF6B6B`, `#7CFF6B`, `#C77DFF`, `#FF9F1C`,
 `#FF5D8F`, `#4DFFC8`, `#B8FF3C`, `#FF4D4D`, `#6C8CFF`, `#E6FF4D`,

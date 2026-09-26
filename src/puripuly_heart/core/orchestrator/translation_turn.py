@@ -1096,7 +1096,9 @@ class TranslationTurnLifecycleOwner:
                     await self.on_child_started(child, task)
                 try:
                     try:
-                        results = await task
+                        results = await asyncio.wait_for(task, timeout=self.child_watchdog_s)
+                    except TimeoutError:
+                        results = {}
                     except asyncio.CancelledError:
                         raise
                     except Exception:

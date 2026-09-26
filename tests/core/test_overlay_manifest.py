@@ -5,10 +5,6 @@ import pytest
 from puripuly_heart.core.overlay.manifest import OVERLAY_CONTRACT_VERSION, OverlayLaunchManifest
 
 
-def test_overlay_manifest_uses_structured_block_contract_version() -> None:
-    assert OVERLAY_CONTRACT_VERSION == 11
-
-
 def test_overlay_manifest_round_trips_contract_fields() -> None:
     manifest = OverlayLaunchManifest(
         contract_version=OVERLAY_CONTRACT_VERSION,

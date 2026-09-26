@@ -586,10 +586,6 @@ class PeerTranslationChannelOwner:
             parent_utterance_id=child.parent_utterance_id,
             peer_turn_id=child.utterance_id,
         )
-        self._speaker_identities.observe(
-            child.transcript,
-            child_sequence=child.sequence,
-        )
         await self._handle_peer_final_transcript(
             child.transcript,
             parent_utterance_id=child.parent_utterance_id,
@@ -720,6 +716,11 @@ class PeerTranslationChannelOwner:
     ) -> None:
         if any(child.channel != "peer" for child in children):
             raise ValueError("Peer translation owner received a non-Peer parent")
+        for child in children:
+            self._speaker_identities.observe(
+                child.transcript,
+                child_sequence=child.sequence,
+            )
         segment_count = 0
         unknown_span_count = 0
         for child in children:

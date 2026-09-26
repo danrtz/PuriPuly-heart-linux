@@ -82,6 +82,30 @@ class _FailingSelectedTranslationProvider(_IndexedTranslationProvider):
 
 
 @dataclass(slots=True)
+class _StallingBatchTranslationProvider(_IndexedTranslationProvider):
+    entered: asyncio.Event = field(default_factory=asyncio.Event)
+    cancelled: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def translate(self, **kwargs) -> Translation:
+        text = kwargs["text"]
+        self.calls.append(text)
+        if text.startswith('{"segments":'):
+            self.entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                self.cancelled.set()
+        return Translation(
+            utterance_id=kwargs["utterance_id"],
+            text="Later",
+            source_text=text,
+            source_language=kwargs["source_language"],
+            target_language=kwargs["target_language"],
+            channel="peer",
+        )
+
+
+@dataclass(slots=True)
 class _RecordingOverlaySink:
     presenter: OverlayPresenter
     events: list[object] = field(default_factory=list)
@@ -342,6 +366,162 @@ async def test_bad_batch_response_keeps_every_source_fragment(response_mode: str
         assert not any(
             getattr(event, "type", None) == "translation_final" for event in overlay.events
         )
+    finally:
+        await harness.stop()
+        await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_parent_admission_allocates_every_speaker_before_child_ui_yields() -> None:
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=None,
+        osc=RecordingOscQueue(),
+        peer_translation_enabled=False,
+    )
+    session = _soniox_session()
+    entered = asyncio.Event()
+    second_created = asyncio.Event()
+    release = asyncio.Event()
+    original_child_created = harness.translation_turns.on_child_created
+    observed: dict[str, int | None] = {}
+
+    async def block_after_first_child(child):
+        if child.transcript.text == "Cora":
+            assignment = harness.peer_owner._speaker_identities.assignment_for(child.utterance_id)
+            observed[child.transcript.text] = (
+                None if assignment is None else assignment.palette_index
+            )
+            second_created.set()
+        await original_child_created(child)
+        assignment = harness.peer_owner._speaker_identities.assignment_for(child.utterance_id)
+        observed[child.transcript.text] = None if assignment is None else assignment.palette_index
+        if child.transcript.text == "Alice ":
+            entered.set()
+            await release.wait()
+
+    harness.translation_turns.on_child_created = block_after_first_child
+    harness.output_runtime.activate_peer_generation(1)
+    await harness.start()
+    try:
+        first_receipt, first_terminal = await _terminal_from_soniox_tokens(
+            session,
+            speaker="A",
+            text="",
+            start_ms=100,
+            end_ms=290,
+            generation=1,
+            order=1,
+            tokens=[
+                {
+                    "text": text,
+                    "speaker": speaker,
+                    "language": "en",
+                    "is_final": True,
+                    "start_ms": index * 100,
+                    "end_ms": index * 100 + 90,
+                }
+                for index, (text, speaker) in enumerate((("Alice ", "A"), ("Beto", "B")), start=1)
+            ],
+        )
+        second_receipt, second_terminal = await _terminal_from_soniox_tokens(
+            session,
+            speaker="C",
+            text="Cora",
+            start_ms=300,
+            end_ms=390,
+            generation=1,
+            order=2,
+        )
+        harness.record_peer_speech_end_for_test(first_receipt.identity.segment_id)
+        harness.record_peer_speech_end_for_test(second_receipt.identity.segment_id)
+        first = asyncio.create_task(
+            harness.peer_owner.handle_provider_turn_terminal(first_receipt, first_terminal)
+        )
+        await asyncio.wait_for(entered.wait(), 2)
+        second = asyncio.create_task(
+            harness.peer_owner.handle_provider_turn_terminal(second_receipt, second_terminal)
+        )
+        await asyncio.wait_for(second_created.wait(), 2)
+        assert observed == {"Alice ": 0, "Cora": 2}
+        release.set()
+        await asyncio.wait_for(first, 2)
+        await asyncio.wait_for(second, 2)
+        await asyncio.wait_for(harness.translation_turns.wait_for_idle(), 4)
+        assert observed["Beto"] == 1
+    finally:
+        release.set()
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_stalled_peer_batch_times_out_and_releases_source_order() -> None:
+    clock = FakeClock(_now=100.0)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    provider = _StallingBatchTranslationProvider()
+    overlay = _RecordingOverlaySink(presenter)
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=provider,
+        osc=RecordingOscQueue(),
+        peer_translation_enabled=True,
+        overlay_sink=overlay,
+        clock=clock,
+    )
+    session = _soniox_session()
+    harness.translation_turns.child_watchdog_s = 0.08
+    harness.output_runtime.activate_peer_generation(1)
+    await harness.start()
+    try:
+        first_receipt, first_terminal = await _terminal_from_soniox_tokens(
+            session,
+            speaker="A",
+            text="",
+            start_ms=100,
+            end_ms=290,
+            generation=1,
+            order=1,
+            tokens=[
+                {
+                    "text": text,
+                    "speaker": speaker,
+                    "language": "en",
+                    "is_final": True,
+                    "start_ms": index * 100,
+                    "end_ms": index * 100 + 90,
+                }
+                for index, (text, speaker) in enumerate((("alpha ", "A"), ("beta", "B")), start=1)
+            ],
+        )
+        second_receipt, second_terminal = await _terminal_from_soniox_tokens(
+            session,
+            speaker="C",
+            text="Cora",
+            start_ms=300,
+            end_ms=390,
+            generation=1,
+            order=2,
+        )
+        harness.record_peer_speech_end_for_test(first_receipt.identity.segment_id)
+        harness.record_peer_speech_end_for_test(second_receipt.identity.segment_id)
+        await harness.peer_owner.handle_provider_turn_terminal(first_receipt, first_terminal)
+        await asyncio.wait_for(provider.entered.wait(), 2)
+        await harness.peer_owner.handle_provider_turn_terminal(second_receipt, second_terminal)
+        await asyncio.wait_for(harness.translation_turns.wait_for_idle(), 2)
+        await asyncio.wait_for(harness.output_runtime.wait_for_peer_output_idle(), 2)
+        assert provider.cancelled.is_set()
+        assert len(provider.calls) == 2
+        assert provider.calls[1] == "Cora"
+        events = [
+            (event.type, event.text)
+            for event in overlay.events
+            if getattr(event, "type", None) in {"peer_transcript_final", "translation_final"}
+        ]
+        assert events == [
+            ("peer_transcript_final", "alpha "),
+            ("peer_transcript_final", "beta"),
+            ("translation_final", "Later"),
+        ]
     finally:
         await harness.stop()
         await presenter.close()
