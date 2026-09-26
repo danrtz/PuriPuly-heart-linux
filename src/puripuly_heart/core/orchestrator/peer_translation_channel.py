@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from uuid import UUID
 
@@ -590,31 +590,6 @@ class PeerTranslationChannelOwner:
             child.transcript,
             parent_utterance_id=child.parent_utterance_id,
             source=child.source,
-        )
-
-    def peer_batch_supported(self) -> bool:
-        return self.translation_requests.peer_batch_supported
-
-    async def process_peer_batch(
-        self,
-        children: tuple[TranslationTurnChild, ...],
-        cancellation_requested: Callable[[], bool],
-    ) -> Mapping[UUID, TranslationTurnProcessResult]:
-        requests = tuple(
-            self._translation_process_request(
-                child,
-                (
-                    self._target_language_for(self.runtime, child.config_snapshot.value)
-                    if child.target_language == "und"
-                    else child.target_language
-                ),
-            )
-            for child in children
-        )
-        return await self.translation_requests.process_peer_batch(
-            requests,
-            prepared=self._prepared_requests,
-            cancellation_requested=cancellation_requested,
         )
 
     async def process_child(

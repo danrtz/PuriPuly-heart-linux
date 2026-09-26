@@ -952,8 +952,6 @@ async def _compose_runtime_pipeline(
         on_child_created=callbacks.child_created,
         on_child_started=callbacks.child_started,
         process_child=callbacks.process_child,
-        peer_batch_supported=callbacks.peer_batch_supported,
-        process_peer_batch=callbacks.process_peer_batch,
         on_child_terminal=callbacks.child_terminal,
         on_parent_closed=callbacks.parent_closed,
         on_parent_rejected=callbacks.parent_rejected,

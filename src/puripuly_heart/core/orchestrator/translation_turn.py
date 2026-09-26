@@ -385,11 +385,6 @@ ParentRejected = Callable[[UUID], Awaitable[None]]
 ParentAdmitted = Callable[[tuple[TranslationTurnChild, ...]], Awaitable[None]]
 TurnGenerationAdvanced = Callable[[ChannelId, int], None]
 
-PeerBatchProcessor = Callable[
-    [tuple[TranslationTurnChild, ...], ChildCancellationRequested],
-    Awaitable[Mapping[UUID, TranslationTurnProcessResult]],
-]
-
 
 @dataclass(slots=True)
 class TranslationTurnLifecycleOwner:
@@ -407,8 +402,6 @@ class TranslationTurnLifecycleOwner:
     policy: TranslationRuntimePolicy = field(default_factory=TranslationRuntimePolicy)
     _parents: dict[UUID, _TranslationTurnParent] = field(default_factory=dict)
     peer_waiting_capacity: int = 8
-    peer_batch_supported: Callable[[], bool] | None = None
-    process_peer_batch: PeerBatchProcessor | None = None
     peer_waiting_ttl_s: float = 12.0
     self_speech_waiting_capacity: int = 8
     self_speech_running_capacity: int = 2
@@ -1031,99 +1024,78 @@ class TranslationTurnLifecycleOwner:
             for child in parent.children
             if child.utterance_id not in parent.completed_child_ids
         )
-        if (
-            len(children) > 1
-            and len({child.target_language for child in children}) == 1
-            and all(child.precomputed_translation is None for child in children)
-            and self.peer_batch_supported is not None
-            and self.peer_batch_supported()
-            and self.process_peer_batch is not None
-        ):
-            await self._run_peer_batch(parent, predecessor, children)
-            return
-        tasks: list[asyncio.Task[TranslationTurnProcessResult]] = []
+        running: dict[UUID, asyncio.Task[TranslationTurnProcessResult]] = {}
+        finished: dict[UUID, TranslationTurnProcessResult] = {}
         await self._acquire_peer_active_parent_slot(parent)
+        next_child = 0
+        publish_index = 0
+        predecessor_wait = (
+            start_lifecycle_task(
+                self._scope,
+                predecessor.closed_event.wait(),
+                name=f"peer-predecessor:{parent.parent_utterance_id}",
+                eager_start=True,
+            )
+            if predecessor is not None and not predecessor.closed_event.is_set()
+            else None
+        )
+
+        def start_next() -> None:
+            nonlocal next_child
+            child = children[next_child]
+            task = start_lifecycle_task(
+                self._scope,
+                self._process_peer_child(parent, child),
+                name=f"peer-child:{child.utterance_id}",
+                eager_start=True,
+            )
+            running[child.utterance_id] = task
+            self._active_tasks[child.utterance_id] = task
+            next_child += 1
+
         try:
             if self._parent_cancellation_requested(parent):
                 raise asyncio.CancelledError
-            for child in children:
-                task = start_lifecycle_task(
-                    self._scope,
-                    self._process_peer_child(parent, child),
-                    name=f"peer-child:{child.utterance_id}",
-                    eager_start=True,
-                )
-                tasks.append(task)
-                self._active_tasks[child.utterance_id] = task
-            for child, task in zip(children, tasks, strict=True):
-                result = await task
+            for _ in range(min(len(children), children[0].config_snapshot.value.concurrency_limit)):
+                start_next()
+            while publish_index < len(children):
                 if self._parent_cancellation_requested(parent):
                     raise asyncio.CancelledError
-                if predecessor is not None:
-                    await predecessor.closed_event.wait()
-                await self._publish_child_result(child, result)
+                if predecessor is None or predecessor.closed_event.is_set():
+                    while publish_index < len(children):
+                        child = children[publish_index]
+                        result = finished.pop(child.utterance_id, None)
+                        if result is None:
+                            break
+                        await self._publish_child_result(child, result)
+                        publish_index += 1
+                    if publish_index == len(children):
+                        break
+                waiting: set[asyncio.Task[object]] = set(running.values())
+                if predecessor_wait is not None and not predecessor_wait.done():
+                    waiting.add(predecessor_wait)
+                await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+                for child_id, task in tuple(running.items()):
+                    if not task.done():
+                        continue
+                    finished[child_id] = await task
+                    running.pop(child_id)
+                    self._active_tasks.pop(child_id, None)
+                    if next_child < len(children):
+                        start_next()
         finally:
-            for task in tasks:
+            if predecessor_wait is not None and not predecessor_wait.done():
+                predecessor_wait.cancel()
+            for task in running.values():
                 if not task.done():
                     task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            for child in children:
-                self._active_tasks.pop(child.utterance_id, None)
-            await self._release_peer_active_parent_slot()
-
-    async def _run_peer_batch(
-        self,
-        parent: _TranslationTurnParent,
-        predecessor: _TranslationTurnParent | None,
-        children: tuple[TranslationTurnChild, ...],
-    ) -> None:
-        await self._acquire_peer_active_parent_slot(parent)
-        try:
-            await self._acquire_peer_execution_slot(parent, children[0])
-            try:
-                assert self.process_peer_batch is not None
-                task = start_lifecycle_task(
-                    self._scope,
-                    self.process_peer_batch(
-                        children,
-                        lambda: self._parent_cancellation_requested(parent),
-                    ),
-                    name=f"peer-batch:{parent.parent_utterance_id}",
-                    eager_start=True,
-                )
-                for child in children:
-                    self._active_tasks[child.utterance_id] = task
-                    await self.on_child_started(child, task)
-                try:
-                    try:
-                        results = await asyncio.wait_for(task, timeout=self.child_watchdog_s)
-                    except TimeoutError:
-                        results = {}
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        logger.exception("translation peer batch execution failed")
-                        results = {}
-                    for child in children:
-                        self._mark_child_semantic_done(child)
-                    for child in children:
-                        if self._parent_cancellation_requested(parent):
-                            raise asyncio.CancelledError
-                        if predecessor is not None:
-                            await predecessor.closed_event.wait()
-                        result = results.get(
-                            child.utterance_id, TranslationTurnProcessResult("failed")
-                        )
-                        await self._publish_child_result(child, result)
-                finally:
-                    if not task.done():
-                        task.cancel()
-                        await asyncio.gather(task, return_exceptions=True)
-                    for child in children:
-                        self._active_tasks.pop(child.utterance_id, None)
-            finally:
-                await self._release_peer_execution_slot()
-        finally:
+            await asyncio.gather(
+                *running.values(),
+                *((predecessor_wait,) if predecessor_wait is not None else ()),
+                return_exceptions=True,
+            )
+            for child_id in running:
+                self._active_tasks.pop(child_id, None)
             await self._release_peer_active_parent_slot()
 
     async def _process_peer_child(

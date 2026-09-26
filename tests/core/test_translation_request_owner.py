@@ -274,31 +274,18 @@ def peer_requests(fixture: OwnerFixture) -> tuple[TranslationProcessRequest, ...
 
 
 @pytest.mark.asyncio
-async def test_peer_batch_correlates_reordered_results_in_one_http_request() -> None:
+async def test_peer_segments_use_individual_requests_with_whole_parent_context() -> None:
     translations = {"one ": "一", "둘째 ": "二", "three": "三"}
     requests_seen: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         requests_seen.append(body)
-        user_message = body["messages"][1]["content"]
-        source = user_message.split("<input>\n", 1)[1].split("\n</input>", 1)[0]
-        segments = json.loads(source)["segments"]
-        response = {
-            "segments": [
-                {"index": item["index"], "text": translations[item["text"]]}
-                for item in reversed(segments)
-            ]
-        }
+        source = body["messages"][1]["content"].split("<input>\n", 1)[1].split("\n</input>", 1)[0]
         return httpx.Response(
             200,
             json={
-                "choices": [
-                    {
-                        "finish_reason": "stop",
-                        "message": {"content": json.dumps(response, ensure_ascii=False)},
-                    }
-                ]
+                "choices": [{"finish_reason": "stop", "message": {"content": translations[source]}}]
             },
         )
 
@@ -309,20 +296,25 @@ async def test_peer_batch_correlates_reordered_results_in_one_http_request() -> 
     requests = peer_requests(fixture)
     prepared = fixture.owner.admit_peer(requests)
     try:
-        results = await fixture.owner.process_peer_batch(
-            requests, prepared=prepared, cancellation_requested=lambda: False
+        results = await asyncio.gather(
+            *(
+                fixture.owner.process(request, prepared=prepared[request.utterance_id])
+                for request in requests
+            )
         )
     finally:
         await provider.close()
 
-    assert len(requests_seen) == 1
-    assert [
-        (
-            results[request.utterance_id].output.source_text,
-            results[request.utterance_id].output.translation.text,
-        )
-        for request in requests
-    ] == [("one ", "一"), ("둘째 ", "二"), ("three", "三")]
+    assert len(requests_seen) == 3
+    assert [(result.output.source_text, result.output.translation.text) for result in results] == [
+        ("one ", "一"),
+        ("둘째 ", "二"),
+        ("three", "三"),
+    ]
+    for body in requests_seen:
+        context = body["messages"][1]["content"]
+        assert all(text in context for text in translations)
+        assert "speaker=" not in context
 
 
 @pytest.mark.asyncio
@@ -408,10 +400,10 @@ async def test_peer_unsupported_segments_remain_reference_without_blocking_trans
         )
     )
     prepared = fixture.owner.admit_peer(requests)
-    results_by_id = await fixture.owner.process_peer_batch(
-        requests, prepared=prepared, cancellation_requested=lambda: False
-    )
-    results = [results_by_id[request.utterance_id] for request in requests]
+    results = [
+        await fixture.owner.process(request, prepared=prepared.get(request.utterance_id))
+        for request in requests
+    ]
 
     assert [result.outcome for result in results] == ["source_only", "translated", "source_only"]
     assert [result.output.source_text for result in results] == [
@@ -440,10 +432,10 @@ async def test_ineligible_peer_parent_does_not_call_provider(disabled: bool) -> 
         for request in peer_requests(fixture)
     )
     prepared = fixture.owner.admit_peer(requests)
-    results_by_id = await fixture.owner.process_peer_batch(
-        requests, prepared=prepared, cancellation_requested=lambda: False
-    )
-    results = [results_by_id[request.utterance_id] for request in requests]
+    results = [
+        await fixture.owner.process(request, prepared=prepared.get(request.utterance_id))
+        for request in requests
+    ]
     assert [result.outcome for result in results] == ["source_only"] * 3
     assert [result.output.source_text for result in results] == [
         request.text for request in requests

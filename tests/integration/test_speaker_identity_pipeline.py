@@ -25,9 +25,14 @@ from tests.helpers.translation_owners import compose_translation_test_harness
 
 
 @dataclass(slots=True)
-class _IndexedTranslationProvider:
+class _SegmentTranslationProvider:
     calls: list[str] = field(default_factory=list)
-    response_mode: str = "valid"
+    active: int = 0
+    peak: int = 0
+    release: dict[str, asyncio.Event] = field(default_factory=dict)
+    entered: dict[str, asyncio.Event] = field(default_factory=dict)
+    cancelled: set[str] = field(default_factory=set)
+    failures: set[str] = field(default_factory=set)
 
     async def translate(
         self,
@@ -41,8 +46,15 @@ class _IndexedTranslationProvider:
         scene_participant_count: int | None = None,
     ) -> Translation:
         self.calls.append(text)
-        if text.startswith('{"segments":'):
-            segments = json.loads(text)["segments"]
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        self.entered.setdefault(text, asyncio.Event()).set()
+        try:
+            gate = self.release.get(text)
+            if gate is not None:
+                await gate.wait()
+            if text in self.failures:
+                raise RuntimeError("selected translation failure")
             translations = {
                 "Alice ": "Hello",
                 "Beto ": "World",
@@ -50,59 +62,24 @@ class _IndexedTranslationProvider:
                 "Alice": "Again",
                 "alpha ": "First",
                 "beta": "Second",
+                "Cora": "Later",
             }
-            items = [
-                {"index": item["index"], "text": translations[item["text"]]}
-                for item in reversed(segments)
-            ]
-            if self.response_mode == "missing":
-                items.pop()
-            if self.response_mode == "duplicate":
-                items[-1]["index"] = items[0]["index"]
-            rendered = json.dumps({"segments": items})
-        else:
-            rendered = {"self": "manual"}[text]
-        return Translation(
-            utterance_id=utterance_id,
-            text=rendered,
-            source_text=text,
-            source_language=source_language,
-            target_language=target_language,
-            channel="peer",
-        )
+            return Translation(
+                utterance_id=utterance_id,
+                text=translations[text],
+                source_text=text,
+                source_language=source_language,
+                target_language=target_language,
+                channel="peer",
+            )
+        except asyncio.CancelledError:
+            self.cancelled.add(text)
+            raise
+        finally:
+            self.active -= 1
 
     async def close(self) -> None:
         return None
-
-
-@dataclass(slots=True)
-class _FailingSelectedTranslationProvider(_IndexedTranslationProvider):
-    async def translate(self, **kwargs) -> Translation:
-        raise RuntimeError("selected translation failure")
-
-
-@dataclass(slots=True)
-class _StallingBatchTranslationProvider(_IndexedTranslationProvider):
-    entered: asyncio.Event = field(default_factory=asyncio.Event)
-    cancelled: asyncio.Event = field(default_factory=asyncio.Event)
-
-    async def translate(self, **kwargs) -> Translation:
-        text = kwargs["text"]
-        self.calls.append(text)
-        if text.startswith('{"segments":'):
-            self.entered.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                self.cancelled.set()
-        return Translation(
-            utterance_id=kwargs["utterance_id"],
-            text="Later",
-            source_text=text,
-            source_language=kwargs["source_language"],
-            target_language=kwargs["target_language"],
-            channel="peer",
-        )
 
 
 @dataclass(slots=True)
@@ -230,7 +207,7 @@ async def _terminal_from_soniox_tokens(
 
 
 @pytest.mark.asyncio
-async def test_soniox_batch_preserves_attribution_through_output_and_presenter() -> None:
+async def test_soniox_segments_preserve_attribution_through_output_and_presenter() -> None:
     clock = FakeClock(_now=100.0)
 
     async def advance(seconds: float) -> None:
@@ -238,7 +215,10 @@ async def test_soniox_batch_preserves_attribution_through_output_and_presenter()
         clock.advance(seconds)
 
     presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock, sleep=advance)
-    provider = _IndexedTranslationProvider()
+    provider = _SegmentTranslationProvider()
+    provider.release["Alice "] = asyncio.Event()
+    provider.release["Beto "] = asyncio.Event()
+    provider.release["Alice"] = asyncio.Event()
     overlay = _RecordingOverlaySink(presenter)
     harness = compose_translation_test_harness(
         stt=None,
@@ -285,11 +265,34 @@ async def test_soniox_batch_preserves_attribution_through_output_and_presenter()
         ]
         harness.record_peer_speech_end_for_test(receipt.identity.segment_id)
         await harness.peer_owner.handle_provider_turn_terminal(receipt, terminal)
+        async with asyncio.timeout(2):
+            while len(provider.entered) != 3:
+                await asyncio.sleep(0)
+        assert provider.peak == 3
+        provider.release["Alice "].set()
+        async with asyncio.timeout(2):
+            while not any(
+                getattr(event, "type", None) == "translation_final"
+                and event.source_text == "Alice "
+                for event in overlay.events
+            ):
+                await asyncio.sleep(0)
+        assert [
+            event.source_text
+            for event in overlay.events
+            if getattr(event, "type", None) == "translation_final"
+        ] == ["Alice "]
+        provider.release["Alice"].set()
+        await asyncio.sleep(0)
+        assert [
+            event.source_text
+            for event in overlay.events
+            if getattr(event, "type", None) == "translation_final"
+        ] == ["Alice "]
+        provider.release["Beto "].set()
         await harness.peer_owner.translation_turns.wait_for_idle()
         await harness.output_runtime.wait_for_peer_output_idle()
-        assert len(provider.calls) == 1
-        submitted = json.loads(provider.calls[0])["segments"]
-        assert [part["text"] for part in submitted] == ["Alice ", "Beto ", "Alice"]
+        assert provider.calls == ["Alice ", "Beto ", "Alice"]
         events = [
             event for event in overlay.events if getattr(event, "type", None) == "translation_final"
         ]
@@ -301,21 +304,25 @@ async def test_soniox_batch_preserves_attribution_through_output_and_presenter()
             (6, 11),
             (11, 16),
         ]
+        revisions = {event.speaker_assignment.source_text_revision for event in events}
+        assert len(revisions) == 1 and None not in revisions
         latest = presenter.snapshot().blocks
         assert latest[-1].speaker_style == "gold"
         assert latest[-1].primary_text == "Again"
         assert latest[-1].secondary_text == "Alice"
     finally:
+        provider.release["Alice "].set()
+        provider.release["Alice"].set()
+        provider.release["Beto "].set()
         await harness.stop()
         await presenter.close()
 
 
-@pytest.mark.parametrize("response_mode", ("missing", "duplicate"))
 @pytest.mark.asyncio
-async def test_bad_batch_response_keeps_every_source_fragment(response_mode: str) -> None:
+async def test_failed_segment_keeps_sibling_translation_and_every_source_fragment() -> None:
     clock = FakeClock(_now=100.0)
     presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
-    provider = _IndexedTranslationProvider(response_mode=response_mode)
+    provider = _SegmentTranslationProvider(failures={"alpha "})
     overlay = _RecordingOverlaySink(presenter)
     harness = compose_translation_test_harness(
         stt=None,
@@ -356,16 +363,20 @@ async def test_bad_batch_response_keeps_every_source_fragment(response_mode: str
         await harness.peer_owner.handle_provider_turn_terminal(receipt, terminal)
         await harness.peer_owner.translation_turns.wait_for_idle()
         await harness.output_runtime.wait_for_peer_output_idle()
-        assert len(provider.calls) == 1
+        assert provider.calls == ["alpha ", "beta"]
         original = [
             event.text
             for event in overlay.events
             if getattr(event, "type", None) == "peer_transcript_final"
         ]
-        assert original == ["alpha ", "beta"]
-        assert not any(
-            getattr(event, "type", None) == "translation_final" for event in overlay.events
-        )
+        assert original == ["alpha "]
+        translated = [
+            event for event in overlay.events if getattr(event, "type", None) == "translation_final"
+        ]
+        assert [
+            (event.source_text, event.text, event.speaker_assignment.palette_index)
+            for event in translated
+        ] == [("beta", "Second", 1)]
     finally:
         await harness.stop()
         await presenter.close()
@@ -455,10 +466,10 @@ async def test_parent_admission_allocates_every_speaker_before_child_ui_yields()
 
 
 @pytest.mark.asyncio
-async def test_stalled_peer_batch_times_out_and_releases_source_order() -> None:
+async def test_stalled_peer_child_times_out_without_losing_siblings_or_successor() -> None:
     clock = FakeClock(_now=100.0)
     presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
-    provider = _StallingBatchTranslationProvider()
+    provider = _SegmentTranslationProvider(release={"alpha ": asyncio.Event()})
     overlay = _RecordingOverlaySink(presenter)
     harness = compose_translation_test_harness(
         stt=None,
@@ -505,13 +516,15 @@ async def test_stalled_peer_batch_times_out_and_releases_source_order() -> None:
         harness.record_peer_speech_end_for_test(first_receipt.identity.segment_id)
         harness.record_peer_speech_end_for_test(second_receipt.identity.segment_id)
         await harness.peer_owner.handle_provider_turn_terminal(first_receipt, first_terminal)
-        await asyncio.wait_for(provider.entered.wait(), 2)
+        async with asyncio.timeout(2):
+            while "alpha " not in provider.entered:
+                await asyncio.sleep(0)
+            await provider.entered["alpha "].wait()
         await harness.peer_owner.handle_provider_turn_terminal(second_receipt, second_terminal)
         await asyncio.wait_for(harness.translation_turns.wait_for_idle(), 2)
         await asyncio.wait_for(harness.output_runtime.wait_for_peer_output_idle(), 2)
-        assert provider.cancelled.is_set()
-        assert len(provider.calls) == 2
-        assert provider.calls[1] == "Cora"
+        assert provider.cancelled == {"alpha "}
+        assert provider.calls == ["alpha ", "beta", "Cora"]
         events = [
             (event.type, event.text)
             for event in overlay.events
@@ -519,9 +532,10 @@ async def test_stalled_peer_batch_times_out_and_releases_source_order() -> None:
         ]
         assert events == [
             ("peer_transcript_final", "alpha "),
-            ("peer_transcript_final", "beta"),
+            ("translation_final", "Second"),
             ("translation_final", "Later"),
         ]
     finally:
+        provider.release["alpha "].set()
         await harness.stop()
         await presenter.close()

@@ -447,6 +447,62 @@ async def test_peer_timed_out_segment_releases_execution_and_output_slots() -> N
         await owner.close()
 
 
+@pytest.mark.asyncio
+async def test_peer_fills_free_execution_slot_while_earlier_segment_is_pending() -> None:
+    release_first = asyncio.Event()
+    third_started = asyncio.Event()
+    started: list[int] = []
+    active = 0
+    peak = 0
+
+    async def process(child, _cancelled):
+        nonlocal active, peak
+        started.append(child.sequence)
+        active += 1
+        peak = max(peak, active)
+        try:
+            if child.sequence == 0:
+                await release_first.wait()
+            if child.sequence == 2:
+                third_started.set()
+            return _translated_result(child)
+        finally:
+            active -= 1
+
+    output = RecordingOutput()
+    owner = _owner(process_child=process, output=output)
+    request = replace(
+        _request(
+            parent_id=uuid4(),
+            turn_kind="peer",
+            runs=(
+                FinalLanguageRun("first ", "en"),
+                FinalLanguageRun("second ", "ja"),
+                FinalLanguageRun("third", "ko"),
+            ),
+        ),
+        config_snapshot=TranslationRuntimeConfigSnapshot(
+            revision=0, value=TranslationRuntimeConfig(concurrency_limit=2)
+        ),
+    )
+    try:
+        await owner.submit(request)
+        await asyncio.wait_for(third_started.wait(), 2)
+        assert output.submissions == []
+        assert started == [0, 1, 2]
+        assert peak == 2
+        release_first.set()
+        await owner.wait_for_idle()
+        assert [submission.source_text for submission in output.submissions] == [
+            "first ",
+            "second ",
+            "third",
+        ]
+    finally:
+        release_first.set()
+        await owner.close()
+
+
 def test_policy_rejects_retired_fast_translation_off_choice() -> None:
     with pytest.raises(ValueError, match="fixed enabled"):
         TranslationRuntimePolicy(fast_translation_enabled=False)
