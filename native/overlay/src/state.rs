@@ -137,6 +137,7 @@ pub struct OverlayPresentationSnapshot {
     pub blocks: Vec<OverlayPresentationBlock>,
     pub native_fresh_render_generations: Option<NativeFreshRenderGenerations>,
     pub semantic_retirement_frontiers: Vec<SemanticRetirementFrontier>,
+    pub speaker_divider: bool,
 }
 #[derive(Serialize, Deserialize)]
 struct OverlayPresentationSnapshotWire {
@@ -154,6 +155,8 @@ struct OverlayPresentationSnapshotWire {
     native_quiet_tail_episodes: Option<NativeQuietTailEpisodes>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     semantic_retirement_frontiers: Vec<SemanticRetirementFrontier>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    speaker_divider: bool,
 }
 
 impl Serialize for OverlayPresentationSnapshot {
@@ -183,6 +186,7 @@ impl Serialize for OverlayPresentationSnapshot {
                 .as_ref()
                 .and_then(|generations| generations.quiet_tail_episodes.clone()),
             semantic_retirement_frontiers: self.semantic_retirement_frontiers.clone(),
+            speaker_divider: self.speaker_divider,
         }
         .serialize(serializer)
     }
@@ -210,6 +214,7 @@ impl<'de> Deserialize<'de> for OverlayPresentationSnapshot {
             blocks: wire.blocks,
             native_fresh_render_generations: generations,
             semantic_retirement_frontiers: wire.semantic_retirement_frontiers,
+            speaker_divider: wire.speaker_divider,
         })
     }
 }
@@ -410,7 +415,9 @@ impl OverlayState {
         let scene_changed = self
             .scene
             .apply_snapshot(&snapshot.blocks, snapshot.calibration.text_scale);
-        let visual_changed = self.snapshot.calibration != snapshot.calibration || scene_changed;
+        let visual_changed = self.snapshot.calibration != snapshot.calibration
+            || self.snapshot.speaker_divider != snapshot.speaker_divider
+            || scene_changed;
         self.snapshot = snapshot.clone();
         visual_changed
     }
@@ -423,7 +430,9 @@ impl OverlayState {
         let scene_changed = self
             .scene
             .apply_snapshot(&snapshot.blocks, snapshot.calibration.text_scale);
-        let visual_changed = self.snapshot.calibration != snapshot.calibration || scene_changed;
+        let visual_changed = self.snapshot.calibration != snapshot.calibration
+            || self.snapshot.speaker_divider != snapshot.speaker_divider
+            || scene_changed;
         self.snapshot = snapshot.clone();
         visual_changed
     }
@@ -446,6 +455,10 @@ impl OverlayState {
 
     pub fn scene(&self) -> &OverlayScene {
         &self.scene
+    }
+
+    pub fn speaker_divider(&self) -> bool {
+        self.snapshot.speaker_divider && self.scene.slots.iter().all(Option::is_some)
     }
 }
 

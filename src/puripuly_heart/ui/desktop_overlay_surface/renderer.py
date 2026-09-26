@@ -51,6 +51,11 @@ from puripuly_heart.ui.desktop_overlay_surface.contract import (
     _DESKTOP_INTERACTION_MODE_EDIT,
     _DESKTOP_PREVIEW_BACKGROUND_ALPHA_PRESETS,
     _DESKTOP_PREVIEW_BACKGROUND_SURFACE_DATA,
+    _DESKTOP_SPEAKER_DIVIDER_FILL,
+    _DESKTOP_SPEAKER_DIVIDER_FILL_EM,
+    _DESKTOP_SPEAKER_DIVIDER_OUTLINE,
+    _DESKTOP_SPEAKER_DIVIDER_OUTLINE_EM,
+    _DESKTOP_SPEAKER_DIVIDER_WIDTH_EM,
     DesktopCaptionLine,
     DesktopCaptionPlan,
     DesktopCaptionSizePreset,
@@ -151,6 +156,10 @@ def build_desktop_caption_plan(
         background_color=_caption_background_color(background_alpha),
         surface_visible=surface_visible,
         full_window_background_visible=full_window_background_visible,
+        speaker_divider=snapshot.speaker_divider and len(slots) == 2,
+        speaker_divider_width=primary_font_size * _DESKTOP_SPEAKER_DIVIDER_WIDTH_EM,
+        speaker_divider_fill_height=primary_font_size * _DESKTOP_SPEAKER_DIVIDER_FILL_EM,
+        speaker_divider_outline_width=primary_font_size * _DESKTOP_SPEAKER_DIVIDER_OUTLINE_EM,
     )
 
 
@@ -256,6 +265,10 @@ def build_desktop_caption_surface(plan: DesktopCaptionPlan) -> Any:
                 height=slot_stack_height,
             )
         )
+    if plan.speaker_divider:
+        speaker_divider = ft.Container()
+        _apply_speaker_divider(ft, speaker_divider, plan)
+        stack_controls.append(speaker_divider)
     return ft.Container(
         content=ft.Stack(
             controls=stack_controls,
@@ -1384,8 +1397,9 @@ def _build_retained_desktop_caption_surface(
         alignment=ft.MainAxisAlignment.CENTER,
         tight=True,
     )
+    speaker_divider = ft.Container()
     caption_stack = ft.Stack(
-        controls=[full_background, slot_column],
+        controls=[full_background, slot_column, speaker_divider],
         alignment=ft.Alignment.CENTER,
     )
     caption_surface = ft.Container(
@@ -1434,6 +1448,7 @@ def _build_retained_desktop_caption_surface(
         primary_texts=tuple(primary_texts),
         secondary_texts=tuple(secondary_texts),
         empty_lock_action=empty_lock_action,
+        speaker_divider=speaker_divider,
     )
     _apply_retained_desktop_caption_plan(ft, model, plan, empty_lock_label=empty_lock_label)
     return model
@@ -1537,6 +1552,7 @@ def _apply_retained_desktop_caption_plan(
             ),
             fallback_font_size=plan.secondary_font_size,
         )
+    _apply_speaker_divider(ft, model.speaker_divider, plan)
     show_empty_lock = plan.full_window_background_visible and not plan.slots
     model.empty_lock_action.visible = show_empty_lock
     model.empty_lock_action.text = empty_lock_label if show_empty_lock else ""
@@ -1550,6 +1566,20 @@ def _apply_retained_desktop_caption_plan(
         _desktop_empty_lock_action_font_size(plan)
         + (_DESKTOP_EMPTY_LOCK_ACTION_VERTICAL_PADDING * 2),
     )
+
+
+def _apply_speaker_divider(ft: Any, divider: Any, plan: DesktopCaptionPlan) -> None:
+    height = plan.speaker_divider_fill_height + (plan.speaker_divider_outline_width * 2)
+    divider.visible = plan.speaker_divider
+    divider.width = plan.speaker_divider_width
+    divider.height = height
+    divider.left = (plan.window_width - plan.speaker_divider_width) / 2
+    divider.top = (plan.window_height - height) / 2
+    divider.bgcolor = _DESKTOP_SPEAKER_DIVIDER_FILL
+    divider.border = ft.Border.all(
+        plan.speaker_divider_outline_width, _DESKTOP_SPEAKER_DIVIDER_OUTLINE
+    )
+    divider.border_radius = height / 2
 
 
 def _apply_retained_caption_line(

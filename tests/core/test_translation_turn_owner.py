@@ -143,9 +143,10 @@ def test_language_and_speaker_boundaries_segment_without_punctuation_occupants()
         ((None, None, "B", "B"), ["aa", "bb"], [None, "B"]),
         ((None, None, None, None), ["aabb"], [None]),
         (("A", None, "B", None), ["a", "a", "b", "b"], ["A", None, "B", None]),
+        (("A", None, "A", "A"), ["a", "a", "bb"], ["A", None, "A"]),
     ],
 )
-def test_speaker_transition_matrix_preserves_unknown_boundaries(
+def test_speaker_identity_matrix_preserves_unknown_boundaries(
     speaker_ids,
     expected_texts,
     expected_speakers,
@@ -182,6 +183,14 @@ def test_speaker_transition_matrix_preserves_unknown_boundaries(
         child.transcript.final_speaker_runs[0].speaker_id for child in children
     ] == expected_speakers
     assert "".join(child.transcript.text for child in children) == text
+    assert [child.transcript.source_text_range for child in children] == [
+        (0, len(expected_texts[0])),
+        *[
+            (sum(map(len, expected_texts[:index])), sum(map(len, expected_texts[: index + 1])))
+            for index in range(1, len(expected_texts))
+        ],
+    ]
+    assert len({child.transcript.source_text_revision for child in children}) == 1
 
 
 def test_language_change_splits_consecutive_unknown_speaker_text() -> None:
@@ -435,6 +444,62 @@ async def test_peer_timed_out_segment_releases_execution_and_output_slots() -> N
         assert [item.sequence for item in output.submissions] == [1]
         assert [event[2] for event in trace if event[0] == "terminal"] == ["failed", "translated"]
     finally:
+        await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_fills_free_execution_slot_while_earlier_segment_is_pending() -> None:
+    release_first = asyncio.Event()
+    third_started = asyncio.Event()
+    started: list[int] = []
+    active = 0
+    peak = 0
+
+    async def process(child, _cancelled):
+        nonlocal active, peak
+        started.append(child.sequence)
+        active += 1
+        peak = max(peak, active)
+        try:
+            if child.sequence == 0:
+                await release_first.wait()
+            if child.sequence == 2:
+                third_started.set()
+            return _translated_result(child)
+        finally:
+            active -= 1
+
+    output = RecordingOutput()
+    owner = _owner(process_child=process, output=output)
+    request = replace(
+        _request(
+            parent_id=uuid4(),
+            turn_kind="peer",
+            runs=(
+                FinalLanguageRun("first ", "en"),
+                FinalLanguageRun("second ", "ja"),
+                FinalLanguageRun("third", "ko"),
+            ),
+        ),
+        config_snapshot=TranslationRuntimeConfigSnapshot(
+            revision=0, value=TranslationRuntimeConfig(concurrency_limit=2)
+        ),
+    )
+    try:
+        await owner.submit(request)
+        await asyncio.wait_for(third_started.wait(), 2)
+        assert output.submissions == []
+        assert started == [0, 1, 2]
+        assert peak == 2
+        release_first.set()
+        await owner.wait_for_idle()
+        assert [submission.source_text for submission in output.submissions] == [
+            "first ",
+            "second ",
+            "third",
+        ]
+    finally:
+        release_first.set()
         await owner.close()
 
 

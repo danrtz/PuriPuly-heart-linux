@@ -263,8 +263,6 @@ def peer_requests(fixture: OwnerFixture) -> tuple[TranslationProcessRequest, ...
             context_policy="integrated_preferred",
             config_snapshot=fixture.configuration.snapshot(),
             detected_language=language,
-            speaker_id=speaker,
-            speaker_session_scope="soniox-session",
             publication_generation=0,
             source_order=1,
             parent_output_count=3,
@@ -276,13 +274,14 @@ def peer_requests(fixture: OwnerFixture) -> tuple[TranslationProcessRequest, ...
 
 
 @pytest.mark.asyncio
-async def test_peer_plain_text_responses_preserve_each_segments_translation() -> None:
+async def test_peer_segments_use_individual_requests_with_whole_parent_context() -> None:
     translations = {"one ": "一", "둘째 ": "二", "three": "三"}
+    requests_seen: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        user_message = body["messages"][1]["content"]
-        source = user_message.split("<input>\n", 1)[1].split("\n</input>", 1)[0]
+        requests_seen.append(body)
+        source = body["messages"][1]["content"].split("<input>\n", 1)[1].split("\n</input>", 1)[0]
         return httpx.Response(
             200,
             json={
@@ -306,11 +305,16 @@ async def test_peer_plain_text_responses_preserve_each_segments_translation() ->
     finally:
         await provider.close()
 
-    assert [
-        (result.output.source_text, result.output.translation.text)
-        for result in results
-        if result.output is not None and result.output.translation is not None
-    ] == [("one ", "一"), ("둘째 ", "二"), ("three", "三")]
+    assert len(requests_seen) == 3
+    assert [(result.output.source_text, result.output.translation.text) for result in results] == [
+        ("one ", "一"),
+        ("둘째 ", "二"),
+        ("three", "三"),
+    ]
+    for body in requests_seen:
+        context = body["messages"][1]["content"]
+        assert all(text in context for text in translations)
+        assert "speaker=" not in context
 
 
 @pytest.mark.asyncio
@@ -412,7 +416,6 @@ async def test_peer_unsupported_segments_remain_reference_without_blocking_trans
     ]
     assert results[1].output.translation.text == "翻訳"
     assert len(provider.calls) == 1
-    assert all(request.text in provider.calls[0]["context"] for request in requests)
 
 
 @pytest.mark.asyncio
@@ -440,7 +443,7 @@ async def test_ineligible_peer_parent_does_not_call_provider(disabled: bool) -> 
     assert provider.calls == []
 
 
-def test_peer_admission_records_history_once_and_separates_current_reference() -> None:
+def test_peer_admission_records_history_once_without_speaker_labels_in_context() -> None:
     fixture = build_owner(RecordingProvider())
     fixture.peer_runtime.remember_context(
         "earlier", timestamp=99.0, source_language="", target_language="ja"
@@ -449,10 +452,6 @@ def test_peer_admission_records_history_once_and_separates_current_reference() -
     prepared = fixture.owner.admit_peer(requests)
     for item in prepared.values():
         assert item.context.count("earlier") == 1
-        assert all(
-            item.context.count(json.dumps(request.text, ensure_ascii=False)) == 1
-            for request in requests
-        )
     assert [entry.text for entry in fixture.peer_runtime.translation_history] == [
         "earlier",
         "one",

@@ -4,7 +4,6 @@ import asyncio
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from html import escape
 from typing import Protocol, cast
 from uuid import UUID
 
@@ -53,8 +52,8 @@ from puripuly_heart.domain.events import UIEventType
 from puripuly_heart.domain.models import ChannelId, Translation
 
 _PEER_TURN_CONTEXT_INSTRUCTION = (
-    "Current peer turn is reference only; its speaker labels are local and unknown speakers "
-    "may differ. Translate only <input> as its speaker, returning only the translation."
+    "Current peer turn is reference only. Translate only <input>, returning only "
+    "the translation of that segment."
 )
 
 
@@ -212,8 +211,6 @@ class TranslationProcessRequest:
     context_policy: TranslationContextPolicy
     config_snapshot: TranslationRuntimeConfigSnapshot
     detected_language: str | None = None
-    speaker_id: str | None = None
-    speaker_session_scope: str = ""
     target_index: int = 0
     turn_generation: int | None = None
     turn_order: int | None = None
@@ -504,19 +501,11 @@ class TranslationRequestOwner:
         parent_prepared = next(iter(prepared.values()))
         reference = ""
         if isinstance(backend, LlmTranslationBackend) and len(requests) > 1:
-            speakers: dict[tuple[str, str], str] = {}
-            lines: list[str] = []
-            for request in requests:
-                speaker = "unknown"
-                if request.speaker_id is not None and request.speaker_session_scope:
-                    key = (request.speaker_session_scope, request.speaker_id)
-                    speaker = speakers.setdefault(key, f"S{len(speakers) + 1}")
-                text = escape(json.dumps(request.text, ensure_ascii=False), quote=False)
-                language = escape(request.detected_language or "unknown", quote=False)
-                lines.append(
-                    f"{request.sequence} / speaker={speaker} / language={language}: {text}"
-                )
-            reference = "\n".join(lines)
+            reference = "\n".join(
+                f"{request.sequence} / language={request.detected_language or 'unknown'}: "
+                f"{json.dumps(request.text, ensure_ascii=False)}"
+                for request in requests
+            )
         result: dict[UUID, PreparedTranslationRequest] = {}
         for request in requests:
             item = prepared.get(request.utterance_id)

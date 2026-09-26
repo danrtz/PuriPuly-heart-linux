@@ -522,3 +522,57 @@ def test_overlay_presentation_block_rejects_peer_active_self_combination() -> No
 def test_overlay_presentation_block_rejects_non_dict_payload(payload: object) -> None:
     with pytest.raises(ValueError, match="overlay presentation block must be an object"):
         OverlayPresentationBlock.from_dict(payload)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("style", ("gold", "cyan", "coral", "blue", "gray"))
+def test_peer_speaker_style_roundtrips_through_snapshot(style: str) -> None:
+    snapshot = OverlayPresentationSnapshot(
+        revision=7,
+        blocks=[
+            OverlayPresentationBlock(
+                id="peer:caption",
+                occupant_key="peer:caption",
+                appearance_seq=1,
+                channel="peer",
+                block_variant="finalized",
+                primary_text="translation",
+                secondary_text="source",
+                secondary_enabled=True,
+                speaker_style=style,
+            )
+        ],
+    )
+    assert (
+        OverlayPresentationSnapshot.from_dict(snapshot.to_dict()).blocks[0].speaker_style == style
+    )
+
+
+def test_unsupported_peer_style_decodes_as_gray_not_gold_or_cyan() -> None:
+    snapshot = OverlayPresentationSnapshot(
+        revision=2,
+        blocks=[
+            OverlayPresentationBlock(
+                id="peer:caption",
+                occupant_key="peer:caption",
+                appearance_seq=1,
+                channel="peer",
+                block_variant="finalized",
+                primary_text="words",
+                secondary_text="",
+                secondary_enabled=False,
+            )
+        ],
+    ).to_dict()
+    for retired in ("obsolete-transition", "p02", "p14"):
+        snapshot["blocks"][0]["speaker_style"] = retired
+        assert OverlayPresentationSnapshot.from_dict(snapshot).blocks[0].speaker_style == "gray"
+
+
+def test_speaker_divider_roundtrips_and_is_omitted_when_absent() -> None:
+    assert "speaker_divider" not in OverlayPresentationSnapshot(revision=1).to_dict()
+    payload = OverlayPresentationSnapshot(revision=2, speaker_divider=True).to_dict()
+    assert payload["speaker_divider"] is True
+    assert OverlayPresentationSnapshot.from_dict(payload).speaker_divider is True
+    assert OverlayPresentationSnapshot.from_dict({"revision": 3}).speaker_divider is False
+    with pytest.raises(ValueError, match="speaker_divider must be a bool"):
+        OverlayPresentationSnapshot.from_dict({"revision": 4, "speaker_divider": "yes"})

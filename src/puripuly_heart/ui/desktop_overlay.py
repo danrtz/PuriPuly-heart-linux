@@ -59,7 +59,7 @@ from puripuly_heart.core.diagnostic_validation import (
 from puripuly_heart.core.overlay.manifest import (
     OVERLAY_CONTRACT_VERSION,
     OVERLAY_EXECUTION_CONTRACT,
-    OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+    OVERLAY_SPEAKER_IDENTITY_CONTRACT,
     OverlayLaunchManifest,
 )
 from puripuly_heart.core.overlay.protocol import (
@@ -87,9 +87,6 @@ from puripuly_heart.ui.desktop_overlay_surface.contract import (
 )
 from puripuly_heart.ui.desktop_overlay_surface.contract import (
     _DESKTOP_CAPTION_EMOJI_WIDTH_EM as _DESKTOP_CAPTION_EMOJI_WIDTH_EM,
-)
-from puripuly_heart.ui.desktop_overlay_surface.contract import (
-    _DESKTOP_CAPTION_GOLD as _DESKTOP_CAPTION_GOLD,
 )
 from puripuly_heart.ui.desktop_overlay_surface.contract import (
     _DESKTOP_CAPTION_LATIN_NARROW_WIDTH_EM as _DESKTOP_CAPTION_LATIN_NARROW_WIDTH_EM,
@@ -2796,7 +2793,7 @@ class DesktopOverlayRenderer:
                         "runtime_generation": 1,
                         "capabilities": {
                             "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                            "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                            "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
                         },
                     }
                 )
@@ -2842,7 +2839,7 @@ class DesktopOverlayRenderer:
             ready_event["runtime_generation"] = 1
             ready_event["capabilities"] = {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             }
             startup_generation = getattr(self.window, "startup_generation", 0)
             if isinstance(startup_generation, int) and startup_generation > 0:

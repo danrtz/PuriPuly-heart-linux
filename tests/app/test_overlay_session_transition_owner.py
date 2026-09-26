@@ -246,6 +246,7 @@ async def test_cancelled_transition_releases_admission_lock_and_reports_metadata
     assert diagnostics[0].outcome == "cancelled"
     assert diagnostics[1].outcome == "already_off"
 
+
 def test_owner_declares_cross_generation_transition_policy() -> None:
     assert OverlaySessionTransitionOwner().lifecycle_owner_snapshot() == {
         "owner": "OverlaySessionTransitionOwner",

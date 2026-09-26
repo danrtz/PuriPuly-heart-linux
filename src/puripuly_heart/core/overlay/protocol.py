@@ -5,6 +5,8 @@ from typing import Literal
 
 ChannelId = Literal["self", "peer"]
 U64_MAX = (1 << 64) - 1
+SPEAKER_IDENTITY_STYLES = ("gold", "cyan", "coral", "blue")
+SpeakerStyle = Literal["gray", "gold", "cyan", "coral", "blue"]
 # `active_peer` remains a reserved compatibility/fallback variant. Normal
 # product peer rows are primary-visible only after translation arrival.
 BlockVariant = Literal["active_self", "active_peer", "finalized"]
@@ -62,7 +64,7 @@ class OverlayPresentationBlock:
     publication_scope: str | None = None
     publication_generation: int | None = None
     publication_order: int | None = None
-    speaker_style: Literal["gold", "cyan"] | None = None
+    speaker_style: SpeakerStyle | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -275,6 +277,7 @@ class OverlayPresentationSnapshot:
     native_fresh_render_targets: NativeFreshRenderTargets | None = None
     native_quiet_tail_episodes: NativeQuietTailEpisodes | None = None
     semantic_retirement_frontiers: list[SemanticRetirementFrontier] = field(default_factory=list)
+    speaker_divider: bool = False
 
     def __post_init__(self) -> None:
         generations = self.native_fresh_render_generations
@@ -305,6 +308,8 @@ class OverlayPresentationSnapshot:
             payload["semantic_retirement_frontiers"] = [
                 frontier.to_dict() for frontier in self.semantic_retirement_frontiers
             ]
+        if self.speaker_divider:
+            payload["speaker_divider"] = True
         return payload
 
     @classmethod
@@ -361,6 +366,7 @@ class OverlayPresentationSnapshot:
                 for frontier in raw_frontiers
                 if isinstance(frontier, dict)
             ],
+            speaker_divider=_optional_bool_field(data, "speaker_divider", default=False),
         )
 
 
@@ -408,12 +414,12 @@ def _optional_bool_field(
     return value
 
 
-def _optional_speaker_style(data: dict[str, object]) -> Literal["gold", "cyan"] | None:
+def _optional_speaker_style(data: dict[str, object]) -> SpeakerStyle | None:
     value = data.get("speaker_style")
     if value is None:
         return None
-    if value not in ("gold", "cyan"):
-        raise ValueError("speaker_style must be 'gold' or 'cyan'")
+    if value not in ("gray", *SPEAKER_IDENTITY_STYLES):
+        return "gray"
     return value
 
 

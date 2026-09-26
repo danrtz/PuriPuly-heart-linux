@@ -341,6 +341,10 @@ class _RollingSession(STTBackendSession):
     on_session_error: Callable[[RollingProviderDefinition, BaseException], None]
 
     @property
+    def max_session_age_s(self) -> float | None:
+        return getattr(self.inner, "max_session_age_s", None)
+
+    @property
     def reset_deadline_s(self) -> float:
         if self.definition.session_deadline_s is not None:
             return self.definition.session_deadline_s

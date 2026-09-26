@@ -1510,8 +1510,7 @@ async def test_retained_scoped_engine_receives_pending_fact_from_blocked_peer_gu
         ),
         monotonic_clock=lambda: now[0],
         watchdog_resolver=lambda _settings: STTRecognitionWatchdogs(
-            healthy_reset_age_s=0.02,
-            recent_speech_window_s=0.01,
+            idle_timeout_s=0.01,
         ),
     )
     new = FakeScopedProvider(new_scope)

@@ -9,12 +9,12 @@ use super::font_resolver::{FontResolver, TextStyleKey};
 use super::types::{
     BlockBounds, CaptionBlock, CaptionBlockVariant, CaptionLayoutResult, CaptionPresentation,
     LayoutCacheKey, LineRole, ResolvedBlockLayout, ResolvedFrameLayout, ResolvedLineLayout,
-    TextStyleDescriptor, VisualBounds, DEFAULT_AVERAGE_GLYPH_ADVANCE_PX, DEFAULT_BLOCK_SPACING_PX,
-    DEFAULT_FONT_SIZE_PX, DEFAULT_HORIZONTAL_PADDING_PX, DEFAULT_PRIMARY_LINE_HEIGHT_PX,
-    DEFAULT_SECONDARY_LINE_HEIGHT_PX, DEFAULT_STRIP_HORIZONTAL_PADDING_PX,
-    DEFAULT_STRIP_VERTICAL_PADDING_PX, DEFAULT_SURFACE_HEIGHT_PX, DEFAULT_SURFACE_WIDTH_PX,
-    DEFAULT_VERTICAL_PADDING_PX, PRIMARY_SECONDARY_GAP_PX, SECONDARY_FONT_SCALE,
-    TEXT_OUTLINE_OVERHANG_PX,
+    SpeakerDividerBand, TextStyleDescriptor, VisualBounds, DEFAULT_AVERAGE_GLYPH_ADVANCE_PX,
+    DEFAULT_BLOCK_SPACING_PX, DEFAULT_FONT_SIZE_PX, DEFAULT_HORIZONTAL_PADDING_PX,
+    DEFAULT_PRIMARY_LINE_HEIGHT_PX, DEFAULT_SECONDARY_LINE_HEIGHT_PX,
+    DEFAULT_STRIP_HORIZONTAL_PADDING_PX, DEFAULT_STRIP_VERTICAL_PADDING_PX,
+    DEFAULT_SURFACE_HEIGHT_PX, DEFAULT_SURFACE_WIDTH_PX, DEFAULT_VERTICAL_PADDING_PX,
+    PRIMARY_SECONDARY_GAP_PX, SECONDARY_FONT_SCALE, TEXT_OUTLINE_OVERHANG_PX,
 };
 #[cfg(windows)]
 use windows::core::PCWSTR;
@@ -222,6 +222,7 @@ impl CaptionLayoutPolicy {
         let strip_left_px = self.horizontal_padding_px as f32;
         let mut top_px = self.vertical_padding_px as f32;
         let mut resolved_blocks = Vec::with_capacity(blocks.len());
+        let speaker_divider = self.speaker_divider_band(&blocks, surface_width_px, presentation);
         let resolver = FontResolver::default();
 
         for block in blocks {
@@ -273,7 +274,36 @@ impl CaptionLayoutPolicy {
             surface_width_px,
             surface_height_px,
             damage_band: None,
+            speaker_divider,
         }
+    }
+
+    fn speaker_divider_band(
+        &self,
+        blocks: &[CaptionBlock],
+        surface_width_px: u32,
+        presentation: &CaptionPresentation,
+    ) -> Option<SpeakerDividerBand> {
+        if !presentation.speaker_divider || blocks.len() != 2 {
+            return None;
+        }
+        let slot_top_px = |slot_index: usize| {
+            blocks
+                .iter()
+                .find(|block| block.slot_assigned && block.slot_index == slot_index)
+                .map(|block| block.slot_top_px)
+        };
+        let (Some(upper_top_px), Some(lower_top_px)) = (slot_top_px(0), slot_top_px(1)) else {
+            return None;
+        };
+        let upper_bottom_px =
+            upper_top_px + self.stable_block_height_px(true, presentation.text_scale);
+        let strip_width_px =
+            self.content_width_px(surface_width_px) + self.strip_horizontal_padding_px as f32 * 2.0;
+        Some(SpeakerDividerBand::centered(
+            self.horizontal_padding_px as f32 + strip_width_px * 0.5,
+            (upper_bottom_px + lower_top_px) * 0.5,
+        ))
     }
 
     pub fn measured_block_height_px(
@@ -545,6 +575,7 @@ impl CaptionLayoutPolicy {
         let strip_left_px = self.horizontal_padding_px as f32;
         let mut top_px = self.vertical_padding_px as f32;
         let mut resolved_blocks = Vec::with_capacity(blocks.len());
+        let speaker_divider = self.speaker_divider_band(&blocks, surface_width_px, presentation);
 
         for block in blocks {
             let primary_style = engine.resolve_text_style(
@@ -615,6 +646,7 @@ impl CaptionLayoutPolicy {
             surface_width_px,
             surface_height_px,
             damage_band: None,
+            speaker_divider,
         })
     }
 }
@@ -1169,16 +1201,17 @@ impl DirectWriteLayoutEngine {
 }
 
 pub(crate) fn resolved_layout_has_drawable_text(layout: &ResolvedFrameLayout) -> bool {
-    layout.visible_blocks.iter().any(|block| {
-        block
-            .primary_lines
-            .iter()
-            .any(|line| !line.text.trim().is_empty())
-            || block
-                .secondary_line
-                .as_ref()
-                .is_some_and(|line| !line.text.trim().is_empty())
-    })
+    layout.speaker_divider.is_some()
+        || layout.visible_blocks.iter().any(|block| {
+            block
+                .primary_lines
+                .iter()
+                .any(|line| !line.text.trim().is_empty())
+                || block
+                    .secondary_line
+                    .as_ref()
+                    .is_some_and(|line| !line.text.trim().is_empty())
+        })
 }
 
 fn layout_cache_key_for_block(
@@ -1194,6 +1227,7 @@ fn layout_cache_key_for_block(
         primary_style_key,
         secondary_style_key,
         channel: block.channel,
+        speaker_style: block.speaker_style,
         block_variant: block.block_variant,
         secondary_enabled: block.secondary_enabled,
         secondary_reserved: block_reserves_secondary_row(block),
@@ -1260,6 +1294,7 @@ fn materialize_resolved_block_layout(
         id: block.id.clone(),
         layout_cache_key,
         channel: block.channel,
+        speaker_style: block.speaker_style,
         block_variant: block.block_variant,
         primary_lines,
         secondary_line,
@@ -1538,7 +1573,8 @@ mod tests {
     use super::{measure_text_width, wrap_text, CaptionLayoutPolicy};
     use crate::renderer::{
         effective_background_alpha, fill_color_for_channel, outline_offsets_px, text_script_bucket,
-        CaptionBlock, CaptionChannel, CaptionPresentation, FontResolver, TextScriptBucket,
+        CaptionBlock, CaptionChannel, CaptionPresentation, FontResolver, SpeakerStyle,
+        TextScriptBucket,
     };
 
     fn fallback_styles(
@@ -1746,17 +1782,46 @@ mod tests {
 
     #[test]
     fn fill_color_for_channel_uses_fixed_text_only_palette() {
-        let this = fill_color_for_channel(CaptionChannel::SelfChannel);
-        let peer = fill_color_for_channel(CaptionChannel::PeerChannel);
-        let peer_cyan = fill_color_for_channel(CaptionChannel::PeerCyan);
-        assert_eq!(this, (1.0, 1.0, 1.0, 1.0));
-        assert_eq!(peer, (1.0, 215.0 / 255.0, 0.0, 1.0));
-        assert_eq!(peer_cyan, (51.0 / 255.0, 214.0 / 255.0, 1.0, 1.0));
-        assert_ne!(this, peer);
-        assert_ne!(peer, peer_cyan);
-        assert_eq!(this.3, 1.0);
-        assert_eq!(peer.3, 1.0);
-        assert_eq!(peer_cyan.3, 1.0);
+        let expected = [
+            ("gold", 0xFFD700u32),
+            ("cyan", 0x40DBFF),
+            ("coral", 0xFF7F5C),
+            ("blue", 0x7593FF),
+        ];
+        for (token, rgb) in expected {
+            let style = SpeakerStyle::from_token(Some(token));
+            let color = fill_color_for_channel(CaptionChannel::PeerChannel, style);
+            assert_eq!(
+                color,
+                (
+                    ((rgb >> 16) & 255) as f32 / 255.0,
+                    ((rgb >> 8) & 255) as f32 / 255.0,
+                    (rgb & 255) as f32 / 255.0,
+                    1.0,
+                ),
+                "{token}"
+            );
+            assert_eq!(
+                fill_color_for_channel(CaptionChannel::SelfChannel, style),
+                (1.0, 1.0, 1.0, 1.0)
+            );
+        }
+        for token in [
+            None,
+            Some("gray"),
+            Some("p02"),
+            Some("p14"),
+            Some("GOLD"),
+            Some(""),
+        ] {
+            assert_eq!(
+                fill_color_for_channel(
+                    CaptionChannel::PeerChannel,
+                    SpeakerStyle::from_token(token)
+                ),
+                (180.0 / 255.0, 180.0 / 255.0, 180.0 / 255.0, 1.0),
+            );
+        }
     }
 
     #[test]
@@ -1782,6 +1847,7 @@ mod tests {
         let presentation = CaptionPresentation {
             background_alpha: 0.82,
             text_scale: 1.0,
+            speaker_divider: false,
         };
 
         assert_eq!(effective_background_alpha(true, &presentation), 0.0);

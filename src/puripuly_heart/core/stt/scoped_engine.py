@@ -51,8 +51,8 @@ class STTRecognitionWatchdogs:
     write_timeout_s: float = 5.0
     final_timeout_s: float = 20.0
     drain_timeout_s: float = 1.5
-    healthy_reset_age_s: float = 180.0
-    recent_speech_window_s: float = 10.0
+    idle_timeout_s: float = 60.0
+    max_session_age_s: float | None = None
     connect_attempts: int = 3
     connect_retry_base_s: float = 0.8
     connect_retry_max_s: float = 1.6
@@ -63,11 +63,12 @@ class STTRecognitionWatchdogs:
             self.write_timeout_s,
             self.final_timeout_s,
             self.drain_timeout_s,
-            self.healthy_reset_age_s,
-            self.recent_speech_window_s,
+            self.idle_timeout_s,
             self.connect_retry_base_s,
             self.connect_retry_max_s,
         )
+        if self.max_session_age_s is not None and self.max_session_age_s <= 0:
+            raise ValueError("recognition session age limit must be positive")
         if any(value <= 0 for value in values):
             raise ValueError("recognition watchdog values must be positive")
         if self.connect_attempts != 3:
@@ -131,7 +132,7 @@ class ScopedRecognitionEngine:
     ) = None
     event_drain_timeout_s: float = 1.5
     terminal_failure_sink: Callable[[Exception], Awaitable[None] | None] | None = None
-    deferred_age_rotation_enabled: bool = True
+    session_lifetime_enabled: bool = True
     exclusive_provider_ids: frozenset[str] = frozenset(
         {
             "local_cpu_auto",
@@ -168,7 +169,9 @@ class ScopedRecognitionEngine:
     _source_speech_active: bool = field(init=False, default=False, repr=False)
     _last_source_speech_at_s: float | None = field(init=False, default=None, repr=False)
     _source_work_pending: bool = field(init=False, default=False, repr=False)
-    _rotation_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
+    _lifetime_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
+    _lifetime_deadline_s: float | None = field(init=False, default=None, repr=False)
+    _session_max_age_s: float | None = field(init=False, default=None, repr=False)
     _input_lock: asyncio.Lock = field(init=False, repr=False)
     _turn_resolved: asyncio.Event = field(init=False, repr=False)
     _abort_lock: asyncio.Lock = field(init=False, repr=False)
@@ -352,19 +355,19 @@ class ScopedRecognitionEngine:
         speech_observed: bool,
         observed_at_monotonic_s: float | None = None,
     ) -> None:
-        if self._closed or not self.deferred_age_rotation_enabled:
+        if self._closed or not self.session_lifetime_enabled:
             return
         now = self.monotonic_clock() if observed_at_monotonic_s is None else observed_at_monotonic_s
-        self._source_speech_active = speech_observed
-        if speech_observed:
+        if speech_observed or self._source_speech_active:
             self._last_source_speech_at_s = now
-        self._schedule_rotation_check()
+        self._source_speech_active = speech_observed
+        self._schedule_lifetime_check()
 
     async def observe_pending_source_work(self, *, pending: bool) -> None:
-        if self._closed or not self.deferred_age_rotation_enabled:
+        if self._closed or not self.session_lifetime_enabled:
             return
         self._source_work_pending = pending
-        self._schedule_rotation_check()
+        self._schedule_lifetime_check()
 
     async def abort(self, *, reason: str = "cancelled") -> None:
         self._authority_generation += 1
@@ -403,7 +406,7 @@ class ScopedRecognitionEngine:
             return
         await self.abort(reason="closed")
         self._closed = True
-        self._cancel_rotation_check()
+        self._cancel_lifetime_check()
         await self._await_event_drain(self.event_drain_timeout_s)
         self._event_buffer.close()
         event_task = self._event_dispatch_task
@@ -709,11 +712,9 @@ class ScopedRecognitionEngine:
             if self._ended_provider_epoch_id == self._provider_epoch_id:
                 self._retire_current_session(watchdogs)
             elif self._session_scope == scope:
-                opened_at = self._session_opened_at_s
-                age = 0.0 if opened_at is None else self.monotonic_clock() - opened_at
-                if self.deferred_age_rotation_enabled or age < watchdogs.healthy_reset_age_s:
+                if not self._session_near_ceiling():
                     return
-                self._retire_current_session(watchdogs)
+                self._retire_current_session()
             else:
                 self._retire_current_session(watchdogs)
         if self.cleanup_debt:
@@ -751,13 +752,23 @@ class ScopedRecognitionEngine:
                     self._session_scope = scope
                     self._session_opened_at_s = self.monotonic_clock()
                     self._session_watchdogs = watchdogs
+                    provider_max_age = getattr(session, "max_session_age_s", None)
+                    if provider_max_age is not None and provider_max_age <= 0:
+                        self._retire_current_session(watchdogs)
+                        raise ValueError("provider session age limit must be positive")
+                    limits = tuple(
+                        limit
+                        for limit in (watchdogs.max_session_age_s, provider_max_age)
+                        if limit is not None
+                    )
+                    self._session_max_age_s = min(limits) if limits else None
                     self._ended_provider_epoch_id = None
                     self._session_retirement_requested = False
                     self._session_consumer = asyncio.create_task(
                         self._consume_session_events(session, epoch_id),
                         name=f"scoped-stt-events:{epoch_id}",
                     )
-                    self._schedule_rotation_check()
+                    self._schedule_lifetime_check()
                     return
             if self._episode_failures < watchdogs.connect_attempts:
                 delay = min(
@@ -868,13 +879,30 @@ class ScopedRecognitionEngine:
         operation: Literal["begin", "send", "seal", "abort"],
         awaitable: Awaitable[None],
     ) -> bool:
+        deadline_s = (
+            self._session_opened_at_s + self._session_max_age_s
+            if session is self._session
+            and self._session_opened_at_s is not None
+            and self._session_max_age_s is not None
+            else None
+        )
+        timeout_s = turn.watchdogs.write_timeout_s
+        if deadline_s is not None:
+            timeout_s = min(timeout_s, max(0.0, deadline_s - self.monotonic_clock()))
         task = asyncio.create_task(
             awaitable,
             name=f"scoped-stt-{operation}:{turn.identity.provider_turn_id}",
         )
         operations = self._operation_tasks.setdefault(id(session), set())
         operations.add(task)
-        done, _pending = await asyncio.wait({task}, timeout=turn.watchdogs.write_timeout_s)
+        done, _pending = await asyncio.wait({task}, timeout=timeout_s)
+        if (
+            deadline_s is not None
+            and self.monotonic_clock() >= deadline_s
+            and self._has_write_authority(session, turn)
+        ):
+            await self._expire_current_session()
+            return False
         if task not in done:
             if self._has_write_authority(session, turn):
                 self._set_turn_failure(turn, f"provider_{operation}_timeout")
@@ -983,11 +1011,13 @@ class ScopedRecognitionEngine:
             or self._ended_provider_epoch_id == turn.identity.provider_epoch_id
         ):
             self._session_retirement_requested = True
+        if self._session_near_ceiling():
+            self._session_retirement_requested = True
         if should_emit:
             await self._emit(terminal)
         if self._session_retirement_requested and not self._turns:
             self._retire_current_session(turn.watchdogs)
-        self._schedule_rotation_check()
+        self._schedule_lifetime_check()
 
     def _can_start_turn(self, settings: AudioSegmentSettingsSnapshot) -> bool:
         if self._turn is not None:
@@ -995,6 +1025,8 @@ class ScopedRecognitionEngine:
             return False
         if not self._turns:
             return True
+        if self._session_near_ceiling():
+            self._session_retirement_requested = True
         session = self._session
         allowed = (
             session is not None
@@ -1006,6 +1038,18 @@ class ScopedRecognitionEngine:
         if not allowed:
             self._turn_resolved.clear()
         return allowed
+
+    def _session_near_ceiling(self) -> bool:
+        opened_at = self._session_opened_at_s
+        ceiling = self._session_max_age_s
+        watchdogs = self._session_watchdogs
+        if opened_at is None or ceiling is None or watchdogs is None:
+            return False
+        guard = min(
+            ceiling / 2,
+            watchdogs.write_timeout_s + watchdogs.final_timeout_s + watchdogs.drain_timeout_s,
+        )
+        return self.monotonic_clock() >= opened_at + ceiling - guard
 
     @staticmethod
     def _session_allows_sealed_turn_overlap(session: STTScopedTurnSession) -> bool:
@@ -1023,7 +1067,7 @@ class ScopedRecognitionEngine:
         self,
         watchdogs: STTRecognitionWatchdogs | None = None,
     ) -> None:
-        self._cancel_rotation_check()
+        self._cancel_lifetime_check()
         session = self._session
         if session is None:
             return
@@ -1043,6 +1087,7 @@ class ScopedRecognitionEngine:
         self._session_opened_at_s = None
         self._session_scope = None
         self._session_watchdogs = None
+        self._session_max_age_s = None
         self._provider_epoch_id = None
         cleanup_consumer = consumer
         if cleanup_consumer is asyncio.current_task():
@@ -1059,39 +1104,77 @@ class ScopedRecognitionEngine:
         self._cleanup_tasks.add(task)
         task.add_done_callback(self._cleanup_done)
 
-    def _schedule_rotation_check(self) -> None:
+    def _schedule_lifetime_check(self) -> None:
+        opened_at = self._session_opened_at_s
+        watchdogs = self._session_watchdogs
+        if self._closed or self._session is None or opened_at is None or watchdogs is None:
+            return
+        now = self.monotonic_clock()
+        cap_due_at = (
+            opened_at + self._session_max_age_s if self._session_max_age_s is not None else None
+        )
+        idle_due_at = (
+            max(opened_at, self._last_source_speech_at_s or opened_at) + watchdogs.idle_timeout_s
+            if self.session_lifetime_enabled and not self._source_speech_active
+            else None
+        )
+        if idle_due_at is not None and now >= idle_due_at:
+            if self._source_work_pending or self._turns:
+                idle_due_at = None
+        deadline = cap_due_at
+        if idle_due_at is not None and (deadline is None or idle_due_at < deadline):
+            deadline = idle_due_at
+        task = self._lifetime_task
         if (
-            not self.deferred_age_rotation_enabled
-            or self._closed
-            or self._session is None
-            or self._session_opened_at_s is None
-            or self._session_watchdogs is None
+            task is not None
+            and self._lifetime_deadline_s == deadline
+            and not task.done()
+            and task is not asyncio.current_task()
         ):
             return
-        task = self._rotation_task
-        current = asyncio.current_task()
-        if task is not None and task is not current and not task.done():
-            task.cancel()
-        now = self.monotonic_clock()
-        age_due_at = self._session_opened_at_s + self._session_watchdogs.healthy_reset_age_s
-        if (self._source_speech_active or self._source_work_pending) and now >= age_due_at:
-            if task is not current:
-                self._rotation_task = None
+        self._cancel_lifetime_check()
+        if deadline is None:
             return
-        quiet_due_at = (
-            now
-            if self._last_source_speech_at_s is None
-            else self._last_source_speech_at_s + self._session_watchdogs.recent_speech_window_s
-        )
-        delay = max(0.0, age_due_at - now, quiet_due_at - now)
-        self._rotation_task = asyncio.create_task(
-            self._run_rotation_check(delay),
-            name="scoped-stt-age-rotation",
+        self._lifetime_deadline_s = deadline
+        self._lifetime_task = asyncio.create_task(
+            self._run_lifetime_check(deadline),
+            name="scoped-stt-session-lifetime",
         )
 
-    async def _run_rotation_check(self, delay_s: float) -> None:
+    async def _expire_current_session(self) -> None:
+        session = self._session
+        if session is None:
+            return
+        turns = tuple(
+            turn
+            for turn in self._turns.values()
+            if turn.identity.provider_epoch_id == self._provider_epoch_id
+        )
+        self._session_retirement_requested = True
+        for turn in turns:
+            if not turn.local_sealed and turn.terminal_ready.done():
+                turn.terminal_ready = asyncio.get_running_loop().create_future()
+                turn.terminal_ready.set_result(
+                    STTProviderTurnTerminal(
+                        identity=turn.identity,
+                        outcome="failed",
+                        text_authority="none",
+                        failure_reason="provider_session_lifetime_exceeded",
+                        epoch_disposition="retire",
+                    )
+                )
+            else:
+                self._set_turn_failure(turn, "provider_session_lifetime_exceeded")
+            turn.write_failed = True
+        for task in self._operation_tasks.get(id(session), ()):
+            task.cancel()
+        self._retire_current_session()
+        for turn in turns:
+            await self._finish_failed_turn_immediately(turn)
+
+    async def _run_lifetime_check(self, deadline_s: float) -> None:
         try:
-            await self.sleep(delay_s)
+            await self.sleep(max(0.0, deadline_s - self.monotonic_clock()))
             async with self._input_lock:
                 if self._closed or self._session is None:
                     return
@@ -1100,30 +1183,37 @@ class ScopedRecognitionEngine:
                 if watchdogs is None or opened_at is None:
                     return
                 now = self.monotonic_clock()
-                age_due = now >= opened_at + watchdogs.healthy_reset_age_s
-                speech_protected = self._source_speech_active or (
-                    self._last_source_speech_at_s is not None
-                    and now < self._last_source_speech_at_s + watchdogs.recent_speech_window_s
-                )
-                work_protected = self._source_work_pending or bool(self._turns)
-                if age_due and not speech_protected and not work_protected:
-                    self._retire_current_session(watchdogs)
+                if (
+                    self._session_max_age_s is not None
+                    and now >= opened_at + self._session_max_age_s
+                ):
+                    await self._expire_current_session()
                     return
-                if not age_due or (
-                    not self._source_speech_active
+                if (
+                    self.session_lifetime_enabled
+                    and not self._source_speech_active
                     and not self._source_work_pending
                     and not self._turns
+                    and now
+                    >= (
+                        max(opened_at, self._last_source_speech_at_s or opened_at)
+                        + watchdogs.idle_timeout_s
+                    )
                 ):
-                    self._schedule_rotation_check()
+                    self._retire_current_session(watchdogs)
+                    return
+                self._schedule_lifetime_check()
         except asyncio.CancelledError:
             return
         finally:
-            if self._rotation_task is asyncio.current_task():
-                self._rotation_task = None
+            if self._lifetime_task is asyncio.current_task():
+                self._lifetime_task = None
+                self._lifetime_deadline_s = None
 
-    def _cancel_rotation_check(self) -> None:
-        task = self._rotation_task
-        self._rotation_task = None
+    def _cancel_lifetime_check(self) -> None:
+        task = self._lifetime_task
+        self._lifetime_task = None
+        self._lifetime_deadline_s = None
         if task is not None and task is not asyncio.current_task() and not task.done():
             task.cancel()
 

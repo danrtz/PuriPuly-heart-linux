@@ -39,7 +39,7 @@ from puripuly_heart.core.overlay.sink import (
 from puripuly_heart.core.overlay.state import ActiveSelfOverlayMetadata
 from puripuly_heart.core.runtime.output import OutputPublicationResult, OutputRuntime
 from puripuly_heart.domain.events import UIEvent, UIEventType
-from puripuly_heart.domain.models import ChannelId, Transcript, Translation
+from puripuly_heart.domain.models import ChannelId, SpeakerAssignment, Transcript, Translation
 
 _SOFT_REUSE_PUNCT = {".", ",", "…", "。", "，", "、"}
 
@@ -87,8 +87,7 @@ class TranscriptOverlayProjection:
     target_language: str
     event_kind: str | None = None
     output_scope: OverlayPublicationScope | None = None
-    speaker_transition: str | None = None
-    speaker_transition_claim_id: str | None = None
+    speaker_assignment: SpeakerAssignment | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1102,8 +1101,7 @@ class TranslationOutputProjectionOwner:
                 source_language=projection.source_language,
                 target_language=projection.target_language,
                 output_scope=projection.output_scope,
-                speaker_transition=projection.speaker_transition,
-                speaker_transition_claim_id=projection.speaker_transition_claim_id,
+                speaker_assignment=projection.speaker_assignment,
             ),
             publication_generation=projection.transcript.publication_generation,
             source_order=projection.transcript.source_order,
@@ -1157,8 +1155,7 @@ class TranslationOutputProjectionOwner:
         close_is_final: bool,
         finalize_latency: bool,
         output_scope: OverlayPublicationScope | None = None,
-        speaker_transition: str | None = None,
-        speaker_transition_claim_id: str | None = None,
+        speaker_assignment: SpeakerAssignment | None = None,
     ) -> bool:
         if self.has_overlay_destination:
             self.diagnostics.retain_latency_until_output("peer", transcript.utterance_id)
@@ -1169,8 +1166,7 @@ class TranslationOutputProjectionOwner:
                     target_language=target_language,
                     event_kind="peer_transcript_final",
                     output_scope=output_scope,
-                    speaker_transition=speaker_transition,
-                    speaker_transition_claim_id=speaker_transition_claim_id,
+                    speaker_assignment=speaker_assignment,
                 )
             )
         return await self.close_overlay_utterance(
@@ -1996,9 +1992,7 @@ class TranslationOutputProjectionOwner:
                     target_language=target_language,
                     close_is_final=True,
                     finalize_latency=True,
-                    output_scope=output_scope,
-                    speaker_transition=submission.speaker_transition,
-                    speaker_transition_claim_id=submission.speaker_transition_claim_id,
+                    speaker_assignment=submission.speaker_assignment,
                 )
                 await self.publish_peer_chatbox_denial(utterance_id)
             elif dual_target_self:
@@ -2117,9 +2111,7 @@ class TranslationOutputProjectionOwner:
                     target_language=target_language,
                     close_is_final=False,
                     finalize_latency=not denied_fallback_to_chatbox,
-                    output_scope=output_scope,
-                    speaker_transition=submission.speaker_transition,
-                    speaker_transition_claim_id=submission.speaker_transition_claim_id,
+                    speaker_assignment=submission.speaker_assignment,
                 )
             if fallback_to_chatbox and await self._await_translation_destination(
                 submission,
@@ -2631,10 +2623,7 @@ class TranslationOutputProjectionOwner:
             "logical_turn_key": translation.logical_turn_key,
         }
         if translation.channel == "peer":
-            metadata.update(
-                speaker_transition=translation.speaker_transition,
-                speaker_transition_claim_id=translation.speaker_transition_claim_id,
-            )
+            metadata["speaker_assignment"] = translation.speaker_assignment
         return metadata
 
     @staticmethod

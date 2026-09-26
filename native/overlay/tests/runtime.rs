@@ -15,13 +15,14 @@ use puripuly_heart_overlay::runtime::SnapshotApplyOutcome;
 use puripuly_heart_overlay::{
     load_manifest, resolve_quiet_tail_profile, run_with_manifest, submit_texture,
     validate_manifest, AdapterIdentity, BridgeClient, CaptionBlock, CaptionChannel,
-    CaptionRenderer, FakeOpenVr, NativePresentationOwner, OpenVrError, OpenVrRuntimeEvent,
-    OverlayBridgeEvent, OverlayFrameSubmitter, OverlayManifest, OverlayPresentationBlock,
-    OverlayPresentationBlockVariant, OverlayPresentationCalibration, OverlayPresentationSnapshot,
-    OverlayRuntime, PresentationBackend, PresentationCause, PresentationCauseChannel,
-    PresentationCauseKind, PresentationOutcome, PresentationStage, PresentationStrategy,
-    QuietTailProfile, ReadinessOutcome, RenderedFrame, RuntimeFailure, SemanticRetirementFrontier,
-    SpatialReanchorOutcome, StartupError, EXPECTED_CONTRACT_VERSION, NATIVE_FRESH_RETRY_CADENCE,
+    CaptionPresentation, CaptionRenderer, FakeOpenVr, NativePresentationOwner, OpenVrError,
+    OpenVrRuntimeEvent, OverlayBridgeEvent, OverlayFrameSubmitter, OverlayManifest,
+    OverlayPresentationBlock, OverlayPresentationBlockVariant, OverlayPresentationCalibration,
+    OverlayPresentationSnapshot, OverlayRuntime, PresentationBackend, PresentationCause,
+    PresentationCauseChannel, PresentationCauseKind, PresentationOutcome, PresentationStage,
+    PresentationStrategy, QuietTailProfile, ReadinessOutcome, RenderedFrame, RuntimeFailure,
+    SemanticRetirementFrontier, SpatialReanchorOutcome, SpeakerDividerBand, SpeakerStyle,
+    StartupError, EXPECTED_CONTRACT_VERSION, NATIVE_FRESH_RETRY_CADENCE,
     NATIVE_FRESH_RETRY_DEADLINE, NATIVE_FRESH_RETRY_MAX_COMPLETED,
     NATIVE_READINESS_NO_PROGRESS_TIMEOUT,
 };
@@ -888,6 +889,14 @@ async fn connect_test_bridge() -> (
         let auth_payload: serde_json::Value = serde_json::from_str(&auth_text).unwrap();
         assert_eq!(auth_payload["type"], "auth");
         assert_eq!(auth_payload["session_token"], "expected-token");
+        assert_eq!(auth_payload["contract_version"], 13);
+        assert_eq!(
+            auth_payload["capabilities"]["speaker_identity_presentation"],
+            json!({"version":2,"policy":"immutable_first_readable_style"})
+        );
+        assert!(auth_payload["capabilities"]
+            .get("speaker_transition_presentation")
+            .is_none());
 
         ws.send(Message::Text(
             json!({
@@ -1978,8 +1987,8 @@ fn readiness_failures_expose_typed_parent_failure_reasons() {
 }
 
 #[test]
-fn runtime_expected_contract_version_is_protocol_eleven() {
-    assert_eq!(EXPECTED_CONTRACT_VERSION, 11);
+fn runtime_expected_contract_version_is_protocol_thirteen() {
+    assert_eq!(EXPECTED_CONTRACT_VERSION, 13);
 }
 
 #[test]
@@ -2121,9 +2130,25 @@ async fn runtime_emits_overlay_ready_only_after_first_texture_submit() {
 
     assert_eq!(submitter.calls, 1);
     assert!(runtime.ready_sent());
-    assert!(messages
+    let ready = messages
         .iter()
-        .any(|message| message["type"] == "overlay_ready"));
+        .find(|message| message["type"] == "overlay_ready")
+        .unwrap();
+    assert_eq!(
+        ready["capabilities"]["execution_contract"],
+        json!({"version":1,"revision":"r2"})
+    );
+    assert_eq!(
+        ready["capabilities"]["native_presentation_retry"],
+        json!({"version":1,"ownership":"exclusive"})
+    );
+    assert_eq!(
+        ready["capabilities"]["speaker_identity_presentation"],
+        json!({"version":2,"policy":"immutable_first_readable_style"})
+    );
+    assert!(ready["capabilities"]
+        .get("speaker_transition_presentation")
+        .is_none());
 }
 
 #[tokio::test]
@@ -2312,6 +2337,241 @@ async fn runtime_caption_blocks_keep_channel_metadata_for_color_only_rendering()
         channels.get("peer:2"),
         Some(&(Some(CaptionChannel::PeerChannel), "세상", false))
     );
+}
+
+#[test]
+fn style_only_snapshot_repaints_same_text_without_reassigning_slot() {
+    let mut original = slot_block(
+        "peer:color",
+        "peer:color",
+        1,
+        "peer",
+        "HELLO",
+        "WORLD",
+        true,
+    );
+    original.speaker_style = Some("gold".into());
+    let mut runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
+        revision: 1,
+        blocks: vec![original.clone()],
+        ..Default::default()
+    });
+    let initial = runtime.caption_blocks()[0].clone();
+    assert_eq!(initial.channel, Some(CaptionChannel::PeerChannel));
+    assert_eq!(initial.speaker_style, SpeakerStyle::Gold);
+    let original_slot = runtime.state().scene().slots()[0].as_ref().unwrap().clone();
+    let renderer = CaptionRenderer::new_for_test().unwrap();
+    let initial_layout = renderer.render_blocks(vec![initial]).unwrap();
+    runtime.clear_redraw_flag();
+
+    original.speaker_style = Some("cyan".into());
+    let outcome = runtime.apply_snapshot(OverlayPresentationSnapshot {
+        revision: 2,
+        blocks: vec![original.clone()],
+        ..Default::default()
+    });
+    assert!(matches!(
+        outcome,
+        SnapshotApplyOutcome::Applied {
+            visual_changed: true,
+            redraw_requested: true,
+            ..
+        }
+    ));
+    let updated_slot = runtime.state().scene().slots()[0].as_ref().unwrap();
+    assert_eq!(updated_slot.slot_index, original_slot.slot_index);
+    assert_eq!(
+        updated_slot.slot_entry_order,
+        original_slot.slot_entry_order
+    );
+    assert_eq!(updated_slot.occupant_key, original_slot.occupant_key);
+    let updated = runtime.caption_blocks()[0].clone();
+    assert_eq!(updated.channel, Some(CaptionChannel::PeerChannel));
+    assert_eq!(updated.speaker_style, SpeakerStyle::Cyan);
+    let updated_layout = renderer.render_blocks(vec![updated.clone()]).unwrap();
+    assert_ne!(
+        initial_layout.layout().visible_blocks[0].speaker_style,
+        updated_layout.layout().visible_blocks[0].speaker_style,
+    );
+    assert_eq!(
+        updated_layout.layout().visible_blocks[0]
+            .secondary_line
+            .as_ref()
+            .unwrap()
+            .text,
+        "WORLD"
+    );
+
+    runtime.clear_redraw_flag();
+    let replay = runtime.apply_snapshot(OverlayPresentationSnapshot {
+        revision: 3,
+        blocks: vec![original.clone()],
+        ..Default::default()
+    });
+    assert!(matches!(
+        replay,
+        SnapshotApplyOutcome::Applied {
+            visual_changed: false,
+            ..
+        }
+    ));
+    assert_eq!(
+        runtime.caption_blocks()[0].speaker_style,
+        SpeakerStyle::Cyan
+    );
+
+    original.speaker_style = Some("not-supported".into());
+    runtime.apply_snapshot(OverlayPresentationSnapshot {
+        revision: 4,
+        blocks: vec![original],
+        ..Default::default()
+    });
+    assert_eq!(
+        runtime.caption_blocks()[0].speaker_style,
+        SpeakerStyle::Gray
+    );
+}
+
+fn overflow_pair_snapshot(revision: u64, speaker_divider: bool) -> OverlayPresentationSnapshot {
+    let mut upper = slot_block("peer:e", "peer:e", 1, "peer", "EEEE", "eeee", true);
+    upper.speaker_style = Some("gray".into());
+    let mut lower = slot_block("peer:f", "peer:f", 2, "peer", "FFFF", "ffff", true);
+    lower.speaker_style = Some("gray".into());
+    OverlayPresentationSnapshot {
+        revision,
+        blocks: vec![upper, lower],
+        speaker_divider,
+        ..Default::default()
+    }
+}
+
+fn rendered_speaker_divider(runtime: &OverlayRuntime) -> Option<SpeakerDividerBand> {
+    let renderer = CaptionRenderer::new_for_test().unwrap();
+    renderer.set_presentation(CaptionPresentation {
+        speaker_divider: runtime.state().speaker_divider(),
+        ..CaptionPresentation::default()
+    });
+    renderer
+        .render_blocks(runtime.caption_blocks())
+        .unwrap()
+        .layout()
+        .speaker_divider
+}
+
+#[test]
+fn divider_only_snapshot_repaints_and_replays_from_current_snapshot() {
+    let expected = SpeakerDividerBand {
+        left_px: 1388.0,
+        top_px: 520.0,
+        right_px: 2708.0,
+        bottom_px: 532.0,
+    };
+    let mut runtime = OverlayRuntime::new(overflow_pair_snapshot(1, false));
+    assert_eq!(rendered_speaker_divider(&runtime), None);
+    runtime.clear_redraw_flag();
+
+    let outcome = runtime.apply_snapshot(overflow_pair_snapshot(2, true));
+    assert!(matches!(
+        outcome,
+        SnapshotApplyOutcome::Applied {
+            visual_changed: true,
+            redraw_requested: true,
+            ..
+        }
+    ));
+    assert_eq!(rendered_speaker_divider(&runtime), Some(expected));
+
+    runtime.clear_redraw_flag();
+    let unchanged = runtime.apply_snapshot(overflow_pair_snapshot(3, true));
+    assert!(matches!(
+        unchanged,
+        SnapshotApplyOutcome::Applied {
+            visual_changed: false,
+            ..
+        }
+    ));
+
+    let replayed = OverlayRuntime::new(runtime.state().snapshot().clone());
+    assert_eq!(rendered_speaker_divider(&replayed), Some(expected));
+
+    let wire = serde_json::to_value(runtime.state().snapshot()).unwrap();
+    assert_eq!(wire["speaker_divider"], json!(true));
+    let decoded: OverlayPresentationSnapshot = serde_json::from_value(wire).unwrap();
+    assert!(decoded.speaker_divider);
+    let legacy: OverlayPresentationSnapshot = serde_json::from_value(json!({})).unwrap();
+    assert!(!legacy.speaker_divider);
+
+    runtime.clear_redraw_flag();
+    let removed = runtime.apply_snapshot(overflow_pair_snapshot(4, false));
+    assert!(matches!(
+        removed,
+        SnapshotApplyOutcome::Applied {
+            visual_changed: true,
+            redraw_requested: true,
+            ..
+        }
+    ));
+    assert_eq!(rendered_speaker_divider(&runtime), None);
+}
+
+#[test]
+fn divider_requires_two_occupied_slots_and_ignores_slot_order() {
+    let expected = Some(SpeakerDividerBand {
+        left_px: 1388.0,
+        top_px: 520.0,
+        right_px: 2708.0,
+        bottom_px: 532.0,
+    });
+    let mut runtime = OverlayRuntime::new(overflow_pair_snapshot(1, true));
+    let first_slots = runtime
+        .state()
+        .scene()
+        .slots()
+        .iter()
+        .map(|slot| slot.as_ref().unwrap().occupant_key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(rendered_speaker_divider(&runtime), expected);
+
+    let mut single = overflow_pair_snapshot(2, true);
+    single.blocks.truncate(1);
+    runtime.apply_snapshot(single);
+    assert!(!runtime.state().speaker_divider());
+    assert_eq!(rendered_speaker_divider(&runtime), None);
+
+    let mut newer = slot_block("peer:g", "peer:g", 3, "peer", "GGGG", "gggg", true);
+    newer.speaker_style = Some("gray".into());
+    let mut swapped = overflow_pair_snapshot(3, true);
+    swapped.blocks = vec![newer.clone(), swapped.blocks[0].clone()];
+    runtime.apply_snapshot(swapped);
+    let swapped_slots = runtime
+        .state()
+        .scene()
+        .slots()
+        .iter()
+        .map(|slot| slot.as_ref().unwrap().occupant_key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(swapped_slots[0], first_slots[0]);
+    assert_eq!(swapped_slots[1], "peer:g");
+    assert_eq!(rendered_speaker_divider(&runtime), expected);
+
+    let mut sticky = overflow_pair_snapshot(4, true);
+    let mut newest = slot_block("peer:h", "peer:h", 4, "peer", "HHHH", "hhhh", true);
+    newest.speaker_style = Some("gray".into());
+    sticky.blocks = vec![newer];
+    runtime.apply_snapshot(sticky.clone());
+    assert_eq!(rendered_speaker_divider(&runtime), None);
+    sticky.revision = 5;
+    sticky.blocks.push(newest);
+    runtime.apply_snapshot(sticky);
+    let reordered_slots = runtime
+        .state()
+        .scene()
+        .slots()
+        .iter()
+        .map(|slot| slot.as_ref().unwrap().occupant_key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(reordered_slots, vec!["peer:h", "peer:g"]);
+    assert_eq!(rendered_speaker_divider(&runtime), expected);
 }
 
 #[tokio::test]
@@ -5902,18 +6162,32 @@ fn check_startup_contract_reports_current_contract_version() {
     assert!(output.status.success());
     let payload: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(payload["contract_version"], EXPECTED_CONTRACT_VERSION);
+    assert_eq!(
+        payload["execution_contract"],
+        json!({"version":1,"revision":"r2"})
+    );
+    assert_eq!(
+        payload["native_presentation_retry"],
+        json!({"version":1,"ownership":"exclusive"})
+    );
+    assert_eq!(
+        payload["speaker_identity_presentation"],
+        json!({"version":2,"policy":"immutable_first_readable_style"})
+    );
+    assert!(payload.get("speaker_transition_presentation").is_none());
 }
 
 #[test]
-fn validate_manifest_rejects_contract_version_mismatch() {
-    let manifest = OverlayManifest {
-        contract_version: EXPECTED_CONTRACT_VERSION + 1,
-        ..test_manifest()
-    };
-
-    let error = validate_manifest(&manifest).unwrap_err();
-
-    assert!(matches!(error, StartupError::ContractMismatch(_)));
+fn validate_manifest_rejects_old_transition_and_future_contract_versions() {
+    for contract_version in [12, 14] {
+        let manifest = OverlayManifest {
+            contract_version,
+            ..test_manifest()
+        };
+        let error = validate_manifest(&manifest).unwrap_err();
+        assert!(matches!(error, StartupError::ContractMismatch(_)));
+        assert!(error.to_string().contains("expected contract_version=13"));
+    }
 }
 
 #[tokio::test]

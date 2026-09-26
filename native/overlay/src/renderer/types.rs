@@ -26,10 +26,19 @@ pub(crate) const TEXT_OUTLINE_OVERHANG_PX: f32 = 5.0;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) const SELF_TEXT_FILL_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 1.0);
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) const PEER_TEXT_FILL_COLOR: (f32, f32, f32, f32) = (1.0, 215.0 / 255.0, 0.0, 1.0);
+pub(crate) const PEER_TEXT_FILL_COLORS: [(f32, f32, f32, f32); 5] = [
+    (180.0 / 255.0, 180.0 / 255.0, 180.0 / 255.0, 1.0),
+    (1.0, 215.0 / 255.0, 0.0, 1.0),
+    (64.0 / 255.0, 219.0 / 255.0, 1.0, 1.0),
+    (1.0, 127.0 / 255.0, 92.0 / 255.0, 1.0),
+    (117.0 / 255.0, 147.0 / 255.0, 1.0, 1.0),
+];
+pub(crate) const SPEAKER_DIVIDER_WIDTH_PX: f32 = 1320.0;
+pub(crate) const SPEAKER_DIVIDER_FILL_HEIGHT_PX: f32 = 8.0;
+pub(crate) const SPEAKER_DIVIDER_OUTLINE_PX: f32 = 2.0;
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) const PEER_CYAN_TEXT_FILL_COLOR: (f32, f32, f32, f32) =
-    (51.0 / 255.0, 214.0 / 255.0, 1.0, 1.0);
+pub(crate) const SPEAKER_DIVIDER_FILL_COLOR: (f32, f32, f32, f32) =
+    (230.0 / 255.0, 230.0 / 255.0, 230.0 / 255.0, 1.0);
 #[cfg(windows)]
 pub(crate) const TEXT_OUTLINE_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 1.0);
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -56,6 +65,7 @@ pub struct CaptionBlock {
     pub secondary_language: Option<String>,
     pub block_variant: CaptionBlockVariant,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub opacity: f32,
     pub offset_y_px: f32,
     pub height_scale: f32,
@@ -77,7 +87,37 @@ pub enum CaptionBlockVariant {
 pub enum CaptionChannel {
     SelfChannel,
     PeerChannel,
-    PeerCyan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SpeakerStyle {
+    Gray,
+    Gold,
+    Cyan,
+    Coral,
+    Blue,
+}
+
+impl SpeakerStyle {
+    pub fn from_token(token: Option<&str>) -> Self {
+        match token {
+            Some("gold") => Self::Gold,
+            Some("cyan") => Self::Cyan,
+            Some("coral") => Self::Coral,
+            Some("blue") => Self::Blue,
+            _ => Self::Gray,
+        }
+    }
+
+    pub(crate) fn palette_index(self) -> usize {
+        match self {
+            Self::Gray => 0,
+            Self::Gold => 1,
+            Self::Cyan => 2,
+            Self::Coral => 3,
+            Self::Blue => 4,
+        }
+    }
 }
 
 impl CaptionBlock {
@@ -91,6 +131,7 @@ impl CaptionBlock {
             secondary_language: None,
             block_variant: CaptionBlockVariant::Finalized,
             channel: None,
+            speaker_style: SpeakerStyle::Gray,
             opacity: 1.0,
             offset_y_px: 0.0,
             height_scale: 1.0,
@@ -142,6 +183,10 @@ impl CaptionBlock {
         self
     }
 
+    pub fn with_speaker_style(mut self, speaker_style: SpeakerStyle) -> Self {
+        self.speaker_style = speaker_style;
+        self
+    }
     pub fn with_visual_state(mut self, opacity: f32, offset_y_px: f32, height_scale: f32) -> Self {
         self.opacity = opacity.clamp(0.0, 1.0);
         self.offset_y_px = offset_y_px;
@@ -291,6 +336,7 @@ impl DamageBand {
 pub struct VisibleCaptionBlock {
     pub id: String,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub primary_lines: Vec<CaptionLineLayout>,
     pub secondary_line: Option<CaptionLineLayout>,
@@ -303,6 +349,47 @@ pub struct VisibleCaptionBlock {
     pub truncated_secondary: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpeakerDividerBand {
+    pub left_px: f32,
+    pub top_px: f32,
+    pub right_px: f32,
+    pub bottom_px: f32,
+}
+
+impl SpeakerDividerBand {
+    pub(crate) fn centered(center_x_px: f32, center_y_px: f32) -> Self {
+        let height_px = SPEAKER_DIVIDER_FILL_HEIGHT_PX + SPEAKER_DIVIDER_OUTLINE_PX * 2.0;
+        let top_px = (center_y_px - height_px * 0.5).round();
+        let left_px = (center_x_px - SPEAKER_DIVIDER_WIDTH_PX * 0.5).round();
+        Self {
+            left_px,
+            top_px,
+            right_px: left_px + SPEAKER_DIVIDER_WIDTH_PX,
+            bottom_px: top_px + height_px,
+        }
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn fill_band(self) -> Self {
+        Self {
+            left_px: self.left_px + SPEAKER_DIVIDER_OUTLINE_PX,
+            top_px: self.top_px + SPEAKER_DIVIDER_OUTLINE_PX,
+            right_px: self.right_px - SPEAKER_DIVIDER_OUTLINE_PX,
+            bottom_px: self.bottom_px - SPEAKER_DIVIDER_OUTLINE_PX,
+        }
+    }
+
+    pub(crate) fn as_block_bounds(self) -> BlockBounds {
+        BlockBounds {
+            left_px: self.left_px,
+            top_px: self.top_px,
+            right_px: self.right_px,
+            bottom_px: self.bottom_px,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptionLayoutResult {
     pub visible_blocks: Vec<VisibleCaptionBlock>,
@@ -310,12 +397,14 @@ pub struct CaptionLayoutResult {
     pub surface_width_px: u32,
     pub surface_height_px: u32,
     pub damage_band: Option<DamageBand>,
+    pub speaker_divider: Option<SpeakerDividerBand>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CaptionPresentation {
     pub background_alpha: f32,
     pub text_scale: f32,
+    pub speaker_divider: bool,
 }
 
 impl Default for CaptionPresentation {
@@ -323,6 +412,7 @@ impl Default for CaptionPresentation {
         Self {
             background_alpha: 0.24,
             text_scale: 1.0,
+            speaker_divider: false,
         }
     }
 }
@@ -373,6 +463,7 @@ pub struct ResolvedBlockLayout {
     pub id: String,
     pub layout_cache_key: LayoutCacheKey,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub primary_lines: Vec<ResolvedLineLayout>,
     pub secondary_line: Option<ResolvedLineLayout>,
@@ -403,6 +494,7 @@ pub struct ResolvedFrameLayout {
     pub surface_width_px: u32,
     pub surface_height_px: u32,
     pub damage_band: Option<DamageBand>,
+    pub speaker_divider: Option<SpeakerDividerBand>,
 }
 
 impl From<ResolvedLineLayout> for CaptionLineLayout {
@@ -422,6 +514,7 @@ impl From<ResolvedBlockLayout> for VisibleCaptionBlock {
         Self {
             id: value.id,
             channel: value.channel,
+            speaker_style: value.speaker_style,
             block_variant: value.block_variant,
             primary_lines: value.primary_lines.into_iter().map(Into::into).collect(),
             secondary_line: value.secondary_line.map(Into::into),
@@ -444,6 +537,7 @@ impl From<ResolvedFrameLayout> for CaptionLayoutResult {
             surface_width_px: value.surface_width_px,
             surface_height_px: value.surface_height_px,
             damage_band: value.damage_band,
+            speaker_divider: value.speaker_divider,
         }
     }
 }
@@ -455,6 +549,7 @@ pub struct LayoutCacheKey {
     pub primary_style_key: TextStyleKey,
     pub secondary_style_key: TextStyleKey,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub secondary_enabled: bool,
     pub secondary_reserved: bool,
@@ -470,6 +565,7 @@ pub struct LineCacheKey {
     pub role: LineRole,
     pub style_key: TextStyleKey,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub font_size_key: u32,
     pub content_width_key: u32,
@@ -561,11 +657,13 @@ pub(crate) struct ResolvedTextStyle {
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn fill_color_for_channel(channel: CaptionChannel) -> (f32, f32, f32, f32) {
+pub(crate) fn fill_color_for_channel(
+    channel: CaptionChannel,
+    style: SpeakerStyle,
+) -> (f32, f32, f32, f32) {
     match channel {
         CaptionChannel::SelfChannel => SELF_TEXT_FILL_COLOR,
-        CaptionChannel::PeerChannel => PEER_TEXT_FILL_COLOR,
-        CaptionChannel::PeerCyan => PEER_CYAN_TEXT_FILL_COLOR,
+        CaptionChannel::PeerChannel => PEER_TEXT_FILL_COLORS[style.palette_index()],
     }
 }
 

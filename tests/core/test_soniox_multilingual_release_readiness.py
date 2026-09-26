@@ -87,7 +87,6 @@ class _RecordingOverlaySink:
 
 @dataclass(slots=True)
 class _DeterministicLLM(LLMProvider):
-    requested_source_languages: list[str] = field(default_factory=list)
 
     async def translate(
         self,
@@ -102,8 +101,16 @@ class _DeterministicLLM(LLMProvider):
         max_output_tokens: int | None = None,
     ) -> Translation:
         _ = (system_prompt, context, max_output_tokens)
-        self.requested_source_languages.append(source_language)
-        response = f"translated-{len(self.requested_source_languages)}"
+        response = {
+            "segment-1": "English translation",
+            "token-0": "Japanese translation",
+            "token-1": "Chinese translation",
+            "token-2": "Korean translation",
+            "simulated-run-0": "First participant",
+            "simulated-run-1": "Second participant",
+            "simulated-run-2": "Third participant",
+            "simulated-run-3": "Fourth participant",
+        }[text]
         return Translation(
             utterance_id=utterance_id,
             text=response,
@@ -385,7 +392,7 @@ async def _run_simulated_schedule(schedule: _SimulationSchedule) -> _SimulationR
             for event_type in ("translation_final", "utterance_closed")
         ]
         failures: list[str] = []
-        if llm.requested_source_languages != expected_languages:
+        if [event.source_language for event in translations] != expected_languages:
             failures.append("language_order")
         if len(translations) != len(schedule.runs):
             failures.append("translation_count")
@@ -414,7 +421,7 @@ async def _run_simulated_schedule(schedule: _SimulationSchedule) -> _SimulationR
 
         record = _SimulationRecord(
             simulated=True,
-            language_sequence=tuple(llm.requested_source_languages),
+            language_sequence=tuple(event.source_language for event in translations),
             segment_count=len(translations),
             latency_ms=_schedule_latency_ms(schedule),
             failures=tuple(failures),
@@ -604,12 +611,16 @@ async def test_controlled_peer_output_preserves_original_and_denies_chatbox() ->
                 "translation_final",
                 "utterance_closed",
             ]
-            assert llm.requested_source_languages == ["ja", "zh", "ko"]
-            assert "zh-CN" not in llm.requested_source_languages
-            assert "zh-TW" not in llm.requested_source_languages
+            assert [event.source_language for event in translations] == ["ja", "zh", "ko"]
+            assert [event.text for event in translations] == [
+                "Japanese translation",
+                "Chinese translation",
+                "Korean translation",
+            ]
             blocks = presenter.snapshot().blocks
             assert [block.primary_text for block in blocks] == [
-                event.text for event in translations[-2:]
+                "Chinese translation",
+                "Korean translation",
             ]
             assert [block.secondary_text for block in blocks] == [run.text for run in runs[-2:]]
             assert [block.secondary_enabled for block in blocks] == [

@@ -19,7 +19,7 @@ from puripuly_heart.core.overlay.manifest import (
     OVERLAY_CONTRACT_VERSION,
     OVERLAY_EXECUTION_CONTRACT,
     OVERLAY_NATIVE_RETRY_CONTRACT,
-    OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+    OVERLAY_SPEAKER_IDENTITY_CONTRACT,
 )
 from puripuly_heart.core.overlay.presenter import OverlayPresenter
 from puripuly_heart.core.overlay.protocol import (
@@ -45,7 +45,7 @@ def _native_auth() -> str:
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                 "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
     )

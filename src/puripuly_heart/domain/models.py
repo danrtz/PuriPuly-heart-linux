@@ -7,12 +7,34 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 ChannelId = Literal["self", "peer"]
-SpeakerTransitionComparison = Literal[
-    "continuity",
-    "transition",
-    "context_reset",
-    "unavailable",
+SpeakerAttributionState = Literal[
+    "identified", "missing", "malformed", "mixed", "uncertain", "unavailable", "not_ready"
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerKey:
+    source: str
+    speaker_scope_id: str
+    local_speaker_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerAttribution:
+    state: SpeakerAttributionState = "unavailable"
+    key: SpeakerKey | None = None
+    source: str = ""
+    speaker_scope_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerAssignment:
+    attribution: SpeakerAttribution
+    scope_order: tuple[int, int, int] = (0, 0, 0)
+    palette_index: int | None = None
+    palette_overflow: bool = False
+    source_text_range: tuple[int, int] | None = None
+    source_text_revision: str | None = None
 
 
 def _validate_channel(channel: str) -> None:
@@ -47,20 +69,27 @@ class FinalSpeakerRun:
     session_scope: str
     source_start_ms: int | None = None
     source_end_ms: int | None = None
-    speaker_confidence: float | None = None
     overlaps_previous: bool = False
+    source: str = ""
+    attribution_state: SpeakerAttributionState = "unavailable"
 
     @property
-    def has_ordered_source_evidence(self) -> bool:
-        return (
-            self.speaker_id is not None
-            and bool(self.session_scope.strip())
-            and self.source_start_ms is not None
-            and self.source_end_ms is not None
-            and (self.speaker_confidence is None or 0.0 <= self.speaker_confidence <= 1.0)
-            and 0 <= self.source_start_ms <= self.source_end_ms
-            and not self.overlaps_previous
-        )
+    def attribution(self) -> SpeakerAttribution:
+        state = self.attribution_state
+        key = None
+        if state == "identified":
+            if (
+                isinstance(self.source, str)
+                and self.source.strip()
+                and isinstance(self.session_scope, str)
+                and self.session_scope.strip()
+                and isinstance(self.speaker_id, str)
+                and self.speaker_id.strip()
+            ):
+                key = SpeakerKey(self.source, self.session_scope, self.speaker_id)
+            else:
+                state = "malformed"
+        return SpeakerAttribution(state, key, self.source, self.session_scope)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +103,8 @@ class Transcript:
     final_speaker_runs: tuple[FinalSpeakerRun, ...] = ()
     publication_generation: int | None = None
     source_order: int | None = None
+    source_text_range: tuple[int, int] | None = None
+    source_text_revision: str | None = None
 
     def __post_init__(self) -> None:
         _validate_channel(self.channel)
@@ -109,8 +140,7 @@ class Translation:
     source_text_hash: str | None
     source_text_len: int | None
     logical_turn_key: str | None
-    speaker_transition: SpeakerTransitionComparison | None
-    speaker_transition_claim_id: str | None
+    speaker_assignment: SpeakerAssignment | None
 
     def __init__(
         self,
@@ -129,8 +159,7 @@ class Translation:
         source_text_hash: str | None = None,
         source_text_len: int | None = None,
         logical_turn_key: str | None = None,
-        speaker_transition: SpeakerTransitionComparison | None = None,
-        speaker_transition_claim_id: str | None = None,
+        speaker_assignment: SpeakerAssignment | None = None,
     ) -> None:
         if text is not None and translated_text is not None and text != translated_text:
             raise ValueError("text and translated_text must match when both are set")
@@ -174,14 +203,9 @@ class Translation:
             "logical_turn_key",
             logical_turn_key if logical_turn_key is not None else f"{channel}:{utterance_id}",
         )
-        if speaker_transition is not None and channel != "peer":
-            raise ValueError("speaker transition evidence is only valid for Peer translations")
-        if (speaker_transition is None) != (speaker_transition_claim_id is None):
-            raise ValueError(
-                "speaker transition comparison and claim identity must be provided together"
-            )
-        object.__setattr__(self, "speaker_transition", speaker_transition)
-        object.__setattr__(self, "speaker_transition_claim_id", speaker_transition_claim_id)
+        if speaker_assignment is not None and channel != "peer":
+            raise ValueError("speaker attribution is only valid for Peer translations")
+        object.__setattr__(self, "speaker_assignment", speaker_assignment)
 
     @property
     def text(self) -> str:

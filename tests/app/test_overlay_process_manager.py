@@ -21,7 +21,7 @@ from puripuly_heart.core.overlay.manifest import (
     OVERLAY_CONTRACT_VERSION,
     OVERLAY_EXECUTION_CONTRACT,
     OVERLAY_NATIVE_RETRY_CONTRACT,
-    OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+    OVERLAY_SPEAKER_IDENTITY_CONTRACT,
     OverlayLaunchManifest,
 )
 from puripuly_heart.core.overlay.openvr_vendor import VendoredOpenVrBundle
@@ -45,8 +45,8 @@ def _ready_script_line() -> str:
         "'overlay_instance_id':m['overlay_instance_id'],'runtime_generation':1,"
         "'capabilities':{'execution_contract':{'version':1,'revision':'r2'},"
         "'native_presentation_retry':{'version':1,'ownership':'exclusive'},"
-        "'speaker_transition_presentation':{'version':2,"
-        "'policy':'temporary_turn_emphasis'}}}), flush=True)"
+        "'speaker_identity_presentation':{'version':2,"
+        "'policy':'immutable_first_readable_style'}}}), flush=True)"
     )
 
 
@@ -203,7 +203,7 @@ class FakeOverlayManagedProcess(OverlayManagedProcess):
                         "capabilities": {
                             "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                             "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                            "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                            "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
                         },
                     }
                 )
@@ -526,7 +526,7 @@ async def test_actual_manager_consumes_reserved_ready_and_runtime_error_after_co
                         "capabilities": {
                             "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                             "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                            "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                            "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
                         },
                     },
                     {
@@ -569,7 +569,7 @@ async def test_real_subprocess_pressure_preserves_lifecycle_and_bounded_cleanup(
                 "manifest = json.load(open(sys.argv[2], encoding='utf-8'))",
                 "for index in range(2048):",
                 "    print(json.dumps({'type':'overlay_trace','component':'probe','event':'pressure','index':index}), flush=True)",
-                "print(json.dumps({'type':'overlay_ready','overlay_instance_id':manifest['overlay_instance_id'],'runtime_generation':1,'capabilities':{'execution_contract':{'version':1,'revision':'r2'},'native_presentation_retry':{'version':1,'ownership':'exclusive'},'speaker_transition_presentation':{'version':2,'policy':'temporary_turn_emphasis'}}}), flush=True)",
+                "print(json.dumps({'type':'overlay_ready','overlay_instance_id':manifest['overlay_instance_id'],'runtime_generation':1,'capabilities':{'execution_contract':{'version':1,'revision':'r2'},'native_presentation_retry':{'version':1,'ownership':'exclusive'},'speaker_identity_presentation':{'version':2,'policy':'immutable_first_readable_style'}}}), flush=True)",
                 "time.sleep(0.1)",
                 "print(json.dumps({'type':'shutdown_complete','overlay_instance_id':manifest['overlay_instance_id']}), flush=True)",
                 "time.sleep(0.05)",
@@ -2813,7 +2813,7 @@ async def test_overlay_ready_rejects_stale_instance_and_duplicate_generation() -
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                 "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         },
         allow_ready=True,
@@ -2827,7 +2827,7 @@ async def test_overlay_ready_rejects_stale_instance_and_duplicate_generation() -
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                 "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         },
         allow_ready=True,
@@ -2885,7 +2885,16 @@ async def test_overlay_ready_rejects_non_exact_native_retry_contract(
 
 
 @pytest.mark.asyncio
-async def test_overlay_ready_rejects_retired_speaker_transition_modes_contract() -> None:
+@pytest.mark.parametrize(
+    "speaker_identity_contract",
+    (
+        {"version": 1, "policy": "temporary_turn_emphasis"},
+        {"version": 1, "policy": "immutable_first_readable_style"},
+    ),
+)
+async def test_overlay_ready_rejects_wrong_speaker_identity_policy(
+    speaker_identity_contract: dict[str, object],
+) -> None:
     manager = OverlayProcessManager(
         overlay_instance_id="overlay-current",
         selected_target="steamvr",
@@ -2900,10 +2909,7 @@ async def test_overlay_ready_rejects_retired_speaker_transition_modes_contract()
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                 "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                "speaker_transition_presentation": {
-                    "version": 1,
-                    "modes": ["A", "C", "E"],
-                },
+                "speaker_identity_presentation": speaker_identity_contract,
             },
         },
         allow_ready=True,
@@ -3032,7 +3038,7 @@ async def test_window_bounds_event_rejects_generation_other_than_ready_generatio
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
                 "native_presentation_retry": OVERLAY_NATIVE_RETRY_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         },
         allow_ready=True,

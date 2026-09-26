@@ -23,6 +23,6 @@ pub use types::{
     BlockBounds, BlockCacheKey, CaptionBlock, CaptionBlockVariant, CaptionChannel,
     CaptionDebugOverlay, CaptionLayoutResult, CaptionLineLayout, CaptionPresentation,
     CaptionRenderError, DamageBand, LayoutCacheKey, LineCacheKey, LineRole, RenderDiagnostics,
-    ResolvedBlockLayout, ResolvedFrameLayout, ResolvedLineLayout, StyleBucketSourceCount,
-    TextStyleDescriptor, VisibleCaptionBlock, VisualBounds,
+    ResolvedBlockLayout, ResolvedFrameLayout, ResolvedLineLayout, SpeakerDividerBand, SpeakerStyle,
+    StyleBucketSourceCount, TextStyleDescriptor, VisibleCaptionBlock, VisualBounds,
 };

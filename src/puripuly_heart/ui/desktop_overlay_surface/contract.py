@@ -14,8 +14,23 @@ from puripuly_heart.ui.theme import COLOR_BACKGROUND
 
 _DESKTOP_CAPTION_WHITE = "#FFFFFF"
 
-_DESKTOP_CAPTION_GOLD = "#FFD700"
-_DESKTOP_CAPTION_CYAN = "#33D6FF"
+_DESKTOP_SPEAKER_COLORS = {
+    "gold": "#FFD700",
+    "cyan": "#40DBFF",
+    "coral": "#FF7F5C",
+    "blue": "#7593FF",
+    "gray": "#B4B4B4",
+}
+
+_DESKTOP_SPEAKER_DIVIDER_FILL = "#E6E6E6"
+
+_DESKTOP_SPEAKER_DIVIDER_OUTLINE = "#000000"
+
+_DESKTOP_SPEAKER_DIVIDER_WIDTH_EM = 10.0
+
+_DESKTOP_SPEAKER_DIVIDER_FILL_EM = 8.0 / 132.0
+
+_DESKTOP_SPEAKER_DIVIDER_OUTLINE_EM = 2.0 / 132.0
 
 _DESKTOP_CAPTION_FONT_FAMILY = FONT_FAMILY_NOTO_SANS_CJK_JP
 
@@ -108,7 +123,7 @@ def _desktop_caption_color_for_channel(
     speaker_style: str | None = None,
 ) -> str:
     if channel == "peer":
-        return _DESKTOP_CAPTION_CYAN if speaker_style == "cyan" else _DESKTOP_CAPTION_GOLD
+        return _DESKTOP_SPEAKER_COLORS.get(speaker_style or "", _DESKTOP_SPEAKER_COLORS["gray"])
     return _DESKTOP_CAPTION_WHITE
 
 
@@ -161,7 +176,7 @@ DESKTOP_CAPTION_MAPPING_TABLE: tuple[DesktopCaptionMappingRule, ...] = (
         role="peer_translation",
         slot="primary",
         promoted=False,
-        color=_DESKTOP_CAPTION_GOLD,
+        color=_DESKTOP_SPEAKER_COLORS["gray"],
         priority="90 peer translated primary; newer appearance wins ties",
         truncation="max 2 lines; outranks older finalized source/self lines",
     ),
@@ -335,6 +350,10 @@ class DesktopCaptionPlan:
     background_color: str
     surface_visible: bool
     full_window_background_visible: bool
+    speaker_divider: bool = False
+    speaker_divider_width: float = 0.0
+    speaker_divider_fill_height: float = 0.0
+    speaker_divider_outline_width: float = 0.0
     no_scrollbars: bool = True
     max_visible_lines: int = _DESKTOP_CAPTION_MAX_VISIBLE_LINES
     max_visible_slots: int = _DESKTOP_CAPTION_MAX_VISIBLE_SLOTS
@@ -427,3 +446,4 @@ class _RetainedDesktopCaptionSurface:
     primary_texts: tuple[Any, ...]
     secondary_texts: tuple[Any, ...]
     empty_lock_action: Any
+    speaker_divider: Any

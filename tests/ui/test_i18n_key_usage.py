@@ -153,9 +153,7 @@ def test_qwen_audio_and_speaker_recognition_copy_is_consistent_for_every_locale(
     for locale, (qwen_audio_description, speaker_recognition_label) in expected.items():
         assert bundles[locale]["provider.qwen_audio"] == "Qwen Audio 3.1"
         assert bundles[locale]["provider.qwen_audio.description"] == qwen_audio_description
-        assert bundles[locale]["settings.soniox_speaker_diarization"] == (
-            speaker_recognition_label
-        )
+        assert bundles[locale]["settings.soniox_speaker_diarization"] == (speaker_recognition_label)
 
 
 def test_i18n_bundles_do_not_keep_unused_runtime_keys() -> None:

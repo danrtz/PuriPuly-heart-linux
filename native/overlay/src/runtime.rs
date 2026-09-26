@@ -32,7 +32,7 @@ use crate::presentation::{
 };
 use crate::renderer::{
     CaptionBlock, CaptionBlockVariant, CaptionChannel, CaptionLayoutResult, CaptionPresentation,
-    CaptionRenderer, FontSource, RenderDiagnostics, RenderedFrame,
+    CaptionRenderer, FontSource, RenderDiagnostics, RenderedFrame, SpeakerStyle,
 };
 use crate::retry_episode::{
     FreshRetryChannel, FreshRetryPolicy as NativeFreshRetryPolicy,
@@ -288,7 +288,7 @@ pub enum SnapshotApplyOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct LogicalCaptionIdentity(Vec<LogicalCaptionBlockIdentity>);
+struct LogicalCaptionIdentity(Vec<LogicalCaptionBlockIdentity>, bool);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LogicalCaptionBlockIdentity {
@@ -687,9 +687,9 @@ impl PresentationRuntime {
                     "version": 1,
                     "ownership": "exclusive"
                 },
-                "speaker_transition_presentation": {
+                "speaker_identity_presentation": {
                     "version": 2,
-                    "policy": "temporary_turn_emphasis"
+                    "policy": "immutable_first_readable_style"
                 }
             }
         });
@@ -748,6 +748,7 @@ impl PresentationRuntime {
         let presentation = CaptionPresentation {
             background_alpha: self.state.calibration().background_alpha,
             text_scale: self.state.calibration().text_scale,
+            speaker_divider: self.state.speaker_divider(),
         };
         renderer.set_presentation(presentation.clone());
         openvr
@@ -1322,6 +1323,7 @@ fn frame_content_identity(blocks: &[CaptionBlock], presentation: &CaptionPresent
         block.secondary_language.hash(&mut hasher);
         block.block_variant.hash(&mut hasher);
         block.channel.hash(&mut hasher);
+        block.speaker_style.hash(&mut hasher);
         block.opacity.to_bits().hash(&mut hasher);
         block.offset_y_px.to_bits().hash(&mut hasher);
         block.height_scale.to_bits().hash(&mut hasher);
@@ -1331,6 +1333,7 @@ fn frame_content_identity(blocks: &[CaptionBlock], presentation: &CaptionPresent
     }
     presentation.background_alpha.to_bits().hash(&mut hasher);
     presentation.text_scale.to_bits().hash(&mut hasher);
+    presentation.speaker_divider.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -2383,6 +2386,7 @@ fn logical_caption_identity(state: &OverlayState) -> LogicalCaptionIdentity {
                 speaker_style: slot.speaker_style.clone(),
             })
             .collect(),
+        state.speaker_divider(),
     )
 }
 
@@ -2540,7 +2544,7 @@ pub async fn run_cli(args: &[String]) -> i32 {
                 "app_version": env!("CARGO_PKG_VERSION"),
                 "execution_contract": {"version": 1, "revision": "r2"},
                 "native_presentation_retry": {"version": 1, "ownership": "exclusive"},
-                "speaker_transition_presentation": {"version": 2, "policy": "temporary_turn_emphasis"},
+                "speaker_identity_presentation": {"version": 2, "policy": "immutable_first_readable_style"},
             })
         );
         return 0;
@@ -2671,11 +2675,7 @@ impl PresentationRuntime {
 
 fn caption_block_for_strip(strip: &OverlaySlot) -> CaptionBlock {
     let channel = if strip.channel == "peer" {
-        if strip.speaker_style.as_deref() == Some("cyan") {
-            CaptionChannel::PeerCyan
-        } else {
-            CaptionChannel::PeerChannel
-        }
+        CaptionChannel::PeerChannel
     } else {
         CaptionChannel::SelfChannel
     };
@@ -2691,6 +2691,7 @@ fn caption_block_for_strip(strip: &OverlaySlot) -> CaptionBlock {
 
     CaptionBlock::new(strip.id.clone(), strip.primary_text.clone())
         .with_channel(channel)
+        .with_speaker_style(SpeakerStyle::from_token(strip.speaker_style.as_deref()))
         .with_variant(variant)
         .with_secondary_text(strip.secondary_text.clone(), strip.secondary_enabled)
         .with_language_metadata(

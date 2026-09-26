@@ -665,7 +665,7 @@
     ]
   },
   "overlay": {
-    "contract_version": 11,
+    "contract_version": 13,
     "manifest_fields": [
       "app_version",
       "bridge_url",
@@ -916,7 +916,6 @@
     "overlay": [
       "tests/config/test_public_compatibility_surfaces.py::test_overlay_contract_snapshot_matches_manifest_and_protocol_wire_shape",
       "tests/config/test_public_compatibility_surfaces.py::test_overlay_startup_contract_snapshot_matches_python_runners_and_manifest_handoff",
-      "tests/core/test_overlay_manifest.py::test_overlay_manifest_uses_structured_block_contract_version",
       "tests/core/test_overlay_manifest.py::test_overlay_manifest_round_trips_contract_fields",
       "tests/core/test_overlay_manifest.py::test_overlay_manifest_rejects_obsolete_diagnostics_field",
       "tests/core/test_overlay_protocol.py::test_overlay_presentation_snapshot_round_trips_blocks_and_calibration",

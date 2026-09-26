@@ -25,6 +25,7 @@ from puripuly_heart.core.overlay.sink import (
     TranslationStreamUpdate,
     UtteranceClosed,
 )
+from puripuly_heart.domain.models import SpeakerAssignment
 
 OverlayEntryKey = tuple[str, UUID]
 NextAppearanceSeq = Callable[[], int]
@@ -61,8 +62,9 @@ class OverlayLogicalTurnEntry:
     translation_source_text_hash: str | None = None
     translation_source_text_len: int | None = None
     translation_logical_turn_key: str | None = None
-    speaker_transition: str | None = None
-    speaker_transition_claim_id: str | None = None
+    speaker_assignment: SpeakerAssignment | None = None
+    speaker_style: str | None = None
+    speaker_gray_reason: str | None = None
     translation_seq: int | None = None
     occupant_key: str = ""
     appearance_seq: int | None = None
@@ -142,8 +144,8 @@ class OverlayPresentationEntry(Protocol):
     translation_source_text_hash: str | None
     translation_source_text_len: int | None
     translation_logical_turn_key: str | None
-    speaker_transition: str | None
-    speaker_transition_claim_id: str | None
+    speaker_assignment: SpeakerAssignment | None
+    speaker_style: str | None
     occupant_key: str
     appearance_seq: int | None
     publishable_seq: int | None
@@ -693,9 +695,8 @@ class OverlayPresentationState:
         first_readable_original = bool(event.text.strip()) and (
             not translation_enabled or show_peer_original
         )
-        if first_readable_original and entry.speaker_transition_claim_id is None:
-            entry.speaker_transition = event.speaker_transition
-            entry.speaker_transition_claim_id = event.speaker_transition_claim_id
+        if first_readable_original and entry.speaker_style is None:
+            entry.speaker_assignment = event.speaker_assignment
         entry.original_seq = event.seq
         entry.live_text = ""
         entry.live_seq = None
@@ -752,11 +753,7 @@ class OverlayPresentationState:
                 previous_visible_since=entry.translation_visible_since,
                 now=now,
             )
-        first_readable_translation = (
-            bool(event.text.strip())
-            and entry.speaker_transition_claim_id is None
-            and entry.translation_observed_visible_since is None
-        )
+        first_readable_translation = bool(event.text.strip()) and entry.speaker_style is None
         entry.translation_text = event.text
         if event.text.strip():
             entry.translation_language = event_target_language
@@ -767,9 +764,7 @@ class OverlayPresentationState:
             entry.translation_source_text_len = event.source_text_len
             entry.translation_logical_turn_key = event.logical_turn_key
             if first_readable_translation:
-                entry.speaker_transition = event.speaker_transition
-                entry.speaker_transition_claim_id = event.speaker_transition_claim_id
-            entry.translation_seq = event.seq
+                entry.speaker_assignment = event.speaker_assignment
             entry.live_text = ""
             entry.live_seq = None
         else:
@@ -780,8 +775,8 @@ class OverlayPresentationState:
             entry.translation_source_text_hash = None
             entry.translation_source_text_len = None
             entry.translation_logical_turn_key = None
-            if entry.speaker_transition_claim_id is None:
-                entry.speaker_transition = None
+            if entry.speaker_style is None:
+                entry.speaker_assignment = None
             if not entry.live_secondary_text.strip():
                 entry.translation_seq = None
         if event.text.strip() and entry.translation_observed_visible_since is None:
@@ -868,6 +863,7 @@ class OverlayPresentationState:
         native_quiet_tail_episodes: NativeQuietTailEpisodes | None = None,
         entry_ordering: Mapping[OverlayEntryKey, tuple[str, int, int]] | None = None,
         semantic_retirement_frontiers: Mapping[tuple[str, int], int] | None = None,
+        speaker_divider: bool = False,
     ) -> OverlayPresentationSnapshot:
         ordering = entry_ordering or {}
         blocks = []
@@ -895,6 +891,7 @@ class OverlayPresentationState:
                     (semantic_retirement_frontiers or {}).items()
                 )
             ],
+            speaker_divider=speaker_divider,
         )
         self._snapshot = snapshot
         return snapshot
