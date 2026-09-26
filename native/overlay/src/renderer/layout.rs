@@ -1194,6 +1194,7 @@ fn layout_cache_key_for_block(
         primary_style_key,
         secondary_style_key,
         channel: block.channel,
+        speaker_style: block.speaker_style,
         block_variant: block.block_variant,
         secondary_enabled: block.secondary_enabled,
         secondary_reserved: block_reserves_secondary_row(block),
@@ -1260,6 +1261,7 @@ fn materialize_resolved_block_layout(
         id: block.id.clone(),
         layout_cache_key,
         channel: block.channel,
+        speaker_style: block.speaker_style,
         block_variant: block.block_variant,
         primary_lines,
         secondary_line,
@@ -1538,7 +1540,8 @@ mod tests {
     use super::{measure_text_width, wrap_text, CaptionLayoutPolicy};
     use crate::renderer::{
         effective_background_alpha, fill_color_for_channel, outline_offsets_px, text_script_bucket,
-        CaptionBlock, CaptionChannel, CaptionPresentation, FontResolver, TextScriptBucket,
+        CaptionBlock, CaptionChannel, CaptionPresentation, FontResolver, SpeakerStyle,
+        TextScriptBucket,
     };
 
     fn fallback_styles(
@@ -1746,17 +1749,50 @@ mod tests {
 
     #[test]
     fn fill_color_for_channel_uses_fixed_text_only_palette() {
-        let this = fill_color_for_channel(CaptionChannel::SelfChannel);
-        let peer = fill_color_for_channel(CaptionChannel::PeerChannel);
-        let peer_cyan = fill_color_for_channel(CaptionChannel::PeerCyan);
-        assert_eq!(this, (1.0, 1.0, 1.0, 1.0));
-        assert_eq!(peer, (1.0, 215.0 / 255.0, 0.0, 1.0));
-        assert_eq!(peer_cyan, (51.0 / 255.0, 214.0 / 255.0, 1.0, 1.0));
-        assert_ne!(this, peer);
-        assert_ne!(peer, peer_cyan);
-        assert_eq!(this.3, 1.0);
-        assert_eq!(peer.3, 1.0);
-        assert_eq!(peer_cyan.3, 1.0);
+        let expected = [
+            ("gold", 0xFFD700u32),
+            ("cyan", 0x33D6FF),
+            ("p02", 0xFF6B6B),
+            ("p03", 0x7CFF6B),
+            ("p04", 0xC77DFF),
+            ("p05", 0xFF9F1C),
+            ("p06", 0xFF5D8F),
+            ("p07", 0x4DFFC8),
+            ("p08", 0xB8FF3C),
+            ("p09", 0xFF4D4D),
+            ("p10", 0x6C8CFF),
+            ("p11", 0xE6FF4D),
+            ("p12", 0xFF7AD9),
+            ("p13", 0x5CFFEA),
+            ("p14", 0xFFB020),
+        ];
+        for (token, rgb) in expected {
+            let style = SpeakerStyle::from_token(Some(token));
+            let color = fill_color_for_channel(CaptionChannel::PeerChannel, style);
+            assert_eq!(
+                color,
+                (
+                    ((rgb >> 16) & 255) as f32 / 255.0,
+                    ((rgb >> 8) & 255) as f32 / 255.0,
+                    (rgb & 255) as f32 / 255.0,
+                    1.0,
+                ),
+                "{token}"
+            );
+            assert_eq!(
+                fill_color_for_channel(CaptionChannel::SelfChannel, style),
+                (1.0, 1.0, 1.0, 1.0)
+            );
+        }
+        for token in [None, Some("gray"), Some("p15"), Some("GOLD"), Some("")] {
+            assert_eq!(
+                fill_color_for_channel(
+                    CaptionChannel::PeerChannel,
+                    SpeakerStyle::from_token(token)
+                ),
+                (154.0 / 255.0, 160.0 / 255.0, 166.0 / 255.0, 1.0),
+            );
+        }
     }
 
     #[test]

@@ -297,6 +297,15 @@ Execution options:
 - `STTSessionEventProjection` defines per-turn scoped updates and terminal receipts (`core/stt/session_projection.py`).
 - `STTScopedTurnNormalizer` assembles text, language runs, and session-scoped speaker runs per identity. Provider updates are not final application transcripts.
 
+Soniox final-token speaker attribution carries `source=soniox`, the actual provider
+connection scope, local opaque speaker ID, explicit attribution state, and token
+source times through normalized text. Missing and malformed attribution retain
+their text with separate reasons. Normalized Peer children retain their
+parent-text revision and contiguous text ranges; language boundaries do not
+change speaker identity. Other STT providers remain unattributed in this slice.
+Generic token recognition confidence is not speaker-attribution confidence and
+does not participate in the identity contract.
+
 Provider replacement preserves frozen settings for admitted work. Abort invalidates turn and epoch authority before native cleanup.
 
 GPU worker split:
@@ -329,7 +338,14 @@ Translation owners retain:
 
 `TranslationTurnLifecycleOwner` owns bounded Self and Peer admission and the lifecycle of parent turns and child translations. `TranslationRequestOwner` owns request preparation and provider-generation authority.
 
-Peer translations may execute concurrently, but source-context preparation and publication preserve source order. Channel execution limits remain separate from provider-wide admission shared by Self and Peer.
+LLM-backed Peer turns with multiple eligible source segments use one structured
+whole-parent request containing ordered indices, source languages, and text
+without speaker keys or labels. Results must contain each requested index exactly
+once; incomplete or mismatched responses take the existing explicit failure and
+source-only publication path without a second provider request. Single eligible
+segments and non-LLM routes retain their existing requests. Unsupported-language
+segments remain source-only. Context is prepared at parent admission, and
+publication preserves source order regardless of provider completion order.
 
 Self speculative selection remains in the Self owner. Once a turn is admitted, the turn lifecycle owns subsequent translation and publication.
 
@@ -382,6 +398,22 @@ Implementation: `core/runtime/output.py`. Behavior tests: `tests/core/runtime/te
 Each generation owns its tasks and shutdown. Python owns caption lifetime; native owns presentation retries.
 
 `OverlayPresenter` owns provider-independent Peer subtitle admission and pacing (`core/overlay/presenter.py`); output retains bounded waiting work.
+
+`PeerSpeakerIdentityAllocator` (`core/speaker_identity.py`) allocates 15 stable
+source-ordered palette entries per Soniox connection scope before asynchronous
+translation. Unknown and SELF text do not consume entries. The presenter fixes
+each Peer block's style at its first readable selection: gold `#FFD700`, cyan
+`#33D6FF`, then p02–p14 (`#FF6B6B`, `#7CFF6B`, `#C77DFF`, `#FF9F1C`,
+`#FF5D8F`, `#4DFFC8`, `#B8FF3C`, `#FF4D4D`, `#6C8CFF`, `#E6FF4D`,
+`#FF7AD9`, `#5CFFEA`, `#FFB020`). Missing, malformed, mixed, unsupported,
+exhausted, and cross-scope handoff captions are gray `#9AA0A6`; SELF stays
+white. A new scope never recolors or clears old readable captions, and newly
+selected work remains gray while old-scope colored captions are selected.
+No mapping survives provider-scope retirement except immutable metadata on
+live captions. The integrated bridge contract is version 12 with capability
+`speaker_identity_presentation={version:1,policy:immutable_first_readable_style}`;
+execution r2 and exclusive native fresh-render retry are unchanged. The bridge
+transports only the chosen style token; no speaker key crosses to native.
 
 Behavior tests: `tests/core/test_overlay_presenter.py`.
 

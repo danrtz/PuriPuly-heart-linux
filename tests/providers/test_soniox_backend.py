@@ -277,6 +277,15 @@ async def test_soniox_preserves_present_and_missing_speakers_in_session_scope() 
         ("again", "1"),
     ]
     assert {run.session_scope for run in event.final_speaker_runs} == {first.speaker_session_scope}
+    assert [run.attribution.state for run in event.final_speaker_runs] == [
+        "identified",
+        "malformed",
+        "identified",
+    ]
+    assert (
+        event.final_speaker_runs[0].attribution.key == event.final_speaker_runs[2].attribution.key
+    )
+    assert event.final_speaker_runs[1].attribution.key is None
     await _request_finalize(first)
     first._handle_message(
         json.dumps(
@@ -295,32 +304,49 @@ async def test_soniox_preserves_present_and_missing_speakers_in_session_scope() 
     assert second.speaker_session_scope != first.speaker_session_scope
 
 
-def test_soniox_preserves_timing_confidence_and_marks_overlapping_speaker_runs() -> None:
+@pytest.mark.asyncio
+async def test_soniox_preserves_missing_and_malformed_attribution_as_distinct_text_runs() -> None:
+    session = _make_session(enable_language_identification=True)
+    await _request_finalize(session)
+    session._handle_message(
+        json.dumps(
+            {
+                "tokens": [
+                    {"text": "before ", "is_final": True},
+                    {"text": "invalid ", "speaker": False, "is_final": True},
+                    {"text": "after", "is_final": True},
+                    {"text": "<fin>", "is_final": True},
+                ]
+            }
+        )
+    )
+    terminal = session._event_projection._legacy_events.get_nowait()
+    assert terminal.text == "before invalid after"
+    assert [(run.text, run.attribution.state) for run in terminal.final_speaker_runs] == [
+        ("before ", "missing"),
+        ("invalid ", "malformed"),
+        ("after", "missing"),
+    ]
+
+
+def test_soniox_preserves_timing_and_overlapping_speaker_runs() -> None:
     session = _make_session(enable_language_identification=True)
     tokens = [
-        soniox_module._FinalToken("a ", 100, 250, 0.9, "en", "A"),
-        soniox_module._FinalToken("b ", 200, 350, 0.8, "en", "B"),
-        soniox_module._FinalToken("b2", 350, 450, 0.7, "en", "B"),
+        soniox_module._FinalToken("a ", 100, 250, "en", "A", "identified"),
+        soniox_module._FinalToken("b ", 200, 350, "en", "B", "identified"),
+        soniox_module._FinalToken("b2", 350, 450, "en", "B", "identified"),
     ]
 
     runs = session._speaker_runs_for_tokens(tokens)
 
     assert [
-        (
-            run.text,
-            run.speaker_id,
-            run.source_start_ms,
-            run.source_end_ms,
-            run.speaker_confidence,
-            run.overlaps_previous,
-        )
+        (run.text, run.speaker_id, run.source_start_ms, run.source_end_ms, run.overlaps_previous)
         for run in runs
     ] == [
-        ("a ", "A", 100, 250, 0.9, False),
-        ("b b2", "B", 200, 450, 0.7, True),
+        ("a ", "A", 100, 250, False),
+        ("b b2", "B", 200, 450, True),
     ]
-    assert runs[0].has_ordered_source_evidence is True
-    assert runs[1].has_ordered_source_evidence is False
+    assert [run.attribution.state for run in runs] == ["identified", "identified"]
 
 
 @pytest.mark.asyncio

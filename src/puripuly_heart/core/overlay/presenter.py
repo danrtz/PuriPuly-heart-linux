@@ -13,6 +13,7 @@ from puripuly_heart.core.clock import Clock, SystemClock
 from .presenter_acceptance import PresenterAcceptanceLedger
 from .presenter_projection import NativeRetryIntentProjection
 from .protocol import (
+    SPEAKER_IDENTITY_STYLES,
     OverlayPresentationBlock,
     OverlayPresentationCalibration,
     OverlayPresentationSnapshot,
@@ -97,8 +98,8 @@ class OverlayPresenter(OverlaySink):
     _last_new_occupant_at: float | None = field(init=False, default=None)
     _peer_admission_changed: asyncio.Event = field(init=False, default_factory=asyncio.Event)
     _closed: bool = field(init=False, default=False)
-    _speaker_seen_readable: set[str] = field(init=False, default_factory=set)
-    _speaker_emphasis_id: str | None = field(init=False, default=None)
+    _active_speaker_scope: tuple[str, str] | None = field(init=False, default=None)
+    _active_speaker_order: tuple[int, int, int] = field(init=False, default=(0, 0, 0))
 
     def __post_init__(self) -> None:
         self._presentation_state = OverlayPresentationState()
@@ -167,8 +168,8 @@ class OverlayPresenter(OverlaySink):
         self._last_new_occupant_at = None
         self._signal_peer_admission_change()
         self._appearance_seq = 0
-        self._speaker_seen_readable.clear()
-        self._speaker_emphasis_id = None
+        self._active_speaker_scope = None
+        self._active_speaker_order = (0, 0, 0)
         self._retry_projection.clear_scene()
         self._presentation_state.generate_snapshot(
             revision=0,
@@ -185,8 +186,8 @@ class OverlayPresenter(OverlaySink):
         self._retired_preview_self_seqs.clear()
         self._live_self_turn_key = None
         self._live_peer_turn_key = None
-        self._speaker_seen_readable.clear()
-        self._speaker_emphasis_id = None
+        self._active_speaker_scope = None
+        self._active_speaker_order = (0, 0, 0)
         self._revision += 1
         self._retry_projection.clear_scene()
         snapshot = self._presentation_state.generate_snapshot(
@@ -795,34 +796,63 @@ class OverlayPresenter(OverlaySink):
         rendered_entries: list[tuple[tuple[str, UUID], OverlayPresentationBlock]],
     ) -> list[tuple[tuple[str, UUID], OverlayPresentationBlock]]:
         for key, block in rendered_entries:
-            if block.id in self._speaker_seen_readable:
-                continue
-            self._speaker_seen_readable.add(block.id)
-            self._speaker_emphasis_id = None
             if block.channel != "peer":
                 continue
             entry = self._entries.get(key)
-            if entry is not None and entry.speaker_transition == "transition":
-                self._speaker_emphasis_id = block.id
+            assignment = None if entry is None else entry.speaker_assignment
+            if assignment is None:
+                continue
+            attribution = assignment.attribution
+            if (
+                attribution.source
+                and attribution.speaker_scope_id
+                and assignment.scope_order > self._active_speaker_order
+            ):
+                self._active_speaker_order = assignment.scope_order
+                self._active_speaker_scope = (
+                    attribution.source,
+                    attribution.speaker_scope_id,
+                )
 
+        colored_old_scope = any(
+            block.channel == "peer"
+            and (entry := self._entries.get(key)) is not None
+            and entry.speaker_style not in (None, "gray")
+            and entry.speaker_assignment is not None
+            and (
+                entry.speaker_assignment.attribution.source,
+                entry.speaker_assignment.attribution.speaker_scope_id,
+            )
+            != self._active_speaker_scope
+            for key, block in rendered_entries
+        )
         styled: list[tuple[tuple[str, UUID], OverlayPresentationBlock]] = []
         for key, block in rendered_entries:
             if block.channel != "peer":
                 styled.append((key, block))
                 continue
-            styled.append(
-                (
-                    key,
-                    replace(
-                        block,
-                        speaker_style=("cyan" if self._speaker_emphasis_id == block.id else "gold"),
-                    ),
+            entry = self._entries.get(key)
+            if entry is None:
+                continue
+            if entry.speaker_style is None:
+                assignment = entry.speaker_assignment
+                attribution = None if assignment is None else assignment.attribution
+                scope = (
+                    (attribution.source, attribution.speaker_scope_id)
+                    if attribution is not None
+                    else None
                 )
-            )
-        live_ids = {entry.block_id for entry in self._entries.values()}
-        if self._speaker_emphasis_id not in live_ids:
-            self._speaker_emphasis_id = None
-        self._speaker_seen_readable.intersection_update(live_ids)
+                index = None if assignment is None else assignment.palette_index
+                if (
+                    index is not None
+                    and 0 <= index < len(SPEAKER_IDENTITY_STYLES)
+                    and scope == self._active_speaker_scope
+                    and not colored_old_scope
+                ):
+                    entry.speaker_style = SPEAKER_IDENTITY_STYLES[index]
+                else:
+                    entry.speaker_style = "gray"
+            styled.append((key, replace(block, speaker_style=entry.speaker_style)))
         return styled
 
     def _next_appearance_seq(self) -> int:

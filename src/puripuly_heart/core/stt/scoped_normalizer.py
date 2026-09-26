@@ -377,12 +377,14 @@ class STTScopedTurnNormalizer:
                 trimmed.pop()
         merged: list[FinalSpeakerRun] = []
         for item in trimmed:
-            if not item.text or not item.session_scope.strip():
+            if not item.text:
                 continue
             if (
                 merged
                 and merged[-1].speaker_id == item.speaker_id
                 and merged[-1].session_scope == item.session_scope
+                and merged[-1].source == item.source
+                and merged[-1].attribution_state == item.attribution_state
             ):
                 previous = merged[-1]
                 merged[-1] = FinalSpeakerRun(
@@ -391,13 +393,9 @@ class STTScopedTurnNormalizer:
                     item.session_scope,
                     source_start_ms=previous.source_start_ms,
                     source_end_ms=item.source_end_ms,
-                    speaker_confidence=(
-                        min(previous.speaker_confidence, item.speaker_confidence)
-                        if previous.speaker_confidence is not None
-                        and item.speaker_confidence is not None
-                        else None
-                    ),
                     overlaps_previous=previous.overlaps_previous or item.overlaps_previous,
+                    source=previous.source,
+                    attribution_state=previous.attribution_state,
                 )
             else:
                 merged.append(item)

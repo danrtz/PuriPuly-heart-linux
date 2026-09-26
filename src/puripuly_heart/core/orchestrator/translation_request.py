@@ -4,7 +4,6 @@ import asyncio
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from html import escape
 from typing import Protocol, cast
 from uuid import UUID
 
@@ -52,11 +51,6 @@ from puripuly_heart.core.vrchat_scene import SceneSnapshotProvider, VrchatSceneS
 from puripuly_heart.domain.events import UIEventType
 from puripuly_heart.domain.models import ChannelId, Translation
 
-_PEER_TURN_CONTEXT_INSTRUCTION = (
-    "Current peer turn is reference only; its speaker labels are local and unknown speakers "
-    "may differ. Translate only <input> as its speaker, returning only the translation."
-)
-
 
 def render_translation_system_prompt(
     template: str,
@@ -102,6 +96,9 @@ class TranslationRequestPort(Protocol):
 
     @property
     def provider_generation(self) -> int: ...
+
+    @property
+    def peer_batch_supported(self) -> bool: ...
 
     def set_clock(self, clock: Clock) -> None: ...
 
@@ -173,6 +170,13 @@ class TranslationRequestPort(Protocol):
         self,
         requests: tuple[TranslationProcessRequest, ...],
     ) -> Mapping[UUID, PreparedTranslationRequest]: ...
+    async def process_peer_batch(
+        self,
+        requests: tuple[TranslationProcessRequest, ...],
+        *,
+        prepared: Mapping[UUID, PreparedTranslationRequest],
+        cancellation_requested: Callable[[], bool],
+    ) -> Mapping[UUID, TranslationTurnProcessResult]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,8 +216,6 @@ class TranslationProcessRequest:
     context_policy: TranslationContextPolicy
     config_snapshot: TranslationRuntimeConfigSnapshot
     detected_language: str | None = None
-    speaker_id: str | None = None
-    speaker_session_scope: str = ""
     target_index: int = 0
     turn_generation: int | None = None
     turn_order: int | None = None
@@ -313,6 +315,11 @@ class TranslationRequestOwner:
     @property
     def provider_generation(self) -> int:
         return self.provider_runtime.current_provider_generation()[1]
+
+    @property
+    def peer_batch_supported(self) -> bool:
+        provider = self._capture_provider_request()
+        return provider is not None and isinstance(provider[0], LlmTranslationBackend)
 
     def runtime_for_channel(self, channel: ChannelId) -> ChannelRuntime:
         return self.peer_runtime if channel == "peer" else self.self_runtime
@@ -502,21 +509,6 @@ class TranslationRequestOwner:
         if not prepared:
             return prepared
         parent_prepared = next(iter(prepared.values()))
-        reference = ""
-        if isinstance(backend, LlmTranslationBackend) and len(requests) > 1:
-            speakers: dict[tuple[str, str], str] = {}
-            lines: list[str] = []
-            for request in requests:
-                speaker = "unknown"
-                if request.speaker_id is not None and request.speaker_session_scope:
-                    key = (request.speaker_session_scope, request.speaker_id)
-                    speaker = speakers.setdefault(key, f"S{len(speakers) + 1}")
-                text = escape(json.dumps(request.text, ensure_ascii=False), quote=False)
-                language = escape(request.detected_language or "unknown", quote=False)
-                lines.append(
-                    f"{request.sequence} / speaker={speaker} / language={language}: {text}"
-                )
-            reference = "\n".join(lines)
         result: dict[UUID, PreparedTranslationRequest] = {}
         for request in requests:
             item = prepared.get(request.utterance_id)
@@ -524,12 +516,6 @@ class TranslationRequestOwner:
                 continue
             context = item.context
             system_prompt = item.system_prompt
-            if reference:
-                context = (
-                    f"{context}\n\n[Current peer turn; target segment={request.sequence}]\n"
-                    f"{reference}"
-                ).lstrip()
-                system_prompt = f"{system_prompt.rstrip()}\n\n{_PEER_TURN_CONTEXT_INSTRUCTION}"
             result[request.utterance_id] = replace(
                 item,
                 context=context,
@@ -539,6 +525,199 @@ class TranslationRequestOwner:
                 provider_generation=generation,
             )
         return result
+
+    async def process_peer_batch(
+        self,
+        requests: tuple[TranslationProcessRequest, ...],
+        *,
+        prepared: Mapping[UUID, PreparedTranslationRequest],
+        cancellation_requested: Callable[[], bool],
+    ) -> Mapping[UUID, TranslationTurnProcessResult]:
+        if not requests:
+            return {}
+        provider_request = self._capture_provider_request()
+        eligible = tuple(request for request in requests if request.utterance_id in prepared)
+        remaining = tuple(request for request in requests if request.utterance_id not in prepared)
+        results = {
+            request.utterance_id: await self.process(
+                request,
+                prepared=None,
+                cancellation_requested=cancellation_requested,
+            )
+            for request in remaining
+        }
+        if cancellation_requested():
+            raise asyncio.CancelledError
+        if not eligible:
+            return results
+        if len(eligible) == 1:
+            request = eligible[0]
+            results[request.utterance_id] = await self.process(
+                request,
+                prepared=prepared[request.utterance_id],
+                cancellation_requested=cancellation_requested,
+            )
+            return results
+        if provider_request is None or not isinstance(provider_request[0], LlmTranslationBackend):
+            for request in eligible:
+                results[request.utterance_id] = self._result(
+                    request,
+                    "failed",
+                    "stale_provider_completion",
+                    source_language=prepared[request.utterance_id].source_language,
+                )
+            return results
+        backend, generation = provider_request
+        first_prepared = prepared[eligible[0].utterance_id]
+        if any(
+            prepared[request.utterance_id].provider_generation != generation for request in eligible
+        ):
+            for request in eligible:
+                results[request.utterance_id] = self._result(
+                    request,
+                    "failed",
+                    "stale_provider_completion",
+                    source_language=prepared[request.utterance_id].source_language,
+                )
+            return results
+        segments = [
+            {
+                "index": request.sequence,
+                "language": prepared[request.utterance_id].source_language,
+                "text": request.text,
+            }
+            for request in eligible
+        ]
+        batch_text = json.dumps({"segments": segments}, ensure_ascii=False)
+        mixed_languages = len({item["language"] for item in segments}) > 1
+        batch_system_prompt = (
+            render_translation_system_prompt(
+                eligible[0].config_snapshot.value.system_prompt,
+                source_language="auto",
+                target_language=eligible[0].target_language,
+                source_name=UNSPECIFIED_SOURCE_TEXT_REF,
+                input_channel="peer",
+                source_specified=False,
+            )
+            if mixed_languages
+            else first_prepared.system_prompt
+        )
+        system_prompt = (
+            batch_system_prompt.rstrip()
+            + "\nTranslate every input segment using the complete ordered input as context. "
+            "Return only a JSON object with a segments array; each entry has the exact input "
+            "integer index and translated text. Preserve all indices exactly once. "
+            "Do not merge or omit segments."
+        )
+        try:
+            self._record_latency(
+                "peer",
+                eligible[0].utterance_id,
+                "llm_request_start",
+                parent_utterance_id=eligible[0].parent_utterance_id,
+                target_index=eligible[0].target_index,
+                target_language=eligible[0].target_language,
+            )
+            raw = await backend.translate(
+                TranslationBackendRequest(
+                    utterance_id=eligible[0].parent_utterance_id,
+                    text=batch_text,
+                    system_prompt=system_prompt,
+                    source_language="auto" if mixed_languages else first_prepared.source_language,
+                    target_language=eligible[0].target_language,
+                    context=first_prepared.context,
+                    scene_participant_count=_scene_participant_count(first_prepared.scene_snapshot),
+                )
+            )
+            self._raise_if_stale_provider_request(backend, generation)
+            if cancellation_requested():
+                raise asyncio.CancelledError
+            parsed = json.loads(raw.text)
+            items = parsed["segments"]
+            if not isinstance(items, list) or len(items) != len(eligible):
+                raise ValueError("incomplete translation batch")
+            translated: dict[int, str] = {}
+            expected = {request.sequence for request in eligible}
+            for item in items:
+                if not isinstance(item, dict) or set(item) != {"index", "text"}:
+                    raise ValueError("invalid translation batch item")
+                index, text = item["index"], item["text"]
+                if (
+                    type(index) is not int
+                    or index not in expected
+                    or index in translated
+                    or not isinstance(text, str)
+                    or not text.strip()
+                ):
+                    raise ValueError("invalid translation batch correspondence")
+                translated[index] = text
+            if set(translated) != expected:
+                raise ValueError("missing translation batch result")
+        except asyncio.CancelledError:
+            raise
+        except StaleProviderCompletion:
+            failure_code = "stale_provider_completion"
+        except Exception as exc:
+            failure_code = "provider_error"
+            report = self._record_failure(eligible[0], exc)
+            await self._publish_failure(eligible[0], self._translation_error_payload(exc, report))
+        else:
+            for request in eligible:
+                context = prepared[request.utterance_id]
+                self._record_latency(
+                    "peer",
+                    request.utterance_id,
+                    "llm_done",
+                    parent_utterance_id=request.parent_utterance_id,
+                    target_index=request.target_index,
+                    turn_generation=request.turn_generation,
+                    turn_order=request.turn_order,
+                    target_language=request.target_language,
+                )
+                translation = Translation(
+                    request.utterance_id,
+                    translated_text=translated[request.sequence],
+                    source_text=request.text,
+                    source_language=context.source_language,
+                    target_language=request.target_language,
+                    channel="peer",
+                )
+                results[request.utterance_id] = TranslationTurnProcessResult(
+                    "translated",
+                    TranslationOutputSubmission(
+                        parent_utterance_id=request.parent_utterance_id,
+                        child_utterance_id=request.utterance_id,
+                        sequence=request.sequence,
+                        channel="peer",
+                        source=request.source,
+                        source_text=request.text,
+                        source_language=context.source_language,
+                        target_language=request.target_language,
+                        outcome="translated",
+                        config_snapshot=request.config_snapshot,
+                        translation=translation,
+                        applied_context_mode=context.applied_context_mode,
+                        target_index=request.target_index,
+                        turn_generation=request.turn_generation,
+                        turn_order=request.turn_order,
+                        publication_generation=request.publication_generation,
+                        source_order=request.source_order,
+                        turn_kind=request.turn_kind,
+                        parent_output_count=request.parent_output_count,
+                        context_texts=context.context_texts,
+                    ),
+                )
+            return results
+        for request in eligible:
+            context = prepared[request.utterance_id]
+            results[request.utterance_id] = self._result(
+                request,
+                "failed",
+                failure_code,
+                source_language=context.source_language,
+                context_texts=context.context_texts,
+            )
+        return results
 
     async def translate(self, request: DirectTranslationRequest) -> Translation:
         config_snapshot = request.config_snapshot or self.config_snapshot()

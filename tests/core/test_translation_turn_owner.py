@@ -143,9 +143,10 @@ def test_language_and_speaker_boundaries_segment_without_punctuation_occupants()
         ((None, None, "B", "B"), ["aa", "bb"], [None, "B"]),
         ((None, None, None, None), ["aabb"], [None]),
         (("A", None, "B", None), ["a", "a", "b", "b"], ["A", None, "B", None]),
+        (("A", None, "A", "A"), ["a", "a", "bb"], ["A", None, "A"]),
     ],
 )
-def test_speaker_transition_matrix_preserves_unknown_boundaries(
+def test_speaker_identity_matrix_preserves_unknown_boundaries(
     speaker_ids,
     expected_texts,
     expected_speakers,
@@ -182,6 +183,14 @@ def test_speaker_transition_matrix_preserves_unknown_boundaries(
         child.transcript.final_speaker_runs[0].speaker_id for child in children
     ] == expected_speakers
     assert "".join(child.transcript.text for child in children) == text
+    assert [child.transcript.source_text_range for child in children] == [
+        (0, len(expected_texts[0])),
+        *[
+            (sum(map(len, expected_texts[:index])), sum(map(len, expected_texts[: index + 1])))
+            for index in range(1, len(expected_texts))
+        ],
+    ]
+    assert len({child.transcript.source_text_revision for child in children}) == 1
 
 
 def test_language_change_splits_consecutive_unknown_speaker_text() -> None:

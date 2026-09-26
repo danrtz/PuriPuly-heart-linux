@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from uuid import UUID
 
 from puripuly_heart.core.orchestrator.peer_translation_channel import (
@@ -141,6 +141,16 @@ class TranslationChannelOwnerCallbacks:
             await self._require_self().on_parent_admitted(children)
             return
         await self._require_peer().on_parent_admitted(children)
+
+    def peer_batch_supported(self) -> bool:
+        return self._require_peer().peer_batch_supported()
+
+    async def process_peer_batch(
+        self,
+        children: tuple[TranslationTurnChild, ...],
+        cancellation_requested: Callable[[], bool],
+    ) -> Mapping[UUID, TranslationTurnProcessResult]:
+        return await self._require_peer().process_peer_batch(children, cancellation_requested)
 
     async def process_child(
         self,

@@ -690,8 +690,7 @@ struct WindowsCaptionRenderer {
     d2d_context: ID2D1DeviceContext,
     cache_outline_brush: ID2D1SolidColorBrush,
     cache_self_text_brush: ID2D1SolidColorBrush,
-    cache_peer_text_brush: ID2D1SolidColorBrush,
-    cache_peer_cyan_text_brush: ID2D1SolidColorBrush,
+    cache_peer_text_brushes: Vec<ID2D1SolidColorBrush>,
     target_bitmap: ID2D1Bitmap1,
     texture: ID3D11Texture2D,
     caches: WindowsRendererCaches,
@@ -770,27 +769,23 @@ impl WindowsCaptionRenderer {
         let cache_self_text_brush = unsafe {
             d2d_context
                 .CreateSolidColorBrush(
-                    &d2d_color(fill_color_for_channel(CaptionChannel::SelfChannel)),
+                    &d2d_color(fill_color_for_channel(
+                        CaptionChannel::SelfChannel,
+                        super::types::SpeakerStyle::Gray,
+                    )),
                     None,
                 )
                 .map_err(|error| CaptionRenderError::Init(error.to_string()))?
         };
-        let cache_peer_text_brush = unsafe {
-            d2d_context
-                .CreateSolidColorBrush(
-                    &d2d_color(fill_color_for_channel(CaptionChannel::PeerChannel)),
-                    None,
-                )
-                .map_err(|error| CaptionRenderError::Init(error.to_string()))?
-        };
-        let cache_peer_cyan_text_brush = unsafe {
-            d2d_context
-                .CreateSolidColorBrush(
-                    &d2d_color(fill_color_for_channel(CaptionChannel::PeerCyan)),
-                    None,
-                )
-                .map_err(|error| CaptionRenderError::Init(error.to_string()))?
-        };
+        let mut cache_peer_text_brushes =
+            Vec::with_capacity(super::types::PEER_TEXT_FILL_COLORS.len());
+        for color in super::types::PEER_TEXT_FILL_COLORS {
+            cache_peer_text_brushes.push(unsafe {
+                d2d_context
+                    .CreateSolidColorBrush(&d2d_color(color), None)
+                    .map_err(|error| CaptionRenderError::Init(error.to_string()))?
+            });
+        }
         let mut renderer = Self {
             d2d_factory,
             dwrite_factory,
@@ -802,8 +797,7 @@ impl WindowsCaptionRenderer {
             d2d_context,
             cache_outline_brush,
             cache_self_text_brush,
-            cache_peer_text_brush,
-            cache_peer_cyan_text_brush,
+            cache_peer_text_brushes,
             target_bitmap,
             texture,
             caches: WindowsRendererCaches::default(),
@@ -952,11 +946,16 @@ impl WindowsCaptionRenderer {
         Ok(())
     }
 
-    fn cache_brush_for_channel(&self, channel: CaptionChannel) -> ID2D1SolidColorBrush {
+    fn cache_brush_for_channel(
+        &self,
+        channel: CaptionChannel,
+        style: super::types::SpeakerStyle,
+    ) -> ID2D1SolidColorBrush {
         match channel {
             CaptionChannel::SelfChannel => self.cache_self_text_brush.clone(),
-            CaptionChannel::PeerChannel => self.cache_peer_text_brush.clone(),
-            CaptionChannel::PeerCyan => self.cache_peer_cyan_text_brush.clone(),
+            CaptionChannel::PeerChannel => {
+                self.cache_peer_text_brushes[style.palette_index()].clone()
+            }
         }
     }
 
@@ -971,6 +970,7 @@ impl WindowsCaptionRenderer {
             role,
             style_key: line.style_key,
             channel: block.channel,
+            speaker_style: block.speaker_style,
             block_variant: block.block_variant,
             font_size_key: (line.font_size_px * 100.0).round() as u32,
             content_width_key: block.content_width_px.round() as u32,
@@ -1064,7 +1064,7 @@ impl WindowsCaptionRenderer {
         role: LineRole,
     ) -> Result<CachedLineVisual, CaptionRenderError> {
         let channel = block.channel.unwrap_or(CaptionChannel::SelfChannel);
-        let fill_brush = self.cache_brush_for_channel(channel);
+        let fill_brush = self.cache_brush_for_channel(channel, block.speaker_style);
         let outline_brush = self.cache_outline_brush.clone();
         unsafe {
             fill_brush.SetOpacity(1.0);
@@ -2448,6 +2448,161 @@ mod tests {
 
     #[cfg(windows)]
     #[tokio::test]
+    async fn windows_graphics_style_changes_repaint_both_rows_and_replay_identically() {
+        use crate::renderer::SpeakerStyle;
+
+        let mut renderer = super::WindowsCaptionRenderer::new(None).unwrap();
+        let mut previous_pixels = None;
+        for (channel, style, rgb) in [
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Gold,
+                [255, 215, 0],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Cyan,
+                [51, 214, 255],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(2),
+                [255, 107, 107],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(3),
+                [124, 255, 107],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(4),
+                [199, 125, 255],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(5),
+                [255, 159, 28],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(6),
+                [255, 93, 143],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(7),
+                [77, 255, 200],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(8),
+                [184, 255, 60],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(9),
+                [255, 77, 77],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(10),
+                [108, 140, 255],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(11),
+                [230, 255, 77],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(12),
+                [255, 122, 217],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(13),
+                [92, 255, 234],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Palette(14),
+                [255, 176, 32],
+            ),
+            (
+                CaptionChannel::PeerChannel,
+                SpeakerStyle::Gray,
+                [154, 160, 166],
+            ),
+            (
+                CaptionChannel::SelfChannel,
+                SpeakerStyle::Cyan,
+                [255, 255, 255],
+            ),
+        ] {
+            let block = CaptionBlock::new("same-block", "COLOR")
+                .with_channel(channel)
+                .with_speaker_style(style)
+                .with_secondary_text("SECOND", true);
+            for replay in 0..2 {
+                let frame = renderer
+                    .render(
+                        &CaptionLayoutPolicy::default(),
+                        &CaptionPresentation::default(),
+                        vec![block.clone()],
+                        super::DEFAULT_SURFACE_WIDTH_PX,
+                        super::DEFAULT_SURFACE_HEIGHT_PX,
+                        None,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    renderer
+                        .prepare_frame_for_submission(&ReadinessCancellation::default())
+                        .await,
+                    ReadinessOutcome::Ready,
+                );
+                let pixels = texture_pixels(&renderer);
+                let visible = &frame.layout().visible_blocks[0];
+                let secondary = visible.secondary_line.as_ref().unwrap();
+                for (origin_y, font_size) in [
+                    (
+                        visible.primary_lines[0].origin_y,
+                        visible.primary_lines[0].font_size_px,
+                    ),
+                    (secondary.origin_y, secondary.font_size_px),
+                ] {
+                    let start = origin_y.max(0.0) as usize;
+                    let end = (origin_y + font_size * 1.5)
+                        .min(super::DEFAULT_SURFACE_HEIGHT_PX as f32)
+                        as usize;
+                    let width = super::DEFAULT_SURFACE_WIDTH_PX as usize;
+                    let row = &pixels[start * width * 4..end * width * 4];
+                    assert!(
+                        row.chunks_exact(4).any(|pixel| {
+                            pixel[3] > 245
+                                && pixel[2].abs_diff(rgb[0]) < 8
+                                && pixel[1].abs_diff(rgb[1]) < 8
+                                && pixel[0].abs_diff(rgb[2]) < 8
+                        }),
+                        "missing {:?} {:?} text at y={origin_y}",
+                        channel,
+                        style
+                    );
+                }
+                if replay == 1 {
+                    assert_eq!(pixels, previous_pixels.take().unwrap());
+                } else {
+                    if let Some(previous) = &previous_pixels {
+                        assert_ne!(&pixels, previous);
+                    }
+                    previous_pixels = Some(pixels);
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
     async fn windows_graphics_cache_rejection_and_eviction_preserve_current_pixels_and_target() {
         use crate::renderer::cache::BoundedLruCache;
         for entries in [0, 1, 2] {
@@ -2640,6 +2795,7 @@ mod tests {
             primary_style_key: style_key("ko"),
             secondary_style_key: style_key("ja"),
             channel: Some(CaptionChannel::PeerChannel),
+            speaker_style: crate::renderer::SpeakerStyle::Gray,
             block_variant: CaptionBlockVariant::Finalized,
             secondary_enabled: false,
             secondary_reserved: false,
@@ -2656,6 +2812,7 @@ mod tests {
             id: id.to_string(),
             layout_cache_key: layout_key(key_seed),
             channel: Some(CaptionChannel::PeerChannel),
+            speaker_style: crate::renderer::SpeakerStyle::Gray,
             block_variant: CaptionBlockVariant::Finalized,
             primary_lines: Vec::new(),
             secondary_line: None,

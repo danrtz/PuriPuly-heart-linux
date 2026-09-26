@@ -88,6 +88,7 @@ class _RecordingOverlaySink:
 @dataclass(slots=True)
 class _DeterministicLLM(LLMProvider):
     requested_source_languages: list[str] = field(default_factory=list)
+    requested_segment_languages: list[str] = field(default_factory=list)
 
     async def translate(
         self,
@@ -103,7 +104,19 @@ class _DeterministicLLM(LLMProvider):
     ) -> Translation:
         _ = (system_prompt, context, max_output_tokens)
         self.requested_source_languages.append(source_language)
-        response = f"translated-{len(self.requested_source_languages)}"
+        if text.startswith('{"segments":'):
+            segments = json.loads(text)["segments"]
+            self.requested_segment_languages.extend(item["language"] for item in segments)
+            response = json.dumps(
+                {
+                    "segments": [
+                        {"index": item["index"], "text": f"translated-{item['index'] + 1}"}
+                        for item in reversed(segments)
+                    ]
+                }
+            )
+        else:
+            response = f"translated-{len(self.requested_source_languages)}"
         return Translation(
             utterance_id=utterance_id,
             text=response,
@@ -604,9 +617,8 @@ async def test_controlled_peer_output_preserves_original_and_denies_chatbox() ->
                 "translation_final",
                 "utterance_closed",
             ]
-            assert llm.requested_source_languages == ["ja", "zh", "ko"]
-            assert "zh-CN" not in llm.requested_source_languages
-            assert "zh-TW" not in llm.requested_source_languages
+            assert llm.requested_source_languages == ["auto"]
+            assert llm.requested_segment_languages == ["ja", "zh", "ko"]
             blocks = presenter.snapshot().blocks
             assert [block.primary_text for block in blocks] == [
                 event.text for event in translations[-2:]

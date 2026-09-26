@@ -11,21 +11,42 @@ Windows Rust runtime for the VR subtitle overlay.
   - `src/puripuly_heart/core/runtime/overlay.py`
   - `src/puripuly_heart/ui/desktop_overlay.py`
 
+The shared bridge protocol is version 12 with execution contract r2 and exclusive
+native presentation retries. Authentication and readiness advertise
+`speaker_identity_presentation: {"version":1,"policy":"immutable_first_readable_style"}`.
+Version 11's `speaker_transition_presentation` handshake is rejected. Python
+selects and freezes the speaker style before readable publication; native receives
+only the selected `speaker_style` string, not provider speaker identity keys.
+Semantic SELF/PEER channels remain independent of style. SELF text is always white.
+Missing or unsupported peer styles are gray (`#9AA0A6`). The 15 identified peer
+styles are fixed sRGB colors, without cycling:
 
-The shared bridge protocol is version 9 with execution contract r2. Python owns
-caption expiry and send-time pruning; native renders the accepted current snapshot
-without a validity-lease exchange or autonomous caption-expiry Hide. Old captions
-can remain if the application cannot deliver removal or the replacement frame fails.
-Health responses report presentation stage and meaningful progress to the existing
-Python supervisor; they do not establish caption freshness. Runtime generations,
-semantic retirement and bounded recovery remain, as do explicit OFF/shutdown and
-the normal 500 ms empty-frame hide grace. Protocol 7/r1 is rollback material only.
-Run commands from the repository root.
+| Style | Color | Style | Color | Style | Color |
+| --- | --- | --- | --- | --- | --- |
+| gold | `#FFD700` | cyan | `#33D6FF` | p02 | `#FF6B6B` |
+| p03 | `#7CFF6B` | p04 | `#C77DFF` | p05 | `#FF9F1C` |
+| p06 | `#FF5D8F` | p07 | `#4DFFC8` | p08 | `#B8FF3C` |
+| p09 | `#FF4D4D` | p10 | `#6C8CFF` | p11 | `#E6FF4D` |
+| p12 | `#FF7AD9` | p13 | `#5CFFEA` | p14 | `#FFB020` |
+
+The same brush colors both primary and secondary rows. Style participates in
+frame identity and render caches, so a style-only change repaints and retries use
+the current style. Python owns caption expiry and send-time pruning; native renders
+the accepted current snapshot without a validity-lease exchange or autonomous
+caption-expiry Hide. Old captions can remain if the application cannot deliver
+removal or the replacement frame fails. Health responses report presentation
+stage and meaningful progress to the Python supervisor, not caption freshness.
+Runtime generations, semantic retirement, bounded recovery, explicit OFF/shutdown,
+and the 500 ms empty-frame hide grace remain unchanged.
+
+Run commands from the repository root. On Windows, use a short `--target-dir`
+path if the checkout is deep enough to exceed MSBuild's tracking-file path limit.
 
 ## Verification
 
 ```powershell
 cargo test --locked --manifest-path native/overlay/Cargo.toml
+cargo test --locked --manifest-path native/overlay/Cargo.toml windows_graphics_style_changes_repaint_both_rows_and_replay_identically -- --nocapture
 cargo build --manifest-path native/overlay/Cargo.toml --locked --release --bin PuriPulyHeartOverlay --target-dir target
 
 New-Item -ItemType Directory -Force -Path build/overlay | Out-Null

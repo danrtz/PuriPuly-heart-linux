@@ -5,6 +5,41 @@ from typing import Literal
 
 ChannelId = Literal["self", "peer"]
 U64_MAX = (1 << 64) - 1
+SPEAKER_IDENTITY_STYLES = (
+    "gold",
+    "cyan",
+    "p02",
+    "p03",
+    "p04",
+    "p05",
+    "p06",
+    "p07",
+    "p08",
+    "p09",
+    "p10",
+    "p11",
+    "p12",
+    "p13",
+    "p14",
+)
+SpeakerStyle = Literal[
+    "gray",
+    "gold",
+    "cyan",
+    "p02",
+    "p03",
+    "p04",
+    "p05",
+    "p06",
+    "p07",
+    "p08",
+    "p09",
+    "p10",
+    "p11",
+    "p12",
+    "p13",
+    "p14",
+]
 # `active_peer` remains a reserved compatibility/fallback variant. Normal
 # product peer rows are primary-visible only after translation arrival.
 BlockVariant = Literal["active_self", "active_peer", "finalized"]
@@ -62,7 +97,7 @@ class OverlayPresentationBlock:
     publication_scope: str | None = None
     publication_generation: int | None = None
     publication_order: int | None = None
-    speaker_style: Literal["gold", "cyan"] | None = None
+    speaker_style: SpeakerStyle | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -408,12 +443,12 @@ def _optional_bool_field(
     return value
 
 
-def _optional_speaker_style(data: dict[str, object]) -> Literal["gold", "cyan"] | None:
+def _optional_speaker_style(data: dict[str, object]) -> SpeakerStyle | None:
     value = data.get("speaker_style")
     if value is None:
         return None
-    if value not in ("gold", "cyan"):
-        raise ValueError("speaker_style must be 'gold' or 'cyan'")
+    if value not in ("gray", *SPEAKER_IDENTITY_STYLES):
+        return "gray"
     return value
 
 

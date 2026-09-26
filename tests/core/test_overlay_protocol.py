@@ -522,3 +522,46 @@ def test_overlay_presentation_block_rejects_peer_active_self_combination() -> No
 def test_overlay_presentation_block_rejects_non_dict_payload(payload: object) -> None:
     with pytest.raises(ValueError, match="overlay presentation block must be an object"):
         OverlayPresentationBlock.from_dict(payload)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("style", ("gold", "cyan", "gray", "p02", "p14"))
+def test_peer_speaker_style_roundtrips_through_snapshot(style: str) -> None:
+    snapshot = OverlayPresentationSnapshot(
+        revision=7,
+        blocks=[
+            OverlayPresentationBlock(
+                id="peer:caption",
+                occupant_key="peer:caption",
+                appearance_seq=1,
+                channel="peer",
+                block_variant="finalized",
+                primary_text="translation",
+                secondary_text="source",
+                secondary_enabled=True,
+                speaker_style=style,
+            )
+        ],
+    )
+    assert (
+        OverlayPresentationSnapshot.from_dict(snapshot.to_dict()).blocks[0].speaker_style == style
+    )
+
+
+def test_unsupported_peer_style_decodes_as_gray_not_gold_or_cyan() -> None:
+    snapshot = OverlayPresentationSnapshot(
+        revision=2,
+        blocks=[
+            OverlayPresentationBlock(
+                id="peer:caption",
+                occupant_key="peer:caption",
+                appearance_seq=1,
+                channel="peer",
+                block_variant="finalized",
+                primary_text="words",
+                secondary_text="",
+                secondary_enabled=False,
+            )
+        ],
+    ).to_dict()
+    snapshot["blocks"][0]["speaker_style"] = "obsolete-transition"
+    assert OverlayPresentationSnapshot.from_dict(snapshot).blocks[0].speaker_style == "gray"

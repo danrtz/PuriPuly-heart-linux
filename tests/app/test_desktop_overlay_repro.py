@@ -318,7 +318,7 @@ def test_verifier_rejects_semantically_invalid_rfc3339_utc(tmp_path: Path, wall_
     assert artifacts.verify_desktop_overlay_repro(output_dir=tmp_path) == 1
 
 
-def test_raw_ingress_requires_current_speaker_transition_capability() -> None:
+def test_raw_ingress_requires_current_speaker_identity_capability() -> None:
     ingress = repro.LocalAuthenticatedRawIngress(
         "token",
         repro.OverlayPresentationSnapshot(),
@@ -332,7 +332,7 @@ def test_raw_ingress_requires_current_speaker_transition_capability() -> None:
         "runtime_generation": 1,
         "capabilities": {
             "execution_contract": repro.OVERLAY_EXECUTION_CONTRACT,
-            "speaker_transition_presentation": repro.OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+            "speaker_identity_presentation": repro.OVERLAY_SPEAKER_IDENTITY_CONTRACT,
         },
     }
 
@@ -347,9 +347,9 @@ def test_raw_ingress_requires_current_speaker_transition_capability() -> None:
         **base,
         "capabilities": {
             "execution_contract": repro.OVERLAY_EXECUTION_CONTRACT,
-            "speaker_transition_presentation": {
+            "speaker_identity_presentation": {
                 "version": 1,
-                "modes": ["A", "C", "E"],
+                "policy": "temporary_turn_emphasis",
             },
         },
     }

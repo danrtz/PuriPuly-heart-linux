@@ -56,9 +56,9 @@ class _FinalToken:
     text: str
     start_ms: int | None
     end_ms: int | None
-    confidence: float | None = None
     language: str = ""
     speaker_id: str | None = None
+    attribution_state: str = "missing"
 
 
 @dataclass(slots=True)
@@ -391,15 +391,6 @@ class _SonioxSession(STTBackendSession):
                 self._pending_last_end_ms = end_ms
             else:
                 end_ms = None
-            confidence = token.get("confidence")
-            if (
-                isinstance(confidence, (int, float))
-                and not isinstance(confidence, bool)
-                and 0.0 <= float(confidence) <= 1.0
-            ):
-                confidence = float(confidence)
-            else:
-                confidence = None
             language = ""
             if self.enable_language_identification:
                 raw_language = token.get("language")
@@ -410,13 +401,16 @@ class _SonioxSession(STTBackendSession):
                 raw_speaker = token.get("speaker")
                 if isinstance(raw_speaker, str | int) and not isinstance(raw_speaker, bool):
                     speaker_id = str(raw_speaker).strip() or None
+            attribution_state = "identified" if speaker_id is not None else "missing"
+            if self.enable_speaker_diarization and "speaker" in token and speaker_id is None:
+                attribution_state = "malformed"
             final_token = _FinalToken(
                 text=text,
                 start_ms=start_ms,
                 end_ms=end_ms,
-                confidence=confidence,
                 language=language,
                 speaker_id=speaker_id,
+                attribution_state=attribution_state,
             )
             self._pending_tokens.append(final_token)
             self._emit_scoped_token(final_token, token, data)
@@ -455,7 +449,8 @@ class _SonioxSession(STTBackendSession):
                     session_scope=self.speaker_session_scope,
                     source_start_ms=final_token.start_ms,
                     source_end_ms=final_token.end_ms,
-                    speaker_confidence=final_token.confidence,
+                    source="soniox",
+                    attribution_state=final_token.attribution_state,
                 ),
             )
         self._event_projection.put_update(
@@ -537,7 +532,11 @@ class _SonioxSession(STTBackendSession):
                 or token.start_ms is None
                 or token.start_ms < previous_token_end_ms
             )
-            if runs and runs[-1].speaker_id == token.speaker_id:
+            if (
+                runs
+                and runs[-1].speaker_id == token.speaker_id
+                and runs[-1].attribution_state == token.attribution_state
+            ):
                 previous = runs[-1]
                 runs[-1] = FinalSpeakerRun(
                     text=previous.text + token.text,
@@ -545,12 +544,9 @@ class _SonioxSession(STTBackendSession):
                     session_scope=self.speaker_session_scope,
                     source_start_ms=previous.source_start_ms,
                     source_end_ms=token.end_ms,
-                    speaker_confidence=(
-                        min(previous.speaker_confidence, token.confidence)
-                        if previous.speaker_confidence is not None and token.confidence is not None
-                        else None
-                    ),
                     overlaps_previous=previous.overlaps_previous or overlaps_previous,
+                    source="soniox",
+                    attribution_state=previous.attribution_state,
                 )
             else:
                 runs.append(
@@ -560,8 +556,9 @@ class _SonioxSession(STTBackendSession):
                         session_scope=self.speaker_session_scope,
                         source_start_ms=token.start_ms,
                         source_end_ms=token.end_ms,
-                        speaker_confidence=token.confidence,
                         overlaps_previous=overlaps_previous,
+                        source="soniox",
+                        attribution_state=token.attribution_state,
                     )
                 )
             previous_token_end_ms = token.end_ms
@@ -678,9 +675,9 @@ class _SonioxSession(STTBackendSession):
                         text=token.text[overlap_start - offset : overlap_end - offset],
                         start_ms=token.start_ms,
                         end_ms=token.end_ms,
-                        confidence=token.confidence,
                         language=token.language,
                         speaker_id=token.speaker_id,
+                        attribution_state=token.attribution_state,
                     )
                 )
             offset = token_end

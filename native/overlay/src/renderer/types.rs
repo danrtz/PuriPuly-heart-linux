@@ -26,10 +26,24 @@ pub(crate) const TEXT_OUTLINE_OVERHANG_PX: f32 = 5.0;
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) const SELF_TEXT_FILL_COLOR: (f32, f32, f32, f32) = (1.0, 1.0, 1.0, 1.0);
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) const PEER_TEXT_FILL_COLOR: (f32, f32, f32, f32) = (1.0, 215.0 / 255.0, 0.0, 1.0);
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) const PEER_CYAN_TEXT_FILL_COLOR: (f32, f32, f32, f32) =
-    (51.0 / 255.0, 214.0 / 255.0, 1.0, 1.0);
+pub(crate) const PEER_TEXT_FILL_COLORS: [(f32, f32, f32, f32); 16] = [
+    (154.0 / 255.0, 160.0 / 255.0, 166.0 / 255.0, 1.0),
+    (1.0, 215.0 / 255.0, 0.0, 1.0),
+    (51.0 / 255.0, 214.0 / 255.0, 1.0, 1.0),
+    (1.0, 107.0 / 255.0, 107.0 / 255.0, 1.0),
+    (124.0 / 255.0, 1.0, 107.0 / 255.0, 1.0),
+    (199.0 / 255.0, 125.0 / 255.0, 1.0, 1.0),
+    (1.0, 159.0 / 255.0, 28.0 / 255.0, 1.0),
+    (1.0, 93.0 / 255.0, 143.0 / 255.0, 1.0),
+    (77.0 / 255.0, 1.0, 200.0 / 255.0, 1.0),
+    (184.0 / 255.0, 1.0, 60.0 / 255.0, 1.0),
+    (1.0, 77.0 / 255.0, 77.0 / 255.0, 1.0),
+    (108.0 / 255.0, 140.0 / 255.0, 1.0, 1.0),
+    (230.0 / 255.0, 1.0, 77.0 / 255.0, 1.0),
+    (1.0, 122.0 / 255.0, 217.0 / 255.0, 1.0),
+    (92.0 / 255.0, 1.0, 234.0 / 255.0, 1.0),
+    (1.0, 176.0 / 255.0, 32.0 / 255.0, 1.0),
+];
 #[cfg(windows)]
 pub(crate) const TEXT_OUTLINE_COLOR: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 1.0);
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -56,6 +70,7 @@ pub struct CaptionBlock {
     pub secondary_language: Option<String>,
     pub block_variant: CaptionBlockVariant,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub opacity: f32,
     pub offset_y_px: f32,
     pub height_scale: f32,
@@ -77,7 +92,46 @@ pub enum CaptionBlockVariant {
 pub enum CaptionChannel {
     SelfChannel,
     PeerChannel,
-    PeerCyan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SpeakerStyle {
+    Gray,
+    Gold,
+    Cyan,
+    Palette(u8),
+}
+
+impl SpeakerStyle {
+    pub fn from_token(token: Option<&str>) -> Self {
+        match token {
+            Some("gold") => Self::Gold,
+            Some("cyan") => Self::Cyan,
+            Some("p02") => Self::Palette(2),
+            Some("p03") => Self::Palette(3),
+            Some("p04") => Self::Palette(4),
+            Some("p05") => Self::Palette(5),
+            Some("p06") => Self::Palette(6),
+            Some("p07") => Self::Palette(7),
+            Some("p08") => Self::Palette(8),
+            Some("p09") => Self::Palette(9),
+            Some("p10") => Self::Palette(10),
+            Some("p11") => Self::Palette(11),
+            Some("p12") => Self::Palette(12),
+            Some("p13") => Self::Palette(13),
+            Some("p14") => Self::Palette(14),
+            _ => Self::Gray,
+        }
+    }
+
+    pub(crate) fn palette_index(self) -> usize {
+        match self {
+            Self::Gray => 0,
+            Self::Gold => 1,
+            Self::Cyan => 2,
+            Self::Palette(index) => index as usize + 1,
+        }
+    }
 }
 
 impl CaptionBlock {
@@ -91,6 +145,7 @@ impl CaptionBlock {
             secondary_language: None,
             block_variant: CaptionBlockVariant::Finalized,
             channel: None,
+            speaker_style: SpeakerStyle::Gray,
             opacity: 1.0,
             offset_y_px: 0.0,
             height_scale: 1.0,
@@ -142,6 +197,10 @@ impl CaptionBlock {
         self
     }
 
+    pub fn with_speaker_style(mut self, speaker_style: SpeakerStyle) -> Self {
+        self.speaker_style = speaker_style;
+        self
+    }
     pub fn with_visual_state(mut self, opacity: f32, offset_y_px: f32, height_scale: f32) -> Self {
         self.opacity = opacity.clamp(0.0, 1.0);
         self.offset_y_px = offset_y_px;
@@ -291,6 +350,7 @@ impl DamageBand {
 pub struct VisibleCaptionBlock {
     pub id: String,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub primary_lines: Vec<CaptionLineLayout>,
     pub secondary_line: Option<CaptionLineLayout>,
@@ -373,6 +433,7 @@ pub struct ResolvedBlockLayout {
     pub id: String,
     pub layout_cache_key: LayoutCacheKey,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub primary_lines: Vec<ResolvedLineLayout>,
     pub secondary_line: Option<ResolvedLineLayout>,
@@ -422,6 +483,7 @@ impl From<ResolvedBlockLayout> for VisibleCaptionBlock {
         Self {
             id: value.id,
             channel: value.channel,
+            speaker_style: value.speaker_style,
             block_variant: value.block_variant,
             primary_lines: value.primary_lines.into_iter().map(Into::into).collect(),
             secondary_line: value.secondary_line.map(Into::into),
@@ -455,6 +517,7 @@ pub struct LayoutCacheKey {
     pub primary_style_key: TextStyleKey,
     pub secondary_style_key: TextStyleKey,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub secondary_enabled: bool,
     pub secondary_reserved: bool,
@@ -470,6 +533,7 @@ pub struct LineCacheKey {
     pub role: LineRole,
     pub style_key: TextStyleKey,
     pub channel: Option<CaptionChannel>,
+    pub speaker_style: SpeakerStyle,
     pub block_variant: CaptionBlockVariant,
     pub font_size_key: u32,
     pub content_width_key: u32,
@@ -561,11 +625,13 @@ pub(crate) struct ResolvedTextStyle {
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn fill_color_for_channel(channel: CaptionChannel) -> (f32, f32, f32, f32) {
+pub(crate) fn fill_color_for_channel(
+    channel: CaptionChannel,
+    style: SpeakerStyle,
+) -> (f32, f32, f32, f32) {
     match channel {
         CaptionChannel::SelfChannel => SELF_TEXT_FILL_COLOR,
-        CaptionChannel::PeerChannel => PEER_TEXT_FILL_COLOR,
-        CaptionChannel::PeerCyan => PEER_CYAN_TEXT_FILL_COLOR,
+        CaptionChannel::PeerChannel => PEER_TEXT_FILL_COLORS[style.palette_index()],
     }
 }
 

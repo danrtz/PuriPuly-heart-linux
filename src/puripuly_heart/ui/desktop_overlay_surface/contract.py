@@ -14,8 +14,24 @@ from puripuly_heart.ui.theme import COLOR_BACKGROUND
 
 _DESKTOP_CAPTION_WHITE = "#FFFFFF"
 
-_DESKTOP_CAPTION_GOLD = "#FFD700"
-_DESKTOP_CAPTION_CYAN = "#33D6FF"
+_DESKTOP_SPEAKER_COLORS = {
+    "gold": "#FFD700",
+    "cyan": "#33D6FF",
+    "gray": "#9AA0A6",
+    "p02": "#FF6B6B",
+    "p03": "#7CFF6B",
+    "p04": "#C77DFF",
+    "p05": "#FF9F1C",
+    "p06": "#FF5D8F",
+    "p07": "#4DFFC8",
+    "p08": "#B8FF3C",
+    "p09": "#FF4D4D",
+    "p10": "#6C8CFF",
+    "p11": "#E6FF4D",
+    "p12": "#FF7AD9",
+    "p13": "#5CFFEA",
+    "p14": "#FFB020",
+}
 
 _DESKTOP_CAPTION_FONT_FAMILY = FONT_FAMILY_NOTO_SANS_CJK_JP
 
@@ -108,7 +124,7 @@ def _desktop_caption_color_for_channel(
     speaker_style: str | None = None,
 ) -> str:
     if channel == "peer":
-        return _DESKTOP_CAPTION_CYAN if speaker_style == "cyan" else _DESKTOP_CAPTION_GOLD
+        return _DESKTOP_SPEAKER_COLORS.get(speaker_style or "", _DESKTOP_SPEAKER_COLORS["gray"])
     return _DESKTOP_CAPTION_WHITE
 
 
@@ -161,7 +177,7 @@ DESKTOP_CAPTION_MAPPING_TABLE: tuple[DesktopCaptionMappingRule, ...] = (
         role="peer_translation",
         slot="primary",
         promoted=False,
-        color=_DESKTOP_CAPTION_GOLD,
+        color=_DESKTOP_SPEAKER_COLORS["gray"],
         priority="90 peer translated primary; newer appearance wins ties",
         truncation="max 2 lines; outranks older finalized source/self lines",
     ),

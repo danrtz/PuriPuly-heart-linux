@@ -38,8 +38,8 @@ pub use renderer::{
     CaptionBlock, CaptionBlockVariant, CaptionChannel, CaptionDebugOverlay, CaptionLayoutPolicy,
     CaptionLayoutResult, CaptionLineLayout, CaptionPresentation, CaptionRenderError,
     CaptionRenderer, DamageBand, FontFallbackReason, FontLanguageBucket, FontResolver, FontSource,
-    FontWeight, RenderedFrame, ResolvedFontStyle, StyleBucketSourceCount, TextFamilyKey,
-    TextLocaleKey, TextStyleDescriptor, TextStyleKey, VisibleCaptionBlock,
+    FontWeight, RenderedFrame, ResolvedFontStyle, SpeakerStyle, StyleBucketSourceCount,
+    TextFamilyKey, TextLocaleKey, TextStyleDescriptor, TextStyleKey, VisibleCaptionBlock,
 };
 pub use runtime::{
     run_cli, run_with_manifest, NativePresentationOwner, OverlayRuntime, RuntimeFailure,

@@ -263,8 +263,6 @@ def peer_requests(fixture: OwnerFixture) -> tuple[TranslationProcessRequest, ...
             context_policy="integrated_preferred",
             config_snapshot=fixture.configuration.snapshot(),
             detected_language=language,
-            speaker_id=speaker,
-            speaker_session_scope="soniox-session",
             publication_generation=0,
             source_order=1,
             parent_output_count=3,
@@ -276,17 +274,31 @@ def peer_requests(fixture: OwnerFixture) -> tuple[TranslationProcessRequest, ...
 
 
 @pytest.mark.asyncio
-async def test_peer_plain_text_responses_preserve_each_segments_translation() -> None:
+async def test_peer_batch_correlates_reordered_results_in_one_http_request() -> None:
     translations = {"one ": "一", "둘째 ": "二", "three": "三"}
+    requests_seen: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
+        requests_seen.append(body)
         user_message = body["messages"][1]["content"]
         source = user_message.split("<input>\n", 1)[1].split("\n</input>", 1)[0]
+        segments = json.loads(source)["segments"]
+        response = {
+            "segments": [
+                {"index": item["index"], "text": translations[item["text"]]}
+                for item in reversed(segments)
+            ]
+        }
         return httpx.Response(
             200,
             json={
-                "choices": [{"finish_reason": "stop", "message": {"content": translations[source]}}]
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": json.dumps(response, ensure_ascii=False)},
+                    }
+                ]
             },
         )
 
@@ -297,19 +309,19 @@ async def test_peer_plain_text_responses_preserve_each_segments_translation() ->
     requests = peer_requests(fixture)
     prepared = fixture.owner.admit_peer(requests)
     try:
-        results = await asyncio.gather(
-            *(
-                fixture.owner.process(request, prepared=prepared[request.utterance_id])
-                for request in requests
-            )
+        results = await fixture.owner.process_peer_batch(
+            requests, prepared=prepared, cancellation_requested=lambda: False
         )
     finally:
         await provider.close()
 
+    assert len(requests_seen) == 1
     assert [
-        (result.output.source_text, result.output.translation.text)
-        for result in results
-        if result.output is not None and result.output.translation is not None
+        (
+            results[request.utterance_id].output.source_text,
+            results[request.utterance_id].output.translation.text,
+        )
+        for request in requests
     ] == [("one ", "一"), ("둘째 ", "二"), ("three", "三")]
 
 
@@ -396,10 +408,10 @@ async def test_peer_unsupported_segments_remain_reference_without_blocking_trans
         )
     )
     prepared = fixture.owner.admit_peer(requests)
-    results = [
-        await fixture.owner.process(request, prepared=prepared.get(request.utterance_id))
-        for request in requests
-    ]
+    results_by_id = await fixture.owner.process_peer_batch(
+        requests, prepared=prepared, cancellation_requested=lambda: False
+    )
+    results = [results_by_id[request.utterance_id] for request in requests]
 
     assert [result.outcome for result in results] == ["source_only", "translated", "source_only"]
     assert [result.output.source_text for result in results] == [
@@ -412,7 +424,6 @@ async def test_peer_unsupported_segments_remain_reference_without_blocking_trans
     ]
     assert results[1].output.translation.text == "翻訳"
     assert len(provider.calls) == 1
-    assert all(request.text in provider.calls[0]["context"] for request in requests)
 
 
 @pytest.mark.asyncio
@@ -429,10 +440,10 @@ async def test_ineligible_peer_parent_does_not_call_provider(disabled: bool) -> 
         for request in peer_requests(fixture)
     )
     prepared = fixture.owner.admit_peer(requests)
-    results = [
-        await fixture.owner.process(request, prepared=prepared.get(request.utterance_id))
-        for request in requests
-    ]
+    results_by_id = await fixture.owner.process_peer_batch(
+        requests, prepared=prepared, cancellation_requested=lambda: False
+    )
+    results = [results_by_id[request.utterance_id] for request in requests]
     assert [result.outcome for result in results] == ["source_only"] * 3
     assert [result.output.source_text for result in results] == [
         request.text for request in requests
@@ -440,7 +451,7 @@ async def test_ineligible_peer_parent_does_not_call_provider(disabled: bool) -> 
     assert provider.calls == []
 
 
-def test_peer_admission_records_history_once_and_separates_current_reference() -> None:
+def test_peer_admission_records_history_once_without_speaker_labels_in_context() -> None:
     fixture = build_owner(RecordingProvider())
     fixture.peer_runtime.remember_context(
         "earlier", timestamp=99.0, source_language="", target_language="ja"
@@ -449,10 +460,6 @@ def test_peer_admission_records_history_once_and_separates_current_reference() -
     prepared = fixture.owner.admit_peer(requests)
     for item in prepared.values():
         assert item.context.count("earlier") == 1
-        assert all(
-            item.context.count(json.dumps(request.text, ensure_ascii=False)) == 1
-            for request in requests
-        )
     assert [entry.text for entry in fixture.peer_runtime.translation_history] == [
         "earlier",
         "one",

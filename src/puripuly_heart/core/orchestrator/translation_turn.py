@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
@@ -22,6 +23,7 @@ from puripuly_heart.domain.models import (
     ChannelId,
     FinalLanguageRun,
     FinalSpeakerRun,
+    SpeakerAssignment,
     Transcript,
     Translation,
 )
@@ -66,8 +68,11 @@ class _FinalTranscriptSegment:
     speaker_session_scope: str = ""
     source_start_ms: int | None = None
     source_end_ms: int | None = None
-    speaker_confidence: float | None = None
     overlaps_previous: bool = False
+    speaker_source: str = ""
+    attribution_state: str = "unavailable"
+    source_text_start: int = 0
+    source_text_end: int = 0
 
 
 def _final_transcript_segments(
@@ -120,26 +125,26 @@ def _final_transcript_segments(
             speaker.session_scope,
             speaker.source_start_ms,
             speaker.source_end_ms,
-            speaker.speaker_confidence,
             speaker.overlaps_previous,
+            speaker.source,
+            speaker.attribution_state,
+            start,
+            end,
         )
         if (
             raw
             and raw[-1].language == segment.language
             and raw[-1].speaker_id == segment.speaker_id
             and raw[-1].speaker_session_scope == segment.speaker_session_scope
+            and raw[-1].speaker_source == segment.speaker_source
+            and raw[-1].attribution_state == segment.attribution_state
         ):
             previous = raw[-1]
             raw[-1] = replace(
                 previous,
                 text=previous.text + piece,
+                source_text_end=end,
                 source_end_ms=segment.source_end_ms,
-                speaker_confidence=(
-                    min(previous.speaker_confidence, segment.speaker_confidence)
-                    if previous.speaker_confidence is not None
-                    and segment.speaker_confidence is not None
-                    else None
-                ),
                 overlaps_previous=previous.overlaps_previous or segment.overlaps_previous,
             )
         else:
@@ -151,16 +156,19 @@ def _final_transcript_segments(
             if segments:
                 previous = segments[-1]
                 segments[-1] = replace(previous, text=previous.text + segment.text)
+                segments[-1] = replace(segments[-1], source_text_end=segment.source_text_end)
             else:
                 leading += segment.text
             continue
         if leading:
             segment = replace(segment, text=leading + segment.text)
             leading = ""
+            segment = replace(segment, source_text_start=0)
         segments.append(segment)
     if leading and segments:
         previous = segments[-1]
         segments[-1] = replace(previous, text=previous.text + leading)
+        segments[-1] = replace(segments[-1], source_text_end=len(text))
     return tuple(segments)
 
 
@@ -292,8 +300,7 @@ class TranslationOutputSubmission:
     turn_kind: TranslationTurnKind | None = None
     parent_output_count: int = 1
     context_texts: tuple[str, ...] | None = None
-    speaker_transition: str | None = None
-    speaker_transition_claim_id: str | None = None
+    speaker_assignment: SpeakerAssignment | None = None
 
     def __post_init__(self) -> None:
         if self.outcome == "translated" and self.translation is None:
@@ -321,12 +328,8 @@ class TranslationOutputSubmission:
             raise ValueError("publication generation and source order must be provided together")
         if self.publication_generation is not None and self.channel != "peer":
             raise ValueError("publication generation is only valid for Peer output")
-        if self.channel != "peer" and self.speaker_transition is not None:
-            raise ValueError("speaker transition evidence is only valid for Peer output")
-        if (self.speaker_transition is None) != (self.speaker_transition_claim_id is None):
-            raise ValueError(
-                "speaker transition comparison and claim identity must be provided together"
-            )
+        if self.channel != "peer" and self.speaker_assignment is not None:
+            raise ValueError("speaker attribution is only valid for Peer output")
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +385,11 @@ ParentRejected = Callable[[UUID], Awaitable[None]]
 ParentAdmitted = Callable[[tuple[TranslationTurnChild, ...]], Awaitable[None]]
 TurnGenerationAdvanced = Callable[[ChannelId, int], None]
 
+PeerBatchProcessor = Callable[
+    [tuple[TranslationTurnChild, ...], ChildCancellationRequested],
+    Awaitable[Mapping[UUID, TranslationTurnProcessResult]],
+]
+
 
 @dataclass(slots=True)
 class TranslationTurnLifecycleOwner:
@@ -399,6 +407,8 @@ class TranslationTurnLifecycleOwner:
     policy: TranslationRuntimePolicy = field(default_factory=TranslationRuntimePolicy)
     _parents: dict[UUID, _TranslationTurnParent] = field(default_factory=dict)
     peer_waiting_capacity: int = 8
+    peer_batch_supported: Callable[[], bool] | None = None
+    process_peer_batch: PeerBatchProcessor | None = None
     peer_waiting_ttl_s: float = 12.0
     self_speech_waiting_capacity: int = 8
     self_speech_running_capacity: int = 2
@@ -818,8 +828,9 @@ class TranslationTurnLifecycleOwner:
                                     segment.speaker_session_scope,
                                     source_start_ms=segment.source_start_ms,
                                     source_end_ms=segment.source_end_ms,
-                                    speaker_confidence=segment.speaker_confidence,
                                     overlaps_previous=segment.overlaps_previous,
+                                    source=segment.speaker_source,
+                                    attribution_state=segment.attribution_state,
                                 ),
                             )
                             if segment.speaker_session_scope
@@ -827,6 +838,13 @@ class TranslationTurnLifecycleOwner:
                         ),
                         publication_generation=request.transcript.publication_generation,
                         source_order=request.transcript.source_order,
+                        source_text_range=(segment.source_text_start, segment.source_text_end),
+                        source_text_revision=(
+                            request.transcript.source_text_revision
+                            or hashlib.sha256(request.transcript.text.encode("utf-8")).hexdigest()[
+                                :16
+                            ]
+                        ),
                     ),
                     detected_language=segment.language or None,
                     target_language=target_language,
@@ -1013,6 +1031,16 @@ class TranslationTurnLifecycleOwner:
             for child in parent.children
             if child.utterance_id not in parent.completed_child_ids
         )
+        if (
+            len(children) > 1
+            and len({child.target_language for child in children}) == 1
+            and all(child.precomputed_translation is None for child in children)
+            and self.peer_batch_supported is not None
+            and self.peer_batch_supported()
+            and self.process_peer_batch is not None
+        ):
+            await self._run_peer_batch(parent, predecessor, children)
+            return
         tasks: list[asyncio.Task[TranslationTurnProcessResult]] = []
         await self._acquire_peer_active_parent_slot(parent)
         try:
@@ -1041,6 +1069,59 @@ class TranslationTurnLifecycleOwner:
             await asyncio.gather(*tasks, return_exceptions=True)
             for child in children:
                 self._active_tasks.pop(child.utterance_id, None)
+            await self._release_peer_active_parent_slot()
+
+    async def _run_peer_batch(
+        self,
+        parent: _TranslationTurnParent,
+        predecessor: _TranslationTurnParent | None,
+        children: tuple[TranslationTurnChild, ...],
+    ) -> None:
+        await self._acquire_peer_active_parent_slot(parent)
+        try:
+            await self._acquire_peer_execution_slot(parent, children[0])
+            try:
+                assert self.process_peer_batch is not None
+                task = start_lifecycle_task(
+                    self._scope,
+                    self.process_peer_batch(
+                        children,
+                        lambda: self._parent_cancellation_requested(parent),
+                    ),
+                    name=f"peer-batch:{parent.parent_utterance_id}",
+                    eager_start=True,
+                )
+                for child in children:
+                    self._active_tasks[child.utterance_id] = task
+                    await self.on_child_started(child, task)
+                try:
+                    try:
+                        results = await task
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception("translation peer batch execution failed")
+                        results = {}
+                    for child in children:
+                        self._mark_child_semantic_done(child)
+                    for child in children:
+                        if self._parent_cancellation_requested(parent):
+                            raise asyncio.CancelledError
+                        if predecessor is not None:
+                            await predecessor.closed_event.wait()
+                        result = results.get(
+                            child.utterance_id, TranslationTurnProcessResult("failed")
+                        )
+                        await self._publish_child_result(child, result)
+                finally:
+                    if not task.done():
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                    for child in children:
+                        self._active_tasks.pop(child.utterance_id, None)
+            finally:
+                await self._release_peer_execution_slot()
+        finally:
             await self._release_peer_active_parent_slot()
 
     async def _process_peer_child(

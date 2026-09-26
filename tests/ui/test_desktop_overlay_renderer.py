@@ -20,7 +20,7 @@ from puripuly_heart.core.overlay.bridge import OverlayBridge
 from puripuly_heart.core.overlay.manifest import (
     OVERLAY_CONTRACT_VERSION,
     OVERLAY_EXECUTION_CONTRACT,
-    OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+    OVERLAY_SPEAKER_IDENTITY_CONTRACT,
     OverlayLaunchManifest,
 )
 from puripuly_heart.core.overlay.protocol import (
@@ -30,7 +30,6 @@ from puripuly_heart.core.overlay.protocol import (
 )
 from puripuly_heart.ui import desktop_overlay, desktop_window_zorder, flet_desktop_runtime
 from puripuly_heart.ui.desktop_overlay_surface.contract import (
-    _DESKTOP_CAPTION_GOLD,
     _DESKTOP_CAPTION_LINE_HEIGHT,
     _DESKTOP_CAPTION_MAX_VISIBLE_LINES,
     _DESKTOP_CAPTION_MAX_VISIBLE_SLOTS,
@@ -40,6 +39,7 @@ from puripuly_heart.ui.desktop_overlay_surface.contract import (
     _DESKTOP_CAPTION_TEXT_STACK_ALIGNMENT_Y,
     _DESKTOP_CAPTION_WHITE,
     _DESKTOP_PREVIEW_BACKGROUND_ALPHA_PRESETS,
+    _DESKTOP_SPEAKER_COLORS,
 )
 from puripuly_heart.ui.fonts import assets_dir
 from puripuly_heart.ui.theme import COLOR_BACKGROUND
@@ -96,28 +96,39 @@ def _block(
     )
 
 
+@pytest.mark.parametrize(
+    ("style", "color"),
+    [
+        ("gold", "#FFD700"),
+        ("cyan", "#33D6FF"),
+        ("p14", "#FFB020"),
+        ("gray", "#9AA0A6"),
+        (None, "#9AA0A6"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_desktop_overlay_retained_surface_renders_markerless_whole_turn_emphasis() -> None:
+async def test_desktop_overlay_uses_same_speaker_color_for_both_text_lines(
+    style: str | None,
+    color: str,
+) -> None:
     app = FakeFletApp()
-    emphasized = _block(
-        "peer-transition",
+    block = _block(
+        "peer-caption",
         channel="peer",
         block_variant="finalized",
         appearance_seq=1,
         primary_text="translated peer",
         secondary_text="peer source",
         secondary_enabled=True,
-        speaker_style="cyan",
+        speaker_style=style,
     )
     window = desktop_overlay.FletDesktopRendererWindow(app_runner=app.run)
-
     try:
-        await window.start(OverlayPresentationSnapshot(revision=1, blocks=[emphasized]))
+        await window.start(OverlayPresentationSnapshot(revision=1, blocks=[block]))
         model = window._retained_caption_surface
         assert model is not None
-        assert not hasattr(model, "speaker_boundary_markers")
-        assert model.primary_texts[0].color == "#33D6FF"
-        assert model.secondary_texts[0].color == "#33D6FF"
+        assert model.primary_texts[0].color == color
+        assert model.secondary_texts[0].color == color
     finally:
         await window.close()
 
@@ -203,7 +214,7 @@ def test_desktop_overlay_snapshot_mapping_table_covers_block_contract_and_emitte
                 ("blocks[]", "primary"): {
                     "role": "active_peer_source",
                     "promoted": True,
-                    "color": _DESKTOP_CAPTION_GOLD,
+                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
                 },
             },
         ),
@@ -222,10 +233,10 @@ def test_desktop_overlay_snapshot_mapping_table_covers_block_contract_and_emitte
             {
                 ("blocks[]", "primary"): {
                     "role": "peer_translation",
-                    "color": _DESKTOP_CAPTION_GOLD,
+                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
                 },
                 ("blocks[]", "secondary"): {
-                    "color": _DESKTOP_CAPTION_GOLD,
+                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
                 },
             },
         ),
@@ -244,7 +255,7 @@ def test_desktop_overlay_snapshot_mapping_table_covers_block_contract_and_emitte
             {
                 ("blocks[]", "primary"): {
                     "promoted": True,
-                    "color": _DESKTOP_CAPTION_GOLD,
+                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
                 },
             },
         ),
@@ -479,12 +490,12 @@ def test_desktop_overlay_snapshot_mapping_roles_secondary_promotion_and_channel_
     assert line_by_text["typing live source"].role == "active_peer_source"
     assert line_by_text["typing live source"].slot == "primary"
     assert line_by_text["typing live source"].promoted is True
-    assert line_by_text["typing live source"].color == _DESKTOP_CAPTION_GOLD
+    assert line_by_text["typing live source"].color == _DESKTOP_SPEAKER_COLORS["gray"]
     assert line_by_text["좋아요"].role == "peer_translation"
-    assert line_by_text["좋아요"].color == _DESKTOP_CAPTION_GOLD
+    assert line_by_text["좋아요"].color == _DESKTOP_SPEAKER_COLORS["gray"]
     assert line_by_text["Sounds good"].role == "peer_source_original"
     assert line_by_text["Sounds good"].slot == "secondary"
-    assert line_by_text["Sounds good"].color == _DESKTOP_CAPTION_GOLD
+    assert line_by_text["Sounds good"].color == _DESKTOP_SPEAKER_COLORS["gray"]
     for plan in (active_self_plan, peer_translated_plan, active_peer_plan):
         assert sum(line.max_lines for line in plan.lines) <= 3
 
@@ -612,7 +623,7 @@ def test_desktop_overlay_visual_config_uses_preset_tokens_and_no_outline_text() 
         for control in _walk_control_tree(inner_card)
     )
     first_text = column.controls[0].content
-    assert first_text.color == _DESKTOP_CAPTION_GOLD
+    assert first_text.color == _DESKTOP_SPEAKER_COLORS["gray"]
     assert first_text.text_align == ft.TextAlign.CENTER
     assert first_text.overflow == ft.TextOverflow.ELLIPSIS
     assert first_text.style.height == pytest.approx(_DESKTOP_CAPTION_LINE_HEIGHT)
@@ -5170,7 +5181,7 @@ async def test_desktop_overlay_bridge_lifecycle_ready_after_auth_snapshot_and_wi
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         assert window.started.is_set()
@@ -5181,7 +5192,7 @@ async def test_desktop_overlay_bridge_lifecycle_ready_after_auth_snapshot_and_wi
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         assert token not in json.dumps(sink.events)
@@ -5208,7 +5219,7 @@ async def test_desktop_overlay_malformed_initial_snapshot_is_startup_error_with_
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         await connection.send(
@@ -5266,7 +5277,7 @@ async def test_desktop_overlay_rejects_unframed_initial_runtime_controls() -> No
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         await connection.send(
@@ -5394,7 +5405,7 @@ async def test_desktop_overlay_later_malformed_snapshot_is_ignored_and_controls_
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         await connection.send(
@@ -5444,7 +5455,7 @@ async def test_desktop_overlay_later_malformed_snapshot_is_ignored_and_controls_
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
 
@@ -5741,7 +5752,7 @@ async def test_desktop_overlay_invalid_runtime_control_reports_error_without_dis
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         await connection.send(
@@ -5776,7 +5787,7 @@ async def test_desktop_overlay_invalid_runtime_control_reports_error_without_dis
             "runtime_generation": 1,
             "capabilities": {
                 "execution_contract": OVERLAY_EXECUTION_CONTRACT,
-                "speaker_transition_presentation": OVERLAY_SPEAKER_TRANSITION_CONTRACT,
+                "speaker_identity_presentation": OVERLAY_SPEAKER_IDENTITY_CONTRACT,
             },
         }
         runtime_error = await asyncio.wait_for(received.get(), timeout=1.0)
