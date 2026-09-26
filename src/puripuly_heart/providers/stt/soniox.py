@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Literal, Sequence
+from typing import Any, AsyncIterator, ClassVar, Literal, Sequence
 from uuid import uuid4
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
@@ -37,6 +37,7 @@ _SELECTIVE_PADDING_MS = 200
 _SELECTIVE_PAUSE_MIN_MS = 4000
 _SELECTIVE_PAUSE_MAX_MS = 7000
 _MAX_TURN_FINAL_TOKENS = 16384
+SONIOX_MAX_SESSION_AGE_S = 299.0 * 60.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +176,7 @@ class _SonioxSession(STTBackendSession):
     enable_speaker_diarization: bool = True
     language_hints_strict: bool = False
     projection: STTSessionProjection = LEGACY_STT_SESSION_PROJECTION
+    max_session_age_s: ClassVar[float] = SONIOX_MAX_SESSION_AGE_S
 
     speaker_session_scope: str = field(init=False, default_factory=lambda: uuid4().hex)
     _event_projection: STTSessionEventProjection = field(init=False, repr=False)

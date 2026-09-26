@@ -8,7 +8,7 @@ import contextlib
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Sequence
+from typing import Any, AsyncIterator, Callable, ClassVar, Sequence
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 GEMINI_TRANSCRIBE_STT_MODEL = "gemini-3.5-transcribe-live"
 GEMINI_TRANSCRIBE_SAMPLE_RATE_HZ = 16000
 GEMINI_TRANSCRIBE_FINALIZE_TIMEOUT_S = 2.0
+GEMINI_TRANSCRIBE_MAX_SESSION_AGE_S = 9.0 * 60.0
 
 
 class GeminiTranscribeFinalizeTimeout(RecoverableSTTSessionError):
@@ -267,6 +268,7 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
     finalize_timeout_s: float
     live_connect_factory: Callable[[str, Any], Any] | None = None
     projection: STTSessionProjection = LEGACY_STT_SESSION_PROJECTION
+    max_session_age_s: ClassVar[float] = GEMINI_TRANSCRIBE_MAX_SESSION_AGE_S
 
     _event_projection: STTSessionEventProjection = field(init=False, repr=False)
     _send_queue: asyncio.Queue[_StartTurn | _EndTurn | _AudioWrite | bytes | object] = field(

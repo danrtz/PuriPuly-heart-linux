@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Callable
 
 import pytest
 
+from puripuly_heart.app.wiring.wiring_local_asr_provider_runtime import _recognition_watchdogs
 from puripuly_heart.config.provider_values import STTProviderName
 from puripuly_heart.core.audio.ownership import PeerAudioSegmentLedger
 from puripuly_heart.core.runtime.peer_channel import _CaptureGeneration, _GenerationGuardedVadSink
@@ -18,6 +20,8 @@ from puripuly_heart.core.stt.backend import (
 from puripuly_heart.core.stt.rolling import RollingProviderDefinition, RollingSTTBackend
 from puripuly_heart.core.stt.scoped_engine import ScopedRecognitionEngine, STTRecognitionWatchdogs
 from puripuly_heart.providers.stt.deepgram import _CLOSE_STREAM, _DeepgramSDKSession
+from tests.core.runtime.test_peer_capture_session import make_config, make_owner
+from tests.core.test_stt_scoped_engine import ControlledMonotonicClock, ControlledScopedSession
 from tests.providers.test_protocol_a_scoped_sessions import (
     _deepgram_result,
     _deepgram_session,
@@ -285,7 +289,7 @@ async def test_rolling_gemini_preserves_interim_on_outer_final_timeout() -> None
 
 
 @pytest.mark.asyncio
-async def test_common_age_rotation_defers_real_soniox_route_until_source_quiet() -> None:
+async def test_common_idle_close_defers_real_soniox_route_until_source_quiet() -> None:
     now = 0.0
     sleeper = _ControlledSleeper()
     prepared = _PreparedMemberBackend(lambda epoch: _soniox_session(epoch=epoch))
@@ -306,8 +310,7 @@ async def test_common_age_rotation_defers_real_soniox_route_until_source_quiet()
             write_timeout_s=0.5,
             final_timeout_s=0.5,
             drain_timeout_s=0.1,
-            healthy_reset_age_s=180.0,
-            recent_speech_window_s=10.0,
+            idle_timeout_s=60.0,
         ),
     )
     settings = _request("soniox").settings
@@ -337,13 +340,13 @@ async def test_common_age_rotation_defers_real_soniox_route_until_source_quiet()
     assert prepared.opens == 1
 
     await engine.observe_source_activity(speech_observed=False, observed_at_monotonic_s=now)
-    now = 309.0
-    assert await sleeper.release_next() == pytest.approx(10.0)
+    now = 359.0
+    await sleeper.release_next()
     await asyncio.sleep(0)
     assert socket.closed is False
     assert prepared.opens == 1
-    now = 310.0
-    assert await sleeper.release_next() == pytest.approx(1.0)
+    now = 360.0
+    await sleeper.release_next()
     await _wait(lambda: socket.closed)
     assert prepared.opens == 1
     assert len([event for event in emitted if isinstance(event, STTProviderTurnTerminal)]) == 1
@@ -422,3 +425,153 @@ async def test_peer_production_dispatch_blocks_queued_b_before_soniox_a_terminal
     assert prepared.opens == 1
     await dispatch.finish()
     await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("member", "second_turn_at", "expected_connections"),
+    [
+        (STTProviderName.GEMINI_TRANSCRIBE, 550.0, 2),
+        (STTProviderName.DEEPGRAM, 550.0, 1),
+        (STTProviderName.DEEPGRAM, 3550.0, 2),
+        (STTProviderName.ELEVENLABS_SCRIBE, 3550.0, 2),
+    ],
+)
+async def test_rolling_connection_lifetime_follows_selected_provider(
+    member: STTProviderName,
+    second_turn_at: float,
+    expected_connections: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def deepgram_write(session, payload):
+        return None
+
+    monkeypatch.setattr(_DeepgramSDKSession, "_write_thread_payload", deepgram_write)
+
+    async def open_member(epoch):
+        if member is STTProviderName.GEMINI_TRANSCRIBE:
+            return await _gemini_session(epoch=epoch)
+        if member is STTProviderName.ELEVENLABS_SCRIBE:
+            return _scribe_session(epoch=epoch)
+        return _deepgram_session(epoch=epoch), None
+
+    prepared = _PreparedMemberBackend(open_member)
+    rolling = RollingSTTBackend(
+        providers=(
+            RollingProviderDefinition(
+                name=member,
+                build_backend=lambda: prepared,
+                is_configured=lambda: True,
+            ),
+        )
+    )
+    now = 0.0
+    sleeper = _ControlledSleeper()
+    emitted = []
+
+    async def open_session(settings, epoch):
+        return await rolling.open_session(projection=STTSessionProjection("scoped", epoch))
+
+    engine = ScopedRecognitionEngine(
+        channel="peer",
+        session_factory=open_session,
+        event_sink=emitted.append,
+        monotonic_clock=lambda: now,
+        sleep=sleeper,
+        watchdog_resolver=lambda _: _recognition_watchdogs(
+            SimpleNamespace(provider="rolling_free", drain_timeout_s=0.1)
+        ),
+    )
+    ledger = PeerAudioSegmentLedger(
+        activation_generation=1, settings=_request("rolling_free").settings
+    )
+    try:
+        for sample, instant in ((1000, 0.0), (2000, second_turn_at)):
+            now = instant
+            await engine.observe_source_activity(speech_observed=True)
+            start, chunks, end = _owned_deepgram_events(ledger, start_sample=sample)
+            await engine.handle_owned_vad_event(start)
+            for chunk in chunks:
+                await engine.handle_owned_vad_event(chunk)
+            end_task = asyncio.create_task(engine.handle_owned_vad_event(end))
+            await _wait(lambda: prepared.sessions[-1]._event_projection.sealed)
+            await _complete_native_turn(
+                member, prepared.sessions[-1], prepared.boundaries[-1], str(sample)
+            )
+            await end_task
+        terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+        assert [event.text for event in terminals] == ["1000", "2000"]
+        assert prepared.opens == expected_connections
+        assert (
+            terminals[0].identity.provider_epoch_id == terminals[1].identity.provider_epoch_id
+        ) is (expected_connections == 1)
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_cap_terminal_waits_for_source_seal_and_preserves_event_dispatch() -> None:
+    owner, *_ = make_owner()
+    await owner.apply_intent(make_config(), enabled=True)
+    await _wait(lambda: owner.segment_ledger is not None)
+    ledger = owner.segment_ledger
+    clock = ControlledMonotonicClock()
+    sessions: list[ControlledScopedSession] = []
+    admitted = []
+
+    async def factory(_settings, _epoch):
+        session = ControlledScopedSession()
+        session.terminal_on_seal = ("final", "after cap")
+        sessions.append(session)
+        return session
+
+    def receive(event):
+        if isinstance(event, STTProviderTurnTerminal):
+            admitted.extend(owner.admit_provider_terminal(event))
+
+    engine = ScopedRecognitionEngine(
+        channel="peer",
+        session_factory=factory,
+        watchdog_resolver=lambda _: STTRecognitionWatchdogs(
+            max_session_age_s=8.0, drain_timeout_s=0.1
+        ),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+    engine.bind_event_sink(receive)
+    raw_ledger = PeerAudioSegmentLedger(
+        activation_generation=1, settings=_request("soniox").settings
+    )
+    start, chunks, end = _owned_deepgram_events(raw_ledger, start_sample=1000)
+
+    async def deliver(event):
+        await engine.handle_owned_vad_event(
+            ledger.observe_vad_event(event.event, now_monotonic_s=clock.now())
+        )
+
+    try:
+        await engine.observe_source_activity(speech_observed=True)
+        for event in (start, *chunks):
+            await deliver(event)
+        await clock.advance_to(8.0)
+        await _wait(lambda: ("close",) in sessions[0].calls)
+        assert ledger.snapshots[0].state == "open"
+        assert admitted == []
+        await deliver(end)
+        await engine.wait_for_event_ingress_drain()
+        assert len(admitted) == 1
+        assert admitted[0][0].failure_reason == "provider_session_lifetime_exceeded"
+        assert admitted[0][1].identity.segment == start.segment.identity
+        start, chunks, end = _owned_deepgram_events(raw_ledger, start_sample=2000)
+        for event in (start, *chunks, end):
+            await deliver(event)
+        await engine.wait_for_event_ingress_drain()
+        assert len(sessions) == 2
+        assert [terminal.outcome for _, terminal in admitted] == ["failed", "final"]
+        assert admitted[1][1].text == "after cap"
+        assert (
+            admitted[0][1].identity.provider_epoch_id != admitted[1][1].identity.provider_epoch_id
+        )
+    finally:
+        await engine.close()
+        await owner.close()

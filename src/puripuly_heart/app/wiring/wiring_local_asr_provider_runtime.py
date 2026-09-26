@@ -47,6 +47,10 @@ from puripuly_heart.core.stt.scoped_engine import (
     STTRetentionProfile,
 )
 from puripuly_heart.core.stt.scoped_normalizer import STTNormalizationDiagnostic
+from puripuly_heart.providers.stt.gemini_transcribe import (
+    GEMINI_TRANSCRIBE_MAX_SESSION_AGE_S,
+)
+from puripuly_heart.providers.stt.soniox import SONIOX_MAX_SESSION_AGE_S
 
 from .wiring_stt_factory import create_stt_backend_from_resolved_config
 
@@ -71,19 +75,36 @@ _LOCAL_PROVIDER_IDS = frozenset(
         STTProviderName.LOCAL_QWEN_GPU.value,
     }
 )
-_DEFERRED_AGE_ROTATION_PROVIDER_IDS = frozenset(
+_REALTIME_PROVIDER_IDS = frozenset(
     {
         STTProviderName.SONIOX.value,
         STTProviderName.DEEPGRAM.value,
         STTProviderName.GEMINI_TRANSCRIBE.value,
         STTProviderName.ELEVENLABS_SCRIBE.value,
+        STTProviderName.QWEN_AUDIO.value,
         STTProviderName.ROLLING_FREE.value,
+        STTProviderName.CUSTOM_REALTIME.value,
     }
 )
+_DEFAULT_REALTIME_MAX_SESSION_AGE_S = 59.0 * 60.0
+_MAX_SESSION_AGE_BY_PROVIDER = {
+    STTProviderName.SONIOX.value: SONIOX_MAX_SESSION_AGE_S,
+    STTProviderName.GEMINI_TRANSCRIBE.value: GEMINI_TRANSCRIBE_MAX_SESSION_AGE_S,
+}
 
 
-def _deferred_age_rotation_enabled(provider_id: object) -> bool:
-    return str(provider_id) in _DEFERRED_AGE_ROTATION_PROVIDER_IDS
+def _session_lifetime_enabled(config: object) -> bool:
+    provider_id = str(getattr(config, "provider"))
+    if provider_id == STTProviderName.CUSTOM.value:
+        mode, _ = custom_stt_selection_for_provider(
+            provider_id,
+            stored_mode=str(getattr(config, "provider_options", {}).get("mode") or ""),
+            stored_compatibility=str(
+                getattr(config, "provider_options", {}).get("compatibility") or ""
+            ),
+        )
+        return mode == "realtime"
+    return provider_id in _REALTIME_PROVIDER_IDS
 
 
 @dataclass(slots=True)
@@ -205,7 +226,7 @@ class SharedSTTProviderFactory(ProviderRuntimeProviderFactoryPort):
             diagnostic_sink=(
                 _normalization_diagnostic_sink if runtime_logging is not None else None
             ),
-            deferred_age_rotation_enabled=_deferred_age_rotation_enabled(config.provider),
+            session_lifetime_enabled=_session_lifetime_enabled(config),
         )
 
 
@@ -231,11 +252,16 @@ def _recognition_watchdogs(config: object) -> STTRecognitionWatchdogs:
     else:
         readiness_timeout_s = 30.0
         final_timeout_s = 20.0
+    max_session_age_s = _MAX_SESSION_AGE_BY_PROVIDER.get(
+        provider_id,
+        _DEFAULT_REALTIME_MAX_SESSION_AGE_S if _session_lifetime_enabled(config) else None,
+    )
     return STTRecognitionWatchdogs(
         readiness_timeout_s=readiness_timeout_s,
         write_timeout_s=5.0,
         final_timeout_s=final_timeout_s,
         drain_timeout_s=drain_timeout_s,
+        max_session_age_s=max_session_age_s,
     )
 
 

@@ -280,7 +280,7 @@ def watchdogs(**overrides: float) -> STTRecognitionWatchdogs:
         "write_timeout_s": 0.2,
         "final_timeout_s": 0.03,
         "drain_timeout_s": 0.03,
-        "healthy_reset_age_s": 180.0,
+        "idle_timeout_s": 60.0,
         "connect_attempts": 3,
         "connect_retry_base_s": 0.001,
         "connect_retry_max_s": 0.002,
@@ -1342,7 +1342,7 @@ async def test_configuration_change_rotates_at_turn_boundary() -> None:
 
 
 @pytest.mark.asyncio
-async def test_soft_age_waits_through_continuous_speech_then_expires_without_callback() -> None:
+async def test_idle_closes_at_sixty_seconds_without_callbacks_even_after_long_healthy_age() -> None:
     ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
     first = segment_events(ledger, start_sample=900, now=9.0)
     session = ControlledScopedSession()
@@ -1351,88 +1351,53 @@ async def test_soft_age_waits_through_continuous_speech_then_expires_without_cal
     engine = ScopedRecognitionEngine(
         session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
         event_sink=lambda _event: None,
-        watchdog_resolver=lambda _settings: watchdogs(
-            healthy_reset_age_s=180.0,
-            recent_speech_window_s=10.0,
-        ),
+        watchdog_resolver=lambda _settings: watchdogs(),
         monotonic_clock=clock.now,
         sleep=clock.sleep,
     )
 
-    await engine.observe_source_activity(
-        speech_observed=True,
-        observed_at_monotonic_s=0.0,
-    )
+    await engine.observe_source_activity(speech_observed=True)
     await engine.handle_owned_vad_event(first[0])
     await engine.handle_owned_vad_event(first[2])
-    await asyncio.sleep(0)
-
-    await clock.advance_to(180.0)
-    assert not any(call[0] == "close" for call in session.calls)
     await clock.advance_to(300.0)
     assert not any(call[0] == "close" for call in session.calls)
 
-    await engine.observe_source_activity(
-        speech_observed=False,
-        observed_at_monotonic_s=300.0,
-    )
-    await asyncio.sleep(0)
-    await clock.advance_to(309.9)
+    await engine.observe_source_activity(speech_observed=False)
+    await clock.advance_to(359.9)
     assert not any(call[0] == "close" for call in session.calls)
-    await engine.observe_source_activity(
-        speech_observed=True,
-        observed_at_monotonic_s=309.9,
-    )
-    await engine.observe_source_activity(
-        speech_observed=False,
-        observed_at_monotonic_s=309.9,
-    )
-    await clock.advance_to(319.8)
+    await engine.observe_source_activity(speech_observed=True)
+    await engine.observe_source_activity(speech_observed=False)
+    await clock.advance_to(419.8)
     assert not any(call[0] == "close" for call in session.calls)
-    await clock.advance_to(319.9)
+    await clock.advance_to(419.9)
     await wait_until(lambda: any(call[0] == "close" for call in session.calls))
-    await wait_until(lambda: engine.cleanup_debt == 0)
     await engine.close()
 
 
 @pytest.mark.asyncio
-async def test_soft_age_waits_for_pending_terminal_and_recent_speech() -> None:
+async def test_unresolved_turn_delays_idle_until_terminal_without_new_source_callback() -> None:
     ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
     first = segment_events(ledger, start_sample=900, now=9.0)
     session = ControlledScopedSession()
     clock = ControlledMonotonicClock()
+    emitted: list[object] = []
     engine = ScopedRecognitionEngine(
         session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
-        event_sink=lambda _event: None,
-        watchdog_resolver=lambda _settings: watchdogs(
-            healthy_reset_age_s=180.0,
-            recent_speech_window_s=10.0,
-        ),
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(),
         monotonic_clock=clock.now,
         sleep=clock.sleep,
     )
 
     await engine.handle_owned_vad_event(first[0])
-    await asyncio.sleep(0)
-    await clock.advance_to(179.0)
-    await engine.observe_source_activity(
-        speech_observed=True,
-        observed_at_monotonic_s=179.0,
-    )
     end_task = asyncio.create_task(engine.handle_owned_vad_event(first[2]))
     await wait_until(lambda: any(call[0] == "seal_done" for call in session.calls))
-    await engine.observe_source_activity(
-        speech_observed=False,
-        observed_at_monotonic_s=179.0,
-    )
-    await asyncio.sleep(0)
-    await clock.advance_to(189.0)
+    await clock.advance_to(60.0)
     assert not any(call[0] == "close" for call in session.calls)
 
-    identity = session.requests[0].identity
     session.emit(
         STTProviderTurnTerminal(
-            identity=identity,
+            identity=session.requests[0].identity,
             outcome="final",
             text="complete",
             text_authority="authoritative",
@@ -1441,11 +1406,14 @@ async def test_soft_age_waits_for_pending_terminal_and_recent_speech() -> None:
     )
     await end_task
     await wait_until(lambda: any(call[0] == "close" for call in session.calls))
+    assert [event.text for event in emitted if isinstance(event, STTProviderTurnTerminal)] == [
+        "complete"
+    ]
     await engine.close()
 
 
 @pytest.mark.asyncio
-async def test_soft_age_preserves_pending_owned_input_until_source_queue_drains() -> None:
+async def test_pending_owned_input_blocks_idle_until_queue_drains() -> None:
     ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
     first = segment_events(ledger, start_sample=900, now=9.0)
     session = ControlledScopedSession()
@@ -1454,7 +1422,7 @@ async def test_soft_age_preserves_pending_owned_input_until_source_queue_drains(
     engine = ScopedRecognitionEngine(
         session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
         event_sink=lambda _event: None,
-        watchdog_resolver=lambda _settings: watchdogs(healthy_reset_age_s=180.0),
+        watchdog_resolver=lambda _settings: watchdogs(),
         monotonic_clock=clock.now,
         sleep=clock.sleep,
     )
@@ -1462,21 +1430,25 @@ async def test_soft_age_preserves_pending_owned_input_until_source_queue_drains(
     await engine.handle_owned_vad_event(first[0])
     await engine.handle_owned_vad_event(first[2])
     await engine.observe_pending_source_work(pending=True)
-    await asyncio.sleep(0)
-    await clock.advance_to(300.0)
+    await clock.advance_to(90.0)
     assert not any(call[0] == "close" for call in session.calls)
-
     await engine.observe_pending_source_work(pending=False)
     await wait_until(lambda: any(call[0] == "close" for call in session.calls))
     await engine.close()
 
 
 @pytest.mark.asyncio
-async def test_idle_age_retirement_reconnects_only_when_new_work_is_admitted() -> None:
-    first_ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
-    second_ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
-    first = segment_events(first_ledger, start_sample=900, now=9.0)
-    second = segment_events(second_ledger, start_sample=1000, now=10.0)
+async def test_idle_retirement_reopens_only_for_demand() -> None:
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=900,
+        now=9.0,
+    )
+    second = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=1000,
+        now=10.0,
+    )
     sessions: list[ControlledScopedSession] = []
     clock = ControlledMonotonicClock()
 
@@ -1489,20 +1461,21 @@ async def test_idle_age_retirement_reconnects_only_when_new_work_is_admitted() -
     engine = ScopedRecognitionEngine(
         session_factory=factory,
         event_sink=lambda _event: None,
-        watchdog_resolver=lambda _settings: watchdogs(healthy_reset_age_s=180.0),
+        watchdog_resolver=lambda _settings: watchdogs(),
         monotonic_clock=clock.now,
         sleep=clock.sleep,
     )
 
     await engine.handle_owned_vad_event(first[0])
     await engine.handle_owned_vad_event(first[2])
-    await asyncio.sleep(0)
-    await clock.advance_to(180.0)
+    await clock.advance_to(59.9)
+    assert len(sessions) == 1
+    assert not any(call[0] == "close" for call in sessions[0].calls)
+    await clock.advance_to(60.0)
     await wait_until(lambda: any(call[0] == "close" for call in sessions[0].calls))
     await wait_until(lambda: engine.cleanup_debt == 0)
     await clock.advance_to(300.0)
     assert len(sessions) == 1
-
     await engine.handle_owned_vad_event(second[0])
     await engine.handle_owned_vad_event(second[2])
     assert len(sessions) == 2
@@ -1512,30 +1485,22 @@ async def test_idle_age_retirement_reconnects_only_when_new_work_is_admitted() -
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "provider_id",
-    [
-        "qwen_audio",
-        "custom",
-        "custom_realtime",
-        "custom_offline",
-        "local_cpu_auto",
-        "local_parakeet_v3",
-        "local_parakeet_ja",
-        "local_qwen",
-        "local_qwen_gpu",
-    ],
+    ["custom_offline", "local_cpu_auto", "local_parakeet_v3", "local_qwen_gpu"],
 )
-async def test_non_target_routes_keep_turn_boundary_age_rotation(provider_id: str) -> None:
+async def test_disabled_session_lifetime_keeps_healthy_session_past_180s(
+    provider_id: str,
+) -> None:
     provider_settings = settings(provider_id)
-    first_ledger = PeerAudioSegmentLedger(
-        activation_generation=1,
-        settings=provider_settings,
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=provider_settings),
+        start_sample=900,
+        now=9.0,
     )
-    second_ledger = PeerAudioSegmentLedger(
-        activation_generation=1,
-        settings=provider_settings,
+    second = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=provider_settings),
+        start_sample=1000,
+        now=10.0,
     )
-    first = segment_events(first_ledger, start_sample=900, now=9.0)
-    second = segment_events(second_ledger, start_sample=1000, now=10.0)
     sessions: list[ControlledScopedSession] = []
     clock = ControlledMonotonicClock()
 
@@ -1548,21 +1513,239 @@ async def test_non_target_routes_keep_turn_boundary_age_rotation(provider_id: st
     engine = ScopedRecognitionEngine(
         session_factory=factory,
         event_sink=lambda _event: None,
-        watchdog_resolver=lambda _settings: watchdogs(healthy_reset_age_s=180.0),
+        watchdog_resolver=lambda _settings: watchdogs(),
         monotonic_clock=clock.now,
         sleep=clock.sleep,
-        deferred_age_rotation_enabled=False,
+        session_lifetime_enabled=False,
     )
 
     await engine.handle_owned_vad_event(first[0])
     await engine.handle_owned_vad_event(first[2])
     await clock.advance_to(300.0)
+    await engine.handle_owned_vad_event(second[0])
+    await engine.handle_owned_vad_event(second[2])
     assert len(sessions) == 1
     assert not any(call[0] == "close" for call in sessions[0].calls)
+    await engine.close()
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["self", "peer"])
+async def test_ceiling_fails_active_turn_and_releases_successor_without_replaying_audio(
+    channel: str,
+) -> None:
+    class ProviderCappedSession(ControlledScopedSession):
+        max_session_age_s = 5.0
+
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=900,
+        now=9.0,
+    )
+    second = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=1000,
+        now=10.0,
+    )
+    sessions: list[ControlledScopedSession] = []
+    emitted: list[object] = []
+    clock = ControlledMonotonicClock()
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ProviderCappedSession()
+        session.terminal_on_seal = ("empty", "")
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        channel=channel,
+        session_factory=factory,
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(max_session_age_s=8.0),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    await engine.observe_source_activity(speech_observed=True)
+    await engine.handle_owned_vad_event(first[0])
+    await clock.advance_to(4.9)
+    assert not any(call[0] == "close" for call in sessions[0].calls)
+    successor_start = asyncio.create_task(engine.handle_owned_vad_event(second[0]))
+    await asyncio.sleep(0)
+    assert not successor_start.done()
+    await clock.advance_to(5.0)
+    await wait_until(lambda: any(call[0] == "close" for call in sessions[0].calls))
+    failed = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    if channel == "peer":
+        assert failed == []
+        assert not successor_start.done()
+    else:
+        assert len(failed) == 1
+    await engine.handle_owned_vad_event(first[2])
+    failed = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert len(failed) == 1
+    assert failed[0].outcome == "failed"
+    assert failed[0].failure_reason == "provider_session_lifetime_exceeded"
+    await wait_until(lambda: engine.cleanup_debt == 0)
+    await successor_start
+    await engine.handle_owned_vad_event(second[2])
+    assert len(sessions) == 2
+    assert len(sessions[1].requests) == 1
+    assert len([event for event in emitted if isinstance(event, STTProviderTurnTerminal)]) == 2
+    await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("blocked_phase", "holds_cancellation"),
+    [("begin", False), ("send", False), ("seal", False), ("send", True)],
+)
+async def test_session_ceiling_preempts_writes_and_retains_cleanup_ownership(
+    blocked_phase: str, holds_cancellation: bool
+) -> None:
+    class CappedSession(ControlledScopedSession):
+        async def send_turn_audio(self, *args, **kwargs) -> None:
+            try:
+                await super().send_turn_audio(*args, **kwargs)
+            except asyncio.CancelledError:
+                if not holds_cancellation:
+                    raise
+                await self.send_gate.wait()
+
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=900,
+        now=9.0,
+    )
+    second = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=1000,
+        now=10.0,
+    )
+    session = CappedSession()
+    successor = ControlledScopedSession()
+    successor.terminal_on_seal = ("final", "recovered")
+    sessions = iter((session, successor))
+    clock = ControlledMonotonicClock()
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        channel="peer",
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=next(sessions)),
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(max_session_age_s=0.05, write_timeout_s=0.5),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+    pending = None
+    try:
+        await engine.observe_source_activity(speech_observed=True)
+        if blocked_phase != "begin":
+            await engine.handle_owned_vad_event(first[0])
+        getattr(session, f"{blocked_phase}_gate").clear()
+        event = first[{"begin": 0, "send": 1, "seal": 2}[blocked_phase]]
+        call_count = len(session.calls)
+        pending = asyncio.create_task(engine.handle_owned_vad_event(event))
+        await wait_until(
+            lambda: any(call[0] == blocked_phase for call in session.calls[call_count:])
+        )
+        await clock.advance_to(0.05)
+        await asyncio.wait_for(pending, timeout=2.0)
+        if blocked_phase != "seal":
+            assert not any(isinstance(event, STTProviderTurnTerminal) for event in emitted)
+            await engine.handle_owned_vad_event(first[2])
+        failed = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+        assert len(failed) == 1
+        assert failed[0].failure_reason == "provider_session_lifetime_exceeded"
+        if holds_cancellation:
+            assert engine.cleanup_debt == 1
+            assert ("stop",) not in session.calls
+            session.send_gate.set()
+        await wait_until(lambda: engine.cleanup_debt == 0)
+        assert session.calls.count(("close",)) == 1
+        await engine.handle_owned_vad_event(second[0])
+        await engine.handle_owned_vad_event(second[2])
+        terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+        assert [event.text for event in terminals] == ["", "recovered"]
+        assert successor.requests[0].identity.segment == second[0].segment.identity
+        assert terminals[0].identity.provider_epoch_id != terminals[1].identity.provider_epoch_id
+    finally:
+        session.begin_gate.set()
+        session.send_gate.set()
+        session.seal_gate.set()
+        if pending is not None:
+            await pending
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_ceiling_retires_idle_session_before_silence_deadline() -> None:
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=900,
+        now=9.0,
+    )
+    session = ControlledScopedSession()
+    session.terminal_on_seal = ("empty", "")
+    clock = ControlledMonotonicClock()
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(max_session_age_s=4.0),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    await engine.observe_source_activity(speech_observed=True)
+    await engine.handle_owned_vad_event(first[0])
+    await engine.handle_owned_vad_event(first[2])
+    await clock.advance_to(3.9)
+    assert not any(call[0] == "close" for call in session.calls)
+    await clock.advance_to(4.0)
+    await wait_until(lambda: any(call[0] == "close" for call in session.calls))
+    assert [event.outcome for event in emitted if isinstance(event, STTProviderTurnTerminal)] == [
+        "empty"
+    ]
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_ceiling_rotates_at_boundary_before_admitting_successor() -> None:
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=900,
+        now=9.0,
+    )
+    second = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=1000,
+        now=10.0,
+    )
+    sessions: list[ControlledScopedSession] = []
+    clock = ControlledMonotonicClock()
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        session.terminal_on_seal = ("empty", "")
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        event_sink=lambda _event: None,
+        watchdog_resolver=lambda _settings: watchdogs(max_session_age_s=5.0),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+
+    await engine.observe_source_activity(speech_observed=True)
+    await engine.handle_owned_vad_event(first[0])
+    await engine.handle_owned_vad_event(first[2])
+    await clock.advance_to(4.8)
     await engine.handle_owned_vad_event(second[0])
     await engine.handle_owned_vad_event(second[2])
     assert len(sessions) == 2
+    assert len(sessions[0].requests) == len(sessions[1].requests) == 1
     await wait_until(lambda: any(call[0] == "close" for call in sessions[0].calls))
     await engine.close()
 
@@ -2130,3 +2313,60 @@ async def test_streaming_scoped_engine_releases_native_copy_after_each_write() -
     assert budget.used_bytes == 0
     await engine.handle_owned_vad_event(end)
     await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_outcome", ["final", "failed", None])
+async def test_session_ceiling_overrides_cached_terminal_before_peer_source_seal(
+    native_outcome: str | None,
+) -> None:
+    first = segment_events(
+        PeerAudioSegmentLedger(activation_generation=1, settings=settings()),
+        start_sample=1900,
+        now=19.0,
+    )
+    session = ControlledScopedSession()
+    clock = ControlledMonotonicClock()
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        channel="peer",
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(max_session_age_s=5.0),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+    try:
+        await engine.observe_source_activity(speech_observed=True)
+        await engine.handle_owned_vad_event(first[0])
+        identity = session.requests[0].identity
+        if native_outcome is not None:
+            session.emit(
+                STTProviderTurnTerminal(
+                    identity=identity,
+                    outcome=native_outcome,
+                    text="early result" if native_outcome == "final" else "",
+                    text_authority="authoritative" if native_outcome == "final" else "none",
+                    failure_reason=None if native_outcome == "final" else "transport_failed",
+                    epoch_disposition="retire",
+                )
+            )
+        session.emit(
+            STTProviderEpochEnded(
+                provider_epoch_id=identity.provider_epoch_id,
+                orderly=False,
+                reason="transport_failed",
+            )
+        )
+        await wait_until(lambda: any(isinstance(event, STTProviderEpochEnded) for event in emitted))
+        await clock.advance_to(5.0)
+        await wait_until(lambda: ("close",) in session.calls)
+        assert not any(isinstance(event, STTProviderTurnTerminal) for event in emitted)
+        await engine.handle_owned_vad_event(first[2])
+        terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+        assert len(terminals) == 1
+        assert terminals[0].outcome == "failed"
+        assert terminals[0].failure_reason == "provider_session_lifetime_exceeded"
+        assert terminals[0].text == ""
+    finally:
+        await engine.close()
