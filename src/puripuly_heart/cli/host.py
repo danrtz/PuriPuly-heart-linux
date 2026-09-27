@@ -61,10 +61,13 @@ class HostedApplication:
 
     async def wait_for_stop(self) -> None:
         await self.control.wait_for_stop_request()
+        self.server.freeze()
+        self.control.freeze_ingress()
         await self.server.wait_for_idle()
 
     async def close(self) -> None:
         self.server.freeze()
+        self.control.freeze_ingress()
         try:
             await self.boundary.stop()
         finally:

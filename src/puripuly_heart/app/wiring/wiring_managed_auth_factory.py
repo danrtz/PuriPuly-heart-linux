@@ -1088,10 +1088,18 @@ class ManagedAuthRuntimeAdapter:
             for snapshot in snapshots:
                 await store.clear_secret(snapshot.key)
                 cleared.append(snapshot)
+            translation = current.intent.translation
+            active_account = (
+                managed_openrouter_selected_from_vnext(current)
+                and (
+                    (provider == "qq" and translation.connection == "managed_china")
+                    or (provider == "discord" and translation.connection == "managed")
+                )
+            )
             updated_state = replace(state,
-                active_managed_credential_ref=None,
-                active_managed_expires_at=None,
-                founder_letter_seen_credential_ref=None,
+                active_managed_credential_ref=None if active_account else state.active_managed_credential_ref,
+                active_managed_expires_at=None if active_account else state.active_managed_expires_at,
+                founder_letter_seen_credential_ref=None if active_account else state.founder_letter_seen_credential_ref,
                 referral_id=None if state.referral_source == provider else state.referral_id,
                 referral_source=None if state.referral_source == provider else state.referral_source,
             )

@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from uuid import UUID
 
 import pytest
 
 from puripuly_heart.app.services.application_control import UnknownOperationError
+from puripuly_heart.app.services.application_control_events import ControlEvents
 from puripuly_heart.cli.transport import (
     MAX_REQUEST_BYTES,
     ControlServer,
@@ -14,6 +16,8 @@ from puripuly_heart.cli.transport import (
     follow,
     request,
 )
+from puripuly_heart.domain.events import STTSessionState, UIEvent, UIEventType
+from puripuly_heart.domain.models import OSCMessage, Transcript, Translation
 
 
 @dataclass(frozen=True)
@@ -212,6 +216,106 @@ async def test_event_follow_reports_host_loss_instead_of_success():
         await asyncio.wait_for(closing, 2)
     finally:
         await stream.aclose()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_ui_event_subscriptions_project_only_explicit_content_over_loopback():
+    events = ControlEvents()
+    utterance_id = UUID("00000000-0000-0000-0000-000000000193")
+    events.publish_ui(
+        UIEvent(
+            type=UIEventType.SESSION_STATE_CHANGED,
+            payload=STTSessionState.STREAMING,
+            channel="peer",
+            source="offline",
+        )
+    )
+    events.publish_ui(
+        UIEvent(
+            type=UIEventType.SESSION_STATE_CHANGED,
+            payload="OFFLINE_UNKNOWN_STATE_PRIVATE_MARKER",
+            channel="peer",
+            source="offline",
+        )
+    )
+    events.publish_ui(
+        UIEvent(
+            type=UIEventType.OSC_SENT,
+            utterance_id=utterance_id,
+            payload=OSCMessage(
+                utterance_id=utterance_id,
+                text="OFFLINE_OSC_PRIVATE_MARKER",
+                created_at=0.0,
+            ),
+            channel="peer",
+            source="offline",
+        )
+    )
+    events.publish_ui(
+        UIEvent(
+            type=UIEventType.TRANSCRIPT_FINAL,
+            utterance_id=utterance_id,
+            payload=Transcript(
+                utterance_id=utterance_id,
+                text="OFFLINE_TRANSCRIPT_PRIVATE_MARKER",
+                is_final=True,
+                channel="peer",
+            ),
+            source="offline",
+        )
+    )
+    events.publish_ui(
+        UIEvent(
+            type=UIEventType.TRANSLATION_DONE,
+            utterance_id=utterance_id,
+            payload=Translation(
+                utterance_id=utterance_id,
+                text="OFFLINE_TRANSLATION_PRIVATE_MARKER",
+                channel="peer",
+            ),
+            source="offline",
+        )
+    )
+    server = ControlServer(events, instance_id="correct-instance", token="local-secret-token")
+    port = await server.start()
+    topics = ["session_state_changed", "osc_sent", "transcript", "translation"]
+
+    async def receive(**flags):
+        stream = follow(_Record(port), {"topics": topics, "after": 0, **flags})
+        try:
+            return [await asyncio.wait_for(anext(stream), 2) for _ in range(events.sequence)]
+        finally:
+            await stream.aclose()
+
+    try:
+        masked = await receive()
+        assert masked[0]["state"] == STTSessionState.STREAMING.value
+        assert "state" not in masked[1]
+        assert masked[2] == {
+            "sequence": 3,
+            "topic": "osc_sent",
+            "channel": "peer",
+            "source": "offline",
+            "utterance_id": str(utterance_id),
+        }
+        assert "OFFLINE_" not in json.dumps(masked)
+
+        transcripts = await receive(include_transcripts=True, include_translations=False)
+        assert transcripts[3]["text"] == "OFFLINE_TRANSCRIPT_PRIVATE_MARKER"
+        assert "text" not in transcripts[4]
+        assert "OFFLINE_OSC_PRIVATE_MARKER" not in json.dumps(transcripts)
+
+        translations = await receive(include_transcripts=False, include_translations=True)
+        assert "text" not in translations[3]
+        assert translations[4]["text"] == "OFFLINE_TRANSLATION_PRIVATE_MARKER"
+        assert "OFFLINE_OSC_PRIVATE_MARKER" not in json.dumps(translations)
+
+        both = await receive(include_transcripts=True, include_translations=True)
+        assert both[3]["text"] == "OFFLINE_TRANSCRIPT_PRIVATE_MARKER"
+        assert both[4]["text"] == "OFFLINE_TRANSLATION_PRIVATE_MARKER"
+        assert "OFFLINE_OSC_PRIVATE_MARKER" not in json.dumps(both)
+    finally:
         await server.close()
 
 

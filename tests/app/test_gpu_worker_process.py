@@ -145,7 +145,7 @@ async def test_started_decode_failure_has_event_and_finite_exact_timing(
     await client.close()
 
 
-async def test_started_decode_failure_logs_metadata_without_worker_stderr_payload(
+async def test_started_decode_failure_does_not_log_worker_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -153,25 +153,25 @@ async def test_started_decode_failure_logs_metadata_without_worker_stderr_payloa
     monkeypatch.setenv("FAKE_GPU_WORKER_STARTED_FAILURE", "1")
     monkeypatch.setenv("FAKE_GPU_WORKER_STDERR_ON_FAILURE", "1")
     client = await _factory().start(mode="persistent")
-    await client.next_event()
-    await client.activate(model_path=tmp_path / "model.gguf", device_id="vulkan:0")
-    audio_path = tmp_path / "audio.wav"
-    audio_path.write_bytes(b"fixture")
+    try:
+        await client.next_event()
+        await client.activate(model_path=tmp_path / "model.gguf", device_id="vulkan:0")
+        audio_path = tmp_path / "audio.wav"
+        audio_path.write_bytes(b"fixture")
 
-    with caplog.at_level(logging.ERROR, logger=gpu_worker_process_module.logger.name):
-        with pytest.raises(GpuWorkerRequestError, match="decode_failure"):
-            await client.transcribe(
-                request_id="stderr-decode-failure",
-                channel="peer",
-                audio_path=audio_path,
-            )
+        with caplog.at_level(logging.ERROR, logger=gpu_worker_process_module.logger.name):
+            with pytest.raises(GpuWorkerRequestError) as error:
+                await client.transcribe(
+                    request_id="stderr-decode-failure",
+                    channel="peer",
+                    audio_path=audio_path,
+                )
 
-    failure_log = next(message for message in caplog.messages if "[GPUWorker][Failure]" in message)
-    assert "failure_code=decode_failure" in failure_log
-    assert "stderr_line_count=1" in failure_log
-    assert "stderr-decode-failure" not in failure_log
-    assert "invalid token state" not in failure_log
-    await client.close()
+        assert error.value.code == "decode_failure"
+        assert "stderr-decode-failure" not in caplog.text
+        assert "invalid token state" not in caplog.text
+    finally:
+        await client.close()
 
 
 async def test_started_decode_success_has_event_and_finite_exact_timing(

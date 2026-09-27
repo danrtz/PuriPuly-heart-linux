@@ -59,7 +59,6 @@ def settings_view_typed_boundary_adapter(monkeypatch: pytest.MonkeyPatch):
     load = SettingsView.load_from_settings
     refresh = SettingsView.refresh_after_openrouter_pkce_success
     build_provider = SettingsView.build_provider_apply_settings
-    consume_prompt = SettingsView.consume_prompt_apply_settings
 
     def set_compatibility_settings(view, settings):
         canonical = _canonical_settings(settings)
@@ -159,14 +158,6 @@ def settings_view_typed_boundary_adapter(monkeypatch: pytest.MonkeyPatch):
             materialize_translation=materialize_canonical_translation_settings,
         )
 
-    def consume_prompt_adapter(view):
-        current = get_compatibility_settings(view)
-        intent = consume_prompt(view)
-        if current is None or intent is None:
-            return None
-        updated = materialize_prompt_apply_intent(current, intent)
-        view._test_compatibility_settings = updated
-        return updated
 
     def emit_settings_adapter(view, intent):
         current = get_compatibility_settings(view)
@@ -219,6 +210,5 @@ def settings_view_typed_boundary_adapter(monkeypatch: pytest.MonkeyPatch):
         raising=False,
     )
     monkeypatch.setattr(SettingsView, "build_provider_apply_settings", build_provider_adapter)
-    monkeypatch.setattr(SettingsView, "consume_prompt_apply_settings", consume_prompt_adapter)
     monkeypatch.setattr(SettingsView, "_emit_settings_changed", emit_settings_adapter)
     monkeypatch.setattr(SettingsView, "_emit_prompt_apply_settings", emit_prompt_adapter)

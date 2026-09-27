@@ -201,27 +201,36 @@ class DesktopOverlayApplicationOwner:
         if dropped:
             self._log(f"[DesktopOverlay][Bounds] drained_pending_user_bounds count={dropped}")
 
-    async def set_captions_locked(self, locked: bool) -> None:
+    async def set_captions_locked(self, locked: bool) -> dict[str, str]:
         overlay = self.overlay_provider()
-        if self.settings.canonical is None or overlay.state != "connected":
-            return
-        if overlay.active_target != OVERLAY_TARGET_DESKTOP or overlay.current_bridge() is None:
-            return
+        if self.settings.canonical is None:
+            return {"status": "action_required", "reason": "settings_unavailable"}
+        if overlay.state != "connected":
+            return {"status": "action_required", "reason": "desktop_overlay_unavailable"}
+        if overlay.active_target != OVERLAY_TARGET_DESKTOP:
+            return {"status": "action_required", "reason": "desktop_overlay_unavailable"}
+        bridge = overlay.current_bridge()
+        if bridge is None or not callable(
+            getattr(bridge, "broadcast_desktop_runtime_control", None)
+        ):
+            return {"status": "action_required", "reason": "desktop_bridge_unavailable"}
         mode = DESKTOP_INTERACTION_MODE_PASS_THROUGH if locked else DESKTOP_INTERACTION_MODE_EDIT
-        if await self.broadcast({"command": "set_interaction_mode", "mode": mode}):
-            self.set_interaction_mode(mode)
+        if not await self.broadcast({"command": "set_interaction_mode", "mode": mode}):
+            return {"status": "failed", "reason": "desktop_broadcast_failed"}
+        self.set_interaction_mode(mode)
+        return {"status": "applied"}
 
-    async def set_size_preset(self, size_preset: str) -> None:
+    async def set_size_preset(self, size_preset: str) -> dict[str, str]:
         current = self.settings.canonical
         if current is None:
-            return
+            return {"status": "action_required", "reason": "settings_unavailable"}
         normalized = (
             size_preset
             if size_preset in self.policy.size_presets
             else self.policy.default_size_preset
         )
         if current.intent.overlay.desktop_flet.size_preset == normalized:
-            return
+            return {"status": "applied"}
         updated = replace(
             current,
             intent=replace(
@@ -235,10 +244,17 @@ class DesktopOverlayApplicationOwner:
                 ),
             ),
         )
-        await self.settings_application_provider().apply(updated)
+        application = self.settings_application_provider()
+        applied = await application.apply(updated)
+        if not applied or not application.results.committed():
+            result = application.results.current
+            if result is not None and result.status.startswith("settings_commit_failed"):
+                return {"status": "persistence_failed", "reason": "desktop_size_save_failed"}
+            return {"status": "failed", "reason": "desktop_size_apply_failed"}
+        return {"status": "applied"}
 
-    async def reset_position(self) -> None:
-        await self._reset()
+    async def reset_position(self) -> dict[str, str]:
+        return await self._reset()
 
     async def broadcast(self, payload: DesktopRuntimeControl) -> bool:
         overlay = self.overlay_provider()
@@ -261,10 +277,12 @@ class DesktopOverlayApplicationOwner:
             return False
         return True
 
-    async def broadcast_bounds(self, bounds: DesktopBounds) -> None:
+    async def broadcast_bounds(self, bounds: DesktopBounds) -> bool:
         payload: DesktopRuntimeControl = {"command": "apply_window_bounds", **bounds}
-        if await self.broadcast(payload):
-            self._bounds.track_apply_control(payload)
+        if not await self.broadcast(payload):
+            return False
+        self._bounds.track_apply_control(payload)
+        return True
 
     async def consume_renderer_events(
         self,
@@ -407,11 +425,11 @@ class DesktopOverlayApplicationOwner:
             f"height={bounds['height']} size_preset={updated.intent.overlay.desktop_flet.size_preset}"
         )
 
-    async def _reset(self) -> None:
+    async def _reset(self) -> dict[str, str]:
         current = self.settings.canonical
         overlay = self.overlay_provider()
         if current is None:
-            return
+            return {"status": "action_required", "reason": "settings_unavailable"}
         configured_desktop = (
             OverlayApplicationOwner.normalized_target(current.intent.overlay.target)
             == OVERLAY_TARGET_DESKTOP
@@ -420,7 +438,7 @@ class DesktopOverlayApplicationOwner:
             overlay.active_target == OVERLAY_TARGET_DESKTOP and overlay.current_bridge() is not None
         )
         if not configured_desktop and not renderer_active:
-            return
+            return {"status": "action_required", "reason": "desktop_overlay_unavailable"}
         await self._bounds.cancel()
         self.drain_pending_user_bounds_events()
         updated = replace(
@@ -436,21 +454,36 @@ class DesktopOverlayApplicationOwner:
                 ),
             ),
         )
-        application = self.settings_application_provider()
-        routed = await application.apply_overlay_osc_output(updated)
-        if routed and not application.results.committed():
-            return
+        if current.intent.overlay.desktop_flet.position != updated.intent.overlay.desktop_flet.position:
+            application = self.settings_application_provider()
+            routed = await application.apply_overlay_osc_output(updated)
+            if not routed:
+                return {"status": "failed", "reason": "desktop_position_route_unavailable"}
+            if not application.results.committed():
+                result = application.results.current
+                if result is not None and result.status.startswith("settings_commit_failed"):
+                    return {"status": "persistence_failed", "reason": "desktop_position_save_failed"}
+                return {"status": "failed", "reason": "desktop_position_apply_failed"}
         self.settings.set_overlay_desktop_locked(False)
-        self.set_interaction_mode(DESKTOP_INTERACTION_MODE_EDIT)
         if not renderer_active:
-            return
-        await self.broadcast(
+            self.set_interaction_mode(DESKTOP_INTERACTION_MODE_EDIT)
+            return {"status": "applied"}
+        bridge = overlay.current_bridge()
+        if bridge is None or not callable(
+            getattr(bridge, "broadcast_desktop_runtime_control", None)
+        ):
+            return {"status": "action_required", "reason": "desktop_bridge_unavailable"}
+        if not await self.broadcast(
             {
                 "command": "set_interaction_mode",
                 "mode": DESKTOP_INTERACTION_MODE_EDIT,
             }
-        )
-        await self.broadcast_bounds(self.center_bounds_for_current_preset())
+        ):
+            return {"status": "failed", "reason": "desktop_broadcast_failed"}
+        self.set_interaction_mode(DESKTOP_INTERACTION_MODE_EDIT)
+        if not await self.broadcast_bounds(self.center_bounds_for_current_preset()):
+            return {"status": "failed", "reason": "desktop_broadcast_failed"}
+        return {"status": "applied"}
 
     def center_bounds_for_current_preset(self) -> DesktopBounds:
         current = self.settings.canonical

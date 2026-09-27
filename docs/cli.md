@@ -130,6 +130,8 @@ Get-Content -Raw .\message.txt | puripuly.exe text submit --stdin
 
 Use `settings.current` to read the current `revision`. `settings apply` accepts one UTF-8 JSON object from `--file` (or a non-sensitive object from `--arguments`) and an optional `--expected-revision`. The JSON may wrap focused updates in `changes`; unknown fields and invalid types are rejected. The application materializes those updates as typed settings/provider intents against canonical settings, persists them through the settings owner, and applies runtime effects through the owning runtime boundary. It never treats a direct JSON file rewrite as a settings operation.
 
+Revisions and settings events follow successfully committed changes, including GUI-only edits. Queries return the committed snapshot without advancing its revision. Staged preparation and failed persistence are not reported as persisted settings.
+
 Example `changes.json` (supported field/type shape; provider availability and credentials still determine runtime success):
 
 ```json
@@ -172,6 +174,8 @@ A file-based command can also express both channels explicitly:
 Use `asr set` with `--channel self|peer|both` for the same STT provider on the requested channel(s), or settings fields when the two channels need different providers. `settings choices` is the authority for currently available values and valid model/connection combinations. A successful persistence receipt is not proof that a provider is attached or active; inspect `asr status` / `providers.status` and its selected, runtime, capture-attached, activity, pending-handoff, and failure fields.
 
 The finite command catalog also includes Soniox diarization, managed referral settings, custom and local provider settings, GPU device selection, both-channel provider updates, free-tier provider choices, Qwen region, model/connection history, prompts, languages, vocabulary, VAD, audio devices/host APIs, overlay values, OSC and telemetry settings. See [the full matrix](cli-capabilities.md) for field names. Use capabilities and settings choices for values rather than reproducing dynamic lists.
+
+In an already-running GUI, focused external changes preserve unrelated provider/prompt drafts; overlapping changes require explicit conflict resolution. A successful pending GUI apply acknowledges only its submitted values. Newer edits made while it was pending remain staged, and a failed apply retains its draft for retry.
 
 ## Named query and command fallback
 
@@ -247,14 +251,14 @@ puripuly.exe auth logout discord
 
 Browser opening is off by default. `--open-browser` is the sole CLI permission to launch a browser. QQ uses hidden prompts for its identity and credential, or accepts a protected JSON object on stdin with the supported fields `qq_identity`, `credential`, and optional `referral_id`. Discord/OpenRouter accept optional `referral_id` only where allowed; OpenRouter does not accept one. For automation, use the dedicated `auth login ... --stdin` protected JSON input rather than generic arguments. A login request itself is the explicit authorization action; translation toggles, settings/provider changes, generic commands, and OSC translation commands must not initiate OAuth implicitly. Existing authorization may still be used for normal operation.
 
-Account logout is local-only and does not revoke a remote provider grant. Authentication and model operations can require a human step or missing entitlement and report `action_required`. The CLI never auto-accepts consent. Peer terms are available through `capture terms`; an informed user can explicitly accept them when enabling peer capture as described above.
+Account logout is local-only and does not revoke a remote provider grant. Logging out an inactive account preserves unrelated BYOK, local, or other-account translation; only the affected active route is stopped/rebuilt. Failed logout persistence does not silently leave that route's translation disabled. Authentication and model operations can require a human step or missing entitlement and report `action_required`. The CLI never auto-accepts consent. Peer terms are available through `capture terms`; an informed user can explicitly accept them when enabling peer capture as described above.
 
 ## Output, events, logs, and privacy
 
 - CLI stdout is UTF-8 JSON with `output_version: 1`; diagnostics and structured errors are emitted as JSON on stderr. Follow commands emit one JSON event per line.
 - The local transport is protocol v1 newline-delimited UTF-8 JSON (not pickle) over ephemeral IPv4 loopback (`127.0.0.1`). It authenticates the discovered instance UUID and capability token (constant-time token comparison) before catalog dispatch; no arbitrary method/reflection or code execution is exposed.
 - Windows instance discovery uses a current-user ACL-verified record under the user's local application data and an exclusive `LockFileEx` lease for the canonical settings identity. The endpoint/token are not an unauthenticated management service. Requests are limited to 65,536 bytes including newline; responses are limited to 1,048,576 bytes. The transport validates protocol, instance and request correlation.
-- Queries and default event/log views omit credentials and conversation content. Recognition and translation content subscriptions require both the corresponding event topic and explicit `--include-transcripts` / `--include-translations` selection. Keep those flags off unless the caller needs content and can protect the output.
+- Queries and default event/log views omit credentials and conversation content. Recognition and translation content subscriptions require both the corresponding event topic and explicit `--include-transcripts` / `--include-translations` selection. Non-content topics expose typed metadata only; `osc_sent` never includes chatbox text, even with both content flags enabled. Keep those flags off unless the caller needs content and can protect the output.
 - Subscribers have bounded independent buffers. Slow consumers do not block capture/translation; event sequence gaps are explicit. Use `--after` to resume and refresh a snapshot with queries after a gap. Ordering is per owner/topic/channel; do not infer one global order across self, peer, UI, and provider streams.
 - `events follow` defaults to operation, settings, session-state, error and gap topics. Topics can be selected with repeatable `--topic`; `--channel` filters self or peer events. For content, explicitly add `--topic transcript` or `--topic translation` and the corresponding include flag.
 - `logs follow` defaults to warning and follows sanitized application metadata; choose `--level debug|info|warning|error` to change the threshold. Logs are bounded diagnostics, not a durable audit trail, and do not contain transcript/translation bodies or credentials.

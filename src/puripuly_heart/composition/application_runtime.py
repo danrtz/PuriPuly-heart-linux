@@ -230,7 +230,10 @@ from puripuly_heart.config.translation_values import TranslationModel
 from puripuly_heart.core.clipboard.watcher import create_clipboard_watcher
 from puripuly_heart.core.clock import SystemClock
 from puripuly_heart.core.http_extensions import HttpExtensionRegistry
-from puripuly_heart.core.lifecycle import SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL
+from puripuly_heart.core.lifecycle import (
+    SHUTDOWN_PHASE_FREEZE_INGRESS,
+    SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+)
 from puripuly_heart.core.local_asr_provider_runtime import (
     LocalASRProviderRuntimePort,
 )
@@ -2195,22 +2198,34 @@ def compose_application_runtime(
         ),
     )
 
-    application.attach_control(
-        ApplicationControlOwner(
-            application=application,
-            settings=settings,
-            pipeline=pipeline,
-            results=settings_owner.results,
-            events=control_events,
-            provisioning=lambda: provisioning,
-            gpu=lambda: gpu,
-            peer=lambda: peer,
-            calibration=lambda: calibration,
-            gemma=lambda: managed_gemma,
-            sync_ui=sync_ui_from_settings,
-        )
+    control = ApplicationControlOwner(
+        application=application,
+        settings=settings,
+        pipeline=pipeline,
+        results=settings_owner.results,
+        events=control_events,
+        provisioning=lambda: provisioning,
+        gpu=lambda: gpu,
+        peer=lambda: peer,
+        calibration=lambda: calibration,
+        gemma=lambda: managed_gemma,
+        sync_ui=sync_ui_from_settings,
     )
+    application.attach_control(control)
+    settings.observe_commits(control._publish_committed)
     application.register_application_shutdown_callbacks((
+        application_shutdown_callback(
+            phase=SHUTDOWN_PHASE_FREEZE_INGRESS,
+            owner_name="ApplicationControlOwner",
+            callback_name="freeze_ingress",
+            callback=control.freeze_ingress,
+        ),
+        application_shutdown_callback(
+            phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+            owner_name="ApplicationControlOwner",
+            callback_name="drain_operations",
+            callback=control.drain_operations,
+        ),
         application_shutdown_callback(
             phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
             owner_name="OverlayCalibrationApplicationOwner",

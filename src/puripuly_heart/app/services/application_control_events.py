@@ -4,8 +4,11 @@ import asyncio
 from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from uuid import UUID
 
-from puripuly_heart.domain.events import UIEvent, UIEventType
+from puripuly_heart.core.messages import UserErrorReport, UserMessageRef
+from puripuly_heart.domain.events import STTSessionState, UIEvent, UIEventType
+from puripuly_heart.domain.models import OSCMessage, Transcript, Translation
 
 
 @dataclass(slots=True)
@@ -34,14 +37,33 @@ class ControlEvents:
         }.get(event.type, event.type.value.lower())
         item: dict = {"topic": kind, "channel": event.channel, "source": event.source}
         if event.type == UIEventType.ERROR:
-            message = getattr(payload, "message", payload)
-            key = getattr(message, "key", None)
-            item["error"] = {"code": key or "runtime_error"}
-        elif event.type in {UIEventType.TRANSCRIPT_PARTIAL, UIEventType.TRANSCRIPT_FINAL, UIEventType.TRANSLATION_DONE}:
-            item["text"] = getattr(payload, "text", None)
-            item["utterance_id"] = str(getattr(payload, "utterance_id", ""))
-        else:
-            item["state"] = str(getattr(payload, "value", payload))[:128]
+            message = payload.message if isinstance(payload, UserErrorReport) else payload
+            item["error"] = {
+                "code": message.key if isinstance(message, UserMessageRef) else "runtime_error"
+            }
+        elif event.type in {
+            UIEventType.TRANSCRIPT_PARTIAL,
+            UIEventType.TRANSCRIPT_FINAL,
+            UIEventType.TRANSLATION_DONE,
+        }:
+            content = (
+                isinstance(payload, Transcript)
+                if event.type in {UIEventType.TRANSCRIPT_PARTIAL, UIEventType.TRANSCRIPT_FINAL}
+                else isinstance(payload, Translation)
+            )
+            if content:
+                item["text"] = payload.text
+            utterance_id = payload.utterance_id if content else event.utterance_id
+            item["utterance_id"] = str(utterance_id) if isinstance(utterance_id, UUID) else ""
+        elif event.type == UIEventType.SESSION_STATE_CHANGED:
+            if isinstance(payload, STTSessionState):
+                item["state"] = payload.value
+        elif event.type == UIEventType.OSC_SENT:
+            utterance_id = event.utterance_id
+            if utterance_id is None and isinstance(payload, OSCMessage):
+                utterance_id = payload.utterance_id
+            if isinstance(utterance_id, UUID):
+                item["utterance_id"] = str(utterance_id)
         self.publish(item)
 
     async def subscribe(

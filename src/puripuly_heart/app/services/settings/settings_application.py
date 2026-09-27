@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 from collections.abc import Awaitable, Callable
@@ -1087,7 +1086,7 @@ class SettingsApplicationOwner:
                 committed_settings,
                 base_settings,
             )
-            await asyncio.to_thread(self.settings.persist)
+            await self.settings.persist_async()
             self.settings.remember_projection(base_settings)
             committed = True
         finally:

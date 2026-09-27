@@ -1,0 +1,566 @@
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+import logging
+import threading
+from dataclasses import replace
+from types import SimpleNamespace
+
+import pytest
+
+from puripuly_heart.app.ports.settings_view import LocaleSettingsIntent
+from puripuly_heart.app.services.canonical_settings_persistence import (
+    CanonicalSettingsPatchRepository,
+)
+from puripuly_heart.cli.host import HostedApplication
+from puripuly_heart.composition import application_runtime
+from puripuly_heart.composition.headless_application import compose_headless_application
+from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext, SecretsIntent
+from puripuly_heart.config.settings_vnext.serialization import to_dict
+from puripuly_heart.core.runtime_logging import RuntimeLoggingSinks
+
+
+def isolated_settings(path):
+    settings = AppSettingsVNext()
+    settings = replace(settings, intent=replace(
+        settings.intent,
+        secrets=SecretsIntent(backend="encrypted_file", encrypted_file_path="secrets.json"),
+        osc=replace(settings.intent.osc, connection_mode="off"),
+        stt=replace(settings.intent.stt, custom_terms={"ko": ["private phrase"]}),
+    ))
+    path.write_text(json.dumps(to_dict(settings)), encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+async def isolated_composed_logging(tmp_path, monkeypatch):
+    root = logging.getLogger()
+    level = root.level
+    monkeypatch.setattr(root, "handlers", list(root.handlers))
+    monkeypatch.setattr(root, "filters", list(root.filters))
+    monkeypatch.setattr(root, "level", level)
+    for handler in root.handlers:
+        monkeypatch.setattr(handler, "filters", list(handler.filters))
+    compose = compose_headless_application
+    applications = []
+
+    def tracked_compose(path):
+        log_file = tmp_path / f"headless-{len(applications)}.log"
+        sinks = RuntimeLoggingSinks(
+            logging.StreamHandler(io.StringIO()),
+            logging.FileHandler(log_file, encoding="utf-8"),
+            log_file,
+        )
+        try:
+            application = compose(path, runtime_logging_sinks=sinks)
+        except BaseException:
+            sinks.close()
+            raise
+        applications.append((application, sinks))
+        return application
+
+    monkeypatch.setitem(globals(), "compose_headless_application", tracked_compose)
+    try:
+        yield
+    finally:
+        try:
+            for application, sinks in reversed(applications):
+                try:
+                    if application.control().pipeline.self_translation_channel is not None:
+                        await application.stop()
+                    else:
+                        service = application._runtime_logging.installed_service
+                        if service is not None:
+                            service.close()
+                finally:
+                    sinks.close()
+                    sinks.stream_handler.close()
+        finally:
+            root.setLevel(level)
+
+
+@pytest.fixture
+def offline(tmp_path, monkeypatch):
+    monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
+    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    path = tmp_path / "settings.json"
+    isolated_settings(path)
+    return path
+
+
+@pytest.mark.asyncio
+async def test_committed_gui_event_is_unsolicited_and_staged_failure_is_invisible(offline, monkeypatch):
+    app = compose_headless_application(offline)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("offline-commit")
+        initial = await control.query("settings.current", {})
+        assert initial["settings"]["intent"]["stt"]["custom_terms"] == "<redacted>"
+        assert "private phrase" not in json.dumps(initial)
+        stream = control.subscribe(topics=["settings"])
+        event_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        await app.apply_settings_intent(LocaleSettingsIntent("ja"))
+        event = await asyncio.wait_for(event_task, 5)
+        updated = await control.query("settings.current", {})
+        assert event["revision"] == updated["revision"] == initial["revision"] + 1
+        assert updated["settings"]["intent"]["ui"]["locale"] == "ja"
+        await app.apply_settings_intent(LocaleSettingsIntent("ja"))
+        assert (await control.query("settings.current", {}))["revision"] == updated["revision"]
+        await stream.aclose()
+
+        settings_app = app._settings.application
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        original = type(settings_app.runtime_effects).prepare
+
+        async def staged(self, *args, **kwargs):
+            entered.set()
+            await release.wait()
+            return await original(self, *args, **kwargs)
+
+        monkeypatch.setattr(type(settings_app.runtime_effects), "prepare", staged)
+        before = await control.query("settings.current", {})
+        candidate = replace(app.compatibility_settings(), intent=replace(
+            app.compatibility_settings().intent,
+            ui=replace(app.compatibility_settings().intent.ui, locale="en"),
+        ))
+        original_persist = type(control.settings.persistence).persist
+
+        def fail_persist(self, *_args):
+            raise OSError("isolated save failure")
+
+        monkeypatch.setattr(type(control.settings.persistence), "persist", fail_persist)
+        pending = asyncio.create_task(settings_app.apply_direct(candidate))
+        await asyncio.wait_for(entered.wait(), 5)
+        staged_query = await control.query("settings.current", {})
+        assert staged_query == before
+        release.set()
+        assert await pending is False
+        assert await control.query("settings.current", {}) == before
+        monkeypatch.setattr(type(control.settings.persistence), "persist", original_persist)
+        assert not [item for item in control.events.history if item["topic"] == "settings" and item["revision"] > before["revision"]]
+    finally:
+        await app.stop()
+
+
+@pytest.mark.asyncio
+async def test_gui_commit_reaches_idle_subscriber_without_any_prior_query(offline):
+    app = compose_headless_application(offline)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("offline-subscriber")
+        stream = control.subscribe(topics=["settings"])
+        event_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        await app.apply_settings_intent(LocaleSettingsIntent("ja"))
+        event = await asyncio.wait_for(event_task, 5)
+        current = await control.query("settings.current", {})
+        assert event["revision"] == current["revision"]
+        assert current["settings"]["intent"]["ui"]["locale"] == "ja"
+        await stream.aclose()
+    finally:
+        await app.stop()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_before_accepted_task_first_runs_reports_terminal_interruption(offline):
+    app = compose_headless_application(offline)
+    control = app.control()
+    control.bind_instance("offline-early-freeze")
+    accepted = await control.submit("settings.apply", {"changes": {"locale": "ja"}}, request_id="early")
+    control.freeze_ingress()
+    await control.drain_operations()
+    receipt = await control.operation(accepted["operation_id"])
+    assert receipt["status"] == "interrupted"
+    assert receipt["terminal"] is True
+    assert any(
+        event.get("topic") == "operation"
+        and event.get("operation_id") == accepted["operation_id"]
+        and event.get("status") == "interrupted"
+        for event in control.events.history
+    )
+    assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "en"
+
+
+@pytest.mark.asyncio
+async def test_host_shutdown_interrupts_active_and_queued_settings_without_late_commit(offline, monkeypatch):
+    app = compose_headless_application(offline)
+
+    class Lease:
+        def publish(self, **_kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    host = HostedApplication(app, Lease())
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original = CanonicalSettingsPatchRepository.save
+
+    async def slow_save(self, request):
+        entered.set()
+        await release.wait()
+        return await original(self, request)
+
+    try:
+        await host.start()
+        monkeypatch.setattr(CanonicalSettingsPatchRepository, "save", slow_save)
+        control = host.control
+        initial = await control.query("settings.current", {})
+        active = await control.submit("settings.apply", {"changes": {"locale": "ja"}}, request_id="slow-active")
+        await asyncio.wait_for(entered.wait(), 5)
+        queued = await control.submit("settings.apply", {"changes": {"locale": "en"}}, request_id="queued")
+        await asyncio.sleep(0)
+        stop = await control.submit("app.stop", {}, request_id="stop")
+        assert (await control.wait(stop["operation_id"], timeout=5))["status"] == "applied"
+        await asyncio.wait_for(host.wait_for_stop(), 6)
+        await asyncio.wait_for(host.close(), 6)
+        assert (await control.operation(active["operation_id"]))["status"] == "interrupted"
+        assert (await control.operation(queued["operation_id"]))["status"] == "interrupted"
+        assert (await control.query("settings.current", {})) == initial
+        assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
+    finally:
+        release.set()
+        await host.close()
+
+
+@pytest.mark.asyncio
+async def test_noninterruptible_persistence_drains_before_host_closes(offline, monkeypatch):
+    app = compose_headless_application(offline)
+
+    class Lease:
+        def publish(self, **_kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    host = HostedApplication(app, Lease())
+    entered = threading.Event()
+    release = threading.Event()
+    original = type(host.control.settings.persistence).persist
+
+    def slow_save(self, path, settings):
+        entered.set()
+        if not release.wait(5):
+            raise TimeoutError("save gate not released")
+        return original(self, path, settings)
+
+    monkeypatch.setattr(type(host.control.settings.persistence), "persist", slow_save)
+    try:
+        await host.start()
+        control = host.control
+        initial = await control.query("settings.current", {})
+        stream = control.subscribe(topics=["settings"])
+        event_task = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        active = await control.submit("settings.apply", {"changes": {"locale": "ja"}}, request_id="persist-active")
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert (await control.query("settings.current", {})) == initial
+        assert not event_task.done()
+        queued = await control.submit("settings.apply", {"changes": {"locale": "en"}}, request_id="persist-queued")
+        stop = await control.submit("app.stop", {}, request_id="persist-stop")
+        await control.wait(stop["operation_id"], timeout=5)
+        closing = asyncio.create_task(host.close())
+        await asyncio.sleep(0.05)
+        assert not closing.done()
+        release.set()
+        await asyncio.wait_for(closing, 6)
+        delivered = await asyncio.wait_for(event_task, 5)
+        assert delivered["revision"] == initial["revision"] + 1
+        await stream.aclose()
+        assert (await control.operation(active["operation_id"]))["status"] == "interrupted"
+        assert (await control.operation(queued["operation_id"]))["status"] == "interrupted"
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["ui"]["locale"] == "ja"
+        assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "ja"
+    finally:
+        release.set()
+        await host.close()
+
+@pytest.mark.asyncio
+async def test_control_overlay_receipts_preserve_owner_outcomes_and_captured_transaction(offline, monkeypatch):
+    from puripuly_heart.config.resolved import OVERLAY_TARGET_DESKTOP
+    from puripuly_heart.config.settings_vnext.schema import DesktopFletOverlayPositionIntent
+
+    app = compose_headless_application(offline)
+    owner = app._settings.settings
+    owner.start()
+    app._settings.projection.remember_all(owner.canonical)
+    control = app.control()
+    control.bind_instance("offline-overlay-outcomes")
+
+    async def command(name, args):
+        accepted = await control.submit(name, args, request_id=f"{name}-{len(control._operations)}")
+        return await control.wait(accepted["operation_id"], timeout=5)
+
+    absent = await command("overlay.lock", {"locked": True})
+    assert absent["status"] == "action_required"
+    reset_absent = await command("overlay.position.reset", {})
+    assert reset_absent["status"] == "action_required"
+
+    def locked_file(_path, _settings):
+        raise PermissionError("isolated persistence failure")
+
+    persist = owner.persistence.persist
+    monkeypatch.setattr(owner.persistence, "persist", locked_file)
+    failed = await command("overlay.size", {"preset": "large"})
+    assert failed["status"] == "persistence_failed"
+    assert failed["transaction"]["status"] == "settings_commit_failed"
+    monkeypatch.setattr(owner.persistence, "persist", persist)
+
+    owner.canonical = replace(owner.canonical, intent=replace(
+        owner.canonical.intent,
+        overlay=replace(
+            owner.canonical.intent.overlay,
+            target=OVERLAY_TARGET_DESKTOP,
+            desktop_flet=replace(
+                owner.canonical.intent.overlay.desktop_flet,
+                position=DesktopFletOverlayPositionIntent(x=140, y=85),
+            ),
+        ),
+    ))
+    owner.persist_current()
+    app._settings.projection.remember_all(owner.canonical)
+    overlay = app._overlay.overlay
+    overlay.active_target = OVERLAY_TARGET_DESKTOP
+    overlay.state = "connected"
+
+    class Bridge:
+        def __init__(self):
+            self.calls = 0
+
+        async def broadcast_desktop_runtime_control(self, _payload):
+            self.calls += 1
+            if self.calls == 2:
+                raise OSError("isolated bridge failure")
+
+    bridge = Bridge()
+    overlay.runtime = SimpleNamespace(
+        current_bridge_for_runtime_command=lambda: bridge,
+        renderer_events_or_none=lambda: None,
+    )
+    reset = await command("overlay.position.reset", {})
+    assert reset["status"] == "failed"
+    assert reset["reason"] == "desktop_broadcast_failed"
+    assert reset["transaction"]["status"] == "settings_commit_success_runtime_degraded"
+
+
+@pytest.mark.asyncio
+async def test_gpu_discovery_receipt_follows_owner_snapshot(offline):
+    from puripuly_heart.core.gpu_worker import GpuWorkerDevice
+    from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
+        LocalASRProviderRuntimeSnapshot,
+        ProviderRuntimeGpuSnapshot,
+    )
+
+    app = compose_headless_application(offline)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("offline-gpu")
+        owner = control.gpu()
+        device = GpuWorkerDevice("gpu:0", 0, "isolated", "fake GPU", "discrete", 1024, 512)
+        phase = "unsupported"
+
+        async def discover_gpu(*, force):
+            assert force is False
+            return LocalASRProviderRuntimeSnapshot(
+                channels=(),
+                gpu=ProviderRuntimeGpuSnapshot(
+                    phase=phase,
+                    devices=(device,) if phase == "available" else (),
+                    active_channels=frozenset(),
+                    pending_count=0,
+                    worker_pid=None,
+                    configured_device_id=None,
+                    model_resident=False,
+                    retry_required=False,
+                    failure_code="isolated_failure" if phase == "failed" else None,
+                ),
+            )
+
+        owner.runtime_provider = lambda: SimpleNamespace(discover_gpu=discover_gpu)
+        for phase, expected in (("unsupported", "action_required"), ("failed", "failed"), ("available", "applied")):
+            accepted = await control.submit("gpu.discover", {}, request_id=f"gpu-{phase}")
+            receipt = await control.wait(accepted["operation_id"], timeout=5)
+            assert receipt["status"] == expected
+            assert receipt["gpu"]["discovery_failed"] is (phase != "available")
+            queried = await control.query("gpu.status", {})
+            assert queried["state"]["discovery_failed"] is (phase != "available")
+    finally:
+        await app.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "model", "connection", "source", "should_stop"),
+    [
+        ("qq", "local_llm", "ollama", "byok", False),
+        ("discord", "gemma4_26b_31b", "openrouter", "byok", False),
+        ("qq", "deepseek_v4_flash", "managed", "managed", False),
+        ("discord", "deepseek_v4_flash", "managed_china", "managed", False),
+        ("qq", "deepseek_v4_flash", "managed_china", "managed", True),
+        ("discord", "gemma4_26b_31b", "managed", "managed", True),
+        ("openrouter", "gemma4_26b_31b", "openrouter", "byok", True),
+    ],
+)
+async def test_logout_affects_only_selected_credential_route(
+    offline, provider, model, connection, source, should_stop,
+):
+    app = compose_headless_application(offline)
+    control = app.control()
+    control.bind_instance("offline-logout")
+    base = AppSettingsVNext()
+    settings = replace(base, intent=replace(base.intent, translation=replace(
+        base.intent.translation, model=model, connection=connection,
+        openrouter_selected_source=source,
+    )))
+    state = SimpleNamespace(translation_enabled=True)
+    effects = []
+
+    async def enabled(value):
+        effects.append(("translation", value))
+        state.translation_enabled = value
+
+    async def logout(_provider):
+        effects.append(("logout", _provider))
+        return {"status": "applied", "provider": _provider}
+
+    async def secret(_key, _value):
+        effects.append(("secret", _key))
+        return True
+
+    async def rebuild(**kwargs):
+        effects.append(("rebuild", kwargs))
+        return True
+
+    control.application = SimpleNamespace(
+        compatibility_settings=lambda: settings,
+        state=lambda: state,
+        set_translation_enabled=enabled,
+        logout_local_managed=logout,
+        persist_provider_secret_change=secret,
+        apply_providers=rebuild,
+    )
+    control.sync_ui = lambda: None
+    result = await control._logout({"provider": provider})
+    assert result["status"] == "applied"
+    assert state.translation_enabled is (not should_stop)
+    assert (("translation", False) in effects) is should_stop
+    assert any(effect[0] == "rebuild" for effect in effects) is should_stop
+
+
+@pytest.mark.asyncio
+async def test_logout_restores_active_translation_after_failed_persistence_and_honors_pending(offline):
+    app = compose_headless_application(offline)
+    control = app.control()
+    control.bind_instance("offline-logout-failure")
+    base = AppSettingsVNext()
+    settings = replace(base, intent=replace(base.intent, translation=replace(
+        base.intent.translation, model="deepseek_v4_flash", connection="managed_china",
+        openrouter_selected_source="managed",
+    )))
+    state = SimpleNamespace(translation_enabled=True)
+    effects = []
+
+    async def enabled(value):
+        effects.append(value)
+        state.translation_enabled = value
+
+    async def logout(_provider):
+        return {"status": "persistence_failed", "provider": _provider}
+
+    control.application = SimpleNamespace(
+        compatibility_settings=lambda: settings,
+        state=lambda: state,
+        set_translation_enabled=enabled,
+        logout_local_managed=logout,
+    )
+    control.sync_ui = lambda: None
+    result = await control._logout({"provider": "qq"})
+    assert result["status"] == "persistence_failed"
+    assert effects == [False, True]
+    assert state.translation_enabled is True
+
+    pending = replace(
+        settings.state.managed_connection,
+        pending_delivery_ack_source="qq",
+        pending_delivery_ack_delivery_id="offline-delivery",
+        pending_delivery_ack_managed_credential_ref="offline-reference",
+    )
+    settings = replace(settings, state=replace(settings.state, managed_connection=pending))
+    effects.clear()
+    result = await control._logout({"provider": "qq"})
+    assert result == {"status": "action_required", "action": "resolve_pending_managed_authorization"}
+    assert effects == []
+
+    settings = base
+    result = await control._logout({"provider": "qq"})
+    assert result["status"] == "persistence_failed"
+    assert effects == []
+
+
+@pytest.mark.asyncio
+async def test_managed_logout_preserves_other_account_metadata_and_compensates_failed_save(offline, monkeypatch):
+    from puripuly_heart.core.openrouter_credentials import (
+        OPENROUTER_MANAGED_API_KEY_SECRET,
+        OPENROUTER_MANAGED_QQ_API_KEY_SECRET,
+    )
+
+    from puripuly_heart.app.wiring.wiring_managed_auth_factory import ManagedAuthRuntimeAdapter
+
+    app = compose_headless_application(offline)
+    owner = app._settings.settings
+    owner.start()
+    original = owner.canonical
+    identity = replace(
+        original.state.managed_connection,
+        active_managed_credential_ref="discord-reference",
+        active_managed_expires_at="2030-01-01",
+        founder_letter_seen_credential_ref="discord-reference",
+    )
+    owner.canonical = replace(original, state=replace(original.state, managed_connection=identity))
+    owner.persist_current()
+    values = {
+        OPENROUTER_MANAGED_API_KEY_SECRET: "offline-discord",
+        OPENROUTER_MANAGED_QQ_API_KEY_SECRET: "offline-qq",
+    }
+
+    class MemorySecrets:
+        def get(self, key):
+            return values.get(key)
+
+        def set(self, key, value):
+            values[key] = value
+
+        def delete(self, key):
+            values.pop(key, None)
+
+    adapter = ManagedAuthRuntimeAdapter(
+        config_path=offline,
+        secret_store_factory=lambda *_args, **_kwargs: MemorySecrets(),
+        settings=owner,
+        release_service_provider=lambda: None,
+        settings_repository_factory=lambda **_kwargs: None,
+        runtime_presence_provider=lambda: (False, False),
+        ingress_provider=lambda: False,
+    )
+    assert (await adapter.logout_local_managed("qq"))["status"] == "applied"
+    assert owner.canonical.state.managed_connection.active_managed_credential_ref == "discord-reference"
+    assert owner.canonical.state.managed_connection.founder_letter_seen_credential_ref == "discord-reference"
+    assert OPENROUTER_MANAGED_QQ_API_KEY_SECRET not in values
+    assert values[OPENROUTER_MANAGED_API_KEY_SECRET] == "offline-discord"
+    assert (await adapter.logout_local_managed("qq"))["reason"] == "not_authorized"
+
+    def locked_file(_path, _settings):
+        raise PermissionError("controlled persistence failure")
+
+    monkeypatch.setattr(owner.persistence, "persist", locked_file)
+    assert (await adapter.logout_local_managed("discord"))["status"] == "persistence_failed"
+    assert values[OPENROUTER_MANAGED_API_KEY_SECRET] == "offline-discord"
+    assert owner.canonical.state.managed_connection.active_managed_credential_ref == "discord-reference"

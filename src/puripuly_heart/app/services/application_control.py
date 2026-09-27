@@ -62,6 +62,7 @@ from puripuly_heart.config.settings_vnext.serialization import to_dict
 from puripuly_heart.config.translation_values import (
     TranslationConnection,
     TranslationModel,
+    provider_llm_for_translation,
     supported_translation_connections,
 )
 from puripuly_heart.core.messages import TransactionResult
@@ -276,7 +277,7 @@ def _json(value: object) -> object:
 
 def _redact(value: object) -> object:
     if isinstance(value, dict):
-        return {key: ("<redacted>" if any(s in key.lower() for s in ("secret", "api_key", "token", "password", "credential", "prompt", "vocabulary", "referral")) else _redact(item)) for key, item in value.items()}
+        return {key: ("<redacted>" if key.lower() == "custom_terms" or any(s in key.lower() for s in ("secret", "api_key", "token", "password", "credential", "prompt", "vocabulary", "referral")) else _redact(item)) for key, item in value.items()}
     if isinstance(value, list):
         return [_redact(item) for item in value]
     return value
@@ -326,24 +327,41 @@ class ApplicationControlOwner:
         if not instance_id or (self.instance_id is not None and self.instance_id != instance_id):
             raise ValueError("instance identity cannot change within a host")
         self.instance_id = instance_id
+        self.settings.observe_commits(self._publish_committed)
 
     async def wait_for_stop_request(self) -> None:
         await self._stop_requested.wait()
 
     def freeze_ingress(self) -> None:
+        if not self._open:
+            return
         self._open = False
-        for operation in self._operations.values():
+        for operation_id, operation in self._operations.items():
             if operation.task is not None and not operation.task.done():
+                if operation.receipt["status"] == "accepted":
+                    operation.receipt.update(status="interrupted", terminal=True)
+                    self.events.publish({
+                        "topic": "operation", "operation_id": operation_id,
+                        "status": "interrupted", "terminal": True, "revision": self._revision,
+                    })
                 operation.task.cancel()
 
+    async def drain_operations(self) -> None:
+        tasks = tuple(operation.task for operation in self._operations.values() if operation.task is not None)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _publish_committed(self, canonical: object) -> None:
+        fingerprint = hashlib.sha256(json.dumps(to_dict(canonical), sort_keys=True, default=str).encode()).hexdigest()
+        if fingerprint == self._fingerprint:
+            return
+        initial = self._fingerprint is None
+        self._fingerprint = fingerprint
+        self._revision += 1
+        if not initial:
+            self.events.publish({"topic": "settings", "revision": self._revision})
+
     def _current_revision(self) -> int:
-        canonical = self.application.compatibility_settings()
-        if canonical is not None:
-            fingerprint = hashlib.sha256(json.dumps(to_dict(canonical), sort_keys=True, default=str).encode()).hexdigest()
-            if fingerprint != self._fingerprint:
-                self._fingerprint = fingerprint
-                self._revision += 1
-                self.events.publish({"topic": "settings", "revision": self._revision})
         return self._revision
 
     async def apply_mutation(self, mutator: Callable[[object], object]) -> tuple[object, object, object]:
@@ -805,7 +823,7 @@ class ApplicationControlOwner:
         if arguments:
             raise ValueError("query does not accept arguments")
         revision = self._current_revision()
-        canonical = self.application.compatibility_settings()
+        canonical = self.settings.committed_settings
         base = {"instance_id": self.instance_id, "revision": revision}
         if name == "settings.current":
             return {**base, "settings": _redact(to_dict(canonical)) if canonical is not None else None}
@@ -825,7 +843,7 @@ class ApplicationControlOwner:
             return {**base, **await asyncio.to_thread(enumerate_audio_devices, canonical)}
         if name == "gpu.status":
             owner = self.gpu()
-            return {**base, "state": _json(getattr(owner, "state", None)) if owner is not None else None, "runtime": _json(self.pipeline.local_asr_runtime.snapshot.gpu) if self.pipeline.local_asr_runtime is not None else None}
+            return {**base, "state": _json(owner.snapshot) if owner is not None else None, "runtime": _json(self.pipeline.local_asr_runtime.snapshot.gpu) if self.pipeline.local_asr_runtime is not None else None}
         if name == "models.status":
             owner = self.provisioning()
             gemma = self.gemma()
@@ -908,6 +926,8 @@ class ApplicationControlOwner:
                 command == "microphone.test" and arguments.get("enabled") is False
             )
             async with (asyncio.Lock() if independent_stop else self._lock):
+                if not self._open and command != "app.stop":
+                    raise asyncio.CancelledError
                 if not independent_stop:
                     self._lock_owner = asyncio.current_task()
                 revision = self._current_revision()
@@ -918,7 +938,7 @@ class ApplicationControlOwner:
                         result = await self._dispatch(command, arguments, operation_id=operation_id)
                     transaction = captured.current
                     status = "applied"
-                    if transaction is not None and command in {"settings.apply", "provider.apply", "secrets.set", "secrets.delete"}:
+                    if transaction is not None and command in {"settings.apply", "provider.apply", "secrets.set", "secrets.delete", "overlay.lock", "overlay.size", "overlay.position.reset"}:
                         status = _transaction_status(transaction)
                         operation.receipt["transaction"] = _transaction_data(transaction)
                     elif result is False:
@@ -947,6 +967,8 @@ class ApplicationControlOwner:
                             self.events.publish({"topic": "error", "operation_id": operation_id, "code": "presentation_sync_failed"})
                     if isinstance(result, dict):
                         operation.receipt.update({k: v for k, v in result.items() if k != "status"})
+                        if "status" in result and result["status"] != "applied":
+                            operation.receipt["status"] = result["status"]
         except asyncio.CancelledError:
             operation.receipt["status"] = "interrupted" if not self._open else "cancelled"
         except PeerCaptureTargetUnavailable:
@@ -956,6 +978,8 @@ class ApplicationControlOwner:
         except Exception as exc:
             operation.receipt.update(status="failed", error={"code": "application_operation_failed", "type": type(exc).__name__})
         finally:
+            if not self._open and command != "app.stop" and operation.receipt["status"] not in {"interrupted", "cancelled", "rejected", "persistence_failed"}:
+                operation.receipt["status"] = "interrupted"
             operation.receipt["terminal"] = operation.receipt["status"] in TERMINAL
             if self._lock_owner is asyncio.current_task():
                 self._lock_owner = None
@@ -1174,8 +1198,18 @@ class ApplicationControlOwner:
             await owner.retry_activation()
             return {"status": "applied" if not owner.snapshot.discovery_failed else "degraded", "gpu": _json(owner.snapshot)}
         if command == "gpu.discover":
+            owner = self.gpu()
+            if owner is None:
+                return {"status": "action_required", "reason": "gpu_owner_unavailable"}
             await app.ensure_gpu_device_discovery()
-            return True
+            snapshot = owner.snapshot
+            if snapshot.discovery_failure_state == "unsupported" or (snapshot.discovery_attempted and not snapshot.devices and not snapshot.discovery_failed):
+                status = "action_required"
+            elif snapshot.discovery_failed:
+                status = "failed"
+            else:
+                status = "applied"
+            return {"status": status, "gpu": _json(snapshot)}
         if command == "auth.login":
             return await self._login(args, operation_id)
         if command == "auth.logout":
@@ -1355,7 +1389,23 @@ class ApplicationControlOwner:
             managed.pending_delivery_ack_source or managed.pending_managed_operation_id
         ):
             return {"status": "action_required", "action": "resolve_pending_managed_authorization"}
-        if app.state().translation_enabled:
+        translation = current.intent.translation
+        connection = translation.connection
+        active_route = (
+            provider_llm_for_translation(translation.model, connection) == "openrouter"
+            and (
+                (provider == "qq" and connection == "managed_china"
+                    and translation.openrouter_selected_source == "managed")
+                or (provider == "discord" and connection == "managed"
+                    and translation.openrouter_selected_source == "managed")
+                or (
+                    provider == "openrouter" and connection == "openrouter"
+                    and translation.openrouter_selected_source == "byok"
+                )
+            )
+        )
+        stopped = active_route and app.state().translation_enabled
+        if stopped:
             await app.set_translation_enabled(False)
             if app.state().translation_enabled:
                 return {"status": "degraded", "reason": "translation_stop_failed"}
@@ -1371,12 +1421,19 @@ class ApplicationControlOwner:
             result.update(provider=provider, scope="local_only")
         else:
             result = await app.logout_local_managed(provider)
-        if result["status"] == "applied":
+        if result["status"] != "applied":
+            if stopped:
+                await app.set_translation_enabled(True)
+                if not app.state().translation_enabled:
+                    result["reason"] = "translation_restore_failed"
+                    result["status"] = "degraded"
+            return result
+        if active_route:
             runtime = await app.apply_providers(force_rebuild_llm=True, persist_settings=False)
             if runtime is False:
                 result["status"] = "degraded"
                 result["reason"] = "runtime_rebuild_failed"
-            self.sync_ui()
+        self.sync_ui()
         return result
 
     async def _apply_provider(self, args: dict) -> object:

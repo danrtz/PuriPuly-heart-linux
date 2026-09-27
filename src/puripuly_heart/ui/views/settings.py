@@ -3643,17 +3643,14 @@ class SettingsView(ft.Column):
         if not self.has_provider_changes:
             self._provider_draft = None
 
-    def consume_prompt_apply_settings(self) -> PromptApplyIntent | None:
+    def acknowledge_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
         if self.external_settings_conflict:
             self._show_external_conflict()
-            return None
-        if not self.has_pending_prompt_changes or self._prompt_snapshot is None:
-            return None
-        value = self._prompt_editor.value
-        self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=value)
-        self.has_pending_prompt_changes = False
-        self._provider_edits.pop(SystemPromptEdit, None)
-        return PromptApplyIntent(value)
+            return
+        if self._prompt_snapshot is None:
+            return
+        self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=intent.value)
+        self._stage_prompt_draft(self._prompt_editor.value)
 
     def _show_external_conflict(self) -> None:
         if not self.external_settings_conflict or self.page is None:
@@ -6414,10 +6411,11 @@ class SettingsView(ft.Column):
         self._stage_prompt_draft(value)
         if self.has_provider_changes:
             return
-        pending = self.consume_prompt_apply_settings()
-        if pending is None:
+        if self.external_settings_conflict:
+            self._show_external_conflict()
             return
-        self._emit_prompt_apply_settings(pending)
+        if self.has_pending_prompt_changes:
+            self._emit_prompt_apply_settings(PromptApplyIntent(value))
 
     def _on_reset_prompt(self, e) -> None:
         """Reset prompt to default for current provider."""

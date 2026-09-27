@@ -545,14 +545,14 @@ class UiApplicationBoundary:
         if inspect.isawaitable(result):
             await result
 
-    async def set_desktop_overlay_captions_locked(self, locked: bool) -> None:
-        await self._overlay.set_desktop_overlay_captions_locked(locked)
+    async def set_desktop_overlay_captions_locked(self, locked: bool) -> dict[str, str]:
+        return await self._overlay.set_desktop_overlay_captions_locked(locked)
 
-    async def set_desktop_overlay_size_preset(self, size_preset: str) -> None:
-        await self._overlay.set_desktop_overlay_size_preset(size_preset)
+    async def set_desktop_overlay_size_preset(self, size_preset: str) -> dict[str, str]:
+        return await self._overlay.set_desktop_overlay_size_preset(size_preset)
 
-    async def reset_desktop_overlay_position(self) -> None:
-        await self._overlay.reset_desktop_overlay_position()
+    async def reset_desktop_overlay_position(self) -> dict[str, str]:
+        return await self._overlay.reset_desktop_overlay_position()
 
     def begin_overlay_calibration(self) -> object:
         return self._overlay.begin_overlay_calibration()

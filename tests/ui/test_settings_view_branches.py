@@ -5397,24 +5397,10 @@ def test_translation_card_no_longer_contains_translation_connection_row(
 
 
 @pytest.mark.asyncio
-async def test_prompt_verify_and_emit_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = AppSettingsVNext()
-    changed: list[AppSettingsVNext] = []
+async def test_verify_key_reports_unavailable_or_provider_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     view, _ = _make_settings_view(monkeypatch)
-    view.load_from_settings(settings, config_path=Path("settings.json"))
-    view.on_settings_changed = lambda incoming: changed.append(incoming)
-
-    view._on_prompt_change("custom prompt")
-    assert settings.intent.prompts.system_prompt_override != "custom prompt"
-    assert view.has_pending_prompt_changes is True
-
-    view._on_prompt_commit("custom prompt")
-    assert changed[-1].intent.prompts.system_prompt_override == "custom prompt"
-
-    view._on_reset_prompt(None)
-    assert view._settings.intent.prompts.system_prompt_override is None
-    assert changed
-
     unavailable = await view._verify_key("google", "abc")
     assert unavailable == (False, "Verification not available")
 
@@ -5445,20 +5431,6 @@ def test_prompt_change_only_updates_draft_until_commit(monkeypatch: pytest.Monke
 
     assert changed == []
 
-
-def test_prompt_commit_emits_once_when_no_provider_changes(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = AppSettingsVNext()
-    changed: list[AppSettingsVNext] = []
-    view, _ = _make_settings_view(monkeypatch)
-    view.load_from_settings(settings, config_path=Path("settings.json"))
-    view.on_settings_changed = lambda incoming: changed.append(incoming)
-
-    view._on_prompt_change("custom prompt")
-    view._on_prompt_commit("custom prompt")
-
-    assert view.has_pending_prompt_changes is False
-    assert changed
-    assert changed[-1].intent.prompts.system_prompt_override == "custom prompt"
 
 
 def test_prompt_commit_preserves_peer_local_qwen_before_emit(
@@ -6844,3 +6816,110 @@ async def test_provider_apply_acknowledgement_preserves_a_newer_prompt_edit(
     pending = view.build_provider_apply_settings()
     assert pending is not None
     assert SystemPromptEdit("SECOND PROMPT") in pending.edits
+
+
+class PromptApplyBackend:
+    def __init__(self, view: settings_view.SettingsView, settings: AppSettingsVNext) -> None:
+        self.view = view
+        self.settings = settings
+        self.succeed = True
+        self.apply_started = asyncio.Event()
+        self.release_apply = asyncio.Event()
+
+    async def apply_settings(self, settings: AppSettingsVNext) -> bool:
+        self.apply_started.set()
+        await self.release_apply.wait()
+        if self.succeed:
+            self.settings = settings
+        return self.succeed
+
+    def refresh_settings_projection(self, *, preserve_custom_vocab_draft: bool = False) -> bool:
+        provider, general, prompt, overlay = settings_view_surface_snapshots(self.settings)
+        self.view.load_from_settings(
+            provider=provider,
+            general=general,
+            prompt=prompt,
+            overlay=overlay,
+            config_path=Path("settings.json"),
+            preserve_custom_vocab_draft=preserve_custom_vocab_draft,
+        )
+        return True
+
+
+def _make_prompt_apply_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    TranslatorApp,
+    settings_view.SettingsView,
+    PromptApplyBackend,
+    list[Callable[[], Awaitable[None]]],
+]:
+    baseline = AppSettingsVNext()
+    view, _store = _make_settings_view(monkeypatch)
+    view.load_from_settings(baseline, config_path=Path("settings.json"))
+    backend = PromptApplyBackend(view, baseline)
+    app, scheduled = _make_provider_apply_app(view, backend)
+    monkeypatch.setattr(
+        view,
+        "_emit_prompt_apply_settings",
+        lambda intent: app._on_prompt_apply_settings(intent),
+    )
+    return app, view, backend, scheduled
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply_on_navigation", [False, True])
+async def test_prompt_apply_preserves_newer_uncommitted_edit_and_can_apply_it_later(
+    monkeypatch: pytest.MonkeyPatch,
+    apply_on_navigation: bool,
+) -> None:
+    app, view, backend, scheduled = _make_prompt_apply_app(monkeypatch)
+
+    view._on_prompt_change("FIRST PROMPT")
+    if apply_on_navigation:
+        app._on_nav_change(0)
+    else:
+        view._on_prompt_commit("FIRST PROMPT")
+    apply_a = asyncio.create_task(scheduled.pop(0)())
+    await backend.apply_started.wait()
+    view._on_prompt_change("SECOND PROMPT")
+    backend.release_apply.set()
+    await apply_a
+
+    assert backend.settings.intent.prompts.system_prompt_override == "FIRST PROMPT"
+    assert view.external_settings_conflict is False
+    assert view._prompt_editor.value == "SECOND PROMPT"
+    assert view.has_pending_prompt_changes is True
+    assert SystemPromptEdit("SECOND PROMPT") in view._build_provider_apply_intent().edits
+
+    view._on_prompt_commit("SECOND PROMPT")
+    await scheduled.pop(0)()
+
+    assert backend.settings.intent.prompts.system_prompt_override == "SECOND PROMPT"
+    assert view._prompt_editor.value == "SECOND PROMPT"
+    assert view.has_pending_prompt_changes is False
+
+
+@pytest.mark.asyncio
+async def test_failed_prompt_apply_keeps_submitted_edit_for_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _app, view, backend, scheduled = _make_prompt_apply_app(monkeypatch)
+    backend.succeed = False
+    backend.release_apply.set()
+
+    view._on_prompt_change("RETRY PROMPT")
+    view._on_prompt_commit("RETRY PROMPT")
+    await scheduled.pop(0)()
+
+    assert backend.settings.intent.prompts.system_prompt_override != "RETRY PROMPT"
+    assert view._prompt_editor.value == "RETRY PROMPT"
+    assert view.has_pending_prompt_changes is True
+    assert SystemPromptEdit("RETRY PROMPT") in view._build_provider_apply_intent().edits
+
+    backend.succeed = True
+    view._on_prompt_commit("RETRY PROMPT")
+    await scheduled.pop(0)()
+
+    assert backend.settings.intent.prompts.system_prompt_override == "RETRY PROMPT"
+    assert view.has_pending_prompt_changes is False

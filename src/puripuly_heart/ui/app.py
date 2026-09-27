@@ -1073,14 +1073,15 @@ class TranslatorApp:
 
                     self._queue_settings_mutation_task(_task)
             elif getattr(self.view_settings, "has_pending_prompt_changes", False):
+                pending = PromptApplyIntent(self.view_settings._prompt_editor.value)
+
                 async def _task():
                     if self.view_settings.external_settings_conflict:
                         self.view_settings._show_external_conflict()
                         return
-                    pending = PromptApplyIntent(self.view_settings._prompt_editor.value)
                     result = await self.application.apply_prompt_intent(pending)
                     if result:
-                        self.view_settings.consume_prompt_apply_settings()
+                        self.view_settings.acknowledge_prompt_apply_settings(pending)
                         self.application.refresh_settings_projection()
 
                 self._queue_settings_mutation_task(_task)
@@ -1480,7 +1481,7 @@ class TranslatorApp:
                 return
             result = await self.application.apply_prompt_intent(intent)
             if result:
-                self.view_settings.consume_prompt_apply_settings()
+                self.view_settings.acknowledge_prompt_apply_settings(intent)
                 self.application.refresh_settings_projection()
 
         self._queue_settings_mutation_task(_task)
