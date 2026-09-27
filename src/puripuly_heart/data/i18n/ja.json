@@ -516,7 +516,7 @@
   "provider.openrouter.insufficient_credits": "クレジット残高が不足しています。",
   "provider.openrouter.key_limit": "APIキーの利用上限に達しました。",
   "provider.openrouter.temporary_limit": "OpenRouterの一時的な利用上限に達しました。",
-  "provider.openrouter.payment_required": "OpenRouterのクレジット残高または利用上限を確認してください。",
+  "provider.openrouter.payment_required": "クレジット残高を確認してください。",
   "dashboard.overlay_restart_required": "オーバーレイを再起動してください。",
   "dashboard.translation_issue.settings_action": "設定を開く",
   "stt.failure": "音声認識でエラーが発生しました（{category}）。もう一度お試しください。",

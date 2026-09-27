@@ -516,7 +516,7 @@
   "provider.openrouter.insufficient_credits": "积分余额不足。",
   "provider.openrouter.key_limit": "API 密钥已达到消费限额。",
   "provider.openrouter.temporary_limit": "已达到 OpenRouter 的临时消费限额。",
-  "provider.openrouter.payment_required": "请检查 OpenRouter 的积分余额或消费限额。",
+  "provider.openrouter.payment_required": "请检查积分余额。",
   "dashboard.overlay_restart_required": "请重启叠加层。",
   "dashboard.translation_issue.settings_action": "打开设置",
   "stt.failure": "语音识别出错（{category}）。请重试。",
