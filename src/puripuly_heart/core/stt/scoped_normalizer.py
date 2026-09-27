@@ -157,6 +157,8 @@ class STTScopedTurnNormalizer:
         raw_text = terminal.text if terminal.text else self._stable_text
         runs = terminal.final_language_runs if terminal.text else self._stable_runs
         speaker_runs = terminal.final_speaker_runs if terminal.text else self._stable_speaker_runs
+        if terminal.text and not speaker_runs and terminal.text == self._stable_text:
+            speaker_runs = self._stable_speaker_runs
         normalized_speaker_runs = self._normalize_speaker_runs(raw_text, speaker_runs)
         text, runs = self._normalize_text_and_runs(raw_text, runs)
         speaker_runs = self._normalize_speaker_runs(text, normalized_speaker_runs)
@@ -281,7 +283,7 @@ class STTScopedTurnNormalizer:
             runs = self._fallback_language_run(text, "language_run_limit_fallback")
         if speaker_runs and "".join(item.text for item in speaker_runs) != text:
             self._diagnose("speaker_run_conservation_fallback")
-            speaker_runs = ()
+            speaker_runs = (FinalSpeakerRun(text, None, "", attribution_state="malformed"),)
         return text, runs, speaker_runs
 
     def _normalize_text_and_runs(
@@ -350,10 +352,10 @@ class STTScopedTurnNormalizer:
             return ()
         if "".join(item.text for item in runs) != text:
             self._diagnose("speaker_run_conservation_fallback")
-            return ()
+            return (FinalSpeakerRun(text.strip(), None, "", attribution_state="malformed"),)
         if len(runs) > self.MAX_SPEAKER_RUNS:
             self._diagnose("speaker_run_limit_fallback")
-            return ()
+            return (FinalSpeakerRun(text.strip(), None, "", attribution_state="malformed"),)
         left = len(text) - len(text.lstrip())
         right = len(text) - len(text.rstrip())
         trimmed = list(runs)
@@ -402,7 +404,7 @@ class STTScopedTurnNormalizer:
         normalized = text.strip()
         if "".join(item.text for item in merged) != normalized:
             self._diagnose("invalid_speaker_run_fallback")
-            return ()
+            return (FinalSpeakerRun(normalized, None, "", attribution_state="malformed"),)
         return tuple(merged)
 
     def _fallback_language_run(self, text: str, reason: str) -> tuple[FinalLanguageRun, ...]:

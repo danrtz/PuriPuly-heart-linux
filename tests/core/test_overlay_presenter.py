@@ -20,6 +20,7 @@ from puripuly_heart.core.overlay.protocol import (
 )
 from puripuly_heart.core.overlay.sink import (
     OverlayEventAdapter,
+    OverlayPublicationScope,
     PeerActiveUpdate,
     SelfActiveClear,
     SelfActiveUpdate,
@@ -2431,6 +2432,148 @@ async def test_presenter_evicted_turn_remains_ignored_after_tombstone_cap_overfl
     assert presenter.snapshot().blocks == blocks_before_late_update
     assert len(bridge.snapshots) == snapshot_count_before_late_update
     assert bridge.snapshots[-1].blocks == blocks_before_late_update
+
+@pytest.mark.asyncio
+async def test_scoped_peer_children_survive_earlier_sibling_retirement() -> None:
+    presenter = OverlayPresenter(
+        calibration=OverlayCalibration(),
+        clock=FakeClock(_now=10.0),
+    )
+    adapter = OverlayEventAdapter(clock=FakeClock(_now=10.0))
+    parent_id = uuid4()
+    children = [uuid4() for _ in range(6)]
+    scopes = [
+        OverlayPublicationScope(
+            turn_kind="peer",
+            parent_utterance_id=parent_id,
+            turn_generation=0,
+            turn_order=0,
+            target_index=index,
+            target_count=len(children),
+        )
+        for index in range(len(children))
+    ]
+    for index, (child_id, scope) in enumerate(zip(children, scopes, strict=True)):
+        receipt = await presenter.emit(
+            adapter.translation_final(
+                utterance_id=child_id,
+                channel="peer",
+                text=f"translated {index}",
+                source_text=f"source {index}",
+                source_language="en",
+                target_language="ko",
+                applied_context_mode=None,
+                output_scope=scope,
+            )
+        )
+        assert receipt.outcome == "applied"
+        assert presenter.snapshot().blocks[-1].id == f"peer:{child_id}"
+        assert presenter.snapshot().blocks[-1].publication_index == index
+        close_receipt = await presenter.emit(
+            adapter.utterance_closed(
+                utterance_id=child_id, channel="peer", output_scope=scope
+            )
+        )
+        assert close_receipt.outcome == "applied"
+        if index == 2:
+            snapshot = presenter.snapshot()
+            assert [block.id for block in snapshot.blocks] == [
+                f"peer:{children[1]}",
+                f"peer:{children[2]}",
+            ]
+            assert [
+                (frontier.order, frontier.index)
+                for frontier in snapshot.semantic_retirement_frontiers
+            ] == [(0, 0)]
+    assert [block.id for block in presenter.snapshot().blocks] == [
+        f"peer:{children[4]}", f"peer:{children[5]}"
+    ]
+    assert (
+        await presenter.emit(
+            adapter.translation_final(
+                utterance_id=children[0],
+                channel="peer",
+                text="resurrected",
+                source_language="en",
+                target_language="ko",
+                applied_context_mode=None,
+                output_scope=scopes[0],
+            )
+        )
+    ).outcome == "stale"
+    next_child = uuid4()
+    next_scope = OverlayPublicationScope(
+        turn_kind="peer",
+        parent_utterance_id=uuid4(),
+        turn_generation=0,
+        turn_order=1,
+    )
+    assert (
+        await presenter.emit(
+            adapter.translation_final(
+                utterance_id=next_child,
+                channel="peer",
+                text="next parent",
+                source_language="en",
+                target_language="ko",
+                applied_context_mode=None,
+                output_scope=next_scope,
+            )
+        )
+    ).outcome == "applied"
+    assert presenter.snapshot().blocks[-1].id == f"peer:{next_child}"
+
+
+@pytest.mark.asyncio
+async def test_scoped_self_children_use_displayed_parent_target_index() -> None:
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=FakeClock(_now=10.0))
+    adapter = OverlayEventAdapter(clock=FakeClock(_now=10.0))
+    children = [uuid4() for _ in range(3)]
+    parent_id = uuid4()
+    for index, child_id in enumerate(children):
+        scope = OverlayPublicationScope(
+            turn_kind="self",
+            parent_utterance_id=parent_id,
+            turn_generation=0,
+            turn_order=0,
+            target_index=index,
+            target_count=3,
+        )
+        await presenter.emit(
+            adapter.transcript_final(
+                Transcript(
+                    utterance_id=child_id,
+                    channel="self",
+                    text=f"source {index}",
+                    is_final=True,
+                    created_at=10.0,
+                ),
+                source_language="ko",
+                target_language="en",
+                output_scope=scope,
+            )
+        )
+        receipt = await presenter.emit(
+            adapter.translation_final(
+                utterance_id=child_id,
+                channel="self",
+                text=f"self child {index}",
+                source_language="ko",
+                target_language="en",
+                applied_context_mode=None,
+                output_scope=scope,
+            )
+        )
+        assert receipt.outcome == "applied"
+        assert presenter.snapshot().blocks[-1].publication_index == index
+    assert [block.id for block in presenter.snapshot().blocks] == [
+        f"self:{children[1]}", f"self:{children[2]}"
+    ]
+    assert [
+        (frontier.order, frontier.index)
+        for frontier in presenter.snapshot().semantic_retirement_frontiers
+    ] == [(0, 0)]
+
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from uuid import uuid4
 
 import pytest
@@ -133,6 +133,7 @@ async def _terminal_from_soniox_tokens(
     end_ms: int,
     generation: int,
     order: int,
+    malformed_run_text: str | None = None,
 ) -> tuple[AudioSegmentTerminalReceipt, STTProviderTurnTerminal]:
     await session.on_speech_end(trailing_silence_ms=500)
     assert isinstance(await session._audio_q.get(), _FinalizeRequest)
@@ -159,6 +160,9 @@ async def _terminal_from_soniox_tokens(
         )
     )
     event = session._event_projection._legacy_events.get_nowait()
+    speaker_runs = event.final_speaker_runs
+    if malformed_run_text is not None:
+        speaker_runs = (replace(speaker_runs[0], text=malformed_run_text),)
     segment_id = uuid4()
     segment_identity = AudioSegmentIdentity(generation, order, segment_id, 1)
     provider_identity = STTProviderTurnIdentity(
@@ -199,11 +203,97 @@ async def _terminal_from_soniox_tokens(
             outcome="final",
             text=event.text,
             final_language_runs=event.final_language_runs,
-            final_speaker_runs=event.final_speaker_runs,
+            final_speaker_runs=speaker_runs,
             text_authority="authoritative",
         )
     )
     return receipt, terminal
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("translate", [True, False], ids=["translated", "source-only"])
+@pytest.mark.parametrize(
+    ("mode", "style"),
+    [
+        ("off", "gold"),
+        ("unsupported", "gold"),
+        ("missing", "gray"),
+        ("malformed", "gray"),
+        ("invalid-runs", "gray"),
+    ],
+)
+async def test_provider_speaker_availability_is_visible_on_peer_output(
+    mode: str, style: str, translate: bool
+) -> None:
+    clock = FakeClock(_now=100.0)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    overlay = _RecordingOverlaySink(presenter)
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=_SegmentTranslationProvider() if translate else None,
+        osc=RecordingOscQueue(),
+        peer_translation_enabled=translate,
+        overlay_sink=overlay,
+        clock=clock,
+    )
+    session = _soniox_session()
+    if mode in ("off", "unsupported"):
+        session.enable_speaker_diarization = False
+    harness.output_runtime.activate_peer_generation(1)
+    await harness.start()
+    try:
+        token: dict[str, object] = {
+            "text": "Alice",
+            "language": "en",
+            "start_ms": 100,
+            "end_ms": 190,
+            "is_final": True,
+        }
+        if mode in ("invalid-runs", "off", "unsupported"):
+            token["speaker"] = "A"
+        elif mode == "malformed":
+            token["speaker"] = []
+        receipt, terminal = await _terminal_from_soniox_tokens(
+            session,
+            speaker="A",
+            text="Alice",
+            start_ms=100,
+            end_ms=190,
+            tokens=[token],
+            generation=1,
+            order=1,
+            malformed_run_text="mismatch" if mode == "invalid-runs" else None,
+        )
+        if mode == "unsupported":
+            receipt = replace(
+                receipt,
+                segment=replace(
+                    receipt.segment,
+                    settings=replace(
+                        receipt.segment.settings,
+                        provider_id="qwen3_asr",
+                        provider_signature=("qwen3_asr",),
+                        runtime_signature=("qwen3_asr",),
+                    ),
+                ),
+            )
+        harness.record_peer_speech_end_for_test(receipt.identity.segment_id)
+        await harness.peer_owner.handle_provider_turn_terminal(receipt, terminal)
+        await harness.peer_owner.translation_turns.wait_for_idle()
+        await harness.output_runtime.wait_for_peer_output_idle()
+        event_type = "translation_final" if translate else "peer_transcript_final"
+        matching = [event for event in overlay.events if getattr(event, "type", None) == event_type]
+        assert len(matching) == 1
+        assert (
+            matching[0].source_text if translate else matching[0].text
+        ) == "Alice"
+        blocks = presenter.snapshot().blocks
+        assert len(blocks) == 1
+        assert blocks[0].speaker_style == style
+        assert blocks[0].channel == "peer"
+    finally:
+        await harness.stop()
+        await presenter.close()
 
 
 @pytest.mark.asyncio

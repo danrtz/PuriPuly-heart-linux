@@ -665,7 +665,7 @@
     ]
   },
   "overlay": {
-    "contract_version": 13,
+    "contract_version": 15,
     "manifest_fields": [
       "app_version",
       "bridge_url",

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from uuid import UUID, uuid4
 
 import pytest
 
 from puripuly_heart.config.overlay_calibration import OverlayCalibration
+from puripuly_heart.core.clock import FakeClock
 from puripuly_heart.core.overlay.bridge import OverlayBridge
 from puripuly_heart.core.overlay.presenter import OverlayPresenter
-from puripuly_heart.domain.events import UIEventType
-from puripuly_heart.domain.models import Translation
+from puripuly_heart.domain.events import STTFinalEvent, UIEventType
+from puripuly_heart.domain.models import FinalLanguageRun, Transcript, Translation
 from tests.helpers.translation_owners import compose_translation_test_harness
 
 
@@ -297,6 +298,179 @@ async def test_end_to_end_secondary_first_publishes_progressive_parent_snapshots
         for release in provider.releases.values():
             release.set()
         await harness.translation_turns.close()
+
+
+@pytest.mark.asyncio
+async def test_split_self_primary_a_survives_b_retirement_until_its_own_deadline() -> None:
+    clock = FakeClock(_now=10.0)
+    provider = TargetControlledProvider()
+    expiration_sleeps: asyncio.Queue[
+        tuple[asyncio.Task[None], float, asyncio.Event]
+    ] = asyncio.Queue()
+
+    async def controlled_sleep(delay: float) -> None:
+        release = asyncio.Event()
+        task = asyncio.current_task()
+        assert task is not None
+        await expiration_sleeps.put((task, delay, release))
+        await release.wait()
+
+    class SnapshotBridge:
+        def __init__(self) -> None:
+            self.snapshots: list[object] = []
+            self.published = asyncio.Event()
+
+        async def replace_snapshot(
+            self, snapshot: object, *, block_expirations: object | None = None
+        ) -> None:
+            self.snapshots.append(snapshot)
+            self.published.set()
+
+    class ForwardingOverlay:
+        def __init__(self, presenter: OverlayPresenter) -> None:
+            self.presenter = presenter
+            self.translations: asyncio.Queue[object] = asyncio.Queue()
+            self.closed: asyncio.Queue[object] = asyncio.Queue()
+
+        async def emit(self, event: object) -> None:
+            await self.presenter.emit(event)
+            if getattr(event, "type", None) == "translation_final":
+                await self.translations.put(event)
+            if getattr(event, "type", None) == "utterance_closed":
+                await self.closed.put(event)
+
+        def active_self_overlay_metadata(self) -> object:
+            return self.presenter.active_self_overlay_metadata()
+
+    bridge = SnapshotBridge()
+    presenter = OverlayPresenter(
+        calibration=OverlayCalibration(),
+        bridge=bridge,
+        clock=clock,
+        sleep=controlled_sleep,
+        visible_window_target_blocks=3,
+    )
+
+    async def current_expiration_sleep(
+        utterance_id: UUID,
+    ) -> tuple[float, asyncio.Event]:
+        while True:
+            task, delay, release = await asyncio.wait_for(
+                expiration_sleeps.get(), timeout=1
+            )
+            if task is presenter._expiration_tasks.get(("self", utterance_id)):
+                return delay, release
+
+    overlay = ForwardingOverlay(presenter)
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=provider,
+        osc=RecordingOsc(),
+        overlay_sink=overlay,
+        clock=clock,
+        source_language="en",
+        target_language="zh-CN",
+        self_target_languages=("zh-CN", "ja"),
+    )
+    parent_id = uuid4()
+
+    try:
+        await harness.dispatch_stt_event(
+            STTFinalEvent(
+                utterance_id=parent_id,
+                transcript=Transcript(
+                    utterance_id=parent_id,
+                    channel="self",
+                    text="alpha beta",
+                    is_final=True,
+                    created_at=clock.now(),
+                    final_language_runs=(
+                        FinalLanguageRun("alpha ", "en"),
+                        FinalLanguageRun("beta", "ko"),
+                    ),
+                ),
+            )
+        )
+        started = {
+            await asyncio.wait_for(provider.started.get(), timeout=1) for _ in range(4)
+        }
+        assert started == {
+            ("alpha ", "zh-CN"),
+            ("alpha ", "ja"),
+            ("beta", "zh-CN"),
+            ("beta", "ja"),
+        }
+        original_blocks = presenter.snapshot().blocks
+        assert {block.primary_text for block in original_blocks} == {
+            "alpha beta",
+            "alpha",
+            "beta",
+        }
+        assert all(block.secondary_text == "" for block in original_blocks)
+        assert any(block.id == f"self:{parent_id}" for block in original_blocks)
+        a_id = next(block.id for block in original_blocks if block.primary_text == "alpha")
+        b_id = next(block.id for block in original_blocks if block.primary_text == "beta")
+        assert len({f"self:{parent_id}", a_id, b_id}) == 3
+
+        provider.releases[("beta", "zh-CN")].set()
+        b_event = await asyncio.wait_for(overlay.translations.get(), timeout=1)
+        assert b_event.utterance_id == UUID(b_id.removeprefix("self:"))
+        b_closed = await asyncio.wait_for(overlay.closed.get(), timeout=1)
+        assert b_closed.utterance_id == b_event.utterance_id
+        b_sleep, release_b = await current_expiration_sleep(b_event.utterance_id)
+        assert b_sleep == 8.0
+        blocks = {block.id: block for block in presenter.snapshot().blocks}
+        assert blocks[b_id].primary_text == "beta"
+        assert blocks[b_id].secondary_text == "translated-zh-CN"
+        assert blocks[a_id].primary_text == "alpha"
+        assert blocks[a_id].secondary_text == ""
+
+        clock.advance(4.0)
+        provider.releases[("alpha ", "zh-CN")].set()
+        a_event = await asyncio.wait_for(overlay.translations.get(), timeout=1)
+        assert a_event.utterance_id == UUID(a_id.removeprefix("self:"))
+        a_closed = await asyncio.wait_for(overlay.closed.get(), timeout=1)
+        assert a_closed.utterance_id == a_event.utterance_id
+        a_sleep, release_a = await current_expiration_sleep(a_event.utterance_id)
+        assert a_sleep == 8.0
+        blocks = {block.id: block for block in presenter.snapshot().blocks}
+        assert blocks[a_id].primary_text == "alpha"
+        assert blocks[a_id].secondary_text == "translated-zh-CN"
+        assert blocks[b_id].secondary_text == "translated-zh-CN"
+
+        bridge.published.clear()
+        clock.advance(4.0)
+        release_b.set()
+        await asyncio.wait_for(bridge.published.wait(), timeout=1)
+        blocks = {block.id: block for block in presenter.snapshot().blocks}
+        assert b_id not in blocks
+        assert blocks[a_id].primary_text == "alpha"
+        assert blocks[a_id].secondary_text == "translated-zh-CN"
+
+        bridge.published.clear()
+        clock.advance(4.0)
+        release_a.set()
+        await asyncio.wait_for(bridge.published.wait(), timeout=1)
+        assert a_id not in {block.id for block in presenter.snapshot().blocks}
+        expired_snapshot = presenter.snapshot()
+        published_count = len(bridge.snapshots)
+        await presenter.emit(
+            replace(
+                a_event,
+                seq=a_event.seq + 100,
+                event_id=uuid4().hex,
+                created_at=clock.now(),
+                text="late A translation",
+            )
+        )
+        assert presenter.snapshot() == expired_snapshot
+        assert len(bridge.snapshots) == published_count
+    finally:
+        for release in provider.releases.values():
+            release.set()
+        await harness.translation_turns.close()
+        await harness.output_runtime.close()
+        await presenter.close()
 
 
 @pytest.mark.asyncio

@@ -37,55 +37,63 @@ fn native_fresh_retry_production_policy_matches_dd_002() {
 }
 
 #[test]
-fn semantic_retirement_filters_startup_and_live_snapshot_blocks() {
-    let semantic_block = |id: &str, order: u64| {
-        let mut block = block(id, "peer", id, "", true);
-        block.publication_scope = Some("peer-session".into());
+fn native_snapshots_preserve_current_lower_index_until_python_omits_it() {
+    let semantic_block = |id: &str, index: u64| {
+        let mut block = block(id, "self", id, "", true);
+        block.publication_scope = Some("self-session".into());
         block.publication_generation = Some(7);
-        block.publication_order = Some(order);
+        block.publication_order = Some(5);
+        block.publication_index = Some(index);
         block
     };
     let frontier = SemanticRetirementFrontier {
-        scope: "peer-session".into(),
+        scope: "self-session".into(),
         generation: 7,
         order: 5,
+        index: 1,
     };
-    let mut runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
-        revision: 1,
-        blocks: vec![
-            semantic_block("retired-startup", 5),
-            semantic_block("current", 6),
-        ],
+    let snapshot = |revision, blocks| OverlayPresentationSnapshot {
+        revision,
+        blocks,
         semantic_retirement_frontiers: vec![frontier.clone()],
         ..Default::default()
-    });
+    };
+    let mut runtime = OverlayRuntime::new(snapshot(1, vec![semantic_block("A", 0)]));
+    assert_eq!(runtime.state().snapshot().blocks[0].id, "A");
     assert_eq!(
-        runtime
-            .state()
-            .snapshot()
-            .blocks
-            .iter()
-            .map(|block| block.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["current"]
+        runtime.state().snapshot().blocks[0].publication_index,
+        Some(0)
     );
 
-    runtime.apply_snapshot(OverlayPresentationSnapshot {
-        revision: 2,
-        blocks: vec![semantic_block("resurrected", 4), semantic_block("newer", 7)],
-        semantic_retirement_frontiers: vec![frontier],
-        ..Default::default()
-    });
-    assert_eq!(
-        runtime
-            .state()
-            .snapshot()
-            .blocks
-            .iter()
-            .map(|block| block.id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["newer"]
-    );
+    assert!(matches!(
+        runtime.apply_snapshot(snapshot(
+            2,
+            vec![semantic_block("A", 0), semantic_block("B", 1)]
+        )),
+        SnapshotApplyOutcome::Applied { .. }
+    ));
+    assert!(matches!(
+        runtime.apply_snapshot(snapshot(3, vec![semantic_block("A", 0)])),
+        SnapshotApplyOutcome::Applied { .. }
+    ));
+    assert_eq!(runtime.state().snapshot().blocks[0].id, "A");
+    for revision in [3, 2] {
+        assert!(matches!(
+            runtime.apply_snapshot(snapshot(revision, vec![])),
+            SnapshotApplyOutcome::Ignored { .. }
+        ));
+        assert_eq!(runtime.state().snapshot().blocks[0].id, "A");
+    }
+    assert!(matches!(
+        runtime.apply_snapshot(snapshot(4, vec![])),
+        SnapshotApplyOutcome::Applied { .. }
+    ));
+    assert!(runtime.state().snapshot().blocks.is_empty());
+    assert!(matches!(
+        runtime.apply_snapshot(snapshot(3, vec![semantic_block("A", 0)])),
+        SnapshotApplyOutcome::Ignored { .. }
+    ));
+    assert!(runtime.state().snapshot().blocks.is_empty());
 }
 
 #[test]
@@ -396,6 +404,34 @@ fn presentation_snapshot(
         native_fresh_render_generations: None,
         ..Default::default()
     }
+}
+
+fn semantic_spatial_block(id: &str, index: Option<u64>) -> OverlayPresentationBlock {
+    let mut block = block(id, "self", id, "", true);
+    if let Some(index) = index {
+        block.publication_scope = Some("self-session".into());
+        block.publication_generation = Some(7);
+        block.publication_order = Some(5);
+        block.publication_index = Some(index);
+    }
+    block
+}
+
+fn semantic_spatial_snapshot(
+    revision: u64,
+    blocks: Vec<OverlayPresentationBlock>,
+    retired_index: Option<u64>,
+) -> OverlayPresentationSnapshot {
+    let mut snapshot = presentation_snapshot(revision, spatial_calibration(), blocks);
+    if let Some(index) = retired_index {
+        snapshot.semantic_retirement_frontiers = vec![SemanticRetirementFrontier {
+            scope: "self-session".into(),
+            generation: 7,
+            order: 5,
+            index,
+        }];
+    }
+    snapshot
 }
 
 fn slot_block(
@@ -889,7 +925,7 @@ async fn connect_test_bridge() -> (
         let auth_payload: serde_json::Value = serde_json::from_str(&auth_text).unwrap();
         assert_eq!(auth_payload["type"], "auth");
         assert_eq!(auth_payload["session_token"], "expected-token");
-        assert_eq!(auth_payload["contract_version"], 13);
+        assert_eq!(auth_payload["contract_version"], EXPECTED_CONTRACT_VERSION);
         assert_eq!(
             auth_payload["capabilities"]["speaker_identity_presentation"],
             json!({"version":2,"policy":"immutable_first_readable_style"})
@@ -1281,6 +1317,256 @@ async fn spatial_locked_reanchors_only_for_unseen_drawable_turn_ids() {
         }
     }
 
+    drop(bridge);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn spatial_current_lower_index_survives_later_child_retirement_without_reanchor() {
+    let (mut bridge, server) = connect_test_bridge().await;
+    let renderer = CaptionRenderer::new_for_test().unwrap();
+    let logger = test_logger("spatial-current-child").await;
+    let mut runtime = OverlayRuntime::new(semantic_spatial_snapshot(
+        1,
+        vec![semantic_spatial_block("A", None)],
+        None,
+    ));
+    let mut submitter = RecordingSubmitter::default();
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 1);
+    runtime.apply_snapshot(semantic_spatial_snapshot(
+        2,
+        vec![
+            semantic_spatial_block("A", None),
+            semantic_spatial_block("B", Some(1)),
+        ],
+        None,
+    ));
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    runtime.apply_snapshot(semantic_spatial_snapshot(
+        3,
+        vec![
+            semantic_spatial_block("A", Some(0)),
+            semantic_spatial_block("B", Some(1)),
+        ],
+        None,
+    ));
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    runtime.apply_snapshot(semantic_spatial_snapshot(
+        4,
+        vec![semantic_spatial_block("A", Some(0))],
+        Some(1),
+    ));
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(runtime.state().snapshot().blocks[0].id, "A");
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    drop(bridge);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn spatial_hydrated_identity_reanchors_only_after_eligible_absent_gc() {
+    let (mut bridge, server) = connect_test_bridge().await;
+    let renderer = CaptionRenderer::new_for_test().unwrap();
+    let logger = test_logger("spatial-hydrated-gc").await;
+    let mut runtime = OverlayRuntime::new(semantic_spatial_snapshot(
+        1,
+        vec![semantic_spatial_block("A", None)],
+        None,
+    ));
+    let mut submitter = RecordingSubmitter::default();
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    for (revision, blocks, frontier) in [
+        (2, vec![semantic_spatial_block("A", Some(0))], None),
+        (3, vec![semantic_spatial_block("A", None)], None),
+        (4, vec![], None),
+        (5, vec![semantic_spatial_block("A", Some(0))], None),
+    ] {
+        runtime.apply_snapshot(semantic_spatial_snapshot(revision, blocks, frontier));
+        runtime
+            .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+            .await
+            .unwrap();
+        assert_eq!(submitter.spatial_reanchor_calls, 1);
+    }
+    for (revision, generation, order) in [(6, 8, 5), (8, 7, 4)] {
+        let mut wrong_frontier = semantic_spatial_snapshot(revision, vec![], Some(0));
+        wrong_frontier.semantic_retirement_frontiers[0].generation = generation;
+        wrong_frontier.semantic_retirement_frontiers[0].order = order;
+        runtime.apply_snapshot(wrong_frontier);
+        runtime.apply_snapshot(semantic_spatial_snapshot(
+            revision + 1,
+            vec![semantic_spatial_block("A", Some(0))],
+            None,
+        ));
+        runtime
+            .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+            .await
+            .unwrap();
+        assert_eq!(submitter.spatial_reanchor_calls, 1);
+    }
+    runtime.apply_snapshot(semantic_spatial_snapshot(10, vec![], Some(0)));
+    runtime.apply_snapshot(semantic_spatial_snapshot(
+        11,
+        vec![semantic_spatial_block("A", Some(0))],
+        Some(0),
+    ));
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    drop(bridge);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn spatial_child_zero_retirement_preserves_child_one_history() {
+    let (mut bridge, server) = connect_test_bridge().await;
+    let renderer = CaptionRenderer::new_for_test().unwrap();
+    let logger = test_logger("spatial-child-index").await;
+    let mut runtime = OverlayRuntime::new(semantic_spatial_snapshot(
+        1,
+        vec![
+            semantic_spatial_block("A", Some(0)),
+            semantic_spatial_block("B", Some(1)),
+        ],
+        None,
+    ));
+    let mut submitter = RecordingSubmitter::default();
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    for (revision, blocks) in [
+        (2, vec![semantic_spatial_block("B", Some(1))]),
+        (3, vec![]),
+        (4, vec![semantic_spatial_block("B", Some(1))]),
+    ] {
+        runtime.apply_snapshot(semantic_spatial_snapshot(revision, blocks, Some(0)));
+        runtime
+            .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+            .await
+            .unwrap();
+        assert_eq!(submitter.spatial_reanchor_calls, 1);
+    }
+    runtime.apply_snapshot(semantic_spatial_snapshot(
+        5,
+        vec![
+            semantic_spatial_block("A", Some(0)),
+            semantic_spatial_block("B", Some(1)),
+        ],
+        Some(0),
+    ));
+    runtime
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    drop(bridge);
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn spatial_history_capacity_reopens_only_for_reclaimable_known_identity() {
+    let (mut bridge, server) = connect_test_bridge().await;
+    let renderer = CaptionRenderer::new_for_test().unwrap();
+    let logger = test_logger("spatial-history-capacity").await;
+    let mut known = OverlayRuntime::new(semantic_spatial_snapshot(
+        1,
+        vec![semantic_spatial_block("known:0", Some(0))],
+        None,
+    ));
+    let mut submitter = RecordingSubmitter::default();
+    known
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    for index in 1..64 {
+        known.apply_snapshot(semantic_spatial_snapshot(
+            index + 1,
+            vec![semantic_spatial_block(
+                &format!("known:{index}"),
+                Some(index),
+            )],
+            None,
+        ));
+    }
+    known
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    known.apply_snapshot(semantic_spatial_snapshot(
+        65,
+        vec![semantic_spatial_block("known:64", Some(64))],
+        None,
+    ));
+    known
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 2);
+    known.apply_snapshot(semantic_spatial_snapshot(
+        66,
+        vec![semantic_spatial_block("known:64", Some(64))],
+        Some(0),
+    ));
+    known
+        .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(submitter.spatial_reanchor_calls, 3);
+
+    let mut unknown = OverlayRuntime::new(semantic_spatial_snapshot(
+        1,
+        vec![semantic_spatial_block("unknown:0", None)],
+        None,
+    ));
+    let mut unknown_submitter = RecordingSubmitter::default();
+    unknown
+        .submit_frame_if_needed(&renderer, &mut unknown_submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    for index in 1..64 {
+        unknown.apply_snapshot(semantic_spatial_snapshot(
+            index + 1,
+            vec![semantic_spatial_block(&format!("unknown:{index}"), None)],
+            None,
+        ));
+    }
+    unknown
+        .submit_frame_if_needed(&renderer, &mut unknown_submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(unknown_submitter.spatial_reanchor_calls, 2);
+    unknown.apply_snapshot(semantic_spatial_snapshot(
+        65,
+        vec![semantic_spatial_block("unknown:64", None)],
+        Some(64),
+    ));
+    unknown
+        .submit_frame_if_needed(&renderer, &mut unknown_submitter, &mut bridge, &logger)
+        .await
+        .unwrap();
+    assert_eq!(unknown_submitter.spatial_reanchor_calls, 2);
     drop(bridge);
     server.await.unwrap();
 }
@@ -1984,11 +2270,6 @@ fn readiness_failures_expose_typed_parent_failure_reasons() {
     ] {
         assert_eq!(failure.failure_reason(), reason);
     }
-}
-
-#[test]
-fn runtime_expected_contract_version_is_protocol_thirteen() {
-    assert_eq!(EXPECTED_CONTRACT_VERSION, 13);
 }
 
 #[test]
@@ -6179,14 +6460,14 @@ fn check_startup_contract_reports_current_contract_version() {
 
 #[test]
 fn validate_manifest_rejects_old_transition_and_future_contract_versions() {
-    for contract_version in [12, 14] {
+    for contract_version in [12, 13, 14, 16] {
         let manifest = OverlayManifest {
             contract_version,
             ..test_manifest()
         };
         let error = validate_manifest(&manifest).unwrap_err();
         assert!(matches!(error, StartupError::ContractMismatch(_)));
-        assert!(error.to_string().contains("expected contract_version=13"));
+        assert!(error.to_string().contains("expected contract_version=15"));
     }
 }
 

@@ -90,7 +90,7 @@ def _final_transcript_segments(
     if "".join(run.text for run in language_runs) != text:
         language_runs = (FinalLanguageRun(text, ""),)
     if "".join(run.text for run in speaker_runs) != text:
-        speaker_runs = (FinalSpeakerRun(text, None, ""),)
+        speaker_runs = (FinalSpeakerRun(text, None, "", attribution_state="malformed"),)
     boundaries = {0, len(text)}
     offset = 0
     for run in language_runs:
@@ -827,6 +827,7 @@ class TranslationTurnLifecycleOwner:
                                 ),
                             )
                             if segment.speaker_session_scope
+                            or segment.attribution_state != "unavailable"
                             else ()
                         ),
                         publication_generation=request.transcript.publication_generation,

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import uuid4
 
 from puripuly_heart.core.speaker_identity import PeerSpeakerIdentityAllocator
@@ -86,3 +87,19 @@ def test_unattributed_and_stale_results_are_not_palette_overflow():
     stale = allocator.observe(_transcript("E", "session", 4), child_sequence=0)
     assert missing.palette_index is None and not missing.palette_overflow
     assert stale.palette_index is None and not stale.palette_overflow
+
+
+def test_non_diarized_turn_preserves_prior_palette_without_consuming_slot() -> None:
+    allocator = PeerSpeakerIdentityAllocator()
+    first = allocator.observe(_transcript("A", "session", 1), child_sequence=0)
+    second = allocator.observe(_transcript("B", "session", 2), child_sequence=0)
+    off = allocator.observe(
+        replace(_transcript("ignored", "session", 3), final_speaker_runs=()),
+        child_sequence=0,
+    )
+    resumed = allocator.observe(_transcript("B", "session", 4), child_sequence=0)
+    missing = allocator.observe(_transcript(None, "session", 5), child_sequence=0)
+    following = allocator.observe(_transcript("C", "session", 6), child_sequence=0)
+    assert [item.palette_index for item in (first, second, off, resumed, missing, following)] == [
+        0, 1, None, 1, None, 2
+    ]

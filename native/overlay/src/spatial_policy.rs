@@ -33,7 +33,7 @@ pub(crate) struct SpatialDiagnostic(pub(crate) String);
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct SpatialReanchorPolicy {
     active: bool,
-    seen_turn_ids: HashMap<String, Option<(String, u64, u64)>>,
+    seen_turn_ids: HashMap<String, Option<(String, u64, u64, u64)>>,
     pending_reanchor: Option<PendingSpatialReanchor>,
 }
 
@@ -90,7 +90,16 @@ impl SpatialReanchorPolicy {
             (false, false) => {}
             (false, true) => {
                 self.active = true;
-                self.seen_turn_ids = drawable_turn_ids(snapshot);
+                let drawable_turns = drawable_turn_ids(snapshot);
+                let total_turns = drawable_turns.len();
+                self.seen_turn_ids = drawable_turns.into_iter().take(64).collect();
+                if total_turns > self.seen_turn_ids.len() {
+                    diagnostics.push(SpatialDiagnostic(format!(
+                        "spatial_turn_identity_capacity_reached retained={} rejected={}",
+                        self.seen_turn_ids.len(),
+                        total_turns - self.seen_turn_ids.len()
+                    )));
+                }
                 if !self.seen_turn_ids.is_empty() {
                     self.request_reanchor(SpatialReanchorReason::ModeEntered, snapshot.revision);
                 }
@@ -101,40 +110,50 @@ impl SpatialReanchorPolicy {
                 self.pending_reanchor = None;
             }
             (true, true) => {
-                let frontiers = snapshot
-                    .semantic_retirement_frontiers
-                    .iter()
-                    .map(|frontier| {
-                        (
-                            (frontier.scope.as_str(), frontier.generation),
-                            frontier.order,
-                        )
-                    })
-                    .collect::<HashMap<_, _>>();
-                self.seen_turn_ids.retain(|_, semantic_identity| {
-                    let Some((scope, generation, order)) = semantic_identity else {
+                self.seen_turn_ids.retain(|block_id, semantic_identity| {
+                    if snapshot
+                        .blocks
+                        .iter()
+                        .any(|block| block.id == *block_id && is_drawable(block))
+                    {
+                        return true;
+                    }
+                    let Some((scope, generation, order, index)) = semantic_identity else {
                         return true;
                     };
-                    frontiers
-                        .get(&(scope.as_str(), *generation))
-                        .is_none_or(|frontier| *order > *frontier)
+                    !snapshot
+                        .semantic_retirement_frontiers
+                        .iter()
+                        .any(|frontier| {
+                            frontier.scope == *scope
+                                && frontier.generation == *generation
+                                && (*order, *index) <= (frontier.order, frontier.index)
+                        })
                 });
-                let visible_ids = drawable_turn_ids(snapshot);
-                let first_drawable = self.seen_turn_ids.is_empty() && !visible_ids.is_empty();
-                let unseen = visible_ids
-                    .into_iter()
-                    .filter(|(block_id, _)| !self.seen_turn_ids.contains_key(block_id))
-                    .collect::<Vec<_>>();
-                let available = 64usize.saturating_sub(self.seen_turn_ids.len());
-                let admitted = unseen.len().min(available);
+                let first_drawable =
+                    self.seen_turn_ids.is_empty() && snapshot.blocks.iter().any(is_drawable);
+                let mut unseen = 0usize;
+                let mut admitted = 0usize;
+                for block in snapshot.blocks.iter().filter(|block| is_drawable(block)) {
+                    if let Some(cached_identity) = self.seen_turn_ids.get_mut(block.id.as_str()) {
+                        if cached_identity.is_none() {
+                            *cached_identity = semantic_identity(block);
+                        }
+                    } else {
+                        unseen += 1;
+                        if self.seen_turn_ids.len() < 64 {
+                            self.seen_turn_ids
+                                .insert(block.id.clone(), semantic_identity(block));
+                            admitted += 1;
+                        }
+                    }
+                }
                 let has_new_turn = admitted > 0;
-                self.seen_turn_ids
-                    .extend(unseen.iter().take(admitted).cloned());
-                if unseen.len() > admitted {
+                if unseen > admitted {
                     diagnostics.push(SpatialDiagnostic(format!(
                         "spatial_turn_identity_capacity_reached retained={} rejected={}",
                         self.seen_turn_ids.len(),
-                        unseen.len() - admitted
+                        unseen - admitted
                     )));
                 }
                 let placement_changed = previous_calibration.offset_x
@@ -177,28 +196,34 @@ impl SpatialReanchorPolicy {
     }
 }
 
+fn is_drawable(block: &crate::state::OverlayPresentationBlock) -> bool {
+    !block.primary_text.trim().is_empty()
+        || (block.secondary_enabled && !block.secondary_text.trim().is_empty())
+}
+
+fn semantic_identity(
+    block: &crate::state::OverlayPresentationBlock,
+) -> Option<(String, u64, u64, u64)> {
+    match (
+        block.publication_scope.as_ref(),
+        block.publication_generation,
+        block.publication_order,
+        block.publication_index,
+    ) {
+        (Some(scope), Some(generation), Some(order), Some(index)) => {
+            Some((scope.clone(), generation, order, index))
+        }
+        _ => None,
+    }
+}
+
 fn drawable_turn_ids(
     snapshot: &OverlayPresentationSnapshot,
-) -> HashMap<String, Option<(String, u64, u64)>> {
+) -> HashMap<String, Option<(String, u64, u64, u64)>> {
     snapshot
         .blocks
         .iter()
-        .filter(|block| {
-            !block.primary_text.trim().is_empty()
-                || (block.secondary_enabled && !block.secondary_text.trim().is_empty())
-        })
-        .map(|block| {
-            let semantic_identity = match (
-                block.publication_scope.as_ref(),
-                block.publication_generation,
-                block.publication_order,
-            ) {
-                (Some(scope), Some(generation), Some(order)) => {
-                    Some((scope.clone(), generation, order))
-                }
-                _ => None,
-            };
-            (block.id.clone(), semantic_identity)
-        })
+        .filter(|block| is_drawable(block))
+        .map(|block| (block.id.clone(), semantic_identity(block)))
         .collect()
 }

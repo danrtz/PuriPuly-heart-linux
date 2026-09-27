@@ -64,6 +64,7 @@ class OverlayPresentationBlock:
     publication_scope: str | None = None
     publication_generation: int | None = None
     publication_order: int | None = None
+    publication_index: int | None = None
     speaker_style: SpeakerStyle | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -99,6 +100,8 @@ class OverlayPresentationBlock:
             payload["publication_generation"] = self.publication_generation
         if self.publication_order is not None:
             payload["publication_order"] = self.publication_order
+        if self.publication_index is not None:
+            payload["publication_index"] = self.publication_index
         if self.speaker_style is not None:
             payload["speaker_style"] = self.speaker_style
         return payload
@@ -141,6 +144,7 @@ class OverlayPresentationBlock:
             publication_scope=_optional_non_empty_string_field(data, "publication_scope"),
             publication_generation=_optional_non_negative_int_field(data, "publication_generation"),
             publication_order=_optional_non_negative_int_field(data, "publication_order"),
+            publication_index=_optional_non_negative_int_field(data, "publication_index"),
             speaker_style=_optional_speaker_style(data),
         )
 
@@ -150,12 +154,14 @@ class SemanticRetirementFrontier:
     scope: str
     generation: int
     order: int
+    index: int
 
     def to_dict(self) -> dict[str, object]:
         return {
             "scope": self.scope,
             "generation": self.generation,
             "order": self.order,
+            "index": self.index,
         }
 
     @classmethod
@@ -163,10 +169,13 @@ class SemanticRetirementFrontier:
         scope = _require_string_field(data, "scope").strip()
         if not scope:
             raise ValueError("semantic retirement frontier scope must be non-empty")
+        index = _require_non_negative_int_field(data, "index")
+        _validate_optional_generation(index, "index")
         return cls(
             scope=scope,
             generation=_require_non_negative_int_field(data, "generation"),
             order=_require_non_negative_int_field(data, "order"),
+            index=index,
         )
 
 

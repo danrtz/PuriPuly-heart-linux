@@ -78,6 +78,8 @@ pub struct OverlayPresentationBlock {
     #[serde(default)]
     pub publication_order: Option<u64>,
     #[serde(default)]
+    pub publication_index: Option<u64>,
+    #[serde(default)]
     pub speaker_style: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -128,6 +130,7 @@ pub struct SemanticRetirementFrontier {
     pub scope: String,
     pub generation: u64,
     pub order: u64,
+    pub index: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

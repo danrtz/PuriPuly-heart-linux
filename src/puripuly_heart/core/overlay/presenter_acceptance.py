@@ -38,9 +38,9 @@ class PresenterAcceptanceLedger:
         default_factory=OrderedDict
     )
     receipts_by_id: dict[str, OverlayApplicationReceipt] = field(default_factory=dict)
-    entry_ordering: dict[EntryKey, tuple[str, int, int]] = field(default_factory=dict)
+    entry_ordering: dict[EntryKey, tuple[str, int, int, int]] = field(default_factory=dict)
     sequence_namespaces: dict[EntryKey, tuple[int, int]] = field(default_factory=dict)
-    retired_turn_frontiers: dict[tuple[str, int], int] = field(default_factory=dict)
+    retired_turn_frontiers: dict[tuple[str, int], tuple[int, int]] = field(default_factory=dict)
 
     def reset(self) -> None:
         self.terminal_registry.clear()
@@ -115,8 +115,8 @@ class PresenterAcceptanceLedger:
             and event.turn_order is not None
         ):
             scope = event.turn_kind or str(event.channel)
-            if event.turn_order <= self.retired_turn_frontiers.get(
-                (scope, event.turn_generation), -1
+            if (event.turn_order, event.target_index) <= self.retired_turn_frontiers.get(
+                (scope, event.turn_generation), (-1, -1)
             ):
                 return "stale"
         if key is not None and entry is None and self.terminal_reason(key) is not None:
@@ -158,6 +158,7 @@ class PresenterAcceptanceLedger:
                 event.turn_kind or str(event.channel),
                 event.turn_generation,
                 event.turn_order,
+                event.target_index,
             )
 
     def retire_entry(self, key: EntryKey) -> None:
@@ -165,10 +166,10 @@ class PresenterAcceptanceLedger:
         self.sequence_namespaces.pop(key, None)
         if ordering is None:
             return
-        scope, generation, order = ordering
+        scope, generation, order, index = ordering
         frontier_key = (scope, generation)
         self.retired_turn_frontiers[frontier_key] = max(
-            order, self.retired_turn_frontiers.get(frontier_key, -1)
+            (order, index), self.retired_turn_frontiers.get(frontier_key, (-1, -1))
         )
 
     def terminal_reason(self, key: EntryKey) -> str | None:

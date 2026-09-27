@@ -285,6 +285,29 @@ async def test_overlay_bridge_sends_authenticated_initial_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_overlay_bridge_rejects_previous_contract_before_sending_snapshot() -> None:
+    bridge = OverlayBridge(
+        session_token="expected-token",
+        overlay_instance_id="overlay-test",
+        runtime_generation=1,
+        initial_snapshot=OverlayPresentationSnapshot(revision=1),
+    )
+    auth = json.loads(_native_auth())
+    auth["contract_version"] = OVERLAY_CONTRACT_VERSION - 1
+    await bridge.start()
+
+    try:
+        async with connect(bridge.url) as ws:
+            await ws.send(json.dumps(auth))
+            message = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.5))
+            await asyncio.wait_for(ws.wait_closed(), timeout=0.5)
+    finally:
+        await bridge.stop()
+
+    assert message == {"type": "auth_error"}
+
+
+@pytest.mark.asyncio
 async def test_overlay_bridge_emits_heartbeat_after_authentication() -> None:
     bridge = OverlayBridge(
         session_token="expected-token",

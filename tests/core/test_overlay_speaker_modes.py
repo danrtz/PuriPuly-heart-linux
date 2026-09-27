@@ -6,7 +6,9 @@ import pytest
 from puripuly_heart.core.clock import FakeClock
 from puripuly_heart.core.overlay.presenter import OverlayPresenter
 from puripuly_heart.core.overlay.sink import OverlayEventAdapter
+from puripuly_heart.core.speaker_identity import PeerSpeakerIdentityAllocator
 from puripuly_heart.domain.models import (
+    FinalSpeakerRun,
     SpeakerAssignment,
     SpeakerAttribution,
     SpeakerKey,
@@ -60,6 +62,62 @@ async def test_first_readable_color_is_immutable_across_updates_self_and_replay(
     assert blocks[f"self:{self_turn}"].speaker_style is None
     assert presenter._entries[("peer", turn)].visible_since == visible_since
     assert presenter.snapshot().to_dict()["blocks"][0]["speaker_style"] == "gray"
+    await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_non_diarized_gold_does_not_block_identified_speaker_scope() -> None:
+    clock = FakeClock(_now=25.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    off, identified, unknown = uuid4(), uuid4(), uuid4()
+    off_assignment = SpeakerAssignment(SpeakerAttribution("non_diarized"), (1, 1, 0))
+    await presenter.emit(_peer_event(adapter, off, "off", off_assignment))
+    await presenter.emit(_peer_event(adapter, identified, "on", _assignment("new", "A", 2, 0)))
+    assert [block.speaker_style for block in presenter.snapshot().blocks] == ["gold", "gold"]
+    await presenter.emit(_peer_event(adapter, unknown, "unknown", _assignment("new", None, 3, None)))
+    assert [block.speaker_style for block in presenter.snapshot().blocks] == ["gold", "gray"]
+    await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_speaker_identity_color_survives_non_diarized_turn() -> None:
+    clock = FakeClock(_now=27.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    allocator = PeerSpeakerIdentityAllocator()
+    for order, speaker, expected_style in (
+        (1, "A", "gold"),
+        (2, "B", "cyan"),
+        (3, None, "gold"),
+        (4, "B", "cyan"),
+    ):
+        text = f"turn {order}"
+        runs = (
+            (
+                FinalSpeakerRun(
+                    text,
+                    speaker,
+                    "session",
+                    source="soniox",
+                    attribution_state="identified",
+                ),
+            )
+            if speaker is not None
+            else ()
+        )
+        transcript = Transcript(
+            uuid4(),
+            text,
+            True,
+            channel="peer",
+            final_speaker_runs=runs,
+            publication_generation=1,
+            source_order=order,
+        )
+        assignment = allocator.observe(transcript, child_sequence=0)
+        await presenter.emit(_peer_event(adapter, transcript.utterance_id, text, assignment))
+        assert presenter.snapshot().blocks[-1].speaker_style == expected_style
     await presenter.close()
 
 

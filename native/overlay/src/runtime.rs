@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
@@ -303,31 +303,6 @@ struct LogicalCaptionBlockIdentity {
     speaker_style: Option<String>,
 }
 
-fn retain_semantically_current_blocks(snapshot: &mut OverlayPresentationSnapshot) {
-    let frontiers = snapshot
-        .semantic_retirement_frontiers
-        .iter()
-        .map(|frontier| {
-            (
-                (frontier.scope.as_str(), frontier.generation),
-                frontier.order,
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    snapshot.blocks.retain(|block| {
-        let (Some(scope), Some(generation), Some(order)) = (
-            block.publication_scope.as_deref(),
-            block.publication_generation,
-            block.publication_order,
-        ) else {
-            return true;
-        };
-        frontiers
-            .get(&(scope, generation))
-            .is_none_or(|frontier| order > *frontier)
-    });
-}
-
 pub type OverlayRuntime = PresentationRuntime;
 
 impl PresentationRuntime {
@@ -339,8 +314,7 @@ impl PresentationRuntime {
     fn configure_handoff_experiment(&mut self, experiment: HandoffExperiment) {
         self.handoff_experiment = experiment;
     }
-    pub fn new(mut snapshot: OverlayPresentationSnapshot) -> Self {
-        retain_semantically_current_blocks(&mut snapshot);
+    pub fn new(snapshot: OverlayPresentationSnapshot) -> Self {
         let (spatial_lock, spatial_result) =
             SpatialReanchorPolicy::from_initial_snapshot(&snapshot);
         let mut runtime = Self {
@@ -407,7 +381,7 @@ impl PresentationRuntime {
 
     pub fn apply_snapshot(
         &mut self,
-        mut snapshot: OverlayPresentationSnapshot,
+        snapshot: OverlayPresentationSnapshot,
     ) -> SnapshotApplyOutcome {
         let current_revision = self.state.snapshot().revision;
         if snapshot.revision <= current_revision {
@@ -416,11 +390,11 @@ impl PresentationRuntime {
                 current_revision,
             };
         }
-        retain_semantically_current_blocks(&mut snapshot);
         self.retained_frame = None;
 
         let previous_calibration = self.state.calibration().clone();
         let visual_changed = self.state.apply_snapshot(&snapshot);
+        let spatial_reanchor_was_pending = self.spatial_lock.pending().is_some();
         self.pending_spatial_diagnostics.extend(
             self.spatial_lock
                 .apply_snapshot_transition(&previous_calibration, self.state.snapshot())
@@ -431,7 +405,9 @@ impl PresentationRuntime {
             self.pending_logical_revision_acceptance = true;
             self.last_logical_caption_identity = logical_caption_identity;
         }
-        if visual_changed {
+        if visual_changed
+            || (!spatial_reanchor_was_pending && self.spatial_lock.pending().is_some())
+        {
             self.redraw_requested = true;
             self.pending_presentation_causes.insert(PresentationCause {
                 kind: PresentationCauseKind::SceneUpdate,

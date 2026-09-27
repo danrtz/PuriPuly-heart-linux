@@ -13,6 +13,7 @@ from puripuly_heart.core.overlay.protocol import (
     OverlayPresentationBlock,
     OverlayPresentationCalibration,
     OverlayPresentationSnapshot,
+    SemanticRetirementFrontier,
 )
 
 
@@ -207,6 +208,31 @@ def test_overlay_presentation_block_defaults_missing_or_null_content_languages_t
 
     assert restored.primary_language is None
     assert restored.secondary_language is None
+
+
+@pytest.mark.parametrize("index", [-1, U64_MAX + 1, True, "1"])
+def test_semantic_retirement_frontier_rejects_invalid_child_indexes(index: object) -> None:
+    with pytest.raises(ValueError):
+        SemanticRetirementFrontier.from_dict(
+            {"scope": "peer", "generation": 0, "order": 1, "index": index}
+        )
+
+
+def test_scoped_block_rejects_invalid_publication_index() -> None:
+    with pytest.raises(ValueError, match="publication_index"):
+        OverlayPresentationBlock.from_dict(
+            {
+                "id": "peer:child",
+                "occupant_key": "peer:child",
+                "appearance_seq": 1,
+                "channel": "peer",
+                "block_variant": "finalized",
+                "primary_text": "translated",
+                "secondary_text": "source",
+                "secondary_enabled": True,
+                "publication_index": -1,
+            }
+        )
 
 
 def test_overlay_event_adapter_self_active_update_carries_occupant_key() -> None:

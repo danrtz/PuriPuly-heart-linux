@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 
 ChannelId = Literal["self", "peer"]
 SpeakerAttributionState = Literal[
-    "identified", "missing", "malformed", "mixed", "uncertain", "unavailable", "not_ready"
+    "identified", "missing", "malformed", "mixed", "uncertain", "unavailable",
+    "not_ready", "non_diarized",
 ]
 
 

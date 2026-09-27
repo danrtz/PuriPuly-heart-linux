@@ -30,21 +30,21 @@ class PeerSpeakerIdentityAllocator:
         attribution = (
             run.attribution
             if run is not None
-            else SpeakerAttribution("mixed" if transcript.final_speaker_runs else "unavailable")
+            else SpeakerAttribution("mixed" if transcript.final_speaker_runs else "non_diarized")
         )
         order = (
             transcript.publication_generation or 0,
             transcript.source_order or 0,
             child_sequence,
         )
+        key = attribution.key
         scope = (attribution.source, attribution.speaker_scope_id)
-        if attribution.source and attribution.speaker_scope_id and self._scope != scope:
+        if key is not None and self._scope != scope:
             if self._last_order is None or order > self._last_order:
                 self._scope = scope
                 self._keys.clear()
         palette_index = None
         palette_overflow = False
-        key = attribution.key
         if self._last_order is None or order > self._last_order:
             self._last_order = order
             if key is not None and scope == self._scope:

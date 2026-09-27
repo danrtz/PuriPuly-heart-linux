@@ -11,15 +11,17 @@ Windows Rust runtime for the VR subtitle overlay.
   - `src/puripuly_heart/core/runtime/overlay.py`
   - `src/puripuly_heart/ui/desktop_overlay.py`
 
-The shared bridge is version 13 with execution contract r2 and exclusive native
+The shared bridge is version 15 with execution contract r2 and exclusive native
 presentation retries. Authentication and readiness require
 `speaker_identity_presentation: {"version":2,"policy":"immutable_first_readable_style"}`;
-version 12 (15-entry palette, no divider) and the version 11 transition
-handshake are incompatible. Python fixes a caption's `speaker_style` at first
+version 14 and earlier are incompatible because native no longer independently
+retires captions from semantic frontiers. Python fixes a caption's `speaker_style` at first
 readable publication and sends only that style, not speaker identity. SELF
-remains white; peers use four stable per-scope styles (gold `#FFD700`, cyan
+remains white. Peers without diarization (unsupported providers or Soniox with
+diarization OFF) use gold `#FFD700` without consuming or resetting speaker slots.
+With diarization enabled, peers use four stable per-scope styles (gold, cyan
 `#40DBFF`, coral `#FF7F5C`, blue `#7593FF`), or gray `#B4B4B4` when
-unattributed, unavailable, handed off, or past the fourth speaker in a scope.
+unidentified, malformed, not ready, handed off, or past the fourth speaker in a scope.
 The canonical style colors live in `src/renderer/types.rs`. The same selected
 color applies to source and translation and participates in native
 render-cache invalidation and replay.
@@ -32,12 +34,28 @@ slot gap and on the caption center, 1320 × 12 surface px (8 px `#E6E6E6` fill,
 2 px black outline, rounded ends), fixed in surface pixels, and is part of frame
 identity and damage tracking.
 
-Python owns caption expiry and send-time pruning; native renders the accepted
-snapshot without a validity-lease exchange or autonomous caption-expiry Hide.
+Python owns caption expiry and send-time pruning. Native renders the blocks in
+each accepted replacement snapshot without filtering them by semantic retirement
+frontiers, exchanging validity leases, or autonomously expiring captions.
+Equal or older snapshot revisions remain rejected.
 Old captions can remain if removal cannot be delivered or replacement rendering
 fails. Health reports presentation progress, not caption freshness. Runtime
 generation retirement, bounded recovery, OFF/shutdown, and the 500 ms empty-frame
 hide grace remain unchanged.
+
+Python's semantic retirement compares `(publication_order, publication_index)`
+within a scope and generation to reject late publications. It does not invalidate
+a different entry that is still current. Native uses those coordinates and
+frontiers only to reclaim spatial reanchor history, never to remove caption blocks.
+
+Spatial history protects all currently drawable IDs and refreshes ordering
+metadata on an already-seen ID without reanchoring it. Only absent IDs with known
+scope, generation, order, and index can be reclaimed behind a matching frontier.
+An ID returning after its history was reclaimed may reanchor; history is not an
+unbounded record of every previously displayed ID. Source-only IDs that never
+receive ordering metadata remain non-reclaimable under this policy. The existing
+64-ID history limit remains: if unreclaimable IDs fill it, additional spatial
+identities are not admitted until capacity is freed or the history is reset.
 
 Run commands from the repository root. On Windows, use a short `--target-dir`
 path if the checkout is deep enough to exceed MSBuild's tracking-file path limit.

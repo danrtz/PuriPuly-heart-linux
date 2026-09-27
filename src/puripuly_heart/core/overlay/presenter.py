@@ -807,7 +807,8 @@ class OverlayPresenter(OverlaySink):
                 continue
             attribution = assignment.attribution
             if (
-                attribution.source
+                attribution.state == "identified"
+                and attribution.source
                 and attribution.speaker_scope_id
                 and assignment.scope_order > self._active_speaker_order
             ):
@@ -822,6 +823,7 @@ class OverlayPresenter(OverlaySink):
             and (entry := self._entries.get(key)) is not None
             and entry.speaker_style not in (None, "gray")
             and entry.speaker_assignment is not None
+            and entry.speaker_assignment.attribution.state == "identified"
             and (
                 entry.speaker_assignment.attribution.source,
                 entry.speaker_assignment.attribution.speaker_scope_id,
@@ -855,6 +857,8 @@ class OverlayPresenter(OverlaySink):
         if assignment is None:
             return "gray", "not_ready"
         attribution = assignment.attribution
+        if attribution.state == "non_diarized":
+            return "gold", None
         if attribution.state != "identified":
             return "gray", attribution.state
         if attribution.key is None:
