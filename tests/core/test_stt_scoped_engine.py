@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 from uuid import uuid4
@@ -597,6 +598,126 @@ async def test_empty_a_late_a_and_duplicates_cannot_shift_b() -> None:
         (a_identity, "empty", ""),
         (b_identity, "final", "echoecho"),
     ]
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_recognition_evidence_counts_receipts_and_empty_terminal_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
+    start, chunk, end = segment_events(ledger, start_sample=300, now=1.0)
+    session = ControlledScopedSession()
+    session.send_gate.clear()
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        watchdog_resolver=lambda _settings: watchdogs(write_timeout_s=1.0),
+    )
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.core.stt.scoped_engine"):
+        first = asyncio.create_task(engine.handle_owned_vad_event(start))
+        await wait_until(lambda: any(call[0] == "send" for call in session.calls))
+        assert not [
+            record
+            for record in caplog.records
+            if record.getMessage().startswith("[Recognition] payload_received ")
+        ]
+        session.send_gate.set()
+        await first
+        await engine.handle_owned_vad_event(chunk)
+        identity = session.requests[0].identity
+        session.terminal_on_seal = ("empty", "")
+        await engine.handle_owned_vad_event(end)
+        session.emit(STTProviderTurnTerminal(identity=identity, outcome="final", text="late"))
+        await asyncio.sleep(0)
+        await engine.close()
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "puripuly_heart.core.stt.scoped_engine"
+        and record.getMessage().startswith("[Recognition] ")
+    ]
+    assert len(messages) == 2
+    events = {
+        message.split()[1]: dict(token.split("=", 1) for token in message.split()[2:])
+        for message in messages
+    }
+    receipt = events["payload_received"]
+    terminal = events["terminal"]
+    assert receipt["utterance_id"] == terminal["utterance_id"] == str(identity.segment.segment_id)
+    assert receipt["epoch"] == terminal["epoch"] == identity.provider_epoch_id
+    assert receipt["turn"] == terminal["turn"] == identity.provider_turn_id
+    assert receipt["context_only"] == "1"
+    assert receipt["successful_bytes"] == "4"
+    assert terminal["outcome"] == "empty"
+    assert terminal["successful_payloads"] == "3"
+    assert terminal["successful_samples"] == "10"
+    assert terminal["successful_bytes"] == "20"
+    assert terminal["context_bytes"] == "4"
+    assert terminal["content_bytes"] == "16"
+
+
+@pytest.mark.asyncio
+async def test_peer_recognition_evidence_distinguishes_never_written_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class FailingBeginSession(ControlledScopedSession):
+        async def begin_turn(self, request: STTProviderTurnRequest) -> None:
+            raise RuntimeError("private failure detail")
+
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
+    start, _chunk, end = segment_events(ledger, start_sample=500, now=2.0)
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=FailingBeginSession()),
+        watchdog_resolver=lambda _settings: watchdogs(),
+    )
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.core.stt.scoped_engine"):
+        await engine.handle_owned_vad_event(start)
+        await engine.handle_owned_vad_event(end)
+        await engine.close()
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "puripuly_heart.core.stt.scoped_engine"
+        and record.getMessage().startswith("[Recognition] ")
+    ]
+    assert len(messages) == 1
+    fields = dict(token.split("=", 1) for token in messages[0].split()[2:])
+    assert fields["utterance_id"] == str(start.segment.identity.segment_id)
+    assert fields["outcome"] == "failed"
+    assert fields["cause"] == "provider_begin_failed"
+    assert fields["successful_payloads"] == "0"
+    assert fields["successful_bytes"] == fields["content_bytes"] == fields["context_bytes"] == "0"
+    assert "private failure detail" not in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_peer_recognition_survives_logging_handler_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings())
+    start, _chunk, end = segment_events(ledger, start_sample=650, now=3.0)
+    session = ControlledScopedSession()
+    session.terminal_on_seal = ("final", "recognized")
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(),
+    )
+
+    def broken_handler(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("handler unavailable")
+
+    monkeypatch.setattr("puripuly_heart.core.stt.scoped_engine.logger.info", broken_handler)
+    await engine.handle_owned_vad_event(start)
+    await engine.handle_owned_vad_event(end)
+    assert [
+        (event.outcome, event.text)
+        for event in emitted
+        if isinstance(event, STTProviderTurnTerminal)
+    ] == [("final", "recognized")]
     await engine.close()
 
 

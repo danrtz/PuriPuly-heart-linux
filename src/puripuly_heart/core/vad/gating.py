@@ -79,6 +79,11 @@ class VadGating:
     _pending_debounce_reached: bool
     _speech_sample_count: int
     _last_observation_was_speech: bool
+    _last_probability: float | None
+    _last_applied_threshold: float | None
+    _discarded_candidate_count: int
+    _last_discarded_candidate_chunks: int
+    _diagnostic_generation: int
 
     _ring_capture: list[AudioCaptureSpan]
     _rollover_pending: bool
@@ -153,6 +158,11 @@ class VadGating:
         self._rollover_pending = False
         self._rollover_silence_run = 0
         self._last_observation_was_speech = False
+        self._last_probability = None
+        self._last_applied_threshold = None
+        self._discarded_candidate_count = 0
+        self._last_discarded_candidate_chunks = 0
+        self._diagnostic_generation = 0
         self._pending_segment_settings = None
         self._hard_rollover_pre_roll = None
         self._hard_rollover_pre_roll_capture = ()
@@ -170,6 +180,30 @@ class VadGating:
         return self._last_observation_was_speech
 
     @property
+    def last_probability(self) -> float | None:
+        return self._last_probability
+
+    @property
+    def last_applied_threshold(self) -> float | None:
+        return self._last_applied_threshold
+
+    @property
+    def discarded_candidate_count(self) -> int:
+        return self._discarded_candidate_count
+
+    @property
+    def last_discarded_candidate_chunks(self) -> int:
+        return self._last_discarded_candidate_chunks
+
+    @property
+    def pending_candidate_chunks(self) -> int:
+        return len(self._pending_start_chunks)
+
+    @property
+    def diagnostic_generation(self) -> int:
+        return self._diagnostic_generation
+
+    @property
     def utterance_id(self) -> UUID | None:
         return self._utterance_id
 
@@ -183,9 +217,12 @@ class VadGating:
         self._rollover_pending = False
         self._rollover_silence_run = 0
         self._clear_hard_rollover_pre_roll()
-        self._reset_pending_start()
+        self._drop_pending_start()
         self._last_observation_was_speech = False
+        self._last_probability = None
+        self._last_applied_threshold = None
         self._speech_sample_count = 0
+        self._diagnostic_generation += 1
         self._apply_pending_segment_settings()
 
     def reconfigure_next_segment(
@@ -218,6 +255,7 @@ class VadGating:
         if pending is None:
             return
         self._pending_segment_settings = None
+        self._diagnostic_generation += 1
         speech_threshold, continuation_threshold, hangover_chunks, capacity_samples = pending
         self.speech_threshold = speech_threshold
         self.continuation_threshold = continuation_threshold
@@ -248,6 +286,8 @@ class VadGating:
             if self._in_speech or self._rollover_pending
             else self.speech_threshold
         )
+        self._last_probability = prob
+        self._last_applied_threshold = observation_threshold
         self._last_observation_was_speech = bool(prob >= observation_threshold)
 
         events: list[VadEvent] = []
@@ -389,6 +429,8 @@ class VadGating:
     def _drop_pending_start(self) -> None:
         if self._pending_start_id is None:
             return
+        self._discarded_candidate_count += 1
+        self._last_discarded_candidate_chunks = len(self._pending_start_chunks)
         self._reset_pending_start()
 
     def _reset_pending_start(self) -> None:

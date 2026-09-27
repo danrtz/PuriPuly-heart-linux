@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
+import logging
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -31,6 +33,80 @@ from puripuly_heart.core.stt.scoped_normalizer import (
     STTScopedTurnNormalizer,
 )
 from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart
+
+logger = logging.getLogger(__name__)
+
+_RECOGNITION_CAUSES = frozenset(
+    {
+        "buffer_exhausted",
+        "cancelled",
+        "closed",
+        "provider_epoch_ended",
+        "provider_final_timeout",
+        "provider_result_too_large",
+        "provider_retirement_drain_timeout",
+        "provider_session_lifetime_exceeded",
+        "provider_stable_prefix_inconsistent",
+        "provider_turn_failed_before_terminal",
+        "provider_turn_identity_mismatch",
+        "provider_update_sequence_disorder",
+        "stopped",
+        "toggle_off",
+    }
+)
+
+
+def _recognition_cause(reason: str | None) -> str:
+    if reason is None:
+        return "none"
+    category = reason.partition(":")[0]
+    if category in _RECOGNITION_CAUSES:
+        return category
+    if category == "provider_not_ready" or category == "provider_event_stream_failed":
+        return category
+    if category in {
+        "provider_begin_timeout",
+        "provider_send_timeout",
+        "provider_seal_timeout",
+        "provider_abort_timeout",
+        "provider_begin_failed",
+        "provider_send_failed",
+        "provider_seal_failed",
+        "provider_abort_failed",
+    }:
+        return category
+    return "provider_reported"
+
+
+def _log_recognition_terminal(
+    identity: STTProviderTurnIdentity,
+    provider_id: str,
+    terminal: STTProviderTurnTerminal,
+    payloads: int,
+    samples: int,
+    byte_count: int,
+    content_bytes: int,
+    context_bytes: int,
+) -> None:
+    with contextlib.suppress(Exception):
+        logger.info(
+            "[Recognition] terminal channel=peer utterance_id=%s provider=%s epoch=%s turn=%s "
+            "outcome=%s cause=%s text_authority=%s successful_payloads=%d "
+            "successful_samples=%d successful_bytes=%d content_bytes=%d context_bytes=%d",
+            identity.segment.segment_id,
+            provider_id,
+            identity.provider_epoch_id,
+            identity.provider_turn_id,
+            terminal.outcome,
+            _recognition_cause(terminal.failure_reason),
+            terminal.text_authority,
+            payloads,
+            samples,
+            byte_count,
+            content_bytes,
+            context_bytes,
+        )
+
 
 STTScopedSessionFactory = Callable[
     [AudioSegmentSettingsSnapshot, str],
@@ -107,6 +183,11 @@ class _ActiveTurn:
     terminal_ready: asyncio.Future[STTProviderTurnTerminal]
     retention_profile: STTRetentionProfile | None
     payload_sequence: int = 0
+    successful_payloads: int = 0
+    successful_samples: int = 0
+    successful_bytes: int = 0
+    successful_content_bytes: int = 0
+    successful_context_bytes: int = 0
     local_sealed: bool = False
     terminal_emitted: bool = False
     write_failed: bool = False
@@ -325,15 +406,18 @@ class ScopedRecognitionEngine:
             provider_turn_id=uuid4().hex,
             settings_scope=self._settings_scope(owned.segment.settings),
         )
-        await self._emit(
-            STTProviderTurnTerminal(
-                identity=identity,
-                outcome=outcome,
-                text_authority="none",
-                failure_reason=reason,
-                epoch_disposition="retire",
-            )
+        terminal = STTProviderTurnTerminal(
+            identity=identity,
+            outcome=outcome,
+            text_authority="none",
+            failure_reason=reason,
+            epoch_disposition="retire",
         )
+        if self.channel == "peer":
+            _log_recognition_terminal(
+                identity, owned.segment.settings.provider_id, terminal, 0, 0, 0, 0, 0
+            )
+        await self._emit(terminal)
 
     async def fail_owned_segment(
         self,
@@ -671,6 +755,28 @@ class ScopedRecognitionEngine:
         finally:
             if budget is not None:
                 budget.release(transient_owner)
+        if written:
+            turn.successful_payloads += 1
+            turn.successful_samples += sample_count
+            turn.successful_bytes += len(pcm)
+            if context_only:
+                turn.successful_context_bytes += len(pcm)
+            else:
+                turn.successful_content_bytes += len(pcm)
+            if self.channel == "peer" and turn.successful_payloads == 1:
+                with contextlib.suppress(Exception):
+                    logger.info(
+                        "[Recognition] payload_received channel=peer utterance_id=%s "
+                        "provider=%s epoch=%s turn=%s successful_payloads=1 "
+                        "successful_samples=%d successful_bytes=%d context_only=%d",
+                        turn.identity.segment.segment_id,
+                        turn.settings.provider_id,
+                        turn.identity.provider_epoch_id,
+                        turn.identity.provider_turn_id,
+                        turn.successful_samples,
+                        turn.successful_bytes,
+                        int(context_only),
+                    )
         if written and (profile is None or profile.release_after_write):
             turn.retained_samples -= sample_count
             turn.retained_bytes -= retained_bytes
@@ -1014,6 +1120,17 @@ class ScopedRecognitionEngine:
         if self._session_near_ceiling():
             self._session_retirement_requested = True
         if should_emit:
+            if self.channel == "peer":
+                _log_recognition_terminal(
+                    turn.identity,
+                    turn.settings.provider_id,
+                    terminal,
+                    turn.successful_payloads,
+                    turn.successful_samples,
+                    turn.successful_bytes,
+                    turn.successful_content_bytes,
+                    turn.successful_context_bytes,
+                )
             await self._emit(terminal)
         if self._session_retirement_requested and not self._turns:
             self._retire_current_session(turn.watchdogs)

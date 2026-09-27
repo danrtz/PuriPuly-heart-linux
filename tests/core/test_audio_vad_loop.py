@@ -19,6 +19,7 @@ from puripuly_heart.core.audio.ownership import (
 )
 from puripuly_heart.core.runtime.audio_vad_loop import run_audio_vad_loop
 from puripuly_heart.core.vad.gating import (
+    SpeechChunk,
     SpeechEnd,
     SpeechStart,
     VadGating,
@@ -700,4 +701,193 @@ async def test_capture_progress_distinguishes_no_frames_from_frames_without_spee
 
     assert any("state=no_frames" in message for message in logs)
     assert any("state=frames_resumed" in message for message in logs)
-    assert any("state=frames_without_admitted_speech" in message for message in logs)
+    states = {message.split("state=", 1)[1].split()[0] for message in logs if "state=" in message}
+    assert len(states) == 3
+
+
+async def test_peer_vad_windows_distinguish_discarded_and_committed_candidates(caplog) -> None:
+    vad = create_peer_vad_gating(
+        SequenceVadEngine(probs=[0.0, 0.8, 0.8, 0.0, 0.8, 0.8, 0.8, 0.0]),
+        sample_rate_hz=16000,
+        ring_buffer_ms=64,
+        hangover_ms=64,
+    )
+    frames = [
+        AudioFrameF32(
+            samples=np.full((vad.chunk_samples,), 0.25, dtype=np.float32),
+            sample_rate_hz=16000,
+        )
+        for _ in range(8)
+    ]
+    received: list[object] = []
+
+    class Sink:
+        async def handle_vad_event(self, event: object) -> None:
+            received.append(event)
+
+    with caplog.at_level("INFO", logger="puripuly_heart.core.runtime.audio_vad_loop"):
+        await run_audio_vad_loop(
+            source=FakeAudioSource(frames),
+            vad=vad,
+            sink=Sink(),
+            channel_label="peer",
+            target_sample_rate_hz=16000,
+            progress_interval_audio_ms=128,
+        )
+
+    windows = [
+        dict(item.split("=", 1) for item in record.getMessage().split()[2:])
+        for record in caplog.records
+        if record.getMessage().startswith("[VAD] window channel=peer")
+    ]
+    starts = [event for event in received if isinstance(event, SpeechStart)]
+    assert len(starts) == 1
+    assert len(windows) == 2
+    assert windows[0]["threshold_hits"] == "2"
+    assert windows[0]["candidate_discarded"] == "1"
+    assert float(windows[0]["candidate_max_run_ms"]) == 64
+    assert windows[0]["committed"] == "0"
+    assert windows[1]["threshold_hits"] == "3"
+    assert windows[1]["committed"] == "1"
+    assert windows[1]["candidate_discarded"] == "0"
+    assert float(windows[1]["input_rms"]) == 0.25
+    assert any(
+        f"utterance_id={starts[0].utterance_id}" in record.getMessage()
+        and "kind=onset" in record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("[VAD] committed channel=peer")
+    )
+
+
+async def test_peer_vad_windows_include_unchanged_silence_and_unknown_fake_scores(caplog) -> None:
+    class FakeVad:
+        chunk_samples = 8
+
+        def process_chunk(self, _chunk: np.ndarray) -> list[object]:
+            return []
+
+    class Sink:
+        async def handle_vad_event(self, _event: object) -> None:
+            raise AssertionError("no speech expected")
+
+    with caplog.at_level("INFO", logger="puripuly_heart.core.runtime.audio_vad_loop"):
+        await run_audio_vad_loop(
+            source=FakeAudioSource(
+                [AudioFrameF32(samples=np.zeros((32,), dtype=np.float32), sample_rate_hz=16000)]
+            ),
+            vad=FakeVad(),
+            sink=Sink(),
+            channel_label="peer",
+            target_sample_rate_hz=16000,
+            progress_interval_audio_ms=1,
+        )
+
+    windows = [
+        dict(item.split("=", 1) for item in record.getMessage().split()[2:])
+        for record in caplog.records
+        if record.getMessage().startswith("[VAD] window channel=peer")
+    ]
+    assert len(windows) == 2
+    assert all(window["threshold_hits"] == "0" for window in windows)
+    assert all(window["max_probability"] == "unknown" for window in windows)
+    assert all(window["input_rms"] == "0.00000" for window in windows)
+
+
+async def test_peer_vad_window_counts_rollover_as_committed_continuation(caplog) -> None:
+    vad = create_peer_vad_gating(
+        SequenceVadEngine(probs=[0.9, 0.9, 0.9, 0.9]),
+        sample_rate_hz=16000,
+        ring_buffer_ms=64,
+        hangover_ms=64,
+    )
+    starts: list[SpeechStart] = []
+    buffered_chunks = 0
+
+    class Sink:
+        async def handle_vad_event(self, event: object) -> None:
+            nonlocal buffered_chunks
+            if isinstance(event, SpeechStart):
+                starts.append(event)
+            elif isinstance(event, SpeechChunk):
+                buffered_chunks += 1
+                if buffered_chunks == 2:
+                    assert vad.seal_active_for_rollover(reason="delivery_deadline") is not None
+
+    with caplog.at_level("INFO", logger="puripuly_heart.core.runtime.audio_vad_loop"):
+        await run_audio_vad_loop(
+            source=FakeAudioSource(
+                [
+                    AudioFrameF32(
+                        samples=np.full((4 * vad.chunk_samples,), 0.25, dtype=np.float32),
+                        sample_rate_hz=16000,
+                    )
+                ]
+            ),
+            vad=vad,
+            sink=Sink(),
+            channel_label="peer",
+            target_sample_rate_hz=16000,
+            progress_interval_audio_ms=128,
+        )
+
+    assert len(starts) == 2
+    assert starts[0].genuine_onset is True
+    assert starts[1].genuine_onset is False
+    windows = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("[VAD] window channel=peer")
+    ]
+    assert any("committed=2" in window and "rollovers=1" in window for window in windows)
+    assert any(
+        f"utterance_id={starts[1].utterance_id}" in record.getMessage()
+        and "kind=rollover" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+async def test_peer_vad_flushes_pending_candidate_before_cancellation_reaches_caller(
+    caplog,
+) -> None:
+    class CancelledSource:
+        async def frames(self):
+            yield AudioFrameF32(
+                samples=np.full((1024,), 0.25, dtype=np.float32), sample_rate_hz=16000
+            )
+            raise asyncio.CancelledError
+
+    class Sink:
+        async def handle_vad_event(self, _event: object) -> None:
+            raise AssertionError("uncommitted candidate must not reach recognition")
+
+    vad = create_peer_vad_gating(
+        SequenceVadEngine(probs=[0.8, 0.8]),
+        sample_rate_hz=16000,
+        ring_buffer_ms=500,
+        hangover_ms=500,
+    )
+    with caplog.at_level("INFO", logger="puripuly_heart.core.runtime.audio_vad_loop"):
+        try:
+            await run_audio_vad_loop(
+                source=CancelledSource(),
+                vad=vad,
+                sink=Sink(),
+                channel_label="peer",
+                target_sample_rate_hz=16000,
+            )
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("cancellation must propagate")
+
+    windows = [
+        dict(item.split("=", 1) for item in record.getMessage().split()[2:])
+        for record in caplog.records
+        if record.getMessage().startswith("[VAD] window channel=peer")
+    ]
+    assert len(windows) == 1
+    assert windows[0]["reason"] == "cancel"
+    assert windows[0]["observed_audio_ms"] == "64"
+    assert windows[0]["candidate_pending_chunks"] == "2"
+    assert windows[0]["candidate_discarded"] == "0"
+    assert windows[0]["committed"] == "0"

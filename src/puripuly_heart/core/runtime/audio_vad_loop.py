@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
+import math
 import time
 from collections.abc import AsyncIterator, Callable
 
@@ -20,6 +22,8 @@ from puripuly_heart.core.audio.source import AudioSource
 from puripuly_heart.core.audio.streaming_resampler import CaptureMappedStreamingResampler
 from puripuly_heart.core.vad.gating import SpeechEnd, SpeechStart, VadGating
 from puripuly_heart.core.vad.sink import VadEventSink
+
+logger = logging.getLogger(__name__)
 
 
 def _capture_prefix(
@@ -148,6 +152,81 @@ async def run_audio_vad_loop(
     progress_audio_ms = 0.0
     progress_speech_observed = False
     last_progress_state: str | None = None
+    peer_diagnostics = channel_label.lower() == "peer"
+    window_samples = 0
+    window_square_sum = 0.0
+    window_max_probability: float | None = None
+    window_threshold_min: float | None = None
+    window_threshold_max: float | None = None
+    window_threshold_hits = 0
+    window_discarded = 0
+    window_max_discarded_chunks = 0
+    window_committed = 0
+    window_rollovers = 0
+    window_generation = getattr(vad, "diagnostic_generation", None)
+    last_discarded_count = getattr(vad, "discarded_candidate_count", 0)
+    window_settings: tuple[float | None, float | None, int | str, int | str] | None = None
+
+    def _score(value: float | None) -> str:
+        return "unknown" if value is None else f"{value:.4f}"
+
+    def _flush_peer_window(reason: str) -> None:
+        nonlocal window_samples, window_square_sum, window_max_probability
+        nonlocal window_threshold_min, window_threshold_max, window_threshold_hits
+        nonlocal window_discarded, window_max_discarded_chunks, window_committed
+        nonlocal window_rollovers, window_generation, last_discarded_count
+        nonlocal window_settings
+        if not peer_diagnostics:
+            return
+        discarded_count = getattr(vad, "discarded_candidate_count", last_discarded_count)
+        if discarded_count > last_discarded_count:
+            window_discarded += discarded_count - last_discarded_count
+            window_max_discarded_chunks = max(
+                window_max_discarded_chunks,
+                getattr(vad, "last_discarded_candidate_chunks", 0),
+            )
+            last_discarded_count = discarded_count
+        if window_samples or window_discarded:
+            rms = math.sqrt(window_square_sum / window_samples) if window_samples else 0.0
+            chunk_ms = chunk_samples * 1000.0 / target_sample_rate_hz
+            with contextlib.suppress(Exception):
+                logger.info(
+                    "[VAD] window channel=peer reason=%s generation=%s observed_audio_ms=%d "
+                    "input_rms=%.5f max_probability=%s threshold_min=%s threshold_max=%s "
+                    "threshold_hits=%d candidate_discarded=%d candidate_max_run_ms=%.1f "
+                    "candidate_pending_chunks=%s committed=%d rollovers=%d "
+                    "onset_threshold=%s continuation_threshold=%s "
+                    "start_debounce_chunks=%s start_commit_chunks=%s",
+                    reason,
+                    window_generation if window_generation is not None else "unknown",
+                    round(window_samples * 1000.0 / target_sample_rate_hz),
+                    rms,
+                    _score(window_max_probability),
+                    _score(window_threshold_min),
+                    _score(window_threshold_max),
+                    window_threshold_hits,
+                    window_discarded,
+                    window_max_discarded_chunks * chunk_ms,
+                    getattr(vad, "pending_candidate_chunks", "unknown"),
+                    window_committed,
+                    window_rollovers,
+                    _score(window_settings[0] if window_settings else None),
+                    _score(window_settings[1] if window_settings else None),
+                    window_settings[2] if window_settings else "unknown",
+                    window_settings[3] if window_settings else "unknown",
+                )
+        window_samples = 0
+        window_square_sum = 0.0
+        window_max_probability = None
+        window_threshold_min = None
+        window_threshold_max = None
+        window_threshold_hits = 0
+        window_discarded = 0
+        window_max_discarded_chunks = 0
+        window_committed = 0
+        window_rollovers = 0
+        window_generation = getattr(vad, "diagnostic_generation", None)
+        window_settings = None
 
     async def _emit_owned(owned: object) -> None:
         await sink.handle_owned_vad_event(owned)
@@ -188,6 +267,23 @@ async def run_audio_vad_loop(
                 log_basic(message)
 
     async def _dispatch(event: object) -> None:
+        if peer_diagnostics and isinstance(event, SpeechStart):
+            with contextlib.suppress(Exception):
+                logger.info(
+                    "[VAD] committed channel=peer utterance_id=%s kind=%s "
+                    "applied_threshold=%s onset_threshold=%s continuation_threshold=%s "
+                    "start_commit_chunks=%s",
+                    event.utterance_id,
+                    "onset" if event.genuine_onset else "rollover",
+                    (
+                        f"{vad.last_applied_threshold:.4f}"
+                        if getattr(vad, "last_applied_threshold", None) is not None
+                        else "unknown"
+                    ),
+                    getattr(vad, "speech_threshold", "unknown"),
+                    getattr(vad, "continuation_threshold", "unknown"),
+                    getattr(vad, "start_commit_chunks", "unknown"),
+                )
         _log_vad_activity(event)
         if segment_ledger is None:
             await sink.handle_vad_event(event)
@@ -204,12 +300,28 @@ async def run_audio_vad_loop(
     async def _process_buffered_chunks() -> None:
         nonlocal buffer
         nonlocal progress_audio_ms, progress_speech_observed, last_progress_state
+        nonlocal window_samples, window_square_sum, window_max_probability
+        nonlocal window_threshold_min, window_threshold_max, window_threshold_hits
+        nonlocal window_discarded, window_max_discarded_chunks, window_committed
+        nonlocal window_rollovers, window_generation, last_discarded_count, window_settings
         while buffer.size >= chunk_samples:
             chunk = buffer[:chunk_samples]
             buffer = buffer[chunk_samples:]
             chunk_capture = _capture_prefix(capture_buffer, chunk_samples)
             if audio_gate is not None:
                 chunk = audio_gate.process_chunk(chunk)
+            if peer_diagnostics:
+                generation = getattr(vad, "diagnostic_generation", None)
+                if generation != window_generation:
+                    _flush_peer_window("settings_change")
+                window_generation = generation
+                if window_settings is None:
+                    window_settings = (
+                        getattr(vad, "speech_threshold", None),
+                        getattr(vad, "continuation_threshold", None),
+                        getattr(vad, "start_debounce_chunks", "unknown"),
+                        getattr(vad, "start_commit_chunks", "unknown"),
+                    )
             process_owned = getattr(vad, "process_owned_chunk", None)
             events = (
                 process_owned(chunk, chunk_capture)
@@ -217,6 +329,43 @@ async def run_audio_vad_loop(
                 else vad.process_chunk(chunk)
             )
             speech_observed = bool(getattr(vad, "last_observation_was_speech", False))
+            if peer_diagnostics:
+                window_samples += chunk.size
+                window_square_sum += float(np.dot(chunk, chunk))
+                probability = getattr(vad, "last_probability", None)
+                threshold = getattr(vad, "last_applied_threshold", None)
+                if probability is not None:
+                    window_max_probability = (
+                        probability
+                        if window_max_probability is None
+                        else max(window_max_probability, probability)
+                    )
+                if threshold is not None:
+                    window_threshold_min = (
+                        threshold
+                        if window_threshold_min is None
+                        else min(window_threshold_min, threshold)
+                    )
+                    window_threshold_max = (
+                        threshold
+                        if window_threshold_max is None
+                        else max(window_threshold_max, threshold)
+                    )
+                window_threshold_hits += speech_observed
+                discarded_count = getattr(vad, "discarded_candidate_count", last_discarded_count)
+                if discarded_count > last_discarded_count:
+                    window_discarded += discarded_count - last_discarded_count
+                    window_max_discarded_chunks = max(
+                        window_max_discarded_chunks,
+                        getattr(vad, "last_discarded_candidate_chunks", 0),
+                    )
+                    last_discarded_count = discarded_count
+                for event in events:
+                    if isinstance(event, SpeechStart):
+                        window_committed += 1
+                        window_rollovers += not event.genuine_onset
+                if getattr(vad, "diagnostic_generation", None) != window_generation:
+                    _flush_peer_window("settings_change")
             observe_source_activity = getattr(sink, "observe_source_activity", None)
             if callable(observe_source_activity):
                 await observe_source_activity(
@@ -230,9 +379,17 @@ async def run_audio_vad_loop(
             progress_speech_observed = progress_speech_observed or speech_observed
             if log_basic is not None and progress_audio_ms >= progress_interval_audio_ms:
                 state = (
-                    "frames_with_admitted_speech"
-                    if progress_speech_observed
-                    else "frames_without_admitted_speech"
+                    (
+                        "frames_with_threshold_hit"
+                        if progress_speech_observed
+                        else "frames_without_threshold_hit"
+                    )
+                    if peer_diagnostics
+                    else (
+                        "frames_with_admitted_speech"
+                        if progress_speech_observed
+                        else "frames_without_admitted_speech"
+                    )
                 )
                 if state != last_progress_state:
                     with contextlib.suppress(Exception):
@@ -243,6 +400,11 @@ async def run_audio_vad_loop(
                     last_progress_state = state
                 progress_audio_ms = 0.0
                 progress_speech_observed = False
+            if (
+                peer_diagnostics
+                and window_samples * 1000.0 / target_sample_rate_hz >= progress_interval_audio_ms
+            ):
+                _flush_peer_window("interval")
             if delivery_controller is not None:
                 await delivery_controller.observe_acoustic_chunk(
                     speech_observed=speech_observed,
@@ -264,6 +426,7 @@ async def run_audio_vad_loop(
             await _dispatch(sealed)
         elif hasattr(vad, "reset"):
             vad.reset()
+        _flush_peer_window("discontinuity")
         if delivery_controller is not None:
             delivery_controller.invalidate_context()
         if segment_ledger is not None and segment_id is not None:
@@ -295,85 +458,91 @@ async def run_audio_vad_loop(
             source_end_monotonic_s=observed_at,
         )
 
-    async for frame in _frames_with_progress(
-        source,
-        channel_label=channel_label,
-        log_basic=log_basic,
-        monotonic_clock=monotonic_clock,
-        no_frame_timeout_s=no_frame_timeout_s,
-    ):
-        capture = frame.capture
-        if capture is None and frame.samples.size:
-            capture = _source_capture(frame)
-        frame_format = (frame.sample_rate_hz, frame.channels)
-        if source_format is None:
-            source_format = frame_format
-            normalizer = CaptureMappedStreamingResampler(
-                input_sample_rate_hz=frame.sample_rate_hz,
-                output_sample_rate_hz=target_sample_rate_hz,
-                input_channels=frame.channels,
-            )
-        elif frame_format != source_format:
-            raise ValueError(
-                "source audio format changed during streaming: "
-                f"expected {source_format[0]}Hz/{source_format[1]}ch, "
-                f"got {frame.sample_rate_hz}Hz/{frame.channels}ch"
-            )
+    try:
+        async for frame in _frames_with_progress(
+            source,
+            channel_label=channel_label,
+            log_basic=log_basic,
+            monotonic_clock=monotonic_clock,
+            no_frame_timeout_s=no_frame_timeout_s,
+        ):
+            capture = frame.capture
+            if capture is None and frame.samples.size:
+                capture = _source_capture(frame)
+            frame_format = (frame.sample_rate_hz, frame.channels)
+            if source_format is None:
+                source_format = frame_format
+                normalizer = CaptureMappedStreamingResampler(
+                    input_sample_rate_hz=frame.sample_rate_hz,
+                    output_sample_rate_hz=target_sample_rate_hz,
+                    input_channels=frame.channels,
+                )
+            elif frame_format != source_format:
+                raise ValueError(
+                    "source audio format changed during streaming: "
+                    f"expected {source_format[0]}Hz/{source_format[1]}ch, "
+                    f"got {frame.sample_rate_hz}Hz/{frame.channels}ch"
+                )
 
-        assert normalizer is not None
-        normalized, normalized_capture, normalizer_discarded = normalizer.process(
-            frame.samples,
-            capture,
-        )
-        discontinuity = frame.discontinuity_before or (
-            capture.discontinuity_before if capture is not None else None
-        )
-        discarded = (*frame.discarded_capture_before, *normalizer_discarded)
-        if discontinuity is not None:
+            assert normalizer is not None
+            normalized, normalized_capture, normalizer_discarded = normalizer.process(
+                frame.samples,
+                capture,
+            )
+            discontinuity = frame.discontinuity_before or (
+                capture.discontinuity_before if capture is not None else None
+            )
+            discarded = (*frame.discarded_capture_before, *normalizer_discarded)
+            if discontinuity is not None:
+                await _handle_discontinuity(discarded)
+            elif discarded and segment_ledger is not None:
+                segment_ledger.claim_open_content_for_failure(discarded)
+
+            if normalized.size:
+                if normalized_capture is None:
+                    raise RuntimeError("normalized audio has no capture mapping")
+                buffer = np.concatenate([buffer, normalized.reshape(-1)])
+                capture_buffer.append(normalized_capture)
+                await _process_buffered_chunks()
+        terminal_reason = _terminal_reason(source)
+        if normalizer is None:
+            return
+        orderly = terminal_reason in {None, "closed"}
+        tail, tail_capture, discarded = normalizer.finish(orderly=orderly)
+        discarded = (*discarded, *_terminal_discarded_capture(source))
+        if not orderly:
             await _handle_discontinuity(discarded)
-        elif discarded and segment_ledger is not None:
+            return
+        if discarded and segment_ledger is not None:
             segment_ledger.claim_open_content_for_failure(discarded)
-
-        if normalized.size:
-            if normalized_capture is None:
-                raise RuntimeError("normalized audio has no capture mapping")
-            buffer = np.concatenate([buffer, normalized.reshape(-1)])
-            capture_buffer.append(normalized_capture)
-            await _process_buffered_chunks()
-
-    terminal_reason = _terminal_reason(source)
-    if normalizer is None:
-        return
-    orderly = terminal_reason in {None, "closed"}
-    tail, tail_capture, discarded = normalizer.finish(orderly=orderly)
-    discarded = (*discarded, *_terminal_discarded_capture(source))
-    if not orderly:
-        await _handle_discontinuity(discarded)
-        return
-    if discarded and segment_ledger is not None:
-        segment_ledger.claim_open_content_for_failure(discarded)
-    if tail.size:
-        if tail_capture is None:
-            raise RuntimeError("resampler tail has no capture mapping")
-        buffer = np.concatenate([buffer, tail.reshape(-1)])
-        capture_buffer.append(tail_capture)
-    await _process_buffered_chunks()
-
-    if buffer.size and (
-        getattr(vad, "in_speech", False) or getattr(vad, "continuation_pending", False)
-    ):
-        real_tail_count = int(buffer.size)
-        buffer = np.concatenate(
-            [
-                buffer,
-                np.zeros((chunk_samples - real_tail_count,), dtype=np.float32),
-            ]
-        )
+        if tail.size:
+            if tail_capture is None:
+                raise RuntimeError("resampler tail has no capture mapping")
+            buffer = np.concatenate([buffer, tail.reshape(-1)])
+            capture_buffer.append(tail_capture)
         await _process_buffered_chunks()
 
-    seal_active = getattr(vad, "seal_active", None)
-    sealed = seal_active(reason="source_eof") if callable(seal_active) else None
-    if sealed is not None:
-        await _dispatch(sealed)
-    if delivery_controller is not None:
-        await delivery_controller.close()
+        if buffer.size and (
+            getattr(vad, "in_speech", False) or getattr(vad, "continuation_pending", False)
+        ):
+            real_tail_count = int(buffer.size)
+            buffer = np.concatenate(
+                [
+                    buffer,
+                    np.zeros((chunk_samples - real_tail_count,), dtype=np.float32),
+                ]
+            )
+            await _process_buffered_chunks()
+
+        seal_active = getattr(vad, "seal_active", None)
+        sealed = seal_active(reason="source_eof") if callable(seal_active) else None
+        if sealed is not None:
+            await _dispatch(sealed)
+        _flush_peer_window("eof")
+        if delivery_controller is not None:
+            await delivery_controller.close()
+    except asyncio.CancelledError:
+        _flush_peer_window("cancel")
+        raise
+    finally:
+        _flush_peer_window("exit")

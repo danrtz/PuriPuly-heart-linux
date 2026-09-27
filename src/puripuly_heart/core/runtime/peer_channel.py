@@ -359,12 +359,23 @@ class _GenerationGuardedVadSink:
         if not removed:
             return
         self._queue = retained
-        self.runtime.record_segment_terminal(
+        receipt = self.runtime.record_segment_terminal(
             segment_id,
             outcome="expired",
             text_authority="none",
             failure_reason=failure_reason,
         )
+        with contextlib.suppress(Exception):
+            logger.info(
+                "[Recognition] terminal channel=peer utterance_id=%s provider=%s "
+                "epoch=none turn=none outcome=%s cause=%s text_authority=none "
+                "successful_payloads=0 successful_samples=0 successful_bytes=0 "
+                "content_bytes=0 context_bytes=0",
+                segment_id,
+                receipt.segment.settings.provider_id,
+                receipt.outcome,
+                failure_reason,
+            )
 
     def _arm_expiry_timer(self) -> None:
         candidates = self._whole_unsent_sealed_segments()
@@ -750,6 +761,18 @@ class PeerCaptureSessionOwner:
                     failure_reason=failure_reason,
                 )
         raise KeyError(f"unknown peer audio segment: {segment_id}")
+
+    def _cancel_segment_ledger(self, ledger: PeerAudioSegmentLedger) -> None:
+        for receipt in ledger.cancel_unfinished(now_monotonic_s=self.clock.now()):
+            with contextlib.suppress(Exception):
+                logger.info(
+                    "[Recognition] source_cancelled channel=peer utterance_id=%s "
+                    "provider=%s generation=%s outcome=%s",
+                    receipt.identity.segment_id,
+                    receipt.segment.settings.provider_id,
+                    receipt.identity.activation_generation,
+                    receipt.outcome,
+                )
 
     def lifecycle_owner_snapshot(self) -> dict[str, object]:
         return {
@@ -1285,7 +1308,7 @@ class PeerCaptureSessionOwner:
                 return
             await self._cancel_loop(old_loop)
             if old_segment_ledger is not None:
-                old_segment_ledger.cancel_unfinished(now_monotonic_s=self.clock.now())
+                self._cancel_segment_ledger(old_segment_ledger)
             await self._close_if_possible(old_source)
             async with self._lock:
                 superseded = self._is_superseded(generation)
@@ -1645,7 +1668,7 @@ class PeerCaptureSessionOwner:
             retain_on_failure=lambda: self._retain_retired_source(source),
         )
         if cancel_segments and segment_ledger is not None:
-            segment_ledger.cancel_unfinished(now_monotonic_s=self.clock.now())
+            self._cancel_segment_ledger(segment_ledger)
         await self._retry_retired_cleanup_debt(failures, prior_cleanup_debt)
         if release_provider:
             self._provider_status = PeerCaptureProviderStatus.RELEASING

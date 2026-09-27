@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from dataclasses import dataclass, replace
@@ -1759,7 +1760,9 @@ async def test_peer_dispatch_reserves_capacity_for_eight_wholly_unsent_segments(
 
 
 @pytest.mark.asyncio
-async def test_peer_dispatch_expires_oldest_wholly_unsent_segment_on_overflow() -> None:
+async def test_peer_dispatch_expires_oldest_wholly_unsent_segment_on_overflow(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     blocked = asyncio.Event()
     release = asyncio.Event()
 
@@ -1800,6 +1803,7 @@ async def test_peer_dispatch_expires_oldest_wholly_unsent_segment_on_overflow() 
         sink=sink,
     )
 
+    caplog.set_level(logging.INFO, logger="puripuly_heart.core.runtime.peer_channel")
     await owner.apply_intent(make_config(), enabled=True)
     await asyncio.wait_for(blocked.wait(), timeout=0.5)
     ledger = owner.segment_ledgers[-1]
@@ -1819,12 +1823,33 @@ async def test_peer_dispatch_expires_oldest_wholly_unsent_segment_on_overflow() 
     ]
     assert ledger.terminal_receipts[0].failure_reason == "provider_drain_without_scoped_terminal"
     assert ledger.terminal_receipts[1].failure_reason == "overload"
+    assert (
+        owner.record_segment_terminal(
+            ledger.terminal_receipts[1].identity.segment_id,
+            outcome="expired",
+            failure_reason="overload",
+        )
+        is ledger.terminal_receipts[1]
+    )
+    evidence = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "puripuly_heart.core.runtime.peer_channel"
+        and record.getMessage().startswith("[Recognition] terminal ")
+    ]
+    assert len(evidence) == 1
+    fields = dict(token.split("=", 1) for token in evidence[0].split()[2:])
+    assert fields["utterance_id"] == str(ledger.terminal_receipts[1].identity.segment_id)
+    assert fields["outcome"] == "expired"
+    assert fields["cause"] == "overload"
+    assert fields["successful_payloads"] == fields["content_bytes"] == "0"
     await owner.close()
 
 
 @pytest.mark.asyncio
 async def test_peer_dispatch_expires_wholly_unsent_segment_after_seal_age_timer(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     blocked = asyncio.Event()
     release = asyncio.Event()
@@ -1870,6 +1895,7 @@ async def test_peer_dispatch_expires_wholly_unsent_segment_after_seal_age_timer(
         sink=sink,
     )
 
+    caplog.set_level(logging.INFO, logger="puripuly_heart.core.runtime.peer_channel")
     await owner.apply_intent(make_config(), enabled=True)
     await asyncio.wait_for(blocked.wait(), timeout=0.5)
     ledger = owner.segment_ledgers[-1]
@@ -1885,11 +1911,24 @@ async def test_peer_dispatch_expires_wholly_unsent_segment_after_seal_age_timer(
     ]
     assert ledger.terminal_receipts[0].failure_reason == "provider_drain_without_scoped_terminal"
     assert ledger.terminal_receipts[1].failure_reason == "expired_before_recognition"
+    evidence = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "puripuly_heart.core.runtime.peer_channel"
+        and record.getMessage().startswith("[Recognition] terminal ")
+    ]
+    assert len(evidence) == 1
+    fields = dict(token.split("=", 1) for token in evidence[0].split()[2:])
+    assert fields["utterance_id"] == str(ledger.terminal_receipts[1].identity.segment_id)
+    assert fields["cause"] == "expired_before_recognition"
+    assert fields["successful_bytes"] == "0"
     await owner.close()
 
 
 @pytest.mark.asyncio
-async def test_off_cancels_blocked_provider_setup_after_capture_has_progressed() -> None:
+async def test_off_cancels_blocked_provider_setup_after_capture_has_progressed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     provider = FakeProvider()
     provider.replace_gate = asyncio.Event()
 
@@ -1925,6 +1964,7 @@ async def test_off_cancels_blocked_provider_setup_after_capture_has_progressed()
         run_audio_loop=run_audio_vad_loop,
     )
     config = make_config()
+    caplog.set_level(logging.INFO, logger="puripuly_heart.core.runtime.peer_channel")
 
     start = asyncio.create_task(owner.apply_intent(config, enabled=True))
     await wait_until(lambda: source.yielded == 6)
@@ -1937,6 +1977,17 @@ async def test_off_cancels_blocked_provider_setup_after_capture_has_progressed()
     assert source.close_calls == 1
     assert sink.events == []
     assert [receipt.outcome for receipt in ledger.terminal_receipts] == ["cancelled"]
+    evidence = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "puripuly_heart.core.runtime.peer_channel"
+        and record.getMessage().startswith("[Recognition] source_cancelled ")
+    ]
+    assert len(evidence) == 1
+    fields = dict(token.split("=", 1) for token in evidence[0].split()[2:])
+    assert fields["utterance_id"] == str(ledger.terminal_receipts[0].identity.segment_id)
+    assert fields["outcome"] == "cancelled"
+    assert fields["generation"] == str(ledger.terminal_receipts[0].identity.activation_generation)
 
 
 @pytest.mark.asyncio

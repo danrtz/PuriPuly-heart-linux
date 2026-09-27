@@ -158,6 +158,75 @@ def test_vad_gating_drops_short_candidate_before_commit():
     assert gating.utterance_id is None
 
 
+def test_candidate_diagnostics_track_actual_observations_and_boundary_discards() -> None:
+    gating = VadGating(
+        SequenceVadEngine(probs=[0.1, 0.8, 0.8, 0.1, 0.8, 0.8, 0.8, 0.8]),
+        sample_rate_hz=16000,
+        speech_threshold=0.5,
+        continuation_threshold=0.2,
+        ring_buffer_ms=64,
+        hangover_ms=64,
+        start_debounce_chunks=3,
+        start_commit_chunks=3,
+    )
+    chunk = chunk_samples(0.25, n=gating.chunk_samples)
+    assert gating.last_probability is None
+    gating.process_chunk(chunk)
+    assert gating.last_probability == 0.1
+    assert gating.last_applied_threshold == 0.5
+    gating.process_chunk(chunk)
+    gating.process_chunk(chunk)
+    assert gating.pending_candidate_chunks == 2
+    gating.process_chunk(chunk)
+    assert gating.discarded_candidate_count == 1
+    assert gating.last_discarded_candidate_chunks == 2
+    gating.process_chunk(chunk)
+    previous_generation = gating.diagnostic_generation
+    gating.reconfigure_next_segment(
+        speech_threshold=0.6,
+        continuation_threshold=0.3,
+        hangover_ms=64,
+        ring_buffer_ms=64,
+    )
+    assert gating.diagnostic_generation != previous_generation
+    assert gating.discarded_candidate_count == 2
+    assert gating.last_discarded_candidate_chunks == 1
+    assert gating.pending_candidate_chunks == 0
+    assert gating.speech_threshold == 0.6
+    gating.process_chunk(chunk)
+    gating.process_chunk(chunk)
+    assert gating.pending_candidate_chunks == 2
+    previous_generation = gating.diagnostic_generation
+    gating.reset()
+    assert gating.diagnostic_generation != previous_generation
+    assert gating.discarded_candidate_count == 3
+    assert gating.last_discarded_candidate_chunks == 2
+    assert gating.last_probability is None
+    assert gating.last_applied_threshold is None
+
+
+def test_candidate_diagnostics_distinguish_committed_onset_from_rollover() -> None:
+    gating = create_peer_vad_gating(
+        SequenceVadEngine(probs=[0.9, 0.9, 0.9, 0.9]),
+        sample_rate_hz=16000,
+        ring_buffer_ms=64,
+        hangover_ms=64,
+    )
+    chunk = chunk_samples(0.25, n=gating.chunk_samples)
+    assert gating.process_chunk(chunk) == []
+    assert gating.process_chunk(chunk) == []
+    committed = gating.process_chunk(chunk)
+    assert isinstance(committed[0], SpeechStart)
+    assert gating.pending_candidate_chunks == 0
+    assert gating.discarded_candidate_count == 0
+    assert gating.seal_active_for_rollover(reason="delivery_deadline") is not None
+    rollover = gating.process_chunk(chunk)
+    assert isinstance(rollover[0], SpeechStart)
+    assert rollover[0].genuine_onset is False
+    assert gating.last_applied_threshold == gating.continuation_threshold
+    assert gating.discarded_candidate_count == 0
+
+
 def test_vad_gating_rejects_commit_threshold_lower_than_debounce_threshold():
     engine = SequenceVadEngine(probs=[0.0])
 
