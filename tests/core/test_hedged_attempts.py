@@ -225,8 +225,11 @@ async def test_total_failure_reports_terminal_outcome_without_false_winner() -> 
         runtime_logging=runtime_logging,
     )
 
-    with pytest.raises(LLMProviderRaceError, match="private primary payload"):
+    with pytest.raises(LLMProviderRaceError) as failure:
         await provider.translate(**_kwargs())
+    assert failure.value.errors == (primary.error, fallback.error)
+    assert "private primary payload" not in str(failure.value)
+    assert "private fallback payload" not in str(failure.value)
 
     assert runtime_logging.messages == []
     await provider.close()

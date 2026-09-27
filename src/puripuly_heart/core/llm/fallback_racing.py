@@ -28,17 +28,7 @@ class LLMProviderAttempt:
 class LLMProviderRaceError(RuntimeError):
     def __init__(self, errors: tuple[Exception, ...]) -> None:
         self.errors = errors
-        if len(errors) == 2:
-            details = (
-                f"primary failed: {type(errors[0]).__name__}: {errors[0]}; "
-                f"fallback failed: {type(errors[1]).__name__}: {errors[1]}"
-            )
-        else:
-            details = "; ".join(
-                f"attempt {index} failed: {type(error).__name__}: {error}"
-                for index, error in enumerate(errors)
-            )
-        super().__init__(details or "all LLM attempts failed")
+        super().__init__("all LLM attempts failed")
 
 
 @dataclass(slots=True)

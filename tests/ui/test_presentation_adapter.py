@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 from puripuly_heart.app.services.settings_application import settings_view_surface_snapshots
 
 from puripuly_heart.app.ports.ui_models import OverlayPeerPresentationState
+from puripuly_heart.config.provider_values import OpenRouterCredentialSource
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.ui.event_bridge import UIEventBridge
 from puripuly_heart.ui.presentation_adapter import FletUiPresentationAdapter
@@ -270,6 +272,42 @@ def test_presentation_adapter_projects_semantic_dashboard_and_settings_outputs(
         "managed-key",
         {"visible": True, "remaining_percent": 50, "referral_id": "ABC123", "pass_status": None},
     ) in events
+
+
+def test_committed_translation_provider_change_clears_only_after_settings_projection(
+    tmp_path,
+) -> None:
+    cleared: list[bool] = []
+    loaded: list[object] = []
+    adapter = FletUiPresentationAdapter(
+        SimpleNamespace(
+            view_dashboard=SimpleNamespace(
+                clear_translation_issue=lambda: cleared.append(True)
+            ),
+            view_settings=SimpleNamespace(
+                load_from_settings=lambda **kwargs: loaded.append(kwargs["provider"])
+            ),
+        )
+    )
+    provider, general, prompt, overlay = settings_view_surface_snapshots(AppSettingsVNext())
+
+    def render(snapshot) -> bool:
+        return adapter.render_settings(
+            provider=snapshot, general=general, prompt=prompt,
+            overlay=overlay, config_path=tmp_path / "settings.json",
+        )
+
+    assert render(provider)
+    assert render(provider)
+    assert not cleared
+    changed = replace(
+        provider, openrouter_selected_source=OpenRouterCredentialSource.BYOK
+        if provider.openrouter_selected_source != OpenRouterCredentialSource.BYOK
+        else OpenRouterCredentialSource.MANAGED,
+    )
+    assert render(changed)
+    assert loaded[-1] is changed
+    assert cleared == [True]
 
 
 def test_presentation_adapter_owns_ui_event_bridge_composition() -> None:

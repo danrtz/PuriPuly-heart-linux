@@ -40,11 +40,29 @@ from puripuly_heart.ui.dashboard.renderer import (
     DASHBOARD_SHELL_SPACING,
     compose_dashboard_surface,
 )
-from puripuly_heart.ui.flet_runtime import control_page
+from puripuly_heart.ui.flet_runtime import control_page, update_control_if_mounted
 from puripuly_heart.ui.fonts import font_for_language
 from puripuly_heart.ui.gpu_notice import GpuDashboardNotice, GpuNoticeAction
 from puripuly_heart.ui.i18n import get_locale, language_name, t
 from puripuly_heart.ui.overlay_peer_contract import OverlayPeerConsumerContract
+from puripuly_heart.ui.theme import COLOR_ERROR, COLOR_NEUTRAL_DARK, COLOR_SURFACE
+
+OVERLAY_RESTART_REQUIRED_REASONS = {
+    "startup_timeout",
+    "window_configuration_failed",
+    "renderer_init_failed",
+    "spawn_failed",
+    "openvr_init_failed",
+    "runtime_crashed",
+    "runtime_disconnected",
+    "runtime_exit_nonzero",
+    "window_reveal_lost",
+    "window_visibility_unstable",
+    "window_identity_failed",
+    "window_observation_failed",
+    "window_bounds_failed",
+    "window_native_ready_failed",
+}
 
 OVERLAY_FAILURE_REASON_ONLY_NOTICE_REASONS = {"steamvr_not_running"}
 
@@ -96,6 +114,7 @@ class DashboardView(ft.Column):
         self._local_stt_notice_model_id: str | None = None
         self._gpu_notice: GpuDashboardNotice | None = None
         self._managed_gemma_notice: ManagedGemmaDashboardNotice | None = None
+        self._translation_issues: dict[tuple[str, str | None], str] = {}
         self._notice_sequence = 0
         self._notice_started: dict[str, int] = {}
         self._visible_notice_source: str | None = None
@@ -134,6 +153,7 @@ class DashboardView(ft.Column):
         self.on_gpu_notice_action: Callable[[GpuNoticeAction], object] | None = None
         self.on_language_change: Callable[[LanguageSelectionChange], None] | None = None
         self.on_message_input_activity = None
+        self.on_open_translation_settings: Callable[[], None] | None = None
 
         self._build_ui()
 
@@ -172,6 +192,31 @@ class DashboardView(ft.Column):
         )
         self._refresh_language_card()
         self._update_input_font()
+        self.translation_issue_text = ft.Text(color=COLOR_NEUTRAL_DARK, expand=True)
+        self.translation_issue_action = ft.TextButton(
+            content=t("dashboard.translation_issue.settings_action"),
+            on_click=lambda _event: self._open_translation_settings(),
+        )
+        self.translation_issue_banner = ft.Container(
+            content=ft.Row(
+                [self.translation_issue_text, self.translation_issue_action],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+            bgcolor=COLOR_SURFACE,
+            border=ft.Border.all(1, COLOR_ERROR),
+            border_radius=8,
+            visible=False,
+        )
+        self.overlay_restart_text = ft.Text(color=COLOR_NEUTRAL_DARK)
+        self.overlay_restart_banner = ft.Container(
+            content=self.overlay_restart_text,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+            bgcolor=COLOR_SURFACE,
+            border=ft.Border.all(1, COLOR_ERROR),
+            border_radius=8,
+            visible=False,
+        )
 
         surface = compose_dashboard_surface(
             DashboardSurfaceSlots.from_capture_provider(
@@ -191,6 +236,9 @@ class DashboardView(ft.Column):
         self.info_region = surface.info_region
         self.main_surface = surface.main_surface
         self.shell_content = surface.shell_content
+        self.shell_content.controls.extend(
+            [self.translation_issue_banner, self.overlay_restart_banner]
+        )
         self.controls = [surface.root]
 
     @property
@@ -224,6 +272,7 @@ class DashboardView(ft.Column):
         self.on_toggle_translation = translation.toggle_translation
         self.on_language_change = translation.change_language
         self.on_message_input_activity = translation.report_input_activity
+        self.on_open_translation_settings = translation.open_settings
         self.on_toggle_stt = capture.toggle_self_capture
         self.on_toggle_peer_translation = capture.toggle_peer_capture
         self.on_toggle_overlay = capture.toggle_overlay
@@ -658,6 +707,7 @@ class DashboardView(ft.Column):
 
     def set_overlay_peer_contract(self, contract: OverlayPeerConsumerContract) -> None:
         self._overlay_peer_contract = contract
+        self._sync_overlay_restart_banner()
         self._sync_overlay_peer_buttons()
         presentation = capture_presentation_from_contract(contract)
         if presentation.process_capture_warning_active:
@@ -814,6 +864,54 @@ class DashboardView(ft.Column):
             return None, None
         return notice.text, notice.tone
 
+    def _open_translation_settings(self) -> None:
+        if self.on_open_translation_settings is not None:
+            self.on_open_translation_settings()
+
+    def set_translation_issue(
+        self, key: str, *, channel: str, source: str | None
+    ) -> None:
+        identity = (channel, source)
+        if self._translation_issues.get(identity) == key:
+            return
+        self._translation_issues[identity] = key
+        self._sync_translation_issue_banner()
+
+    def clear_translation_issue(
+        self, *, channel: str | None = None, source: str | None = None
+    ) -> None:
+        if channel is None:
+            if not self._translation_issues:
+                return
+            self._translation_issues.clear()
+        else:
+            identity = (channel, source)
+            if identity not in self._translation_issues:
+                return
+            del self._translation_issues[identity]
+        self._sync_translation_issue_banner()
+
+    def _sync_translation_issue_banner(self) -> None:
+        keys = dict.fromkeys(self._translation_issues.values())
+        self.translation_issue_text.value = "\n".join(t(key) for key in keys)
+        self.translation_issue_banner.visible = bool(keys)
+        update_control_if_mounted(self.translation_issue_banner)
+
+    def _sync_overlay_restart_banner(self) -> None:
+        contract = self._overlay_peer_contract
+        overlay = contract.overlay if contract is not None else None
+        required = bool(
+            overlay is not None
+            and overlay.state == "warning"
+            and overlay.failure_reason in OVERLAY_RESTART_REQUIRED_REASONS
+        )
+        self.overlay_restart_text.value = (
+            t("dashboard.overlay_restart_required") if required else ""
+        )
+        self.overlay_restart_banner.visible = required
+        update_control_if_mounted(self.overlay_restart_banner)
+
+
     def _current_overlay_failure_notice(self) -> tuple[str | None, str | None]:
         contract = self._overlay_peer_contract
         if contract is None:
@@ -933,6 +1031,11 @@ class DashboardView(ft.Column):
             display_font_family=self._ui_font(),
             input_font_family=font_for_language(self._source_lang_code),
         )
+        self.translation_issue_action.content = t(
+            "dashboard.translation_issue.settings_action"
+        )
+        self._sync_translation_issue_banner()
+        self._sync_overlay_restart_banner()
         self._refresh_language_card()
         if not self._process_capture_warning_active and self._stt_showing_warning:
             self.set_display_text(t("dashboard.warn_stt_key"), as_translation=True)

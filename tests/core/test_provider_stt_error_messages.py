@@ -21,6 +21,7 @@ from puripuly_heart.core.messages import (
 from puripuly_heart.providers.extensions.http_extension_backend import (
     HttpExtensionTranslationError,
 )
+from puripuly_heart.providers.llm.openrouter import OpenRouterResponseError
 
 RAW_PROVIDER_DETAIL = "quota exceeded from upstream body token=provider-secret-123"
 RAW_STT_DETAIL = "microphone socket closed bearer_token=stt-secret-456"
@@ -105,6 +106,23 @@ def test_custom_http_failure_metadata_reaches_provider_diagnostics(
     assert report.message.params["category"] == expected_category
     assert report.diagnostics.category == expected_category
     assert report.diagnostics.fields["provider"] == "custom_http"
+
+
+def test_wrapped_openrouter_payment_error_preserves_structured_cause() -> None:
+    failure = OpenRouterResponseError(
+        402, limit_source="openrouter_in_flight_budget", retry_after_ms=2_000
+    )
+    wrapper = RuntimeError("translation failed")
+    wrapper.__cause__ = failure
+
+    report = error_messages.provider_failure_report(
+        wrapper, provider="llm", operation="translate"
+    )
+    assert report.message.key == "provider.openrouter.temporary_limit"
+    assert report.message.params["provider"] == "openrouter"
+    assert report.diagnostics.status_code == 402
+    assert report.diagnostics.retry_after_ms == 2_000
+    assert report.diagnostics.fields["limit_source"] == "openrouter_in_flight_budget"
 
 
 def test_stt_failure_report_maps_network_category_and_keeps_diagnostics_metadata_only() -> None:

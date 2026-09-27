@@ -228,6 +228,7 @@ class TranslatorApp:
                 toggle_translation=self._on_translation_toggle,
                 change_language=self._on_language_change,
                 report_input_activity=self._on_message_input_activity,
+                open_settings=self._open_settings_tab,
             ),
             capture=DashboardCaptureIntents(
                 toggle_self_capture=self._on_stt_toggle,

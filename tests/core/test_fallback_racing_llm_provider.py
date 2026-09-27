@@ -6,10 +6,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from puripuly_heart.core.error_messages import provider_failure_report
 from puripuly_heart.core.llm import FallbackRacingLLMProvider
 from puripuly_heart.core.llm.fallback_racing import LLMProviderRaceError
 from puripuly_heart.core.llm.provider import LLMProvider, SemaphoreLLMProvider
 from puripuly_heart.domain.models import Translation
+from puripuly_heart.providers.llm.openrouter import OpenRouterResponseError
 
 
 def _translation_kwargs(*, utterance_id: UUID) -> dict[str, object]:
@@ -328,13 +330,85 @@ async def test_fallback_racer_preserves_both_errors_when_both_branches_fail() ->
     await asyncio.wait_for(fallback.translate_started.wait(), timeout=0.2)
     primary_gate.set()
 
-    with pytest.raises(
-        LLMProviderRaceError,
-        match="primary failed: RuntimeError: primary boom; fallback failed: RuntimeError: fallback boom",
-    ):
+    with pytest.raises(LLMProviderRaceError) as failure:
         await asyncio.wait_for(translate_task, timeout=0.3)
 
+    assert failure.value.errors == (primary.error, fallback.error)
+    assert "primary boom" not in str(failure.value)
+    assert "fallback boom" not in str(failure.value)
+
     await provider.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("primary", "fallback", "key", "status", "retry"),
+    [
+        (
+            OpenRouterResponseError(
+                402, limit_source="openrouter_key_limit", retry_after_ms=9_000
+            ),
+            OpenRouterResponseError(
+                402, limit_source="openrouter_key_limit", retry_after_ms=9_000
+            ),
+            "provider.openrouter.key_limit",
+            402,
+            9_000,
+        ),
+        (
+            OpenRouterResponseError(402, limit_source="openrouter_credits", retry_after_ms=1_000),
+            OpenRouterResponseError(402, limit_source="openrouter_key_limit", retry_after_ms=2_000),
+            "provider.openrouter.payment_required",
+            402,
+            None,
+        ),
+        (
+            OpenRouterResponseError(402, limit_source="openrouter_key_limit"),
+            RuntimeError("fallback provider unavailable"),
+            "provider.failure",
+            None,
+            None,
+        ),
+    ],
+)
+async def test_race_reports_only_diagnosis_shared_by_every_failed_branch(
+    primary: Exception, fallback: Exception, key: str, status: int | None, retry: int | None
+) -> None:
+    provider = FallbackRacingLLMProvider(
+        primary=FakeLLM(error=primary),
+        fallback=FakeLLM(error=fallback),
+        fallback_timeout_ms=0,
+    )
+    try:
+        with pytest.raises(LLMProviderRaceError) as failure:
+            await provider.translate(**_translation_kwargs(utterance_id=uuid4()))
+        report = provider_failure_report(failure.value, provider="llm", operation="translate")
+        assert report.message.key == key
+        assert report.diagnostics.status_code == status
+        assert report.diagnostics.retry_after_ms == retry
+        assert ("limit_source" in report.diagnostics.fields) == (key == "provider.openrouter.key_limit")
+        assert report.diagnostics.category != "invalid_response"
+        if status is None:
+            assert report.message.params["provider"] == "llm"
+        else:
+            assert report.message.params["provider"] == "openrouter"
+    finally:
+        await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_openrouter_payment_failure_does_not_replace_successful_fallback() -> None:
+    provider = FallbackRacingLLMProvider(
+        primary=FakeLLM(error=OpenRouterResponseError(402, limit_source="openrouter_credits")),
+        fallback=FakeLLM(translated_text="fallback"),
+        fallback_timeout_ms=0,
+    )
+    try:
+        assert (await provider.translate(**_translation_kwargs(utterance_id=uuid4()))).text == (
+            "fallback"
+        )
+    finally:
+        await provider.close()
 
 
 @pytest.mark.asyncio

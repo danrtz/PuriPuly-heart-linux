@@ -43,6 +43,7 @@ class DummyDashboard:
         self.display_debug_prefixes: list[str | None] = []
         self.translation_calls: list[tuple[str, str | None]] = []
         self.notice_calls: list[str | None] = []
+        self.translation_issues: dict[tuple[str, str | None], str] = {}
 
     def set_status(self, status: str) -> None:
         self.statuses.append(status)
@@ -69,6 +70,19 @@ class DummyDashboard:
 
     def set_local_stt_notice(self, status: str | None) -> None:
         self.notice_calls.append(status)
+
+    def set_translation_issue(
+        self, key: str, *, channel: str, source: str | None
+    ) -> None:
+        self.translation_issues[(channel, source)] = key
+
+    def clear_translation_issue(
+        self, *, channel: str | None = None, source: str | None = None
+    ) -> None:
+        if channel is None:
+            self.translation_issues.clear()
+        else:
+            self.translation_issues.pop((channel, source), None)
 
 
 class FailingTranslationDashboard(DummyDashboard):
@@ -374,6 +388,16 @@ class RecordingDashboardDestination:
 
     def publish_error(self, text: str) -> None:
         self.errors.append(text)
+
+    def publish_translation_issue(
+        self, key: str, *, channel: str, source: str | None
+    ) -> None:
+        self.errors.append(f"issue:{key}:{channel}:{source}")
+
+    def clear_translation_issue(
+        self, *, channel: str, source: str | None
+    ) -> None:
+        self.errors.append(f"clear:{channel}:{source}")
 
 
 class RecordingHistoryDestination:
@@ -750,6 +774,66 @@ async def test_event_bridge_preserves_typed_error_payload_identity_for_error_des
         assert error_destination.events[index] is events[index]
     assert dashboard.errors == []
     assert app.view_dashboard.display_calls == []
+
+
+@pytest.mark.asyncio
+async def test_openrouter_report_keeps_transcript_visible_until_matching_translation_succeeds() -> None:
+    app = DummyApp()
+    bridge = make_bridge(app)
+    dashboard = app.view_dashboard
+    key = "provider.openrouter.key_limit"
+    report = messages.UserErrorReport(
+        message=messages.UserMessageRef(
+            key=key, params={}, severity=messages.SEVERITY_ERROR
+        ),
+        diagnostics=messages.ErrorDiagnostics(
+            component="provider.llm",
+            operation="translate",
+            code="provider.payment_required",
+            category=messages.DIAGNOSTIC_CATEGORY_QUOTA,
+            visibility=messages.DIAGNOSTIC_VISIBILITY_BASIC,
+            content_policy=messages.CONTENT_POLICY_METADATA_ONLY,
+            status_code=402,
+            retry_after_ms=None,
+            fields={},
+        ),
+    )
+    for utterance_id in (uuid4(), uuid4()):
+        await bridge._handle_event(
+            UIEvent(
+                type=UIEventType.ERROR, payload=report,
+                source="Mic", channel="self", utterance_id=utterance_id,
+                runtime_log_handled=True,
+            )
+        )
+    assert dashboard.translation_issues == {("self", "Mic"): key}
+    assert dashboard.display_calls == []
+
+    await bridge._handle_event(
+        UIEvent(
+            type=UIEventType.TRANSCRIPT_PARTIAL,
+            payload=Transcript(uuid4(), text="new speech", is_final=False),
+            source="Mic",
+        )
+    )
+    await bridge._handle_event(
+        UIEvent(
+            type=UIEventType.TRANSLATION_DONE,
+            payload=Translation(uuid4(), text="peer result", channel="peer"),
+            source="Peer Mic",
+        )
+    )
+    assert dashboard.display_calls[-1][0] == "new speech"
+    assert dashboard.translation_issues == {("self", "Mic"): key}
+
+    await bridge._handle_event(
+        UIEvent(
+            type=UIEventType.TRANSLATION_DONE,
+            payload=Translation(uuid4(), text="self result"),
+            source="Mic",
+        )
+    )
+    assert dashboard.translation_issues == {}
 
 
 @pytest.mark.asyncio

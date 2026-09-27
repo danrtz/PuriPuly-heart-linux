@@ -61,6 +61,14 @@ class DashboardEventDestination(Protocol):
 
     def publish_error(self, text: str) -> None: ...
 
+    def publish_translation_issue(
+        self, key: str, *, channel: str, source: str | None
+    ) -> None: ...
+
+    def clear_translation_issue(
+        self, *, channel: str, source: str | None
+    ) -> None: ...
+
 
 class HistoryEventDestination(Protocol):
     def append_entry(
@@ -137,6 +145,22 @@ class AppDashboardEventDestination:
         dashboard = self._dashboard
         if dashboard is not None:
             dashboard.set_display_text(text, is_error=True)
+
+    def publish_translation_issue(
+        self, key: str, *, channel: str, source: str | None
+    ) -> None:
+        dashboard = self._dashboard
+        setter = getattr(dashboard, "set_translation_issue", None)
+        if callable(setter):
+            setter(key, channel=channel, source=source)
+
+    def clear_translation_issue(
+        self, *, channel: str, source: str | None
+    ) -> None:
+        dashboard = self._dashboard
+        clearer = getattr(dashboard, "clear_translation_issue", None)
+        if callable(clearer):
+            clearer(channel=channel, source=source)
 
 
 class AppHistoryEventDestination:
@@ -454,6 +478,15 @@ class UIEventBridge:
                 language_code=translation_projection.language_code,
                 debug_prefix=translation_projection.debug_prefix,
             )
+            if (
+                dashboard_published is not False
+                and isinstance(mapped.payload, Translation)
+                and mapped.payload.text.strip()
+            ):
+                self.dashboard_destination.clear_translation_issue(
+                    channel=event.channel or mapped.payload.channel,
+                    source=event.source,
+                )
             if dashboard_published is not False and projection.translation_diagnostic is not None:
                 self._emit_dashboard_translation_applied_diagnostic(
                     diagnostic=projection.translation_diagnostic,
@@ -483,6 +516,21 @@ class UIEventBridge:
 
     def _handle_error_event(self, event: UIEvent) -> None:
         payload = event.payload
+        if (
+            isinstance(payload, UserErrorReport)
+            and payload.message.key.startswith("provider.openrouter.")
+        ):
+            self.dashboard_destination.publish_translation_issue(
+                payload.message.key,
+                channel=event.channel or "self",
+                source=event.source,
+            )
+            self.error_destination.publish_error(
+                _localized_error_event_text(payload),
+                payload=payload,
+                event=event,
+            )
+            return
         text = _localized_error_event_text(payload)
         destination_payload = payload
         destination_event = event

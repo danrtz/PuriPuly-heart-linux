@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from uuid import uuid4
 
+import httpx
 import pytest
 
 from puripuly_heart.config.runtime_resolution import (
@@ -12,6 +13,12 @@ from puripuly_heart.config.runtime_resolution import (
     TranslationRuntimeIntent,
     resolve_llm_config,
 )
+from puripuly_heart.core.diagnostic_validation import (
+    DIAGNOSTIC_SINK_DASHBOARD,
+    DIAGNOSTIC_VALIDATION_STATUS_ACCEPTED,
+    validate_diagnostics_for_sink,
+)
+from puripuly_heart.core.error_messages import provider_failure_report
 from puripuly_heart.core.openrouter_routing import (
     OpenRouterProviderRouting,
     OpenRouterRoutingMode,
@@ -21,6 +28,7 @@ from puripuly_heart.providers.llm.openrouter import (
     OpenRouterClient,
     OpenRouterKeyMetadata,
     OpenRouterLLMProvider,
+    OpenRouterResponseError,
 )
 
 
@@ -69,6 +77,7 @@ class SpyRuntimeLogging:
 
 class FakeResponse:
     status_code = 200
+    headers: dict[str, str] = {}
 
     def __init__(self, data: dict | None = None):
         self._data = data or {"choices": [{"message": {"content": "OK"}}]}
@@ -624,7 +633,7 @@ async def test_httpx_openrouter_client_logs_basic_translate_failure_without_runt
     client = HttpxOpenRouterClient(api_key="k", model="m", base_url="https://example")
 
     with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.llm.openrouter"):
-        with pytest.raises(RuntimeError, match="OpenRouter request failed \\(status=429\\)"):
+        with pytest.raises(OpenRouterResponseError):
             await client.translate(
                 text="hello",
                 system_prompt="SYSTEM",
@@ -666,7 +675,7 @@ async def test_httpx_openrouter_client_runtime_logging_logs_basic_translate_fail
     )
 
     with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.llm.openrouter"):
-        with pytest.raises(RuntimeError, match="OpenRouter request failed \\(status=429\\)"):
+        with pytest.raises(OpenRouterResponseError):
             await client.translate(
                 text="hello",
                 system_prompt="SYSTEM",
@@ -680,6 +689,125 @@ async def test_httpx_openrouter_client_runtime_logging_logs_basic_translate_fail
     assert level == logging.ERROR
     assert "category=rate_limit code=provider.rate_limit" in failure
     assert "operation=translate status=429 provider=openrouter" in failure
-    assert "exception_type=RuntimeError" in failure
+    assert "exception_type=OpenRouterResponseError" in failure
     assert "quota exceeded" not in failure
     assert caplog.messages == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("metadata", "expected_key", "expected_fields"),
+    [
+        ({"limit_source": "openrouter_credits"}, "provider.openrouter.insufficient_credits", {"limit_source": "openrouter_credits"}),
+        ({"limit_source": "openrouter_key_limit"}, "provider.openrouter.key_limit", {"limit_source": "openrouter_key_limit"}),
+        ({"limit_source": "openrouter_in_flight_budget", "reason": "in_flight_budget_exhausted"}, "provider.openrouter.temporary_limit", {"limit_source": "openrouter_in_flight_budget", "limit_reason": "in_flight_budget_exhausted"}),
+        ({"limit_source": "openrouter_credits", "reason": "weight_exceeds_budget"}, "provider.openrouter.payment_required", {"limit_source": "openrouter_credits", "limit_reason": "weight_exceeds_budget"}),
+        ({"limit_source": "unknown", "reason": "in_flight_budget_exhausted"}, "provider.openrouter.payment_required", {}),
+        ({"limit_source": ["openrouter_credits"]}, "provider.openrouter.payment_required", {}),
+        (None, "provider.openrouter.payment_required", {}),
+    ],
+)
+async def test_openrouter_402_subcause_reaches_safe_report(
+    monkeypatch: pytest.MonkeyPatch,
+    metadata: object,
+    expected_key: str,
+    expected_fields: dict[str, str],
+) -> None:
+    secret = "sk-provider-secret-123456789"
+    payload = {"error": {"message": f"Authorization: Bearer {secret}", "metadata": metadata}}
+    response = httpx.Response(
+        402,
+        json=payload,
+        headers={"Retry-After": "12"},
+        request=httpx.Request("POST", "https://example/chat/completions"),
+    )
+
+    class ErrorClient(FakeAsyncClient):
+        async def post(self, url, **kwargs):
+            return response
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **_kwargs: ErrorClient())
+    client = HttpxOpenRouterClient(api_key=secret, model="m", base_url="https://example")
+    with pytest.raises(OpenRouterResponseError) as failure:
+        await client.translate(text="hi", system_prompt="prompt", source_language="ko", target_language="en")
+    report = provider_failure_report(failure.value, provider="llm", operation="translate")
+
+    assert report.message.key == expected_key
+    assert report.message.params["provider"] == "openrouter"
+    assert report.diagnostics.status_code == 402
+    assert report.diagnostics.category == "quota"
+    assert report.diagnostics.retry_after_ms == 12_000
+    for key, value in expected_fields.items():
+        assert report.diagnostics.fields[key] == value
+    assert ("limit_source" in report.diagnostics.fields) == ("limit_source" in expected_fields)
+    assert ("limit_reason" in report.diagnostics.fields) == ("limit_reason" in expected_fields)
+    assert validate_diagnostics_for_sink(report.diagnostics, DIAGNOSTIC_SINK_DASHBOARD).status == (
+        DIAGNOSTIC_VALIDATION_STATUS_ACCEPTED
+    )
+    assert secret not in repr(failure.value)
+    assert secret not in repr(report)
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [b"not json sk-provider-secret-123456789", b"[]"])
+async def test_openrouter_402_unparseable_body_is_neutral_and_not_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, body: bytes
+) -> None:
+    response = httpx.Response(
+        402,
+        content=body,
+        request=httpx.Request("POST", "https://example/chat/completions"),
+    )
+
+    class ErrorClient(FakeAsyncClient):
+        async def post(self, url, **kwargs):
+            return response
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **_kwargs: ErrorClient())
+    client = HttpxOpenRouterClient(api_key="sk-provider-secret-123456789", model="m")
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.llm.openrouter"):
+        with pytest.raises(OpenRouterResponseError) as failure:
+            await client.translate(
+                text="hi", system_prompt="prompt", source_language="ko", target_language="en"
+            )
+    report = provider_failure_report(failure.value, provider="llm", operation="translate")
+    assert report.message.key == "provider.openrouter.payment_required"
+    assert report.diagnostics.status_code == 402
+    assert "sk-provider-secret-123456789" not in repr(failure.value)
+    assert "sk-provider-secret-123456789" not in repr(report)
+    assert "sk-provider-secret-123456789" not in repr(caplog.messages)
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [("0", 0), ("86400", 86_400_000), ("86401", None), ("-1", None), ("not-a-date", None)],
+)
+async def test_openrouter_retry_after_only_accepts_bounded_valid_values(
+    monkeypatch: pytest.MonkeyPatch, retry_after: str, expected: int | None
+) -> None:
+    response = httpx.Response(
+        402,
+        json={"error": {"metadata": {"limit_source": "openrouter_in_flight_budget"}}},
+        headers={"Retry-After": retry_after},
+        request=httpx.Request("POST", "https://example/chat/completions"),
+    )
+
+    class ErrorClient(FakeAsyncClient):
+        async def post(self, url, **kwargs):
+            return response
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **_kwargs: ErrorClient())
+    client = HttpxOpenRouterClient(api_key="test", model="m")
+    try:
+        with pytest.raises(OpenRouterResponseError) as failure:
+            await client.translate(
+                text="hi", system_prompt="prompt", source_language="ko", target_language="en"
+            )
+        report = provider_failure_report(failure.value, provider="llm", operation="translate")
+        assert report.message.key == "provider.openrouter.temporary_limit"
+        assert report.diagnostics.retry_after_ms == expected
+    finally:
+        await client.close()

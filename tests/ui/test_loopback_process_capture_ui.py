@@ -48,7 +48,7 @@ def _make_process_warning_view(
     stt_showing_warning: bool = False,
     translation_showing_warning: bool = False,
 ) -> tuple[DashboardView, list[str]]:
-    view = DashboardView.__new__(DashboardView)
+    view = DashboardView()
     view._stt_showing_warning = stt_showing_warning
     view._translation_showing_warning = translation_showing_warning
     view._process_capture_warning_active = False
@@ -760,7 +760,7 @@ def test_dashboard_process_warning_clears_on_success_without_touching_other_warn
     )
     view.set_overlay_peer_contract(success)
     assert view._process_capture_warning_active is False
-    assert displays[-1] == ""
+    assert view._current_display_text is None
 
 
 def test_dashboard_process_warning_clears_on_peer_disabled() -> None:
@@ -785,7 +785,7 @@ def test_dashboard_process_warning_clears_on_peer_disabled() -> None:
     )
     view.set_overlay_peer_contract(disabled)
     assert view._process_capture_warning_active is False
-    assert displays[-1] == ""
+    assert view._current_display_text is None
 
 
 def test_dashboard_process_warning_does_not_clear_stt_warning_content() -> None:
@@ -869,7 +869,7 @@ def test_dashboard_process_warning_does_not_clear_newer_matching_primary_text() 
 
 
 def test_dashboard_process_warning_does_not_clear_after_status_transition() -> None:
-    view = DashboardView.__new__(DashboardView)
+    view = DashboardView()
     view._stt_showing_warning = False
     view._translation_showing_warning = False
     view._process_capture_warning_active = False
@@ -932,7 +932,7 @@ def test_dashboard_unchanged_process_warning_does_not_reacquire_invalidated_prim
 ) -> None:
     previous_locale = get_locale()
     set_locale("en")
-    view = DashboardView.__new__(DashboardView)
+    view = DashboardView()
     view._stt_showing_warning = False
     view._translation_showing_warning = False
     view._process_capture_warning_active = False
@@ -1011,7 +1011,7 @@ def test_dashboard_unchanged_process_warning_does_not_reacquire_invalidated_prim
 
 
 def test_dashboard_changed_process_warning_reclaims_primary_with_new_guidance() -> None:
-    view = DashboardView.__new__(DashboardView)
+    view = DashboardView()
     view._stt_showing_warning = False
     view._translation_showing_warning = False
     view._process_capture_warning_active = False
@@ -1073,7 +1073,7 @@ def test_dashboard_changed_process_warning_reclaims_primary_with_new_guidance() 
             peer_warning_reason=None,
         )
     )
-    assert displays[-1] == ""
+    assert view._current_display_text is None
 
 
 @pytest.mark.asyncio

@@ -768,6 +768,7 @@ class ConstructionDummyDashboardView(ft.Container):
         self.on_toggle_translation = translation.toggle_translation
         self.on_language_change = translation.change_language
         self.on_message_input_activity = translation.report_input_activity
+        self.on_open_translation_settings = translation.open_settings
         self.on_toggle_stt = capture.toggle_self_capture
         self.on_toggle_peer_translation = capture.toggle_peer_capture
         self.on_toggle_overlay = capture.toggle_overlay
@@ -3242,9 +3243,10 @@ async def test_on_providers_changed_applies_consumed_provider_draft() -> None:
     app.page = DummyPage()
     app._settings_mutation_queue = []
     app._settings_mutation_worker_active = False
+    provider_settings = AppSettingsVNext()
     app.view_settings = SimpleNamespace(
         has_provider_changes=True,
-        consume_provider_apply_settings=lambda: "managed-settings",
+        consume_provider_apply_settings=lambda: provider_settings,
     )
     seen: list[object] = []
 
@@ -3259,7 +3261,7 @@ async def test_on_providers_changed_applies_consumed_provider_draft() -> None:
     assert app.view_settings.has_provider_changes is False
     assert len(app.page.tasks) == 1
     await app.page.tasks[0]()
-    assert seen == ["managed-settings"]
+    assert seen == [provider_settings]
 
 
 @pytest.mark.asyncio
@@ -3987,7 +3989,7 @@ async def test_queue_orders_generic_settings_change_before_provider_apply_on_set
     app.page = DummyPage()
     app._current_tab = 1
     raw_settings = object()
-    provider_settings = object()
+    provider_settings = AppSettingsVNext()
     app.view_dashboard = object()
     app.view_logs = SimpleNamespace(scroll_to_bottom=lambda: asyncio.sleep(0))
     app.view_about = object()

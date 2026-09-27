@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +34,9 @@ from puripuly_heart.ui.theme import COLOR_WARNING
 @dataclass(slots=True)
 class FletUiPresentationAdapter:
     _app: UiPresentationPort
+    _committed_translation_config: tuple[object, ...] | None = field(
+        default=None, init=False
+    )
 
     @property
     def debug_ui_preview(self) -> bool:
@@ -376,6 +379,20 @@ class FletUiPresentationAdapter:
             config_path=config_path,
             preserve_custom_vocab_draft=preserve_custom_vocab_draft,
         )
+        translation_config = (
+            provider.llm_provider,
+            provider.translation,
+            provider.openrouter_llm_model,
+            provider.openrouter_selected_source,
+            provider.openrouter_selection_alias,
+        )
+        previous_config = self._committed_translation_config
+        self._committed_translation_config = translation_config
+        if previous_config is not None and previous_config != translation_config:
+            dashboard = getattr(self._app, "view_dashboard", None)
+            clear_issue = getattr(dashboard, "clear_translation_issue", None)
+            if callable(clear_issue):
+                clear_issue()
         return True
 
     def refresh_settings_after_openrouter_pkce_success(

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -25,20 +27,80 @@ from puripuly_heart.providers.llm.messages import build_translation_user_message
 
 logger = logging.getLogger(__name__)
 _OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+_LIMIT_SOURCES = frozenset(
+    {"openrouter_credits", "openrouter_key_limit", "openrouter_in_flight_budget"}
+)
+_LIMIT_REASONS = frozenset({"in_flight_budget_exhausted", "weight_exceeds_budget"})
+_MAX_RETRY_AFTER_SECONDS = 86_400
+
+
+class OpenRouterResponseError(RuntimeError):
+    diagnostic_provider = "openrouter"
+
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        limit_source: str | None = None,
+        limit_reason: str | None = None,
+        retry_after_ms: int | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.limit_source = limit_source
+        self.limit_reason = limit_reason
+        self.retry_after_ms = retry_after_ms
+        super().__init__(f"OpenRouter request failed (status={status_code})")
+
+
+def _payment_limit_metadata(response: httpx.Response) -> tuple[str | None, str | None]:
+    try:
+        data = response.json()
+    except Exception:
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+    error = data.get("error")
+    if not isinstance(error, dict):
+        return None, None
+    metadata = error.get("metadata")
+    if not isinstance(metadata, dict):
+        return None, None
+    source = metadata.get("limit_source")
+    reason = metadata.get("reason")
+    if (source is not None and (not isinstance(source, str) or source not in _LIMIT_SOURCES)) or (
+        reason is not None and (not isinstance(reason, str) or reason not in _LIMIT_REASONS)
+    ):
+        return None, None
+    return source, reason
+
+
+def _retry_after_ms(response: httpx.Response) -> int | None:
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    value = raw.strip()
+    if value.isascii() and value.isdecimal():
+        seconds = int(value) if len(value) <= 10 else _MAX_RETRY_AFTER_SECONDS + 1
+    else:
+        try:
+            when = parsedate_to_datetime(value)
+        except (ValueError, TypeError, IndexError, OverflowError):
+            return None
+        if when.tzinfo is None:
+            return None
+        seconds = (when - datetime.now(timezone.utc)).total_seconds()
+    if 0 <= seconds <= _MAX_RETRY_AFTER_SECONDS:
+        return int(seconds * 1000)
+    return None
 
 
 def _log_basic_request_failure(
     *,
     runtime_logging: ProviderObservationPort | None,
     operation: str,
-    status: int,
-    message: str,
+    error: OpenRouterResponseError,
 ) -> None:
-    report = provider_failure_report(
-        RuntimeError(f"status={status} message={message}"),
-        provider="openrouter",
-        operation=operation,
-    )
+    report = provider_failure_report(error, provider="openrouter", operation=operation)
     rendered = "[Basic][LLM] OpenRouter request failed [%s]: %s" % (
         operation,
         format_error_report_for_log(report),
@@ -452,13 +514,21 @@ class HttpxOpenRouterClient:
             json=request_body,
         )
         if response.status_code != 200:
+            source, reason = (
+                _payment_limit_metadata(response) if response.status_code == 402 else (None, None)
+            )
+            error = OpenRouterResponseError(
+                response.status_code,
+                limit_source=source,
+                limit_reason=reason,
+                retry_after_ms=_retry_after_ms(response),
+            )
             _log_basic_request_failure(
                 runtime_logging=self.runtime_logging,
                 operation="translate",
-                status=response.status_code,
-                message="provider returned non-success status",
+                error=error,
             )
-            raise RuntimeError(f"OpenRouter request failed (status={response.status_code})")
+            raise error
 
         data = response.json()
         choices = data.get("choices", [])

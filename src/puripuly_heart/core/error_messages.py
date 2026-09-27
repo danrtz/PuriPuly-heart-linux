@@ -16,6 +16,7 @@ from puripuly_heart.core.diagnostic_validation import (
     DiagnosticSink,
     validate_diagnostics_for_sink,
 )
+from puripuly_heart.core.llm.fallback_racing import LLMProviderRaceError
 from puripuly_heart.core.messages import (
     CONTENT_POLICY_METADATA_ONLY,
     DIAGNOSTIC_CATEGORIES,
@@ -257,14 +258,69 @@ def _failure_report(
     operation: str,
     extra_fields: Mapping[str, DiagnosticFieldValue],
 ) -> UserErrorReport:
-    provider_label = _diagnostic_provider(exc, provider)
     operation_label = _safe_label(operation, "unknown")
-    status_code = _status_code(exc)
-    category = _classify_failure(exc, status_code=status_code)
+    race = next(
+        (item for item in _exception_chain(exc) if isinstance(item, LLMProviderRaceError)),
+        None,
+    )
+    if race is not None:
+        branch_reports = tuple(
+            provider_failure_report(error, provider=provider, operation=operation)
+            for error in race.errors
+        )
+        matching = bool(branch_reports) and all(
+            report.diagnostics.category == branch_reports[0].diagnostics.category
+            and report.diagnostics.status_code == branch_reports[0].diagnostics.status_code
+            and report.message.params["provider"] == branch_reports[0].message.params["provider"]
+            for report in branch_reports
+        )
+        unanimous_402 = (
+            matching
+            and branch_reports[0].diagnostics.status_code == 402
+            and branch_reports[0].message.params["provider"] == "openrouter"
+        )
+        provider_label = (
+            str(branch_reports[0].message.params["provider"])
+            if matching
+            else _safe_label(provider, "unknown")
+        )
+        status_code = branch_reports[0].diagnostics.status_code if matching else None
+        category = (
+            branch_reports[0].diagnostics.category
+            if matching
+            else DIAGNOSTIC_CATEGORY_UNKNOWN
+        )
+        message_key = (
+            branch_reports[0].message.key
+            if unanimous_402
+            and all(report.message.key == branch_reports[0].message.key for report in branch_reports)
+            else "provider.openrouter.payment_required"
+            if unanimous_402
+            else "provider.failure"
+        )
+        retry_values = {report.diagnostics.retry_after_ms for report in branch_reports}
+        retry_after_ms = retry_values.pop() if matching and len(retry_values) == 1 else None
+        shared_fields = {}
+        if unanimous_402:
+            for key in ("limit_source", "limit_reason"):
+                values = {report.diagnostics.fields.get(key) for report in branch_reports}
+                if len(values) == 1:
+                    value = values.pop()
+                    if value is not None:
+                        shared_fields[key] = value
+    else:
+        provider_label = _diagnostic_provider(exc, provider)
+        status_code = _status_code(exc)
+        category = _classify_failure(exc, status_code=status_code)
+        retry_after_ms = _retry_after_ms(exc)
+        shared_fields = _openrouter_limit_fields(exc) if status_code == 402 else {}
+        if status_code == 402 and provider_label == "openrouter":
+            message_key = _openrouter_402_message_key(shared_fields)
     fields: dict[str, DiagnosticFieldValue] = dict(extra_fields)
     fields["exception_type"] = type(exc).__name__ if exc is not None else "UnknownError"
     fields["provider"] = provider_label
     fields.update(_managed_diagnostic_fields(exc))
+    fields.update(shared_fields)
     return UserErrorReport(
         message=UserMessageRef(
             key=message_key,
@@ -283,10 +339,43 @@ def _failure_report(
             visibility=DIAGNOSTIC_VISIBILITY_BASIC,
             content_policy=CONTENT_POLICY_METADATA_ONLY,
             status_code=status_code,
-            retry_after_ms=_retry_after_ms(exc),
+            retry_after_ms=retry_after_ms,
             fields=fields,
         ),
     )
+
+
+def _openrouter_limit_fields(exc: BaseException | None) -> dict[str, DiagnosticFieldValue]:
+    for item in _exception_chain(exc):
+        if getattr(item, "diagnostic_provider", None) != "openrouter":
+            continue
+        fields: dict[str, DiagnosticFieldValue] = {}
+        source = getattr(item, "limit_source", None)
+        reason = getattr(item, "limit_reason", None)
+        if source in ("openrouter_credits", "openrouter_key_limit", "openrouter_in_flight_budget"):
+            fields["limit_source"] = source
+        if reason in ("in_flight_budget_exhausted", "weight_exceeds_budget"):
+            fields["limit_reason"] = reason
+        return fields
+    return {}
+
+
+def _openrouter_402_message_key(fields: Mapping[str, DiagnosticFieldValue]) -> str:
+    source = fields.get("limit_source")
+    reason = fields.get("limit_reason")
+    if reason == "weight_exceeds_budget":
+        return "provider.openrouter.payment_required"
+    if reason == "in_flight_budget_exhausted":
+        if source not in (None, "openrouter_in_flight_budget"):
+            return "provider.openrouter.payment_required"
+        return "provider.openrouter.temporary_limit"
+    if source == "openrouter_in_flight_budget":
+        return "provider.openrouter.temporary_limit"
+    if source == "openrouter_key_limit":
+        return "provider.openrouter.key_limit"
+    if source == "openrouter_credits":
+        return "provider.openrouter.insufficient_credits"
+    return "provider.openrouter.payment_required"
 
 
 def _classify_failure(
@@ -305,6 +394,8 @@ def _classify_failure(
         return DIAGNOSTIC_CATEGORY_RATE_LIMIT
     if status_code in (500, 502, 503, 504):
         return DIAGNOSTIC_CATEGORY_SERVICE_UNAVAILABLE
+    if status_code == 402:
+        return DIAGNOSTIC_CATEGORY_QUOTA
     if status_code is not None and 400 <= status_code < 500:
         return DIAGNOSTIC_CATEGORY_INVALID_RESPONSE
 
