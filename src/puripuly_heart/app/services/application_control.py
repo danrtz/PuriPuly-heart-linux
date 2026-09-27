@@ -65,7 +65,12 @@ from puripuly_heart.config.translation_values import (
     provider_llm_for_translation,
     supported_translation_connections,
 )
-from puripuly_heart.core.messages import TransactionResult
+from puripuly_heart.core.messages import (
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
+    TransactionResult,
+)
 
 if TYPE_CHECKING:
     from puripuly_heart.app.services.ui_application import UiApplicationBoundary
@@ -290,6 +295,7 @@ class _Operation:
     task: asyncio.Task | None = None
     backend: str | None = None
     install_started: bool = False
+    interrupt_requested: bool = False
 
 
 class UnknownOperationError(ValueError):
@@ -338,6 +344,7 @@ class ApplicationControlOwner:
         self._open = False
         for operation_id, operation in self._operations.items():
             if operation.task is not None and not operation.task.done():
+                operation.interrupt_requested = True
                 if operation.receipt["status"] == "accepted":
                     operation.receipt.update(status="interrupted", terminal=True)
                     self.events.publish({
@@ -920,6 +927,8 @@ class ApplicationControlOwner:
 
     async def _execute(self, command: str, arguments: dict, expected_revision: int | None, operation_id: str) -> None:
         operation = self._operations[operation_id]
+        captured = None
+        completed = False
         try:
             operation.receipt["status"] = "running"
             independent_stop = command in {"app.stop", "models.cancel", "gemma.cancel"} or (
@@ -934,7 +943,7 @@ class ApplicationControlOwner:
                 if expected_revision is not None and expected_revision != revision:
                     operation.receipt.update(status="rejected", error={"code": "revision_conflict", "current_revision": revision})
                 else:
-                    with self.results.capture() as captured:
+                    with self.results.capture(revision=self._current_revision) as captured:
                         result = await self._dispatch(command, arguments, operation_id=operation_id)
                     transaction = captured.current
                     status = "applied"
@@ -969,6 +978,7 @@ class ApplicationControlOwner:
                         operation.receipt.update({k: v for k, v in result.items() if k != "status"})
                         if "status" in result and result["status"] != "applied":
                             operation.receipt["status"] = result["status"]
+                    completed = True
         except asyncio.CancelledError:
             operation.receipt["status"] = "interrupted" if not self._open else "cancelled"
         except PeerCaptureTargetUnavailable:
@@ -978,8 +988,24 @@ class ApplicationControlOwner:
         except Exception as exc:
             operation.receipt.update(status="failed", error={"code": "application_operation_failed", "type": type(exc).__name__})
         finally:
-            if not self._open and command != "app.stop" and operation.receipt["status"] not in {"interrupted", "cancelled", "rejected", "persistence_failed"}:
+            if operation.interrupt_requested and command != "app.stop" and operation.receipt["status"] in {"applied", "degraded"}:
                 operation.receipt["status"] = "interrupted"
+            elif not self._open and command != "app.stop" and not completed and operation.receipt["status"] not in {"interrupted", "cancelled", "rejected", "persistence_failed"}:
+                operation.receipt["status"] = "interrupted"
+            if operation.receipt["status"] in {"interrupted", "cancelled"} and captured is not None and captured.committed_revision is not None:
+                if "transaction" not in operation.receipt:
+                    transaction = captured.current
+                    if transaction is None or transaction.status not in {
+                        TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
+                        TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+                    }:
+                        transaction = TransactionResult(
+                            TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
+                            None,
+                            None,
+                        )
+                    operation.receipt["transaction"] = _transaction_data(transaction)
+                operation.receipt["revision"] = captured.committed_revision
             operation.receipt["terminal"] = operation.receipt["status"] in TERMINAL
             if self._lock_owner is asyncio.current_task():
                 self._lock_owner = None
@@ -2074,6 +2100,8 @@ def _transaction_status(result: TransactionResult) -> str:
         return "applied"
     if status == "settings_commit_success_runtime_degraded":
         return "degraded"
+    if status == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED:
+        return "interrupted"
     if status.startswith("settings_commit_failed") or status == "secret_write_failed":
         return "persistence_failed"
     return "failed"

@@ -70,6 +70,7 @@ class CanonicalSettingsPatchRepository:
     surface: str = "translation_provider"
     provider_verification_binding: ProviderVerificationBinding | None = None
     save_failure_sink: Callable[[str], None] | None = None
+    commit_sink: Callable[[], None] | None = None
     commit_succeeded: bool = False
 
     async def load(self) -> SettingsSnapshot:
@@ -108,6 +109,9 @@ class CanonicalSettingsPatchRepository:
             if self.provider_verification_binding is not None:
                 self.owner.bind_provider_verification(self.provider_verification_binding)
             await self.owner.persist_async()
+            self.commit_succeeded = True
+            if self.commit_sink is not None:
+                self.commit_sink()
         except asyncio.CancelledError:
             self.owner.rollback()
             raise
@@ -128,7 +132,6 @@ class CanonicalSettingsPatchRepository:
             )
         self.committed_settings = next_settings
         self.owner.remember_projection(next_settings)
-        self.commit_succeeded = True
         return SettingsCommitResult(
             succeeded=True,
             snapshot=SettingsSnapshot(
@@ -513,6 +516,7 @@ class SettingsOwner:
         surface: str = "translation_provider",
         provider_verification_binding: ProviderVerificationBinding | None = None,
         save_failure_sink: Callable[[str], None] | None = None,
+        commit_sink: Callable[[], None] | None = None,
     ) -> CanonicalSettingsPatchRepository:
         return CanonicalSettingsPatchRepository(
             owner=self,
@@ -521,6 +525,7 @@ class SettingsOwner:
             surface=surface,
             provider_verification_binding=provider_verification_binding,
             save_failure_sink=save_failure_sink,
+            commit_sink=commit_sink,
         )
 
     def apply_capture_target(self, capture_target: CaptureTargetIntent) -> AppSettingsVNext:

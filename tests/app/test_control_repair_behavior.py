@@ -177,6 +177,7 @@ async def test_shutdown_before_accepted_task_first_runs_reports_terminal_interru
     receipt = await control.operation(accepted["operation_id"])
     assert receipt["status"] == "interrupted"
     assert receipt["terminal"] is True
+    assert "transaction" not in receipt
     assert any(
         event.get("topic") == "operation"
         and event.get("operation_id") == accepted["operation_id"]
@@ -184,6 +185,28 @@ async def test_shutdown_before_accepted_task_first_runs_reports_terminal_interru
         for event in control.events.history
     )
     assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "en"
+
+
+@pytest.mark.asyncio
+async def test_completed_settings_receipt_retains_applied_transaction(offline):
+    app = compose_headless_application(offline)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("offline-completed-settings")
+        initial = await control.query("settings.current", {})
+        submitted = await control.submit(
+            "settings.apply", {"changes": {"locale": "ja"}}, request_id="completed-locale",
+        )
+        receipt = await control.wait(submitted["operation_id"], timeout=5)
+        assert receipt["status"] == "applied"
+        assert receipt["terminal"] is True
+        assert receipt["transaction"]["status"] == "settings_commit_success_runtime_applied"
+        assert receipt["revision"] == initial["revision"] + 1
+        assert (await control.query("settings.current", {}))["revision"] == receipt["revision"]
+    finally:
+        await app.stop()
+    assert (await control.operation(submitted["operation_id"])) == receipt
 
 
 @pytest.mark.asyncio
@@ -220,8 +243,12 @@ async def test_host_shutdown_interrupts_active_and_queued_settings_without_late_
         assert (await control.wait(stop["operation_id"], timeout=5))["status"] == "applied"
         await asyncio.wait_for(host.wait_for_stop(), 6)
         await asyncio.wait_for(host.close(), 6)
-        assert (await control.operation(active["operation_id"]))["status"] == "interrupted"
-        assert (await control.operation(queued["operation_id"]))["status"] == "interrupted"
+        active_receipt = await control.operation(active["operation_id"])
+        queued_receipt = await control.operation(queued["operation_id"])
+        assert active_receipt["status"] == queued_receipt["status"] == "interrupted"
+        assert "transaction" not in active_receipt
+        assert "transaction" not in queued_receipt
+        assert queued_receipt["revision"] == initial["revision"]
         assert (await control.query("settings.current", {})) == initial
         assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
     finally:
@@ -274,12 +301,100 @@ async def test_noninterruptible_persistence_drains_before_host_closes(offline, m
         delivered = await asyncio.wait_for(event_task, 5)
         assert delivered["revision"] == initial["revision"] + 1
         await stream.aclose()
-        assert (await control.operation(active["operation_id"]))["status"] == "interrupted"
-        assert (await control.operation(queued["operation_id"]))["status"] == "interrupted"
-        assert (await control.query("settings.current", {}))["settings"]["intent"]["ui"]["locale"] == "ja"
+        active_receipt = await control.operation(active["operation_id"])
+        queued_receipt = await control.operation(queued["operation_id"])
+        current = await control.query("settings.current", {})
+        assert active_receipt["status"] == "interrupted"
+        assert active_receipt["terminal"] is True
+        assert active_receipt["revision"] == delivered["revision"] == current["revision"]
+        assert active_receipt["transaction"]["status"] in {
+            "settings_commit_success_runtime_interrupted",
+            "settings_commit_success_runtime_applied",
+            "settings_commit_success_runtime_degraded",
+        }
+        assert queued_receipt["status"] == "interrupted"
+        assert queued_receipt["terminal"] is True
+        assert queued_receipt["revision"] == initial["revision"]
+        assert "transaction" not in queued_receipt
+        assert current["settings"]["intent"]["ui"]["locale"] == "ja"
+        assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
         assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "ja"
     finally:
         release.set()
+        await host.close()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_after_commit_before_runtime_reports_interrupted_transaction(offline, monkeypatch):
+    from puripuly_heart.app.services.provider_runtime_apply import (
+        UiPromptClipboardStateRuntimeApplyAdapter,
+    )
+
+    app = compose_headless_application(offline)
+
+    class Lease:
+        def publish(self, **_kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    host = HostedApplication(app, Lease())
+    persist_entered = threading.Event()
+    persist_release = threading.Event()
+    runtime_entered = asyncio.Event()
+    original_persist = type(host.control.settings.persistence).persist
+
+    def slow_save(self, path, settings):
+        persist_entered.set()
+        if not persist_release.wait(5):
+            raise TimeoutError("save gate not released")
+        return original_persist(self, path, settings)
+
+    async def blocked_runtime(self, request):
+        runtime_entered.set()
+        await asyncio.Event().wait()
+
+    try:
+        await host.start()
+        monkeypatch.setattr(type(host.control.settings.persistence), "persist", slow_save)
+        monkeypatch.setattr(UiPromptClipboardStateRuntimeApplyAdapter, "apply_runtime", blocked_runtime)
+        control = host.control
+        initial = await control.query("settings.current", {})
+        active = await control.submit(
+            "settings.apply", {"changes": {"locale": "ja"}}, request_id="commit-before-runtime",
+        )
+        assert await asyncio.to_thread(persist_entered.wait, 5)
+        queued = await control.submit(
+            "settings.apply", {"changes": {"locale": "en"}}, request_id="uncommitted-queued",
+        )
+        closing = asyncio.create_task(host.close())
+        await asyncio.sleep(0.05)
+        assert not closing.done()
+        persist_release.set()
+        await asyncio.wait_for(runtime_entered.wait(), 5)
+        control._operations[active["operation_id"]].task.cancel()
+        await asyncio.wait_for(closing, 6)
+        active_receipt = await control.operation(active["operation_id"])
+        queued_receipt = await control.operation(queued["operation_id"])
+        current = await control.query("settings.current", {})
+        assert active_receipt["status"] == "interrupted"
+        assert active_receipt["terminal"] is True
+        assert active_receipt["transaction"]["status"] == "settings_commit_success_runtime_interrupted"
+        assert active_receipt["revision"] == current["revision"] == initial["revision"] + 1
+        assert "private phrase" not in json.dumps(active_receipt)
+        assert queued_receipt["status"] == "interrupted"
+        assert queued_receipt["revision"] == initial["revision"]
+        assert "transaction" not in queued_receipt
+        assert current["settings"]["intent"]["ui"]["locale"] == "ja"
+        assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "ja"
+        assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
+    finally:
+        persist_release.set()
+        if "active" in locals():
+            operation = host.control._operations[active["operation_id"]]
+            if operation.task is not None and not operation.task.done():
+                operation.task.cancel()
         await host.close()
 
 @pytest.mark.asyncio

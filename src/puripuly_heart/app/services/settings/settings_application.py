@@ -116,6 +116,7 @@ from puripuly_heart.config.translation_values import (
 from puripuly_heart.core.messages import (
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
     TransactionResult,
 )
 
@@ -156,6 +157,7 @@ def _settings_mutation_committed(result: TransactionResult) -> bool:
     return result.status in {
         TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
         TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+        TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
     }
 
 
@@ -986,6 +988,7 @@ class SettingsApplicationOwner:
                         self.settings.persist()
                     except Exception:
                         raise StrictSettingsSaveFailed from None
+                    self.results.mark_settings_committed()
                     self.settings.remember_projection(transition.settings)
                 elif not self.settings.save_current(
                     failure_sink=lambda exc: self.failure_sink(
@@ -1002,6 +1005,7 @@ class SettingsApplicationOwner:
                         )
                     )
                     return False
+                self.results.mark_settings_committed()
                 committed = True
             try:
                 await self.runtime_effects.apply_after_persist(
@@ -1506,6 +1510,7 @@ class SettingsApplicationOwner:
             committed_settings=committed_settings,
             surface=surface,
             save_failure_sink=self.failure_sink,
+            commit_sink=self.results.mark_settings_committed,
         )
         service = self.mutation_service_provider() or SettingsMutationService(
             settings_repository=repository,

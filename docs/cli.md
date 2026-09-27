@@ -224,6 +224,8 @@ puripuly.exe operation cancel <operation-id>
 
 Active model installation and Gemma preparation are the cancellable long-running operations. Other operation types may report `cancellation: unsupported`; the CLI exits 4 and leaves a still-running operation marked nonterminal. Cancellation is not a rollback: a settings commit or already-applied runtime change remains committed. The operation receipt describes what has already completed.
 
+If shutdown interrupts a settings operation after a durable save, its receipt retains the committed transaction and that commit's revision. `transaction.status: settings_commit_success_runtime_interrupted` means settings persisted but runtime completion was not established before interruption; a known runtime-applied or runtime-degraded transaction is retained instead when available. A queued operation that never committed has no committed transaction. These fields report completion metadata, not private setting values. Shutdown does not rewrite an already completed receipt.
+
 Mutation requests have a caller `request_id`, which the client generates unless `--request-id` is supplied on `command`. The host deduplicates a matching request identity and payload while that host retains it; reusing an ID with different content is rejected. Up to 256 operation/request identities are retained per host and terminal records may be evicted when that bound is reached. The instance UUID changes on restart, so operation IDs from a previous host cannot be resumed against the new one. If a response is lost or the client times out, execution may be unknown; inspect host and operation state before deciding what to do. The CLI never automatically replays an ambiguous mutation.
 
 ## Credentials, authorization, and consent

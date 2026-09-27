@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from dataclasses import dataclass
 from puripuly_heart.core.messages import (
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
     TransactionResult,
 )
 
@@ -14,6 +16,8 @@ from puripuly_heart.core.messages import (
 @dataclass(slots=True)
 class _ResultScope:
     current: TransactionResult | None = None
+    revision: Callable[[], int] | None = None
+    committed_revision: int | None = None
 
 
 class SettingsTransactionResultOwner:
@@ -29,8 +33,8 @@ class SettingsTransactionResultOwner:
         return scope.current if scope is not None else self._latest
 
     @contextmanager
-    def capture(self):
-        scope = _ResultScope()
+    def capture(self, *, revision: Callable[[], int] | None = None):
+        scope = _ResultScope(revision=revision)
         token = self._scope.set(scope)
         try:
             yield scope
@@ -43,11 +47,19 @@ class SettingsTransactionResultOwner:
         if scope is not None:
             scope.current = result
 
+    def mark_settings_committed(self) -> None:
+        scope = self._scope.get()
+        if scope is not None and scope.revision is not None:
+            scope.current = None
+            scope.committed_revision = scope.revision()
+
+
     def committed(self) -> bool:
         current = self.current
         return current is not None and current.status in {
             TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
             TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+            TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
         }
 
 
