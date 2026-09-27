@@ -531,7 +531,13 @@ class ManagedOpenRouterReleaseService:
         self,
         *,
         referral_id: str | None = None,
+        allow_authorization: bool = True,
     ) -> ManagedOpenRouterReleaseResult:
+        if not allow_authorization and self._prepare_task is not None and not self._prepare_task.done():
+            return ManagedOpenRouterReleaseResult(
+                behavior=ManagedOpenRouterReleaseBehavior.RESTART,
+                message_key="discord_auth.error.action_required",
+            )
         if self._issue_task is not None and not self._issue_task.done():
             return await self._await_shared_task(self._issue_task, single_flight_reused=True)
         if self._prepare_task is not None and not self._prepare_task.done():
@@ -539,7 +545,10 @@ class ManagedOpenRouterReleaseService:
 
         task = self._start_shared_task(
             "_prepare_task",
-            self._run_prepare_flow(referral_id=referral_id),
+            self._run_prepare_flow(
+                referral_id=referral_id,
+                allow_authorization=allow_authorization,
+            ),
         )
         return await self._await_shared_task(task, single_flight_reused=False)
 
@@ -861,6 +870,7 @@ class ManagedOpenRouterReleaseService:
         self,
         *,
         referral_id: str | None = None,
+        allow_authorization: bool = True,
     ) -> ManagedOpenRouterReleaseResult:
         resolution = resolve_openrouter_credentials(
             self._credential_runtime_config(),
@@ -889,6 +899,12 @@ class ManagedOpenRouterReleaseService:
         if pending_operation_result is not None:
             return pending_operation_result
 
+        if not allow_authorization and _normalize_optional_text(self.managed_state.release_token) is None:
+            return ManagedOpenRouterReleaseResult(
+                behavior=ManagedOpenRouterReleaseBehavior.RESTART,
+                message_key="discord_auth.error.action_required",
+            )
+
         bundle = ensure_managed_identity_bundle(
             self.managed_state,
             self.secrets,
@@ -905,6 +921,12 @@ class ManagedOpenRouterReleaseService:
                     message_key="managed_release.restart",
                 )
             return await self._await_or_start_issue_flow()
+
+        if not allow_authorization:
+            return ManagedOpenRouterReleaseResult(
+                behavior=ManagedOpenRouterReleaseBehavior.RESTART,
+                message_key="discord_auth.error.action_required",
+            )
 
         listener: DiscordOAuthLoopbackListener | None = None
         try:

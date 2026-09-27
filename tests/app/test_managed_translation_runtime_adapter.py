@@ -194,7 +194,10 @@ async def test_prepare_ready_records_discord_claim_and_persists_identity() -> No
         def record_success(self, source: str) -> None:
             events.append(f"record:{source}")
 
-    async def prepare_for_translation() -> ManagedOpenRouterReleaseResult:
+    async def prepare_for_translation(
+        *, allow_authorization: bool = True
+    ) -> ManagedOpenRouterReleaseResult:
+        _ = allow_authorization
         events.append("prepare")
         return ManagedOpenRouterReleaseResult(
             behavior=ManagedOpenRouterReleaseBehavior.READY,
@@ -223,7 +226,10 @@ async def test_prepare_ready_records_discord_claim_and_persists_identity() -> No
 async def test_china_prepare_maps_required_result_to_qq_dialog_and_safe_diagnostics() -> None:
     settings = _managed_settings(china=True)
 
-    async def prepare_for_translation() -> ManagedOpenRouterReleaseResult:
+    async def prepare_for_translation(
+        *, allow_authorization: bool = True
+    ) -> ManagedOpenRouterReleaseResult:
+        _ = allow_authorization
         return ManagedOpenRouterReleaseResult(
             behavior=ManagedOpenRouterReleaseBehavior.RETRY,
             message_key="qq_managed_auth.required",

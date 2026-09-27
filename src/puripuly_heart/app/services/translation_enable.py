@@ -32,7 +32,7 @@ class ManagedTranslationPreparation:
 
 
 TranslationEnableStateProvider = Callable[[], TranslationEnableState]
-ManagedTranslationPrepare = Callable[[], Awaitable[ManagedTranslationPreparation]]
+ManagedTranslationPrepare = Callable[[bool], Awaitable[ManagedTranslationPreparation]]
 TranslationEnableFounderRoute = Callable[[], Awaitable[bool]]
 TranslationEnablePendingSink = Callable[[bool], None]
 TranslationEnableRuntimeEnsurer = Callable[[str], Awaitable[bool]]
@@ -89,7 +89,7 @@ class TranslationEnableOwner:
         if self.starting_sink is not None:
             self.starting_sink(bool(starting))
 
-    async def set_enabled(self, enabled: bool) -> bool:
+    async def set_enabled(self, enabled: bool, *, allow_authorization: bool = True) -> bool:
         request_generation = self.record_intent(enabled)
         if not enabled:
             self.pending_sink(False)
@@ -105,7 +105,7 @@ class TranslationEnableOwner:
             self._publish_starting(True)
         try:
             if enabled and state.managed_selected:
-                if not await self._prepare_managed(request_generation, state):
+                if not await self._prepare_managed(request_generation, state, allow_authorization=allow_authorization):
                     return False
             if enabled and not self.intent_matches(
                 enabled=True,
@@ -136,6 +136,8 @@ class TranslationEnableOwner:
         self,
         request_generation: int,
         state: TranslationEnableState,
+        *,
+        allow_authorization: bool,
     ) -> bool:
         if await self.founder_route():
             return False
@@ -143,7 +145,7 @@ class TranslationEnableOwner:
             return True
         self.pending_sink(not state.managed_local_key_available)
         try:
-            result = await self.managed_prepare()
+            result = await self.managed_prepare(allow_authorization)
         except Exception:
             self.pending_sink(False)
             raise
@@ -161,11 +163,13 @@ class TranslationEnableOwner:
             return True
         if result.diagnostics_text:
             self.log_error(f"[ManagedAuth] {result.diagnostics_text}")
-        await self.usage_refresh_now()
+        if allow_authorization:
+            await self.usage_refresh_now()
         self.runtime_sink(False)
         self.dashboard_sink(False)
         if result.show_qq_dialog:
-            self.qq_dialog_sink()
+            if allow_authorization:
+                self.qq_dialog_sink()
             return False
         if result.message_key is not None:
             self.message_sink(result.message_key, result.message_kwargs)

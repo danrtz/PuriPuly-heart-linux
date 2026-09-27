@@ -760,6 +760,25 @@ def materialize_provider_apply_intent(
     return updated
 
 
+def materialize_language_selection(
+    current: AppSettingsVNext,
+    change: LanguageSelectionChange,
+) -> AppSettingsVNext:
+    return _with_intent(
+        current,
+        languages=replace(
+            current.intent.languages,
+            source_language=change.source_code,
+            target_language=change.target_code,
+            secondary_target_language=change.secondary_target_code,
+            peer_source_mode=change.peer_source_mode,
+            peer_source_language=change.peer_source_code,
+            peer_target_language=change.peer_target_code,
+            recent_source_languages=list(change.recent_source_codes),
+            recent_target_languages=list(change.recent_target_codes),
+        ),
+    )
+
 @dataclass(slots=True)
 class SettingsApplicationOwner:
     settings: SettingsOwner
@@ -852,7 +871,7 @@ class SettingsApplicationOwner:
         )
         self.fallback_sink(fallback_channels, installation_fallback)
         if applied:
-            self.success_sink("[Settings] apply_result outcome=committed effective=current")
+            self._emit_apply_result()
         return True
 
     async def _route(
@@ -976,13 +995,36 @@ class SettingsApplicationOwner:
                         f"exception_type={type(exc).__name__}"
                     )
                 ):
+                    self._set_result(
+                        TransactionResult(
+                            status="settings_commit_failed",
+                            message=None,
+                            diagnostics=None,
+                        )
+                    )
                     return False
                 committed = True
-            await self.runtime_effects.apply_after_persist(
-                transition,
-                strict_runtime_errors=strict_runtime_errors,
-                reload_settings_view=reload_settings_view,
-            )
+            try:
+                await self.runtime_effects.apply_after_persist(
+                    transition,
+                    strict_runtime_errors=strict_runtime_errors,
+                    reload_settings_view=reload_settings_view,
+                )
+            except Exception as exc:
+                if strict_runtime_errors:
+                    raise
+                self._set_result(
+                    _stt_language_audio_runtime_degraded_transaction_result(
+                        code=_exception_code(exc, "settings_runtime_apply_exception"),
+                    )
+                )
+            else:
+                if persist:
+                    self._set_result(TransactionResult(
+                        status=TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
+                        message=None,
+                        diagnostics=None,
+                    ))
             self.projection.remember_all(self.settings.canonical)
             return True
         finally:
@@ -1023,20 +1065,7 @@ class SettingsApplicationOwner:
         current = self.settings.canonical
         if current is None:
             return
-        updated = _with_intent(
-            current,
-            languages=replace(
-                current.intent.languages,
-                source_language=change.source_code,
-                target_language=change.target_code,
-                secondary_target_language=change.secondary_target_code,
-                peer_source_mode=change.peer_source_mode,
-                peer_source_language=change.peer_source_code,
-                peer_target_language=change.peer_target_code,
-                recent_source_languages=list(change.recent_source_codes),
-                recent_target_languages=list(change.recent_target_codes),
-            ),
-        )
+        updated = materialize_language_selection(current, change)
         await self.apply(updated)
         if self.settings.canonical is not None:
             self.projection.render(

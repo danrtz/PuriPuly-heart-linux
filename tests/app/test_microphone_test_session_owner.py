@@ -258,6 +258,29 @@ async def test_owner_drops_stale_meter_updates_and_contains_callback_failure() -
 
 
 @pytest.mark.asyncio
+async def test_stopped_generation_rejects_late_meter_readiness_and_failure() -> None:
+    started = asyncio.Event()
+
+    async def capture(_generation: int, _meter_callback, _interval: float) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    owner = _owner(capture)
+    assert await owner.start(MicrophoneTestSessionRequest(audio_signature=("controlled",)))
+    await started.wait()
+    generation = owner.runtime.generation
+    assert owner.snapshot["state"] == "pending"
+    await owner.stop()
+    await owner.set_meter_level(0.8, None, generation=generation)
+    owner.mark_failure(generation, "input_route_unavailable", "DeviceUnavailable")
+    owner.mark_ready(generation)
+    assert owner.snapshot == {
+        "state": "off", "desired_active": False, "effective_active": False,
+        "meter_level": 0.0, "failure_reason": None, "failure_type": None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_owner_contains_session_failure_and_closes_runtime() -> None:
     diagnostics: list[tuple[str, dict[str, object], BaseException | None]] = []
 

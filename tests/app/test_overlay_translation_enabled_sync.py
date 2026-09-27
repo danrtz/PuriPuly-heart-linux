@@ -232,7 +232,7 @@ def make_enable_owner(
     return owner, dashboard_values
 
 
-async def _unexpected_prepare() -> Any:
+async def _unexpected_prepare(_allow_authorization: bool) -> Any:
     raise AssertionError("managed prepare must not run when managed is not selected")
 
 

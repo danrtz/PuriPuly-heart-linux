@@ -57,7 +57,9 @@ Broker is a control-plane dependency, not part of the normal utterance data path
 
 | Owner                   | Owns                                                       | Key path                                                                  |
 | ----------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
-| UI application boundary | UI-facing application operations                           | `app/services/ui_application.py`                 |
+| UI application boundary | UI-facing application operations; shared application-control delegation | `app/services/ui_application.py` |
+| Application control owner | Finite command/query catalog, revisions, ordered mutations, operation receipts, event projections | `app/services/application_control.py`, `app/services/application_control_events.py` |
+| Local control host | Authenticated endpoint, instance identity, lease, host start/stop | `cli/host.py`, `cli/transport.py`, `core/control_instance.py` |
 | Settings owner          | Canonical settings, persistence, projection, rollback      | `app/services/canonical_settings_persistence.py` |
 | Runtime pipeline        | Active runtime component set                               | `app/wiring/wiring_runtime_pipeline.py`                    |
 | Self capture owner      | Microphone source and capture lifecycle                    | `core/runtime/self_capture.py`                       |
@@ -165,8 +167,9 @@ VRChat process lifetime
 
 | Boundary        | Contract                                             | Implementations                          |
 | --------------- | ---------------------------------------------------- | ---------------------------------------- |
-| UI application  | `UiApplicationPort`                                  | Flet application boundary                |
-| UI presentation | `UiPresentationPort`, `UIEventBridgePort`            | Flet presentation adapters               |
+| Local application control | Finite CLI command/query/operation/event contract | `ApplicationControlOwner`, authenticated loopback transport |
+| UI application  | `UiApplicationPort`                                  | Flet application boundary and headless application boundary |
+| UI presentation | `UiPresentationPort`, `UIEventBridgePort`            | Flet and headless presentation adapters   |
 | Audio capture   | Capture and VAD ports                                | Microphone, loopback, process capture    |
 | STT             | Provider and local ASR ports                         | CPU ASR, GPU worker, remote STT          |
 | Translation     | `TranslationRequestPort`                             | BYOK, managed, local or remote providers |
@@ -210,6 +213,22 @@ Composition may construct resources.
 
 Long-lived resource ownership must be transferred to an explicit owner.
 
+## Local Application Control
+
+GUI and headless hosts compose the same application boundary and application owners. The headless path changes the presentation adapter; it does not create a second capture, recognition, translation, settings, output, or shutdown runtime. Headless composition supplies the application-essential scheduling, state, interactions, and event-consumption work without the main window.
+
+`ApplicationControlOwner` is the application-facing boundary for a finite allowlist of typed commands and owner-backed queries. The CLI convenience domains and named `command`/`query` forms translate to that catalog; transport code does not reflect over Python objects or call owner internals. Settings and provider edits enter the existing typed settings/provider owners, materialize against canonical settings, and share mutation ordering with GUI and OSC changes. A caller may provide an expected settings revision; stale requests are rejected rather than overwriting newer state. Runtime snapshots distinguish selected settings from active runtime and capture attachments.
+
+Submitted work is scheduled and retained by the application-control owner, not by a client's terminal. Receipts expose terminal versus in-progress state, revision, and detailed transaction outcome. Request identities deduplicate a matching request only within the host's bounded 256-record retention; instance UUID and operation ownership end at host restart. A timeout or lost response is ambiguous and does not authorize automatic mutation replay. Cancellation is exposed only where the application owner supports it; cancellation does not undo already committed changes.
+
+`UiApplicationBoundary.output_status()` projects the overlay and OSC owners' effective state separately from canonical settings. Overlay snapshots include actual lifecycle/process/presentation readiness, effective versus attempted target, recovery/fallback and ingress-stop state; `desktop_visible` is distinct from a manager/presenter readiness handshake. OSC snapshots separate configured/applied ports from live local receiver/sender/query-service availability and discovery state. UDP delivery remains unacknowledged; no snapshot claims that VRChat received a packet.
+
+Overlay transition outcomes are owned and awaited through the application boundary. The transition waiter observes owner state and awaits existing start and immediate fallback/recovery tasks without background polling; shielded work retains application ownership if a caller stops waiting. Mutating receipts are terminal only after the explicit transition completes or fails. A scheduled future recovery attempt does not turn an unavailable output into success or keep the original operation pending indefinitely.
+
+`HostedApplication` owns the local control server and settings-identity lease for both GUI and headless hosts (`cli/host.py`). The v1 transport is authenticated newline-delimited JSON on ephemeral `127.0.0.1`; endpoint records and tokens are protected by verified current-user Windows ACLs, and `core/control_instance.py` uses an exclusive `LockFileEx` lease to prevent concurrent hosts for the same canonical settings identity. Host identity is an opaque UUID, separate from the PID. The server freezes ingress before ordered application shutdown and releases the endpoint/lease after shutdown. Remote GUI stop then awaits the real UI presentation close boundary; it does not substitute a successful no-op for window closure.
+
+`ControlEvents` observes the shared runtime event stream without competing with the GUI event bridge and distributes independently buffered, privacy-projected subscriptions (`app/services/application_control_events.py`). Slow consumers cannot block capture/translation. Sequence gaps require the caller to resynchronize from owner-backed snapshots; self, peer, UI, and provider streams do not acquire a false global ordering.
+
 ## Runtime Pipeline
 
 `RuntimePipelineLauncher` builds and installs the active component set.
@@ -243,6 +262,8 @@ Do not retain references across replacement unless the API explicitly allows it.
 - Translation model and connection values: `config/translation_values.py`
 
 `SettingsView` consumes only frozen surface snapshots and emits focused typed intents. The settings application owner replays those intents onto the latest canonical settings before persistence and runtime application.
+
+GUI provider and prompt drafts retain their captured base and focused edits. Unrelated external changes rebase without losing the draft; overlapping changes require explicit conflict resolution. Successful asynchronous apply acknowledges only the matching edits in the submitted intent through `acknowledge_provider_apply_settings`; newer edits staged while that apply was pending remain staged. Failed apply does not consume a draft.
 
 Contains user selections, not active runtime resources.
 
@@ -457,6 +478,7 @@ Child processes remain owned for the host lifetime. Abrupt-exit containment is a
 
 - The Python application runs asynchronous runtime work on its `asyncio` event loop.
 - Owners create, track, and close their own background tasks.
+- `ApplicationControlOwner` owns each submitted operation task and bounded receipt retention; client disconnect does not transfer or cancel that ownership.
 - Do not create detached tasks without assigning lifecycle ownership.
 - Capture, STT, translation, UI, and child-process events cross owner boundaries through ports, callbacks, or owned queues.
 - Callbacks must delegate to the receiving owner; they must not mutate another owner's private runtime state.

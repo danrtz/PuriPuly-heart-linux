@@ -184,6 +184,7 @@ class TranslatorApp:
         if application is None:
             raise RuntimeError("Application factory did not compose an application boundary")
         self._ui_application = application
+        self.application.bind_presentation_close(self.close_presentation)
         self._shutdown_lock: asyncio.Lock | None = None
         self._shutdown_complete = False
         self._shutting_down = False
@@ -406,6 +407,12 @@ class TranslatorApp:
 
     async def _on_page_lifecycle_end(self, _event=None) -> None:
         await self.shutdown()
+    async def close_presentation(self) -> None:
+        self._window_close_requested = True
+        result = self.page.window.destroy()
+        if inspect.isawaitable(result):
+            await result
+
 
     def _on_window_event(self, event) -> None:
         event_type = getattr(event, "type", getattr(event, "data", None))
@@ -1053,24 +1060,30 @@ class TranslatorApp:
         # Auto-apply Settings changes when leaving Settings (tab 1)
         if previous_tab == 1 and index != 1:
             if self.view_settings.has_provider_changes:
-                pending_settings = self.view_settings.consume_provider_apply_settings()
+                pending_settings = self.view_settings.build_provider_apply_settings()
                 if pending_settings is not None:
-                    self.view_settings.has_provider_changes = False
-
-                    self._log_basic("[Settings] Applying staged provider intent")
-
                     async def _task():
-                        await self.application.apply_provider_intent(pending_settings)
+                        if self.view_settings.external_settings_conflict:
+                            self.view_settings._show_external_conflict()
+                            return
+                        result = await self.application.apply_provider_intent(pending_settings)
+                        if result:
+                            self.view_settings.acknowledge_provider_apply_settings(pending_settings)
+                            self.application.refresh_settings_projection()
 
                     self._queue_settings_mutation_task(_task)
             elif getattr(self.view_settings, "has_pending_prompt_changes", False):
-                pending_settings = self.view_settings.consume_prompt_apply_settings()
-                if pending_settings is not None:
+                async def _task():
+                    if self.view_settings.external_settings_conflict:
+                        self.view_settings._show_external_conflict()
+                        return
+                    pending = PromptApplyIntent(self.view_settings._prompt_editor.value)
+                    result = await self.application.apply_prompt_intent(pending)
+                    if result:
+                        self.view_settings.consume_prompt_apply_settings()
+                        self.application.refresh_settings_projection()
 
-                    async def _task():
-                        await self.application.apply_prompt_intent(pending_settings)
-
-                    self._queue_settings_mutation_task(_task)
+                self._queue_settings_mutation_task(_task)
 
         if index == 0:
             self.content_area.content = self.view_dashboard
@@ -1462,7 +1475,13 @@ class TranslatorApp:
 
     def _on_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
         async def _task():
-            await self.application.apply_prompt_intent(intent)
+            if self.view_settings.external_settings_conflict:
+                self.view_settings._show_external_conflict()
+                return
+            result = await self.application.apply_prompt_intent(intent)
+            if result:
+                self.view_settings.consume_prompt_apply_settings()
+                self.application.refresh_settings_projection()
 
         self._queue_settings_mutation_task(_task)
 
@@ -1487,26 +1506,25 @@ class TranslatorApp:
             return
 
         pending_intent = None
-        consume_provider_apply_settings = getattr(
-            view_settings,
-            "consume_provider_apply_settings",
-            None,
-        )
-        if callable(consume_provider_apply_settings) and getattr(
-            view_settings,
-            "has_provider_changes",
-            False,
+        build_provider_apply_settings = getattr(view_settings, "build_provider_apply_settings", None)
+        if callable(build_provider_apply_settings) and getattr(
+            view_settings, "has_provider_changes", False
         ):
-            pending_intent = consume_provider_apply_settings()
-            view_settings.has_provider_changes = False
+            pending_intent = build_provider_apply_settings()
         if pending_intent is not None:
             self._log_basic("[Settings] Applying staged provider intent")
 
         async def _task():
             if pending_intent is None:
                 await self.application.apply_providers()
-            else:
-                await self.application.apply_provider_intent(pending_intent)
+                return
+            if view_settings.external_settings_conflict:
+                view_settings._show_external_conflict()
+                return
+            result = await self.application.apply_provider_intent(pending_intent)
+            if result:
+                view_settings.acknowledge_provider_apply_settings(pending_intent)
+                self.application.refresh_settings_projection()
 
         self._queue_settings_mutation_task(_task)
 

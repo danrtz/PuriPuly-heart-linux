@@ -1,6 +1,7 @@
 {
   "schema": "puripuly-heart/native-artifact-layout/v1",
   "host_executable": "PuriPulyHeart.exe",
+  "console_executable": "puripuly.exe",
   "python_executable": "python.exe",
   "application_root": "app",
   "dependency_root": "site-packages",

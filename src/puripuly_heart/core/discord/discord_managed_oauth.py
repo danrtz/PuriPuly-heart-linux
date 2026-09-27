@@ -15,8 +15,14 @@ async def run_discord_oauth_callback_flow(
     listener: DiscordOAuthLoopbackListener,
     authorization_url: str,
     expires_at: str,
+    *,
+    open_browser: bool = True,
+    authorization_url_sink: Callable[[str], None] | None = None,
 ) -> tuple[str, str]:
-    webbrowser.open(authorization_url)
+    if authorization_url_sink is not None:
+        authorization_url_sink(authorization_url)
+    if open_browser:
+        webbrowser.open(authorization_url)
     timeout = _timeout_seconds(expires_at)
     callback_result = await asyncio.to_thread(listener.wait, timeout)
     return callback_result.code, callback_result.state

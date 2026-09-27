@@ -15,6 +15,10 @@ class MicrophoneTestCaptureRequest:
     requested_device: str
     internal_channels: int
     generation: int | None = None
+    ready_callback: Callable[[int], None] | None = field(default=None, repr=False)
+    failure_callback: Callable[[int, str, str | None], None] | None = field(
+        default=None, repr=False,
+    )
     meter_callback: MicrophoneTestMeterCallback | None = field(
         default=None,
         repr=False,

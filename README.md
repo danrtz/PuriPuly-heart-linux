@@ -196,6 +196,8 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 
 For bidirectional control setup and the stable parameter ABI, see [VRChat OSC controls](docs/vrchat-osc.md).
 
+For terminal control of GUI or headless sessions, see the [CLI guide](docs/cli.md) and its [capability matrix](docs/cli-capabilities.md).
+
 ### If audio capture does not work
 If audio capture does not work, open **Settings > General** and follow these steps.
 

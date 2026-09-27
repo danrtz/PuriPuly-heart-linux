@@ -22,6 +22,7 @@ class ApplicationRuntimeLoggingOwner:
     service_factory: Callable[[], Any]
     fallback_logger: logging.Logger
     _service: Any | None = field(init=False, default=None, repr=False)
+    control_event_sink: Callable[[dict[str, object]], None] | None = None
     _task_scope: LifecycleScope = field(
         init=False,
         default_factory=lambda: LifecycleScope("ApplicationRuntimeLoggingOwner"),
@@ -55,6 +56,8 @@ class ApplicationRuntimeLoggingOwner:
         await self._task_scope.close()
 
     def emit_basic(self, message: str, *, level: int = logging.INFO) -> None:
+        if self.control_event_sink is not None:
+            self.control_event_sink({"topic": "logs", "level": logging.getLevelName(level).lower(), "kind": "basic"})
         try:
             self.service.emit_basic(message, level=level)
         except Exception:
@@ -73,6 +76,8 @@ class ApplicationRuntimeLoggingOwner:
         exception: BaseException | None = None,
     ) -> bool:
         rendered_message = message
+        if self.control_event_sink is not None:
+            self.control_event_sink({"topic": "logs", "level": logging.getLevelName(level).lower(), "kind": "diagnostic"})
         if exception is not None:
             rendered_message = f"{message} exception_type={type(exception).__name__}"
         try:

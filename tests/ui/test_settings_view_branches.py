@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +19,8 @@ from puripuly_heart.core.managed_openrouter_release import TalkTogetherPassStatu
 from puripuly_heart.app.ports.settings_view import (
     CustomSttEndpointEdit,
     ManagedReferralEdit,
+    PeerSttProviderEdit,
+    SelfSttProviderEdit,
     SystemPromptEdit,
     TranslationSelectionEdit,
 )
@@ -52,6 +56,7 @@ from puripuly_heart.config.settings_vnext.schema import (
 from puripuly_heart.config.translation_values import TranslationConnection, TranslationModel
 from puripuly_heart.core.openrouter_routing import OpenRouterProviderRouting
 from puripuly_heart.ui import i18n as i18n_module
+from puripuly_heart.ui.app import TranslatorApp
 from puripuly_heart.ui.components import subtab_shell as subtab_shell_module
 from puripuly_heart.ui.components.bottom_nav import BottomNavBar
 from puripuly_heart.ui.fonts import font_for_language
@@ -62,6 +67,7 @@ from puripuly_heart.ui.theme import COLOR_NEUTRAL_DARK
 from puripuly_heart.ui.views import settings as settings_view
 from tests.helpers.flet_page import attach_dummy_page
 from tests.helpers.osc_presentation import osc_control_presentation_state
+from tests.helpers.ui_application import compose_test_ui_application_boundary
 
 
 def _llm(pending) -> str:
@@ -2069,35 +2075,6 @@ def test_local_llm_unblurred_fields_commit_when_building_provider_apply_settings
     assert pending.intent.local_llm.extra_body == {"think": False}
 
 
-def test_local_llm_field_on_change_marks_dirty_and_consume_commits_unblurred_values(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    settings = _vnext(
-        llm="local_llm",
-        model=TranslationModel.LOCAL_LLM.value,
-        connection=TranslationConnection.OLLAMA.value,
-    )
-    view, _ = _make_settings_view(monkeypatch)
-    view.load_from_settings(settings, config_path=Path("settings.json"))
-
-    view._local_llm_base_url.value = "http://mac-studio.local:11434/v1"
-    view._local_llm_model.value = "gemma3:4b"
-    view._local_llm_extra_body.value = '{"enable_thinking": false}'
-
-    assert view._local_llm_base_url.on_change is not None
-    assert view._local_llm_model.on_change is not None
-    assert view._local_llm_extra_body.on_change is not None
-    view._local_llm_model.on_change(None)
-
-    assert view.has_provider_changes is True
-
-    pending = view.consume_provider_apply_settings()
-
-    assert pending is not None
-    assert pending.intent.local_llm.base_url == "http://mac-studio.local:11434/v1"
-    assert pending.intent.local_llm.model == "gemma3:4b"
-    assert pending.intent.local_llm.extra_body == {"enable_thinking": False}
-    assert view.has_provider_changes is False
 
 
 def test_local_llm_invalid_base_url_shows_error_without_saving(
@@ -6612,3 +6589,258 @@ def test_cloud_free_tier_card_is_inactive_without_auto_select(
 
     view._on_cloud_free_tier_click(None)
     assert captured == {}
+
+
+class ProviderApplyBackend:
+    def __init__(self, settings: AppSettingsVNext, *, result: bool = True) -> None:
+        self.settings = settings
+        self.result = result
+        self.applied_settings: list[AppSettingsVNext] = []
+        self.apply_started: asyncio.Event | None = None
+        self.release_apply: asyncio.Event | None = None
+
+    async def apply_providers(self, settings: AppSettingsVNext) -> bool:
+        self.applied_settings.append(settings)
+        if self.apply_started is not None:
+            self.apply_started.set()
+        if self.release_apply is not None:
+            await self.release_apply.wait()
+        if self.result:
+            self.settings = settings
+        return self.result
+
+
+def _make_provider_apply_app(
+    view: settings_view.SettingsView,
+    backend: ProviderApplyBackend,
+) -> tuple[TranslatorApp, list[Callable[[], Awaitable[None]]]]:
+    view.build_provider_apply_settings = view._build_provider_apply_intent
+    app = TranslatorApp.__new__(TranslatorApp)
+    app._current_tab = 1
+    app.view_settings = view
+    app.view_dashboard = object()
+    app.view_logs = object()
+    app.view_about = object()
+    app.content_area = SimpleNamespace(content=None, padding=None, update=lambda: None)
+    app._close_open_dialog_for_navigation = lambda: None
+    scheduled: list[Callable[[], Awaitable[None]]] = []
+    app._queue_settings_mutation_task = scheduled.append
+    app._ui_application = compose_test_ui_application_boundary(backend)
+    return app, scheduled
+
+
+def _provider_baseline() -> AppSettingsVNext:
+    return _vnext(
+        stt_provider=STTProviderName.SONIOX.value,
+        peer_stt_provider=STTProviderName.SONIOX.value,
+    )
+
+
+def _stage_peer_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: AppSettingsVNext,
+):
+    view, _store = _make_settings_view(monkeypatch)
+    view.load_from_settings(settings, config_path=Path("settings.json"))
+    view._on_peer_stt_selected(STTProviderName.ROLLING_FREE.value)
+    return view
+
+
+@pytest.mark.asyncio
+async def test_failed_provider_apply_retains_the_settings_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    backend = ProviderApplyBackend(baseline, result=False)
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    await scheduled[0]()
+
+    pending = view._build_provider_apply_intent()
+    assert backend.settings is baseline
+    assert pending is not None
+    assert any(
+        isinstance(edit, PeerSttProviderEdit)
+        and edit.provider == STTProviderName.ROLLING_FREE
+        for edit in pending.edits
+    )
+    assert view.has_provider_changes is True
+
+
+@pytest.mark.asyncio
+async def test_provider_apply_preserves_unrelated_external_settings_edits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    latest = _vnext(baseline, locale="ja", target_language="fr")
+    backend = ProviderApplyBackend(latest)
+    view.load_from_settings(latest, config_path=Path("settings.json"))
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    assert view.external_settings_conflict is False
+    app._on_nav_change(0)
+    await scheduled[0]()
+
+    assert backend.settings.intent.ui.locale == "ja"
+    assert backend.settings.intent.languages.target_language == "fr"
+    assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
+
+
+@pytest.mark.asyncio
+async def test_provider_apply_conflict_does_not_commit_the_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    latest = _vnext(baseline, peer_stt_provider=STTProviderName.DEEPGRAM.value)
+    backend = ProviderApplyBackend(latest)
+    view.load_from_settings(latest, config_path=Path("settings.json"))
+    attach_dummy_page(
+        monkeypatch,
+        view,
+        page=SimpleNamespace(show_dialog=lambda _dialog: None, pop_dialog=lambda: None),
+    )
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    assert view.external_settings_conflict is True
+    app._on_nav_change(0)
+    await scheduled[0]()
+
+    pending = view._build_provider_apply_intent()
+    assert backend.settings is latest
+    assert backend.applied_settings == []
+    assert pending is not None
+    assert view.has_provider_changes is True
+
+
+@pytest.mark.asyncio
+async def test_successful_provider_apply_acknowledgement_clears_the_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    backend = ProviderApplyBackend(baseline)
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    await scheduled[0]()
+
+    assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
+    assert view.has_provider_changes is False
+
+
+@pytest.mark.asyncio
+async def test_provider_apply_acknowledgement_preserves_edits_staged_while_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    backend = ProviderApplyBackend(baseline)
+    backend.apply_started = asyncio.Event()
+    backend.release_apply = asyncio.Event()
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    apply_task = asyncio.create_task(scheduled[0]())
+    await backend.apply_started.wait()
+    view._on_stt_selected(STTProviderName.ROLLING_FREE.value)
+    backend.release_apply.set()
+    await apply_task
+
+    assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
+    assert backend.settings.intent.stt.provider == STTProviderName.SONIOX.value
+    assert view.has_provider_changes is True
+    pending = view._build_provider_apply_intent()
+    assert pending is not None
+    assert any(
+        isinstance(edit, SelfSttProviderEdit)
+        and edit.provider == STTProviderName.ROLLING_FREE
+        for edit in pending.edits
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_apply_acknowledgement_preserves_a_newer_edit_to_the_same_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    backend = ProviderApplyBackend(baseline)
+    backend.apply_started = asyncio.Event()
+    backend.release_apply = asyncio.Event()
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    apply_task = asyncio.create_task(scheduled[0]())
+    await backend.apply_started.wait()
+    view._on_peer_stt_selected(STTProviderName.DEEPGRAM.value)
+    backend.release_apply.set()
+    await apply_task
+
+    assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
+    assert view.external_settings_conflict is False
+    assert view.has_provider_changes is True
+    assert view._build_settings_with_provider_draft().peer_stt_provider == STTProviderName.DEEPGRAM
+    pending = view.build_provider_apply_settings()
+    assert pending is not None
+    assert PeerSttProviderEdit(STTProviderName.DEEPGRAM) in pending.edits
+
+
+@pytest.mark.asyncio
+async def test_provider_auto_apply_keeps_prompt_staged_after_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    backend = ProviderApplyBackend(baseline)
+    backend.apply_started = asyncio.Event()
+    backend.release_apply = asyncio.Event()
+    app, scheduled = _make_provider_apply_app(view, backend)
+    app._log_basic = lambda _message: None
+
+    app._on_providers_changed()
+    apply_task = asyncio.create_task(scheduled[0]())
+    await backend.apply_started.wait()
+    view._on_prompt_change("NEW PROMPT")
+    backend.release_apply.set()
+    await apply_task
+
+    assert backend.settings.intent.prompts.system_prompt_override != "NEW PROMPT"
+    assert view.has_provider_changes is False
+    assert view.has_pending_prompt_changes is True
+    assert view._prompt_editor.value == "NEW PROMPT"
+    pending = view.build_provider_apply_settings()
+    assert pending is not None
+    assert SystemPromptEdit("NEW PROMPT") in pending.edits
+
+
+@pytest.mark.asyncio
+async def test_provider_apply_acknowledgement_preserves_a_newer_prompt_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _provider_baseline()
+    view = _stage_peer_provider(monkeypatch, baseline)
+    view._on_prompt_change("FIRST PROMPT")
+    backend = ProviderApplyBackend(baseline)
+    backend.apply_started = asyncio.Event()
+    backend.release_apply = asyncio.Event()
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    apply_task = asyncio.create_task(scheduled[0]())
+    await backend.apply_started.wait()
+    view._on_prompt_change("SECOND PROMPT")
+    backend.release_apply.set()
+    await apply_task
+
+    assert backend.settings.intent.prompts.system_prompt_override == "FIRST PROMPT"
+    assert view.external_settings_conflict is False
+    assert view.has_provider_changes is False
+    assert view.has_pending_prompt_changes is True
+    assert view._prompt_editor.value == "SECOND PROMPT"
+    pending = view.build_provider_apply_settings()
+    assert pending is not None
+    assert SystemPromptEdit("SECOND PROMPT") in pending.edits

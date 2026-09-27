@@ -115,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     local_asr_production_evidence.add_argument("--expected-gpu-name", required=True)
+    cli = sub.add_parser("cli", help="Control a running GUI or headless application")
+    cli.add_argument("cli_args", nargs=argparse.REMAINDER)
+    run_headless = sub.add_parser("run-headless", help="Run the GUI-free application host")
+    run_headless.add_argument("--config", type=Path, default=argparse.SUPPRESS)
+    run_headless.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
+
     run_gui = sub.add_parser("run-gui", help="Run the Graphical User Interface (Flet)")
     run_gui.add_argument(
         "--debug-ui-preview",
@@ -230,12 +236,14 @@ def _run_gui(
         patch_hidden_view_launcher = desktop_view_launcher
     vrchat_osc_presence = vrchat_osc_presence_adapter()
 
+    from puripuly_heart.cli.host import gui_control_factory
+
     async def _target(page: ft.Page):
         try:
             return await main_gui(
                 page,
                 config_path=config_path,
-                application_factory=compose_ui_application,
+                application_factory=gui_control_factory(compose_ui_application),
                 debug_ui_preview=debug_ui_preview,
                 runtime_logging_sinks=runtime_logging_sinks,
                 vrchat_osc_presence=vrchat_osc_presence,
@@ -371,6 +379,12 @@ def _run_installer_telemetry_preference(path: Path, action: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    cli_argv = sys.argv[1:] if argv is None else argv
+    if cli_argv and cli_argv[0] == "cli":
+        from puripuly_heart.cli.main import main as control_main
+
+        return control_main(cli_argv[1:])
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "hf-xet-download-worker":
@@ -393,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "installer-telemetry-preference":
         settings_config_path, _ = _settings_config_path(args)
         return _run_installer_telemetry_preference(settings_config_path, args.action)
+
 
     settings_config_path, explicit_settings_config = _settings_config_path(args)
     debug_ui_preview = bool(getattr(args, "debug_ui_preview", False))
@@ -418,6 +433,14 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "run-desktop-overlay-preview":
             return _run_desktop_overlay_preview()
+
+        if args.command == "run-headless":
+            from puripuly_heart.cli.host import run_headless
+
+            try:
+                return asyncio.run(run_headless(args.config, ready_file=args.ready_file))
+            except KeyboardInterrupt:
+                return 130
 
         if args.command == "run-gui":
             return _run_gui(

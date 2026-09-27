@@ -427,6 +427,136 @@ def make_owner(recorder: Recorder) -> OverlayApplicationOwner:
     )
 
 
+@pytest.mark.asyncio
+async def test_wait_start_outcome_follows_immediate_fallback_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = make_owner(Recorder())
+    fallback_gate = asyncio.Event()
+    original_start = OverlayApplicationOwner.run_start
+    generations: list[str] = []
+
+    async def fallback_start(self: OverlayApplicationOwner, runtime=None) -> None:
+        if not generations:
+            generations.append("steamvr")
+            await self.handle_start_failure("steamvr_not_running")
+            return
+        generations.append("desktop")
+        await fallback_gate.wait()
+        await original_start(self, runtime)
+
+    monkeypatch.setattr(OverlayApplicationOwner, "run_start", fallback_start)
+    await owner.set_enabled(True)
+    waiting = asyncio.create_task(owner.wait_start_outcome())
+    try:
+        await asyncio.sleep(0)
+        assert not waiting.done()
+        fallback_gate.set()
+        settled = await asyncio.wait_for(waiting, 1)
+        assert generations == ["steamvr", "desktop"]
+        assert settled["lifecycle"] == "failed"
+        assert settled["failure_reason"] == "output_unavailable"
+        assert settled["effective_target"] is None
+    finally:
+        fallback_gate.set()
+        await owner.set_enabled(False)
+
+
+@pytest.mark.asyncio
+async def test_wait_start_outcome_tracks_owned_start_but_not_future_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = make_owner(Recorder())
+    start_gate = asyncio.Event()
+    retry_gate = asyncio.Event()
+    original_start = OverlayApplicationOwner.run_start
+
+    async def delayed_start(self: OverlayApplicationOwner, runtime=None) -> None:
+        await start_gate.wait()
+        await original_start(self, runtime)
+
+    monkeypatch.setattr(OverlayApplicationOwner, "run_start", delayed_start)
+    await owner.set_enabled(True)
+    runtime = owner.runtime
+    assert runtime is not None and runtime.start_task is not None
+    waiting = asyncio.create_task(owner.wait_start_outcome())
+    cancelled_waiter = asyncio.create_task(owner.wait_start_outcome())
+    retry_task = asyncio.create_task(retry_gate.wait())
+    owner._recovery_task = retry_task
+    try:
+        await asyncio.sleep(0)
+        assert not waiting.done()
+        cancelled_waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled_waiter
+        assert not runtime.start_task.done()
+
+        start_gate.set()
+        settled = await asyncio.wait_for(waiting, 1)
+        assert settled["lifecycle"] == "failed"
+        assert settled["failure_reason"] == "output_unavailable"
+        assert settled["presentation_ready"] is False
+        assert not retry_task.done()
+    finally:
+        start_gate.set()
+        retry_task.cancel()
+        await asyncio.gather(retry_task, return_exceptions=True)
+        owner._recovery_task = None
+        await owner.set_enabled(False)
+
+
+@pytest.mark.asyncio
+async def test_overlay_without_output_runtime_reports_unavailable_instead_of_ready() -> None:
+    owner = make_owner(Recorder())
+
+    await owner.set_enabled(True)
+    runtime = owner.runtime
+    assert runtime is not None and runtime.start_task is not None
+    await runtime.start_task
+
+    result = owner.output_snapshot()
+    assert result["desired_enabled"] is True
+    assert result["lifecycle"] == "failed"
+    assert result["failure_reason"] == "output_unavailable"
+    assert result["effective_target"] is None
+    assert result["presentation_ready"] is False
+    await owner.set_enabled(False)
+
+
+def test_output_snapshot_distinguishes_attempt_from_presented_runtime_and_failure() -> None:
+    owner = make_owner(Recorder())
+    initial = owner.output_snapshot()
+    assert initial["desired_enabled"] is True
+    assert initial["configured_target"] == "steamvr"
+    assert initial["effective_target"] is None
+    assert initial["presentation_ready"] is False
+
+    runtime = owner.new_runtime()
+    runtime.set_overlay_instance_id("overlay-transition")
+    runtime.attach_process_manager(SimpleNamespace(state="starting"))
+    runtime.adopt_presenter(object())
+    owner.state = "starting"
+    owner.active_target = "steamvr"
+    starting = owner.output_snapshot()
+    assert starting["attempting_target"] == "steamvr"
+    assert starting["effective_target"] is None
+    assert starting["generation"] == "overlay-transition"
+    assert starting["process_state"] == "starting"
+
+    runtime.process_manager.state = "connected"
+    owner.mark_connected()
+    connected = owner.output_snapshot()
+    assert connected["effective_target"] == "steamvr"
+    assert connected["presentation_ready"] is True
+
+    owner.on_start_failed("steamvr_not_running")
+    failed = owner.output_snapshot()
+    assert failed["lifecycle"] == "failed"
+    assert failed["failure_reason"] == "steamvr_not_running"
+    assert failed["effective_target"] is None
+    assert failed["presentation_ready"] is False
+
+
 def test_connect_transition_keeps_peer_activation_starting_alive() -> None:
     recorder = Recorder()
     owner = make_owner(recorder)

@@ -10,6 +10,8 @@ from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 SettingsProvider = Callable[[], AppSettingsVNext | None]
 SettingsApply = Callable[[AppSettingsVNext], Awaitable[object]]
 ApplicationCall = Callable[..., Awaitable[object]]
+SettingsMutator = Callable[[AppSettingsVNext], AppSettingsVNext]
+SettingsMutationApply = Callable[[SettingsMutator], Awaitable[tuple[object, AppSettingsVNext, AppSettingsVNext]]]
 TranslationModelNormalizer = Callable[[object], object]
 
 
@@ -29,6 +31,7 @@ class SettingsBackedOscControlApplication(OscControlApplicationPort):
     set_peer_capture_command: ApplicationCall | None = None
     set_translation_command: ApplicationCall | None = None
     set_captions_command: ApplicationCall | None = None
+    apply_mutation: SettingsMutationApply | None = None
 
     async def set_self_capture(self, enabled: bool) -> object:
         return await self._call_runtime(
@@ -194,20 +197,27 @@ class SettingsBackedOscControlApplication(OscControlApplicationPort):
         if application is not None:
             fallback = getattr(application, fallback_name, None)
             if callable(fallback):
-                return await fallback(value)
+                return await (
+                    fallback(value, allow_authorization=False)
+                    if fallback_name == "set_translation_enabled"
+                    else fallback(value)
+                )
         raise RuntimeError(f"OSC control application command is not wired: {fallback_name}")
 
     async def _apply_settings(
         self, mutator: Callable[[AppSettingsVNext], AppSettingsVNext]
     ) -> object:
-        current = self.settings_provider()
-        if current is None:
-            raise RuntimeError("OSC control settings are unavailable")
-        previous = copy.deepcopy(current)
-        updated = mutator(copy.deepcopy(current))
-        if updated is None:
-            updated = current
-        result = await self.apply_settings(updated)
+        if self.apply_mutation is not None:
+            result, previous, updated = await self.apply_mutation(mutator)
+        else:
+            current = self.settings_provider()
+            if current is None:
+                raise RuntimeError("OSC control settings are unavailable")
+            previous = copy.deepcopy(current)
+            updated = mutator(copy.deepcopy(current))
+            if updated is None:
+                updated = current
+            result = await self.apply_settings(updated)
         actual = self.settings_provider()
         if not _settings_control_values_match(actual, updated):
             if not _settings_control_values_match(actual, previous):

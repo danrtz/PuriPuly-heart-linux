@@ -75,8 +75,13 @@ class OpenRouterPkceFlowOwner:
             self._runtime = self.runtime_factory()
         return self._runtime
 
-    async def run_flow(self) -> OpenRouterPKCEExchangeResult:
+    async def run_flow(
+        self, *, open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
+    ) -> OpenRouterPKCEExchangeResult:
         client = self.client_factory()
+        client.open_browser = open_browser
+        client.authorization_url_sink = authorization_url_sink
         self._active_client = client
         try:
             return await self.get_runtime().run_openrouter_pkce_flow(client)
@@ -121,6 +126,8 @@ class OpenRouterPkceApplicationOwner:
         *,
         target: OpenRouterPkceTarget,
         launch_source: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:
         current = self.settings.canonical
         if current is None:
@@ -133,7 +140,12 @@ class OpenRouterPkceApplicationOwner:
             raise ValueError("PKCE connection requires a BYOK OpenRouter model")
 
         try:
-            result = await self.flow.run_flow()
+            if authorization_url_sink is None and open_browser:
+                result = await self.flow.run_flow()
+            else:
+                result = await self.flow.run_flow(
+                    open_browser=open_browser, authorization_url_sink=authorization_url_sink,
+                )
         except Exception:
             self._fail(
                 launch_source,

@@ -75,7 +75,7 @@ def _owner(
     teardown_values = teardowns if teardowns is not None else []
     starting_sink_values = starting_values if starting_values is not None else []
 
-    async def default_prepare() -> ManagedTranslationPreparation:
+    async def default_prepare(_allow_authorization: bool) -> ManagedTranslationPreparation:
         return preparation or ManagedTranslationPreparation(ready=True)
 
     async def default_founder_route() -> bool:
@@ -260,6 +260,35 @@ async def test_managed_ready_sequences_pending_and_runtime_rebuild() -> None:
 
 
 @pytest.mark.asyncio
+async def test_noninteractive_enable_preserves_action_required_without_gui_or_usage_refresh() -> None:
+    state_box = [_state(managed_selected=True, managed_release_service_available=True)]
+    policies: list[bool] = []
+    usage_refreshes: list[str] = []
+    qq_calls: list[str] = []
+
+    async def prepare(allow_authorization: bool) -> ManagedTranslationPreparation:
+        policies.append(allow_authorization)
+        return ManagedTranslationPreparation(
+            ready=False,
+            message_key="qq_managed_auth.required",
+            show_qq_dialog=True,
+        )
+
+    owner = _owner(
+        state_box,
+        prepare=prepare,
+        usage_refreshes=usage_refreshes,
+        qq_calls=qq_calls,
+    )
+
+    assert await owner.set_enabled(True, allow_authorization=False) is False
+    assert policies == [False]
+    assert state_box[0].translation_enabled is False
+    assert usage_refreshes == []
+    assert qq_calls == []
+
+
+@pytest.mark.asyncio
 async def test_newer_disable_fences_stale_managed_prepare_result() -> None:
     state_box = [
         _state(
@@ -271,7 +300,7 @@ async def test_newer_disable_fences_stale_managed_prepare_result() -> None:
     release = asyncio.Event()
     runtime_values: list[bool] = []
 
-    async def prepare() -> ManagedTranslationPreparation:
+    async def prepare(_allow_authorization: bool) -> ManagedTranslationPreparation:
         started.set()
         await release.wait()
         return ManagedTranslationPreparation(ready=True)
@@ -345,7 +374,7 @@ async def test_founder_route_and_close_reject_enable_without_prepare() -> None:
     ]
     prepare_calls: list[str] = []
 
-    async def prepare() -> ManagedTranslationPreparation:
+    async def prepare(_allow_authorization: bool) -> ManagedTranslationPreparation:
         prepare_calls.append("prepare")
         return ManagedTranslationPreparation(ready=True)
 

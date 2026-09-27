@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import numpy as np
@@ -9,6 +10,10 @@ from puripuly_heart.app.adapters.microphone_test_capture import (
     MicrophoneTestCaptureAdapter,
 )
 from puripuly_heart.app.ports.microphone_test import MicrophoneTestCaptureRequest
+from puripuly_heart.app.services.microphone_test import (
+    MicrophoneTestSessionOwner,
+    MicrophoneTestSessionRequest,
+)
 from puripuly_heart.core.audio.format import AudioFrameF32
 from puripuly_heart.core.audio.source import (
     MicrophoneTestRouteObservation,
@@ -154,6 +159,32 @@ async def test_adapter_reports_route_miss_without_opening_source() -> None:
 
     assert meter == [0.0, 0.0]
     assert logs == ["[MicTest] failed cause=unavailable"]
+
+@pytest.mark.asyncio
+async def test_missing_route_does_not_report_ready_or_successful_capture() -> None:
+    adapter = MicrophoneTestCaptureAdapter(
+        clock=FakeClock(),
+        log_sink=lambda _message: None,
+        meter_sink=lambda _value, _callback, _generation: asyncio.sleep(0),
+        route_observer=lambda **_kwargs: _route(should_attempt_open=False),
+        channel_decision=lambda **_kwargs: _decision(),
+        source_factory=lambda **_kwargs: pytest.fail("missing route opened a source"),
+    )
+    owner = MicrophoneTestSessionOwner(
+        capture_port=adapter,
+        capture_request_factory=lambda generation, callback, interval: MicrophoneTestCaptureRequest(
+            saved_host_api="Windows WASAPI",
+            requested_device="Missing",
+            internal_channels=1,
+            generation=generation,
+            meter_callback=callback,
+            level_log_interval_s=interval,
+        ),
+    )
+    assert await owner.start(MicrophoneTestSessionRequest(audio_signature=("missing",)))
+    assert await owner.wait_ready() is False
+    assert owner.snapshot["failure_reason"] == "input_route_unavailable"
+    await owner.close()
 
 
 @pytest.mark.asyncio

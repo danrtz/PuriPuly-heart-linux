@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from puripuly_heart.app.ports.microphone_test import (
     MicrophoneTestCapturePort,
@@ -77,6 +77,10 @@ class MicrophoneTestSessionOwner:
     _runtime: MicTestRuntime | None = field(init=False, default=None, repr=False)
     _lifecycle_lock: asyncio.Lock | None = field(init=False, default=None, repr=False)
     _meter_level: float = field(init=False, default=0.0, repr=False)
+    _state: str = field(init=False, default="off")
+    _failure_reason: str | None = field(init=False, default=None)
+    _failure_type: str | None = field(init=False, default=None)
+    _readiness: asyncio.Future[bool] | None = field(init=False, default=None, repr=False)
     _audio_signature: tuple[object, ...] | None = field(
         init=False,
         default=None,
@@ -126,6 +130,45 @@ class MicrophoneTestSessionOwner:
         task = runtime.session_task if runtime is not None else None
         return task is not None and not task.done()
 
+    @property
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "state": self._state,
+            "desired_active": self._state in {"pending", "ready"},
+            "effective_active": self._state == "ready" and self.active
+            and self._runtime is not None and self._runtime.source is not None,
+            "meter_level": self._meter_level,
+            "failure_reason": self._failure_reason,
+            "failure_type": self._failure_type,
+        }
+
+    async def wait_ready(self) -> bool:
+        readiness = self._readiness
+        return await asyncio.shield(readiness) if readiness is not None else False
+
+    def mark_ready(self, generation: int) -> None:
+        runtime = self._runtime
+        if (
+            runtime is None or not runtime.is_current_generation(generation)
+            or self._state != "pending" or runtime.source is None
+        ):
+            return
+        self._state = "ready"
+        if self._readiness is not None and not self._readiness.done():
+            self._readiness.set_result(True)
+
+    def mark_failure(
+        self, generation: int, reason: str, error_type: str | None,
+    ) -> None:
+        runtime = self._runtime
+        if runtime is None or not runtime.is_current_generation(generation):
+            return
+        self._state = "failed"
+        self._failure_reason = reason
+        self._failure_type = error_type
+        if self._readiness is not None and not self._readiness.done():
+            self._readiness.set_result(False)
+
     def lifecycle_owner_snapshot(self) -> dict[str, object]:
         return {
             "owner": self.owner_name,
@@ -162,26 +205,65 @@ class MicrophoneTestSessionOwner:
                         request=request,
                     )
                 )
+                self._state = "pending"
+                self._failure_reason = None
+                self._failure_type = None
+                self._meter_level = 0.0
+                self._readiness = asyncio.get_running_loop().create_future()
             except RuntimeError:
                 return False
             return True
 
+    def _end_session(self, generation: int) -> None:
+        runtime = self._runtime
+        if runtime is None or not runtime.is_current_generation(generation):
+            return
+        if self._state == "pending":
+            self.mark_failure(generation, "no_audio_frames", None)
+        elif self._state == "ready":
+            self._state = "off"
+        self._meter_level = 0.0
+
     async def stop(self) -> None:
         async with self._lock():
+            self._state = "stopping"
+            if self._readiness is not None and not self._readiness.done():
+                self._readiness.set_result(False)
             runtime = self._runtime
+            task = runtime.session_task if runtime is not None else None
+            frame_task = runtime.pending_frame_task if runtime is not None else None
             if runtime is not None:
                 await runtime.stop()
             self._meter_level = 0.0
+            if (
+                runtime is not None
+                and (
+                    runtime.source is not None
+                    or task is not None and not task.done()
+                    or frame_task is not None and not frame_task.done()
+                )
+            ):
+                self._failure_reason = "resource_release_incomplete"
+                return
+            self._state = "off"
+            self._failure_reason = None
+            self._failure_type = None
 
     async def close(self) -> None:
         self._closed = True
         async with self._lock():
+            self._state = "stopping"
+            if self._readiness is not None and not self._readiness.done():
+                self._readiness.set_result(False)
             runtime = self._runtime
             try:
                 if runtime is not None:
                     await runtime.close()
             finally:
                 self._meter_level = 0.0
+                self._state = "off"
+                self._failure_reason = None
+                self._failure_type = None
 
     async def set_meter_level(
         self,
@@ -218,23 +300,27 @@ class MicrophoneTestSessionOwner:
         request: MicrophoneTestSessionRequest,
     ) -> None:
         try:
-            capture_request = self.capture_request_factory(
-                generation,
-                request.meter_callback,
-                request.level_log_interval_s,
+            capture_request = replace(
+                self.capture_request_factory(
+                    generation,
+                    request.meter_callback,
+                    request.level_log_interval_s,
+                ),
+                ready_callback=self.mark_ready,
+                failure_callback=self.mark_failure,
             )
-            await self.capture_port.capture(
-                capture_request,
-                runtime=self.runtime,
-            )
+            await self.capture_port.capture(capture_request, runtime=self.runtime)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            self.mark_failure(generation, "capture_failed", type(exc).__name__)
             self._emit(
                 "session_failed",
                 {"error_type": type(exc).__name__},
                 exc,
             )
+        finally:
+            self._end_session(generation)
 
     async def _recover_before_start(self, runtime: MicTestRuntime) -> bool:
         if runtime.has_active_direct_capture:

@@ -37,6 +37,7 @@ class OscControlIntegrationOwner:
         receiver_owner: VrcMicSyncOwner,
         settings_provider: Callable[[], object | None],
         apply_settings: Callable[[object], object],
+        apply_mutation: Callable[[Callable[[object], object]], object] | None = None,
         application_provider: Callable[[], object | None],
         sender_provider: Callable[[], object | None],
         state_provider: Callable[[], OscCanonicalState],
@@ -76,11 +77,13 @@ class OscControlIntegrationOwner:
         self._automatic_query_generation = 0
         self._automatic_query_task: asyncio.Task[None] | None = None
         self._scope = LifecycleScope("OscControlIntegrationOwner")
+        self._query_failure: str | None = None
         self._apply_settings_callback = apply_settings
 
         application = SettingsBackedOscControlApplication(
             settings_provider=settings_provider,
             apply_settings=self._apply_settings,
+            apply_mutation=apply_mutation,
             translation_model_normalizer=translation_model_normalizer,
             set_self_capture_command=self._application_command("set_stt_enabled"),
             set_peer_capture_command=self._application_command("set_peer_translation_enabled"),
@@ -146,6 +149,51 @@ class OscControlIntegrationOwner:
     @property
     def avatar_parameter_diagnostics(self) -> Mapping[str, object]:
         return dict(self._avatar_parameter_diagnostics)
+
+    def output_snapshot(self) -> dict[str, object]:
+        configured = self._configured_connection
+        receiver_available = self._receiver_owner.receiver is not None
+        sender = self._sender_provider() if self._mode != "off" else None
+        sender_available = sender is not None
+        query = self.query_runtime
+        if self._closed:
+            availability = "closed"
+        elif self._mode == "off":
+            availability = "off"
+        elif not receiver_available:
+            availability = "receiver_unavailable"
+        elif not sender_available:
+            availability = "sender_unavailable"
+        elif self._automatic_query_inflight():
+            availability = "starting"
+        else:
+            availability = "available"
+        return {
+            "configured_mode": configured[1] if configured is not None else None,
+            "configured_host": configured[0] if configured is not None else None,
+            "configured_send_port": configured[2] if configured is not None else None,
+            "configured_receive_port": configured[3] if configured is not None else None,
+            "effective_mode": self._mode if configured is not None and not self._closed else "off",
+            "effective_send_port": (
+                sender.port if sender_available and isinstance(getattr(sender, "port", None), int)
+                else self.effective_send_port if sender_available else None
+            ),
+            "effective_receive_port": (
+                self._receiver_owner.effective_port if receiver_available else None
+            ),
+            "receiver_available": receiver_available,
+            "sender_available": sender_available,
+            "query_service_started": query.started,
+            "query_advertised_port": query.advertised_port,
+            "discovered_remote": (
+                {"host": query.service_info.host, "send_port": query.service_info.osc_send_port}
+                if query.service_info is not None else None
+            ),
+            "query_failure": self._query_failure,
+            "local_availability": availability,
+            "remote_delivery": "unacknowledged",
+        }
+
 
     def lifecycle_owner_snapshot(self) -> dict[str, object]:
         return {
@@ -223,6 +271,7 @@ class OscControlIntegrationOwner:
 
         await self.router.suspend_ingress()
         await self._cancel_automatic_query_start()
+        self._query_failure = None
         await self.query_runtime.stop()
         self._send_port = int(send_port)
         self._receive_port = int(receive_port)
@@ -284,6 +333,7 @@ class OscControlIntegrationOwner:
                 or self._closed
             ):
                 return
+            self._query_failure = type(exc).__name__
             self._report_error(f"OSCQuery automatic discovery unavailable: {type(exc).__name__}")
             await self._receiver_owner.ensure_receiver()
             await self._set_sender_destination(self._host, VRCHAT_OSC_DEFAULT_INPUT_PORT)
@@ -329,7 +379,11 @@ class OscControlIntegrationOwner:
             method = getattr(application, method_name, None) if application is not None else None
             if not callable(method):
                 raise RuntimeError(f"OSC application command is not wired: {method_name}")
-            result = await method(value)
+            result = await (
+                method(value, allow_authorization=False)
+                if method_name == "set_translation_enabled"
+                else method(value)
+            )
             if not self._dashboard_command_matches_canonical_state(method_name, value):
                 return False
             self._publish_delta()

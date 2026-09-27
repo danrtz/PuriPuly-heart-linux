@@ -256,6 +256,47 @@ def _integration(
 
 
 @pytest.mark.asyncio
+async def test_output_snapshot_separates_local_bind_and_discovery_from_remote_delivery() -> None:
+    settings = AppSettingsVNext()
+    receiver_owner = FakeReceiverOwner()
+    sender = FakeSender()
+    service = FakeService(info=None)
+    integration = _integration(settings, receiver_owner, sender, service)
+    assert integration.output_snapshot()["local_availability"] == "off"
+
+    await integration.configure_connection(mode="manual", send_port=9030, receive_port=9031)
+    active = integration.output_snapshot()
+    assert active["configured_send_port"] == 9030
+    assert active["effective_receive_port"] == 9031
+    assert active["receiver_available"] is True
+    assert active["local_availability"] == "available"
+    assert active["remote_delivery"] == "unacknowledged"
+
+    receiver_owner.receiver = None
+    missing = integration.output_snapshot()
+    assert missing["effective_receive_port"] is None
+    assert missing["local_availability"] == "receiver_unavailable"
+    await integration.close()
+
+    class FailedDiscoveryService(FakeService):
+        async def discover_vrchat(self) -> OscQueryServiceInfo | None:
+            raise OSError("discovery unavailable")
+
+    fallback = _integration(
+        settings, FakeReceiverOwner(), FakeSender(), FailedDiscoveryService(info=None)
+    )
+    await fallback.configure_connection(mode="automatic", send_port=9030, receive_port=9031)
+    await fallback.wait_automatic_query_start()
+    degraded = fallback.output_snapshot()
+    assert degraded["query_service_started"] is False
+    assert degraded["query_failure"] == "OSError"
+    assert degraded["local_availability"] == "available"
+    assert degraded["effective_send_port"] == 9000
+    assert degraded["remote_delivery"] == "unacknowledged"
+    await fallback.close()
+
+
+@pytest.mark.asyncio
 async def test_in_process_complete_control_matrix_projects_final_canonical_state() -> None:
     current = [AppSettingsVNext()]
     runtime = {
@@ -265,6 +306,7 @@ async def test_in_process_complete_control_matrix_projects_final_canonical_state
         "captions": False,
     }
     runtime_calls: list[tuple[str, bool]] = []
+    translation_authorization_calls: list[bool] = []
     settings_apply_calls: list[AppSettingsVNext] = []
     projected: list[OscControlPresentationState] = []
 
@@ -277,7 +319,10 @@ async def test_in_process_complete_control_matrix_projects_final_canonical_state
             runtime["peer_capture"] = enabled
             runtime_calls.append(("peer_capture", enabled))
 
-        async def set_translation_enabled(self, enabled: bool) -> None:
+        async def set_translation_enabled(
+            self, enabled: bool, *, allow_authorization: bool = True
+        ) -> None:
+            translation_authorization_calls.append(allow_authorization)
             runtime["translation"] = enabled
             runtime_calls.append(("translation", enabled))
 
@@ -358,6 +403,7 @@ async def test_in_process_complete_control_matrix_projects_final_canonical_state
 
     assert [state.changed_control for state in projected] == [name for name, _value in packets]
     assert len(runtime_calls) == 4
+    assert translation_authorization_calls == [False]
     assert len(settings_apply_calls) == 11
     assert sender.messages == []
     await integration.close()
