@@ -112,6 +112,16 @@ class LocalASRDiagnosticsOwner:
         self,
         diagnostic: ProviderRuntimeDiagnostic,
     ) -> None:
+        if diagnostic.event in {"provider_handoff", "provider_replace"}:
+            self.basic_log_sink(
+                "[ASR] provider_transition "
+                f"event={diagnostic.event} "
+                f"channel={_safe_token(diagnostic.channel, 'unknown')} "
+                f"provider={_safe_token(diagnostic.provider_id, 'unknown')} "
+                f"outcome={_safe_token(diagnostic.outcome, 'unknown')} "
+                f"cause={_safe_token(diagnostic.failure_code, 'none')}",
+                logging.WARNING if diagnostic.outcome == "failed" else logging.INFO,
+            )
         if diagnostic.event == "activation_ready":
             self.log_load_result(
                 channel=diagnostic.channel or "unknown",

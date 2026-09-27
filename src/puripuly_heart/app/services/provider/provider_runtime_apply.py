@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -23,6 +24,9 @@ from puripuly_heart.core.messages import (
     UserMessageRef,
 )
 from puripuly_heart.core.runtime.provider_rebuild import ProviderRuntimeRebuildService
+from puripuly_heart.core.runtime_logging import emit_basic_log
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,6 +505,14 @@ class ProviderRuntimeApplyAdapter:
         try:
             await self.owner.apply(self.settings, self.plan)
         except Exception as exc:
+            emit_basic_log(
+                logger,
+                "[Settings] provider_apply_failed operation=%s exception_type=%s cause=%s",
+                self.operation,
+                type(exc).__name__,
+                _exception_code(exc, "provider_runtime_apply_exception"),
+                level=logging.WARNING,
+            )
             return RuntimeApplyResult(
                 status=RUNTIME_APPLY_STATUS_FAILED,
                 message=UserMessageRef(
@@ -524,7 +536,23 @@ class ProviderRuntimeApplyAdapter:
             surface=self.surface,
         )
         if unavailable_result is not None:
+            emit_basic_log(
+                logger,
+                "[Settings] provider_apply_failed operation=%s cause=%s",
+                self.operation,
+                unavailable_result.diagnostics.code
+                if unavailable_result.diagnostics is not None
+                else "provider_runtime_apply_unavailable",
+                level=logging.WARNING,
+            )
             return unavailable_result
+        emit_basic_log(
+            logger,
+            "[Settings] provider_apply_completed operation=%s refresh_self=%s refresh_peer=%s",
+            self.operation,
+            self.plan.should_refresh_self_stt,
+            self.plan.should_refresh_peer,
+        )
         return RuntimeApplyResult(
             status=RUNTIME_APPLY_STATUS_APPLIED,
             message=None,

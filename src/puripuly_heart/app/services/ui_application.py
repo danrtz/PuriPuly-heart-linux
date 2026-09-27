@@ -544,6 +544,10 @@ class UiApplicationBoundary:
 
     async def apply_provider_intent(self, intent: ProviderApplyIntent) -> object:
         settings = self._settings.materialize_provider_intent(intent)
+        self.log_basic(
+            "[Settings] provider_apply_requested "
+            f"self={settings.intent.stt.provider} peer={settings.intent.peer_stt.provider}"
+        )
         result = await self._provider.apply_providers(settings)
         await self._publish_osc_state()
         return result

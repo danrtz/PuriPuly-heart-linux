@@ -104,7 +104,7 @@ def _components(
         managed_pending_sink=lambda _value: None,
         managed_pending_provider=lambda: False,
         dashboard_managed_pending_sink=lambda _value: None,
-        sync_effective_flags=lambda _settings: None,
+        sync_effective_flags=lambda: None,
         refresh_overlay=lambda: None,
         refresh_peer_runtime=no_op,
         replace_self_stt=no_op_bool,

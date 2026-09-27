@@ -195,7 +195,7 @@ class ProviderRuntimeEffects:
     managed_pending_sink: Callable[[bool], None]
     managed_pending_provider: Callable[[], bool]
     dashboard_managed_pending_sink: Callable[[bool], None]
-    sync_effective_flags: Callable[[AppSettingsVNext], None]
+    sync_effective_flags: Callable[[], None]
     refresh_overlay: Callable[[], None]
     refresh_peer_runtime: Callable[[], Awaitable[None]]
     replace_self_stt: Callable[[bool], Awaitable[None]]
@@ -314,7 +314,7 @@ class ProviderRuntimeEffects:
         await self.refresh_peer_runtime()
         current = self.settings.canonical
         if current is not None:
-            self.sync_effective_flags(current)
+            self.sync_effective_flags()
         self.refresh_overlay()
 
     async def refresh_self_stt(self) -> None:
@@ -372,7 +372,7 @@ def compose_provider_runtime(
     managed_pending_sink: Callable[[bool], None],
     managed_pending_provider: Callable[[], bool],
     dashboard_managed_pending_sink: Callable[[bool], None],
-    sync_effective_flags: Callable[[AppSettingsVNext], None],
+    sync_effective_flags: Callable[[], None],
     refresh_overlay: Callable[[], None],
     refresh_peer_runtime: Callable[[], Awaitable[None]],
     replace_self_stt: Callable[[bool], Awaitable[None]],

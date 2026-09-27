@@ -1038,7 +1038,7 @@ def compose_application_runtime(
             STTProviderName.ROLLING_FREE,
         }
 
-    def dashboard_stt_needs_key(*, stt_available: bool) -> bool:
+    def dashboard_stt_needs_key(stt_available: bool) -> bool:
         value = current_settings()
         if value is None:
             return not stt_available

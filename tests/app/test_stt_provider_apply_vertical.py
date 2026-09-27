@@ -513,7 +513,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         managed_pending_sink=lambda _value: None,
         managed_pending_provider=lambda: False,
         dashboard_managed_pending_sink=lambda _value: None,
-        sync_effective_flags=lambda _settings: None,
+        sync_effective_flags=lambda: None,
         refresh_overlay=lambda: None,
         refresh_peer_runtime=_noop,
         replace_self_stt=replace_self_stt,
@@ -582,7 +582,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         diagnostics=SimpleNamespace(),
         state=SimpleNamespace(snapshot=SimpleNamespace()),
         runtime_shutdown=_NoopPort(),
-        runtime_logging=SimpleNamespace(),
+        runtime_logging=SimpleNamespace(emit_basic=lambda *_args, **_kwargs: None),
         settings_secrets=SimpleNamespace(),
         osc_state_publisher=lambda: None,
     )
