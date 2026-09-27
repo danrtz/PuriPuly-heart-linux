@@ -17,7 +17,7 @@ puripuly.exe app status
 puripuly.exe app stop
 ```
 
-The package declares the `puripuly` console entry point. Its CLI contract is JSON on stdout, diagnostics on stderr, and documented process exit codes; the final installed Windows artifact still requires separate delivery validation for actual console I/O, redirection, quoting, Unicode paths, signals, and child-process containment. This guide does not assert that installed-artifact acceptance has passed.
+The package declares the `puripuly` console entry point. Its CLI contract is JSON on stdout, diagnostics on stderr, and documented process exit codes. The installed Windows console, lifecycle and child-process matrix was exercised separately; see the scoped [issue #193 acceptance record](cli-acceptance.md) for artifact identity, original evidence, historical installer failure and remaining live-runtime/authorization gaps.
 
 ### Development checkout
 
