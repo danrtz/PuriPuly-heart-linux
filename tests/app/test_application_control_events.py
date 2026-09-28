@@ -10,6 +10,11 @@ from puripuly_heart.domain.events import UIEvent, UIEventType
 from puripuly_heart.domain.models import OSCMessage, Transcript, Translation
 
 
+async def _collect(stream, count):
+    async with asyncio.timeout(5):
+        return [await anext(stream) for _ in range(count)]
+
+
 @pytest.mark.parametrize(
     ("event_count", "after", "expected_gap"),
     ((256, 0, None), (257, 0, 1), (257, 1, None)),
@@ -26,7 +31,9 @@ async def test_replay_window_and_gap_boundary(event_count, after, expected_gap):
         include_translations=False,
         after=after,
     )
-    items = [await anext(stream) for _ in range(event_count - after + (expected_gap is not None))]
+    oldest = max(1, event_count - 255)
+    expected_sequences = list(range(max(after + 1, oldest), event_count + 1))
+    items = await _collect(stream, len(expected_sequences) + int(expected_gap is not None))
     await stream.aclose()
 
     gaps = [item for item in items if item["topic"] == "gap"]
@@ -41,8 +48,7 @@ async def test_replay_window_and_gap_boundary(event_count, after, expected_gap):
             }
         ]
     replayed = [item for item in items if item["topic"] != "gap"]
-    oldest = max(1, event_count - 255)
-    assert [item["sequence"] for item in replayed] == list(range(max(after + 1, oldest), event_count + 1))
+    assert [item["sequence"] for item in replayed] == expected_sequences
     assert [item["index"] for item in replayed] == list(range(max(after, oldest - 1), event_count))
 
 
@@ -63,7 +69,7 @@ async def test_slow_subscriber_gets_gap_then_retained_events_in_order():
         events.publish({"topic": "capture", "index": index})
 
     gap = await asyncio.wait_for(first, timeout=1)
-    replayed = [await anext(stream) for _ in range(256)]
+    replayed = await _collect(stream, 256)
     await stream.aclose()
 
     assert gap == {
@@ -121,7 +127,7 @@ async def test_filters_content_opt_ins_and_osc_privacy_are_independent():
         include_translations=False,
         after=0,
     )
-    transcript = await anext(transcript_stream)
+    transcript = (await _collect(transcript_stream, 1))[0]
     await transcript_stream.aclose()
     assert transcript["sequence"] == 1
     assert transcript["text"] == "transcript private"
@@ -133,7 +139,7 @@ async def test_filters_content_opt_ins_and_osc_privacy_are_independent():
         include_translations=True,
         after=0,
     )
-    translation = await anext(translation_stream)
+    translation = (await _collect(translation_stream, 1))[0]
     await translation_stream.aclose()
     assert translation["sequence"] == 4
     assert translation["text"] == "translation private"
@@ -145,7 +151,7 @@ async def test_filters_content_opt_ins_and_osc_privacy_are_independent():
         include_translations=False,
         after=0,
     )
-    projected = [await anext(projected_stream) for _ in range(3)]
+    projected = await _collect(projected_stream, 3)
     await projected_stream.aclose()
 
     assert [item["sequence"] for item in projected] == [1, 4, 5]
@@ -161,7 +167,7 @@ async def test_filters_content_opt_ins_and_osc_privacy_are_independent():
         include_translations=False,
         after=0,
     )
-    private = [await anext(private_stream) for _ in range(2)]
+    private = await _collect(private_stream, 2)
     await private_stream.aclose()
     assert [item["sequence"] for item in private] == [1, 4]
     assert all("text" not in item for item in private)
@@ -179,7 +185,7 @@ async def test_subscriber_projection_is_copy_isolated_and_unsubscribe_cleans_up(
     )
     first_task = asyncio.create_task(anext(first_stream))
     await asyncio.sleep(0)
-    first = await first_task
+    first = await asyncio.wait_for(first_task, timeout=5)
     assert len(events.subscribers) == 1
     first["topic"] = "changed by subscriber"
     await first_stream.aclose()
@@ -188,7 +194,7 @@ async def test_subscriber_projection_is_copy_isolated_and_unsubscribe_cleans_up(
     second_stream = events.subscribe(
         topics=[], channel=None, include_transcripts=False, include_translations=False, after=0
     )
-    second = await anext(second_stream)
+    second = (await _collect(second_stream, 1))[0]
     await second_stream.aclose()
 
     assert second == {"sequence": 1, "topic": "state", "channel": "self"}

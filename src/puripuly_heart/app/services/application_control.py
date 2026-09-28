@@ -934,25 +934,21 @@ class ApplicationControlOwner:
         acquired = False
         try:
             operation.receipt["status"] = "running"
-            resource_lock = None
             changes = arguments.get("changes", arguments) if command == "settings.apply" else None
-            if command in {
-                "text.submit", "provider.apply", "translation.set",
-                "auth.login", "auth.logout", "secrets.set", "secrets.delete",
-                "gemma.prepare", "overlay.set", "models.install",
-                "models.prepare", "models.retry", "gpu.discover",
-            } or (command == "capture.set" and arguments.get("enabled") is True) or (
+            safe_capture_off = command == "capture.set" and arguments.get("enabled") is False
+            safe_locale = (
                 command == "settings.apply"
                 and isinstance(changes, dict)
-                and (len(changes) != 1 or "locale" not in changes)
-            ):
-                resource_lock = self._resource_lock
-            if resource_lock is not None:
-                await resource_lock.acquire()
-                acquired = True
+                and len(changes) == 1
+                and "locale" in changes
+            )
             independent_stop = command in {"app.stop", "models.cancel", "gemma.cancel"} or (
                 command == "microphone.test" and arguments.get("enabled") is False
             )
+            resource_lock = None if independent_stop or safe_capture_off or safe_locale or command == "secrets.verify" else self._resource_lock
+            if resource_lock is not None:
+                await resource_lock.acquire()
+                acquired = True
             with self.results.capture(revision=self._current_revision) as captured:
                 deferred = None
                 async with (asyncio.Lock() if independent_stop else self._lock):

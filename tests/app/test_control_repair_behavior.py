@@ -613,6 +613,88 @@ async def test_manual_output_wait_allows_safe_mutations_but_orders_provider_tran
         await app.stop()
 
 @pytest.mark.asyncio
+async def test_long_output_wait_orders_cli_overlay_audio_and_gui_settings_capture(offline, monkeypatch):
+    app = compose_headless_application(offline)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_output(_text):
+        entered.set()
+        await release.wait()
+
+    async def no_audio_effects(_settings):
+        pass
+
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("isolated-complete-resource-order")
+        monkeypatch.setattr(app, "submit_text", slow_output)
+        target = app._peer_capture.peer.target
+        target.devices = SimpleNamespace(names=lambda: ["Simulated A", "Simulated B"])
+        target.processes = SimpleNamespace(candidates=lambda: ())
+        target.runtime_effects = SimpleNamespace(apply_capture_target=no_audio_effects)
+        app.begin_overlay_calibration()
+        app.set_overlay_calibration_field("offset_x", 37)
+        before = await control.query("settings.current", {})
+        assert app.current_loopback_capture_option_value() == "device:"
+        assert before["settings"]["intent"]["telemetry"]["enabled"] is True
+
+        manual = await control.submit("text.submit", {"text": "gated output"}, request_id="order-manual")
+        await asyncio.wait_for(entered.wait(), 3)
+        mutations = [
+            ("overlay.size", {"preset": "large"}),
+            ("overlay.lock", {"locked": True}),
+            ("overlay.position.reset", {}),
+            ("overlay.calibrate", {"action": "apply"}),
+            ("audio.target.set", {"value": "device:Simulated A"}),
+        ]
+        pending = [
+            await control.submit(command, arguments, request_id=f"order-{index}")
+            for index, (command, arguments) in enumerate(mutations)
+        ]
+        await asyncio.sleep(0)
+        assert all(
+            not receipt["terminal"]
+            for receipt in [await control.operation(item["operation_id"]) for item in pending]
+        )
+        assert (await control.query("settings.current", {})) == before
+        assert app.current_loopback_capture_option_value() == "device:"
+        release.set()
+        assert (await control.wait(manual["operation_id"], timeout=5))["status"] == "applied"
+        outcomes = [
+            await control.wait(item["operation_id"], timeout=5) for item in pending
+        ]
+        assert [item["status"] for item in outcomes] == [
+            "applied", "action_required", "action_required", "applied", "applied",
+        ]
+        after = await control.query("settings.current", {})
+        assert after["revision"] > before["revision"]
+        assert after["settings"]["intent"]["overlay"]["desktop_flet"]["size_preset"] == "large"
+        assert after["settings"]["intent"]["overlay"]["calibration"]["offset_x"] == 37
+        assert app.current_loopback_capture_option_value() == "device:Simulated A"
+
+        entered.clear()
+        release = asyncio.Event()
+        second = await control.submit("text.submit", {"text": "second gated output"}, request_id="order-manual-2")
+        await asyncio.wait_for(entered.wait(), 3)
+        gui_capture = asyncio.create_task(app.apply_loopback_capture_option("device:Simulated B"))
+        gui_telemetry = asyncio.create_task(app.apply_telemetry_enabled(False))
+        await asyncio.sleep(0)
+        assert not gui_capture.done() and not gui_telemetry.done()
+        assert app.current_loopback_capture_option_value() == "device:Simulated A"
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["telemetry"]["enabled"] is True
+        release.set()
+        assert (await control.wait(second["operation_id"], timeout=5))["status"] == "applied"
+        await asyncio.wait_for(asyncio.gather(gui_capture, gui_telemetry), 5)
+        assert app.current_loopback_capture_option_value() == "device:Simulated B"
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["telemetry"]["enabled"] is False
+    finally:
+        release.set()
+        await app.stop()
+
+
+@pytest.mark.asyncio
 async def test_freeze_interrupts_manual_output_and_queued_provider_without_late_dispatch(offline, monkeypatch):
     app = compose_headless_application(offline)
     entered = asyncio.Event()

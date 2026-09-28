@@ -144,15 +144,11 @@ def _guard_application_intent(method: Callable[..., Any]) -> Callable[..., Any]:
             control = self._control
             if method.__name__ not in _ORDERED_INTENTS or control is None or control.lock_owned_by_current_task():
                 return await method(self, *args, **kwargs)
-            if method.__name__ in {
-                "apply_providers", "apply_settings", "apply_settings_intent",
-                "apply_provider_intent", "apply_prompt_intent",
-                "set_translation_enabled", "on_dashboard_language_change",
-                "persist_provider_secret_change", "set_overlay_enabled",
-            } or (
+            capture_off = (
                 method.__name__ in {"set_stt_enabled", "set_peer_translation_enabled"}
-                and (args[0] if args else kwargs.get("enabled")) is True
-            ):
+                and (args[0] if args else kwargs.get("enabled")) is False
+            )
+            if not capture_off:
                 async with control._resource_lock:
                     async with control._lock:
                         return await method(self, *args, **kwargs)
