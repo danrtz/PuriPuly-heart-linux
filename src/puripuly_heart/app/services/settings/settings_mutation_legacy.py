@@ -256,14 +256,18 @@ class _SettingsPathSnapshot:
         *,
         paths: tuple[str, ...],
     ) -> _SettingsPathSnapshot:
-        return cls(tuple((path, _get_settings_path_value(settings, path)) for path in paths))
+        data = _canonical_settings_dict(settings)
+        return cls(
+            tuple((path, copy.deepcopy(_get_settings_path_value(data, path))) for path in paths)
+        )
 
     def patch_to(self, settings: AppSettingsVNext) -> dict[str, object]:
+        data = _canonical_settings_dict(settings)
         patch: dict[str, object] = {}
         for path, previous_value in self.values_by_path:
-            next_value = _get_settings_path_value(settings, path)
+            next_value = _get_settings_path_value(data, path)
             if previous_value != next_value:
-                patch[path] = next_value
+                patch[path] = copy.deepcopy(next_value)
         return patch
 
     def materialize_base_from(self, settings: AppSettingsVNext) -> AppSettingsVNext:
@@ -354,13 +358,13 @@ def _settings_from_canonical_dict(data: dict[str, object]) -> AppSettingsVNext:
     return serialization.from_dict(data)
 
 
-def _get_settings_path_value(settings: AppSettingsVNext, path: str) -> object:
-    current: object = _canonical_settings_dict(settings)
+def _get_settings_path_value(data: dict[str, object], path: str) -> object:
+    current: object = data
     for segment in path.split("."):
         if not isinstance(current, dict):
             raise KeyError(path)
         current = current[segment]
-    return copy.deepcopy(current)
+    return current
 
 
 def _set_dict_path(data: dict[str, object], path: str, value: object) -> None:
@@ -390,12 +394,14 @@ def _build_settings_path_patch(
     *,
     paths: tuple[str, ...],
 ) -> dict[str, object]:
+    previous_data = _canonical_settings_dict(previous)
+    next_data = _canonical_settings_dict(next_settings)
     patch: dict[str, object] = {}
     for path in paths:
-        previous_value = _get_settings_path_value(previous, path)
-        next_value = _get_settings_path_value(next_settings, path)
+        previous_value = _get_settings_path_value(previous_data, path)
+        next_value = _get_settings_path_value(next_data, path)
         if previous_value != next_value:
-            patch[path] = next_value
+            patch[path] = copy.deepcopy(next_value)
     return patch
 
 

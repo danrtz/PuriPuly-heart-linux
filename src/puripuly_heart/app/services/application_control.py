@@ -317,6 +317,7 @@ class ApplicationControlOwner:
     sync_ui: Callable[[], None]
     instance_id: str | None = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _resource_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _stop_requested: asyncio.Event = field(default_factory=asyncio.Event)
     _operations: OrderedDict[str, _Operation] = field(default_factory=OrderedDict)
     _requests: OrderedDict[str, str] = field(default_factory=OrderedDict)
@@ -375,15 +376,16 @@ class ApplicationControlOwner:
         """OSC focused edit: obtain canonical under the shared mutation lock."""
         import copy
 
-        async with self._lock:
-            current = self.application.compatibility_settings()
-            if current is None:
-                raise RuntimeError("settings not loaded")
-            previous = copy.deepcopy(current)
-            updated = mutator(copy.deepcopy(current))
-            result = await self.application._settings.apply_settings(updated)
-            self._current_revision()
-            return result, previous, updated
+        async with self._resource_lock:
+            async with self._lock:
+                current = self.application.compatibility_settings()
+                if current is None:
+                    raise RuntimeError("settings not loaded")
+                previous = copy.deepcopy(current)
+                updated = mutator(copy.deepcopy(current))
+                result = await self.application._settings.apply_settings(updated)
+                self._current_revision()
+                return result, previous, updated
 
     def capabilities(self) -> dict:
         return {
@@ -929,22 +931,62 @@ class ApplicationControlOwner:
         operation = self._operations[operation_id]
         captured = None
         completed = False
+        acquired = False
         try:
             operation.receipt["status"] = "running"
+            resource_lock = None
+            changes = arguments.get("changes", arguments) if command == "settings.apply" else None
+            if command in {
+                "text.submit", "provider.apply", "translation.set",
+                "auth.login", "auth.logout", "secrets.set", "secrets.delete",
+                "gemma.prepare", "overlay.set", "models.install",
+                "models.prepare", "models.retry", "gpu.discover",
+            } or (command == "capture.set" and arguments.get("enabled") is True) or (
+                command == "settings.apply"
+                and isinstance(changes, dict)
+                and (len(changes) != 1 or "locale" not in changes)
+            ):
+                resource_lock = self._resource_lock
+            if resource_lock is not None:
+                await resource_lock.acquire()
+                acquired = True
             independent_stop = command in {"app.stop", "models.cancel", "gemma.cancel"} or (
                 command == "microphone.test" and arguments.get("enabled") is False
             )
-            async with (asyncio.Lock() if independent_stop else self._lock):
-                if not self._open and command != "app.stop":
-                    raise asyncio.CancelledError
-                if not independent_stop:
-                    self._lock_owner = asyncio.current_task()
-                revision = self._current_revision()
-                if expected_revision is not None and expected_revision != revision:
-                    operation.receipt.update(status="rejected", error={"code": "revision_conflict", "current_revision": revision})
-                else:
-                    with self.results.capture(revision=self._current_revision) as captured:
+            with self.results.capture(revision=self._current_revision) as captured:
+                deferred = None
+                async with (asyncio.Lock() if independent_stop else self._lock):
+                    if not self._open and command != "app.stop":
+                        raise asyncio.CancelledError
+                    if not independent_stop:
+                        self._lock_owner = asyncio.current_task()
+                    revision = self._current_revision()
+                    if expected_revision is not None and expected_revision != revision:
+                        operation.receipt.update(status="rejected", error={"code": "revision_conflict", "current_revision": revision})
+                    elif command == "models.install":
+                        _validate_command_args(command, arguments)
+                        if self.provisioning() is None:
+                            result = {"status": "failed", "error": {"code": "model_owner_unavailable"}}
+                        else:
+                            deferred = ("install", self._start_model_install(arguments, operation_id))
+                    elif command == "text.submit":
+                        _validate_command_args(command, arguments)
+                        if not isinstance(arguments["text"], str) or not arguments["text"].strip():
+                            raise ValueError("text must be non-empty")
+                        deferred = ("text", arguments["text"])
+                    else:
                         result = await self._dispatch(command, arguments, operation_id=operation_id)
+                    if self._lock_owner is asyncio.current_task():
+                        self._lock_owner = None
+                if operation.receipt["status"] != "rejected":
+                    if deferred is not None:
+                        if not self._open:
+                            raise asyncio.CancelledError
+                        if deferred[0] == "install":
+                            result = await self._install_result(deferred[1])
+                        else:
+                            await self.application.submit_text(deferred[1])
+                            result = True
                     transaction = captured.current
                     status = "applied"
                     if transaction is not None and command in {"settings.apply", "provider.apply", "secrets.set", "secrets.delete", "overlay.lock", "overlay.size", "overlay.position.reset"}:
@@ -1014,6 +1056,44 @@ class ApplicationControlOwner:
                 self.events.publish({"topic": "auth", "operation_id": operation_id, "phase": "finished"})
             self.events.publish({"topic": "operation", "operation_id": operation_id, "status": operation.receipt["status"], "terminal": operation.receipt["terminal"], "revision": self._current_revision()})
             self._trim()
+            if acquired:
+                resource_lock.release()
+
+    def _start_model_install(self, args: dict, operation_id: str) -> asyncio.Task:
+        from puripuly_heart.core.local_asr_provisioning import LocalASRInstallRequest
+
+        owner = self.provisioning()
+        if owner is None:
+            raise RuntimeError("model owner is unavailable")
+        backend = args.get("backend", "gpu")
+        snapshot = owner.snapshot
+        requested_model_ids = args.get("model_ids")
+        if requested_model_ids:
+            model_ids = tuple(requested_model_ids)
+        elif backend == "cpu":
+            model_ids = snapshot.required_cpu_model_ids
+        else:
+            model_ids = (snapshot.gpu_model_id,)
+        model_backends = {item.model_id: item.backend for item in snapshot.models}
+        if not model_ids or any(model_backends.get(model_id) != backend for model_id in model_ids):
+            raise ValueError("unsupported model ids")
+        settings = self.application.compatibility_settings()
+        request = LocalASRInstallRequest(
+            backend=backend, model_ids=model_ids,
+            locale=settings.intent.ui.locale if settings is not None else None,
+            origin="application_control", explicit_gpu_intent=backend == "gpu",
+        )
+        install_task = owner.start_install(request)
+        self._operations[operation_id].install_started = True
+        return install_task
+
+    @staticmethod
+    async def _install_result(install_task: asyncio.Task) -> dict:
+        result = await install_task
+        return {
+            "status": "cancelled" if result.cancelled else "degraded" if result.failed_model_ids else "applied",
+            "models": _json(result.snapshot), "failed_model_ids": list(result.failed_model_ids),
+        }
 
     async def _dispatch(self, command: str, args: dict, *, operation_id: str) -> object:
         app = self.application
@@ -1147,33 +1227,6 @@ class ApplicationControlOwner:
             return await self._apply_fields(args)
         if command == "provider.apply":
             return await self._apply_provider(args)
-        if command == "models.install":
-            from puripuly_heart.core.local_asr_provisioning import LocalASRInstallRequest
-            owner = self.provisioning()
-            if owner is None:
-                return {"status": "failed", "error": {"code": "model_owner_unavailable"}}
-            backend = args.get("backend", "gpu")
-            snapshot = owner.snapshot
-            requested_model_ids = args.get("model_ids")
-            if requested_model_ids:
-                model_ids = tuple(requested_model_ids)
-            elif backend == "cpu":
-                model_ids = snapshot.required_cpu_model_ids
-            else:
-                model_ids = (snapshot.gpu_model_id,)
-            model_backends = {
-                item.model_id: item.backend for item in snapshot.models
-            }
-            if not model_ids or any(
-                model_backends.get(model_id) != backend for model_id in model_ids
-            ):
-                raise ValueError("unsupported model ids")
-            settings = app.compatibility_settings()
-            request = LocalASRInstallRequest(backend=backend, model_ids=model_ids, locale=settings.intent.ui.locale if settings is not None else None, origin="application_control", explicit_gpu_intent=backend == "gpu")
-            install_task = owner.start_install(request)
-            self._operations[operation_id].install_started = True
-            result = await install_task
-            return {"status": "cancelled" if result.cancelled else "degraded" if result.failed_model_ids else "applied", "models": _json(result.snapshot), "failed_model_ids": list(result.failed_model_ids)}
         if command == "models.prepare":
             owner = self.provisioning()
             if owner is None:

@@ -8,8 +8,6 @@ from collections.abc import AsyncIterator
 from contextlib import aclosing
 from typing import Any
 
-from puripuly_heart.app.services.application_control import UnknownOperationError
-
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -58,6 +56,9 @@ async def _read(reader: asyncio.StreamReader) -> dict[str, Any]:
 
 class ControlServer:
     def __init__(self, control: Any, *, instance_id: str, token: str):
+        from puripuly_heart.app.services.application_control import UnknownOperationError
+
+        self._unknown_operation_error = UnknownOperationError
         self.control = control
         self.instance_id = instance_id
         self._token = token
@@ -244,7 +245,7 @@ class ControlServer:
             pass
         except ControlTransportError as exc:
             await self._send_error(writer, request_id, exc.code, str(exc))
-        except UnknownOperationError:
+        except self._unknown_operation_error:
             await self._send_error(
                 writer, request_id, "unknown_or_expired_operation",
                 "Operation identity is unknown or expired in this application instance",

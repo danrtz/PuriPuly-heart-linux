@@ -23,10 +23,9 @@ class ControlEvents:
         self.sequence += 1
         entry = {"sequence": self.sequence, **event}
         self.history.append(entry)
-        for subscriber in tuple(self.subscribers):
-            if subscriber.full():
-                subscriber.get_nowait()
-            subscriber.put_nowait(self.sequence)
+        for subscriber in self.subscribers:
+            if subscriber.empty():
+                subscriber.put_nowait(self.sequence)
 
     def publish_ui(self, event: UIEvent) -> None:
         payload = event.payload
@@ -84,19 +83,25 @@ class ControlEvents:
                 if cursor < oldest - 1:
                     yield {"sequence": oldest - 1, "topic": "gap", "after": cursor, "snapshot_required": True}
                     cursor = oldest - 1
-                for entry in tuple(self.history):
-                    sequence = entry["sequence"]
-                    if sequence <= cursor:
-                        continue
-                    cursor = sequence
-                    if topics and entry.get("topic") not in topics:
-                        continue
-                    if channel is not None and entry.get("channel") not in (None, channel):
-                        continue
-                    projected = dict(entry)
-                    if not ((entry.get("topic") == "transcript" and include_transcripts) or (entry.get("topic") == "translation" and include_translations)):
-                        projected.pop("text", None)
-                    yield projected
+                    continue
+                if cursor < self.sequence:
+                    pending = tuple(
+                        self.history[sequence - oldest]
+                        for sequence in range(cursor + 1, self.sequence + 1)
+                    )
+                    for entry in pending:
+                        sequence = entry["sequence"]
+                        if sequence <= cursor:
+                            continue
+                        cursor = sequence
+                        if topics and entry.get("topic") not in topics:
+                            continue
+                        if channel is not None and entry.get("channel") not in (None, channel):
+                            continue
+                        projected = dict(entry)
+                        if not ((entry.get("topic") == "transcript" and include_transcripts) or (entry.get("topic") == "translation" and include_translations)):
+                            projected.pop("text", None)
+                        yield projected
                 await queue.get()
         finally:
             self.subscribers.discard(queue)

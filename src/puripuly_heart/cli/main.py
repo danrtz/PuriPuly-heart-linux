@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from puripuly_heart.cli.host import run_headless
 from puripuly_heart.cli.transport import ControlTransportError, follow, request
 
 TERMINAL = frozenset(
@@ -607,6 +606,8 @@ async def _run(args: argparse.Namespace) -> int:
         if args.action == "start":
             if args.background:
                 return await _start_background(args.config, args.timeout)
+            from puripuly_heart.cli.host import run_headless
+
             await run_headless(args.config)
             return 0
         if args.action == "restart":
@@ -615,6 +616,8 @@ async def _run(args: argparse.Namespace) -> int:
                 return stopped
             if args.background:
                 return await _start_background(args.config, args.timeout)
+            from puripuly_heart.cli.host import run_headless
+
             await run_headless(args.config)
             return 0
         if args.action == "stop":
