@@ -517,8 +517,6 @@
   "provider.openrouter.key_limit": "APIキーの利用上限に達しました。",
   "provider.openrouter.temporary_limit": "OpenRouterの一時的な利用上限に達しました。",
   "provider.openrouter.payment_required": "クレジット残高を確認してください。",
-  "dashboard.overlay_restart_required": "オーバーレイを再起動してください。",
-  "dashboard.translation_issue.settings_action": "設定を開く",
   "stt.failure": "音声認識でエラーが発生しました（{category}）。もう一度お試しください。",
   "settings.mutation.runtime_apply_failed": "設定は保存されましたが、ランタイムへの適用に失敗しました。",
   "debug_preview.qq_auth_recoverable_error": "QQ回復可能エラー",

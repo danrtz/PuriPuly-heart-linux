@@ -148,6 +148,7 @@ class LocalASRApplicationEffectsAdapter:
     dashboard_enabled_sink: Callable[[bool], None]
     dashboard_needs_key_sink: Callable[[bool], None]
     message_sink: Callable[[str], None]
+    error_sink: Callable[[str], None]
     sync_notice: Callable[[], None]
 
     def apply_cpu_repair(self, effect: LocalASRCpuRepairEffect) -> None:
@@ -162,7 +163,7 @@ class LocalASRApplicationEffectsAdapter:
             self.sync_notice()
             return
         if effect.type is LocalASRCpuRepairEffectType.SHOW_DOWNLOAD_FAILED:
-            self.message_sink("local_stt.download_failed")
+            self.error_sink("local_stt.download_failed")
             return
         raise ValueError(f"Unsupported Local ASR CPU repair effect: {effect.type}")
 
@@ -171,7 +172,7 @@ class LocalASRApplicationEffectsAdapter:
             self._disable_self("local_stt.language_unsupported", needs_key=False)
             return
         if effect.type is LocalASRReadinessEffectType.DISABLE_SELF_INVALID:
-            self._disable_self("error.local_stt_model_invalid", needs_key=False)
+            self._disable_self("error.local_stt_model_invalid", needs_key=False, is_error=True)
             return
         if effect.type is LocalASRReadinessEffectType.SELF_DOWNLOAD_IN_PROGRESS:
             self._disable_self("local_stt.download_in_progress")
@@ -220,12 +221,15 @@ class LocalASRApplicationEffectsAdapter:
         if owner is not None:
             owner.invalidate_intent()
 
-    def _disable_self(self, message: str, *, needs_key: bool | None = None) -> None:
+    def _disable_self(
+        self, message: str, *, needs_key: bool | None = None, is_error: bool = False
+    ) -> None:
         self._invalidate_self()
         self.dashboard_enabled_sink(False)
         if needs_key is not None:
             self.dashboard_needs_key_sink(needs_key)
-        self.message_sink(message)
+        sink = self.error_sink if is_error else self.message_sink
+        sink(message)
 
 
 @dataclass(frozen=True, slots=True)

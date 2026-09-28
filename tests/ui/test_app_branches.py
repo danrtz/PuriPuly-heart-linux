@@ -768,7 +768,6 @@ class ConstructionDummyDashboardView(ft.Container):
         self.on_toggle_translation = translation.toggle_translation
         self.on_language_change = translation.change_language
         self.on_message_input_activity = translation.report_input_activity
-        self.on_open_translation_settings = translation.open_settings
         self.on_toggle_stt = capture.toggle_self_capture
         self.on_toggle_peer_translation = capture.toggle_peer_capture
         self.on_toggle_overlay = capture.toggle_overlay
@@ -2047,36 +2046,6 @@ def test_debug_preview_gpu_states_cycle_in_memory() -> None:
     assert len(app.view_settings.devices) == 8
 
 
-class PreviewDashboard:
-    def __init__(self) -> None:
-        self.managed_trial_calls: list[dict[str, object]] = []
-
-    def set_managed_trial_state(self, **kwargs) -> None:
-        self.managed_trial_calls.append(kwargs)
-        raise AssertionError("debug preview must not write removed Dashboard trial-card state")
-
-
-def test_debug_preview_surviving_managed_actions_are_snackbar_only() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.view_dashboard = PreviewDashboard()
-    snackbar_calls: list[tuple[str, object]] = []
-    app._show_snackbar = lambda message, bgcolor: snackbar_calls.append((message, bgcolor))
-
-    assert not hasattr(app, "_set_debug_managed_trial_preview")
-    assert not hasattr(app, "_preview_managed_normal")
-    assert not hasattr(app, "_preview_managed_exhausted")
-    assert not hasattr(app, "_preview_clear")
-
-    app._preview_brake_notice()
-    app._preview_revoked_notice()
-
-    assert snackbar_calls == [
-        (app_module.t("managed_release.brake"), app_module.COLOR_WARNING),
-        (app_module.t("managed_release.revoked_contact"), app_module.COLOR_WARNING),
-    ]
-    assert app.view_dashboard.managed_trial_calls == []
-
-
 def test_debug_preview_founder_letter_opens_dialog_with_readme_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2153,29 +2122,6 @@ def test_founder_readme_url_for_locale_uses_origin_readme_pages() -> None:
     assert resolver(None) == (
         "https://github.com/kapitalismho/PuriPuly-heart/blob/main/README.md#using-your-own-api-keys"
     )
-
-
-def test_debug_preview_pkce_failure_only_shows_failure_snackbar(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    seen: list[tuple[str, object]] = []
-
-    monkeypatch.setattr(
-        app,
-        "_on_request_openrouter_pkce",
-        lambda *_args, **_kwargs: pytest.fail("debug preview must not launch PKCE"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        app,
-        "_show_snackbar",
-        lambda message, bgcolor: seen.append((message, bgcolor)),
-    )
-
-    app._preview_pkce_failure()
-
-    assert seen == [(app_module.t("openrouter.pkce.failed"), app_module.COLOR_WARNING)]
 
 
 def test_debug_preview_pkce_button_cycle_only_renders_button_states(

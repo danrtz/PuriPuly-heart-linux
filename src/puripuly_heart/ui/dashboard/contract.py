@@ -16,7 +16,6 @@ class DashboardTranslationIntents:
     toggle_translation: Callable[[bool], None]
     change_language: Callable[[LanguageSelectionChange], None]
     report_input_activity: Callable[[bool], None]
-    open_settings: Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)

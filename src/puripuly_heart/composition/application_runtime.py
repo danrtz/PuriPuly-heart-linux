@@ -968,9 +968,11 @@ def compose_application_runtime(
     async def resume_peer_after_cpu_repair() -> None:
         await refresh_overlay_runtime_dependencies()
 
-    def show_short_message(message_key: str, **message_kwargs: object) -> None:
+    def show_short_message(
+        message_key: str, *, is_error: bool = False, **message_kwargs: object
+    ) -> None:
         try:
-            presentation.show_message(message_key, **message_kwargs)
+            presentation.show_message(message_key, is_error=is_error, **message_kwargs)
         except Exception:
             log_error(presentation.localize(message_key, **message_kwargs))
 
@@ -1013,6 +1015,7 @@ def compose_application_runtime(
                 dashboard_enabled_sink=presentation.set_dashboard_stt_enabled,
                 dashboard_needs_key_sink=presentation.set_dashboard_stt_needs_key,
                 message_sink=show_short_message,
+                error_sink=lambda key: show_short_message(key, is_error=True),
                 notice_sink=presentation.set_dashboard_local_stt_notice,
                 rebuild_self_provider=lambda: (
                     require_runtime_components().provider_runtime.effects.rebuild_self_stt()
@@ -1890,6 +1893,7 @@ def compose_application_runtime(
         runtime_state_changed=on_translation_runtime_state_changed,
         message_sink=lambda key, values: show_short_message(
             key,
+            is_error=True,
             **dict(values),
         ),
         qq_dialog_sink=presentation.show_qq_managed_auth_dialog,
