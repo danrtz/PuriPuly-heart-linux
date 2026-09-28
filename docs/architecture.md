@@ -57,9 +57,9 @@ Broker is a control-plane dependency, not part of the normal utterance data path
 
 | Owner                   | Owns                                                       | Key path                                                                  |
 | ----------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
-| UI application boundary | UI-facing application operations; shared application-control delegation | `app/services/ui_application.py` |
-| Application control owner | Finite command/query catalog, revisions, ordered mutations, operation receipts, event projections | `app/services/application_control.py`, `app/services/application_control_events.py` |
-| Local control host | Authenticated endpoint, instance identity, lease, host start/stop | `cli/host.py`, `cli/transport.py`, `core/control_instance.py` |
+| UI application boundary | UI-facing application operations | `app/services/ui_application.py` |
+| Application control owner | Typed operations, state queries, mutation ordering | `app/services/application_control.py`, `app/services/application_control_events.py` |
+| Local control host | Authenticated endpoint, instance identity and lifetime | `cli/host.py`, `cli/transport.py`, `core/control_instance.py` |
 | Settings owner          | Canonical settings, persistence, projection, rollback      | `app/services/canonical_settings_persistence.py` |
 | Runtime pipeline        | Active runtime component set                               | `app/wiring/wiring_runtime_pipeline.py`                    |
 | Self capture owner      | Microphone source and capture lifecycle                    | `core/runtime/self_capture.py`                       |
@@ -167,8 +167,8 @@ VRChat process lifetime
 
 | Boundary        | Contract                                             | Implementations                          |
 | --------------- | ---------------------------------------------------- | ---------------------------------------- |
-| Local application control | Finite CLI command/query/operation/event contract | `ApplicationControlOwner`, authenticated loopback transport |
-| UI application  | `UiApplicationPort`                                  | Flet application boundary and headless application boundary |
+| Local application control | Typed commands, queries, operations, and events | `ApplicationControlOwner`, local transport |
+| UI application  | `UiApplicationPort`                                  | `UiApplicationBoundary` |
 | UI presentation | `UiPresentationPort`, `UIEventBridgePort`            | Flet and headless presentation adapters   |
 | Audio capture   | Capture and VAD ports                                | Microphone, loopback, process capture    |
 | STT             | Provider and local ASR ports                         | CPU ASR, GPU worker, remote STT          |
@@ -215,31 +215,19 @@ Long-lived resource ownership must be transferred to an explicit owner.
 
 ## Local Application Control
 
-GUI and headless hosts compose the same application boundary and application owners. The headless path changes the presentation adapter; it does not create a second capture, recognition, translation, settings, output, or shutdown runtime. Headless composition supplies the application-essential scheduling, state, interactions, and event-consumption work without the main window.
+GUI and headless hosts share application owners and runtime resources. Presentation adapters select whether the host has a main window.
 
-`ApplicationControlOwner` is the application-facing boundary for a finite allowlist of typed commands and owner-backed queries. The CLI convenience domains and named `command`/`query` forms translate to that catalog; transport code does not reflect over Python objects or call owner internals. Settings and provider edits enter the existing typed settings/provider owners, materialize against canonical settings, and share mutation ordering with GUI and OSC changes. A caller may provide an expected settings revision; stale requests are rejected rather than overwriting newer state. Runtime snapshots distinguish selected settings from active runtime and capture attachments.
+`ApplicationControlOwner` exposes a finite catalog of typed commands and owner-backed queries.
 
-The settings owner keeps the committed snapshot separate from the canonical state staged during preparation. Successful changed commits publish that snapshot, its control revision, and a settings event together on the event-loop thread, including GUI-only commits; threaded persistence marshals publication before returning. Queries do not hash, advance revisions, or publish events. Failed persistence and rolled-back staging do not appear as committed settings.
+- Settings and provider edits use existing owners, with shared ordering for CLI commands, ordered GUI intents, and OSC edits.
+- Canonical mutations and resource conflicts have separate ordering boundaries.
+- Queries project committed settings and effective runtime state; staged edits are not reported as committed.
+- Submitted tasks and bounded operation receipts belong to the control owner, not client connections. Receipts distinguish durable settings commits from runtime completion.
+- `ControlEvents` provides bounded, privacy-filtered subscriptions to the shared runtime event stream. Content requires explicit opt-in; slow clients do not block producers, and gaps require snapshot resynchronization.
 
-Settings snapshot and patch comparisons reuse one canonical serialized representation per input instead of converting the full settings tree for every field lookup. This reuse is local to the operation; returned mutable values remain isolated and no cache survives into a later settings mutation.
+`HostedApplication` owns the authenticated same-user loopback endpoint and settings-identity lease. Shutdown stops ingress and drains owned operations before releasing runtime resources and the lease.
 
-Submitted work is scheduled and retained by the application-control owner, not by a client's terminal. Receipts expose terminal versus in-progress state, revision, and detailed transaction outcome. Request identities deduplicate a matching request only within the host's bounded 256-record retention; instance UUID and operation ownership end at host restart. A timeout or lost response is ambiguous and does not authorize automatic mutation replay. Cancellation is exposed only where the application owner supports it; cancellation does not undo already committed changes.
-
-Long-running CLI model installation and manual-text completion retain resource ordering without occupying the canonical mutation lock for the entire wait. CLI capture-off and locale-only settings changes can proceed during those waits; potentially conflicting provider, output, capture-on, and other settings transitions remain conservatively resource-ordered. The resource gate also covers the existing ordered GUI intents and focused OSC edits, not every GUI callback. Admission still checks the expected revision, and releasing the canonical lock does not make a receipt terminal before its owner work completes.
-
-Transaction capture records an operation-scoped durable-commit milestone and its revision. Shutdown interruption retains that operation's committed transaction without inferring ownership from an unrelated revision change. `settings_commit_success_runtime_interrupted` distinguishes durable settings from runtime completion not established before interruption; an already known runtime-applied/degraded outcome remains intact. Queued noncommitted work has no committed transaction, and completed receipts are not overwritten by a later shutdown freeze.
-
-`UiApplicationBoundary.output_status()` projects the overlay and OSC owners' effective state separately from canonical settings. Overlay snapshots include actual lifecycle/process/presentation readiness, effective versus attempted target, recovery/fallback and ingress-stop state; `desktop_visible` is distinct from a manager/presenter readiness handshake. OSC snapshots separate configured/applied ports from live local receiver/sender/query-service availability and discovery state. UDP delivery remains unacknowledged; no snapshot claims that VRChat received a packet.
-
-Overlay transition outcomes are owned and awaited through the application boundary. The transition waiter observes owner state and awaits existing start and immediate fallback/recovery tasks without background polling; shielded work retains application ownership if a caller stops waiting. Mutating receipts are terminal only after the explicit transition completes or fails. A scheduled future recovery attempt does not turn an unavailable output into success or keep the original operation pending indefinitely.
-
-`HostedApplication` owns the local control server and settings-identity lease for both GUI and headless hosts (`cli/host.py`). The v1 transport is authenticated newline-delimited JSON on ephemeral `127.0.0.1`; endpoint records and tokens are protected by verified current-user Windows ACLs, and `core/control_instance.py` uses an exclusive `LockFileEx` lease to prevent concurrent hosts for the same canonical settings identity. Host identity is an opaque UUID, separate from the PID. Shutdown freezes transport and application-control ingress, interrupts retained control operations, and drains them in the owner-drain phase before runtime resources close. Already-started threaded persistence is awaited; queued mutations cannot run after the freeze. The endpoint/lease is released after application shutdown. Remote GUI stop then awaits the real UI presentation close boundary; it does not substitute a successful no-op for window closure.
-
-Client-only CLI commands load the transport without loading the headless host or application-control implementation. Foreground hosting and control-server construction load their application-side dependencies when needed; authentication, framing, and error responses are unchanged.
-
-`ControlEvents` observes the shared runtime event stream without competing with the GUI event bridge and distributes independently buffered, privacy-projected subscriptions (`app/services/application_control_events.py`). Non-content projections use finite typed metadata rather than arbitrary payload stringification; OSC chatbox text is excluded regardless of transcript/translation opt-ins. Slow consumers cannot block capture/translation. Sequence gaps require the caller to resynchronize from owner-backed snapshots; self, peer, UI, and provider streams do not acquire a false global ordering.
-
-Each subscription snapshots only the unread retained sequence range; queued notifications at an already-consumed cursor do not rescan old entries. Replay retains the 256-entry history and bounded subscriber notifications, and rechecks retention after a gap so a paused consumer cannot silently skip a subsequent overwritten range.
+Implementation: `app/services/application_control.py`, `app/services/application_control_events.py`, `cli/host.py`, `cli/transport.py`, `core/control_instance.py`. Command and protocol details: [CLI guide](cli.md).
 
 ## Runtime Pipeline
 
@@ -275,7 +263,7 @@ Do not retain references across replacement unless the API explicitly allows it.
 
 `SettingsView` consumes only frozen surface snapshots and emits focused typed intents. The settings application owner replays those intents onto the latest canonical settings before persistence and runtime application.
 
-GUI provider and prompt drafts retain their captured base and focused edits. Unrelated external changes rebase without losing the draft; overlapping changes require explicit conflict resolution. Successful asynchronous apply acknowledges only the matching edits in the submitted intent through `acknowledge_provider_apply_settings` or `acknowledge_prompt_apply_settings`; newer edits staged while that apply was pending remain staged. Direct prompt submission does not consume the draft before acknowledgement. Failed apply does not consume a draft.
+Provider and prompt drafts retain a base snapshot and focused edits. External changes rebase or surface conflicts. Only successful apply acknowledges matching submitted edits; newer edits remain staged.
 
 Contains user selections, not active runtime resources.
 
@@ -490,7 +478,6 @@ Child processes remain owned for the host lifetime. Abrupt-exit containment is a
 
 - The Python application runs asynchronous runtime work on its `asyncio` event loop.
 - Owners create, track, and close their own background tasks.
-- `ApplicationControlOwner` owns each submitted operation task and bounded receipt retention; client disconnect does not transfer or cancel that ownership.
 - Do not create detached tasks without assigning lifecycle ownership.
 - Capture, STT, translation, UI, and child-process events cross owner boundaries through ports, callbacks, or owned queues.
 - Callbacks must delegate to the receiving owner; they must not mutate another owner's private runtime state.
