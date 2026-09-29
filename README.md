@@ -87,9 +87,9 @@ It works in many environments, including VRChat and Discord.
 ---
 
 ## Translation Comparison
-![Historical Gemba MQM translation comparison across 216 Korean-to-English/Japanese/Chinese multi-turn samples (lower is better): Gemma 4 31B 0.353, Gemma 4 26B A4B 0.387, DeepSeek-V4 Flash 0731 0.571, Gemma 4 12B QAT Q4 0.855, Gemma 4 E4B QAT Q4 1.577; external baselines include Hy-MT-7B, Papago, Gemini 3.5 Live Translate, MiLMMT 46-4B, DeepL and Google Cloud Translation Basic. These are individual-model historical results, not measurements of the selectable combined pool.](docs/images/performance/2.png)
+![Mean error penalty per sentence for Korean to EN / JA / ZH-Hans across 216 multi-turn samples (Gemba MQM evaluation, lower is better). Blue bars are models available in PuriPuly: 1st Gemma 4 31B (0.353), 2nd Gemma 4 26B A4B (0.387), 3rd DeepSeek-V4 Flash 0731 (0.571), 4th Gemma 4 12B QAT Q4 (0.855), 5th Gemma 4 E4B QAT Q4 (1.577). Orange bars are external baselines: Hy-MT-7B (1.863), Papago (2.699), Gemini 3.5 Live Translate (2.991), MiLMMT 46-4B (3.087), DeepL (3.914), Google Cloud Translation Basic (5.731).](docs/images/performance/2.png)
 
-- The bars show historical individual-model measurements, including standalone cloud Gemma models that are no longer selectable. The current cloud choice is **Gemma 4 26B + 31B**.
+- The blue bars are the models available in PuriPuly.
 - We ran the experiment using Microsoft's Gemba MQM framework.
 - It was set up as a multi-turn environment to better resemble real conversation.
 - For the full results, see [here](https://github.com/kapitalismho/korean-llm-context-translation-benchmark).
@@ -103,7 +103,7 @@ It works in many environments, including VRChat and Discord.
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | Unlimited | Unlimited | 5,000 | 7,260 |
-| **Gemma 4 26B + 31B** | 13,940 | 13,940 | 3,680 | 4,770 |
+| **Gemma 4 26B A4B + 31B** | 13,940 | 13,940 | 3,680 | 4,770 |
 | **DeepSeek V4 Flash (OpenRouter)** | 17,020 | 17,020 | 3,860 | 5,090 |
 | **DeepSeek V4.1 Flash** | 16,800 | 16,800 | 3,860 | 5,070 |
 
@@ -121,7 +121,7 @@ It works in many environments, including VRChat and Discord.
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | $0 | $0 | ~$0.0002 | ~$0.00014 |
-| **Gemma 4 26B + 31B** | ~$0.00007 | ~$0.00007 | ~$0.0003 | ~$0.00021 |
+| **Gemma 4 26B A4B + 31B** | ~$0.00007 | ~$0.00007 | ~$0.0003 | ~$0.00021 |
 | **DeepSeek V4 Flash (OpenRouter)** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
 | **DeepSeek V4.1 Flash** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
 
@@ -216,7 +216,7 @@ If Soniox/Gemini/Deepgram are blocked in your region, please use the following c
 
 Follow the guide that matches the service you want to use.
 
-For the translation LLM, we recommend selecting **Gemma 4 26B + 31B** with the **OpenRouter** connection.
+For the translation LLM, we recommend selecting **Gemma 4 26B A4B + 31B** with the **OpenRouter** connection.
 
 By the way, while you're setting things up, why not configure ASR too?
 PuriPuly delivers the best experience when paired with a cloud STT.

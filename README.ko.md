@@ -94,9 +94,9 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 
 ## 번역 품질 비교
 
-![과거 번역 비교. 한국어에서 영어·일본어·중국어(간체)로 번역한 216개 멀티턴 샘플의 Gemba MQM 평가(낮을수록 좋음). Gemma 4 31B (0.353)와 Gemma 4 26B A4B (0.387)는 개별 모델의 과거 측정값이며 현재 선택 가능한 Gemma 4 26B + 31B 통합 모델의 측정값은 아닙니다. 다른 모델 및 외부 기준도 비교합니다.](docs/images/performance/2.png)
+![한국어 → 영어/일본어/중국어(간체) 번역에 대한 문장당 평균 에러 페널티 차트. 216개 멀티턴 샘플, Gemba MQM 평가, 낮을수록 좋음. 파란색 막대는 PuriPuly에서 사용할 수 있는 모델: 1위 Gemma 4 31B (0.353), 2위 Gemma 4 26B A4B (0.387), 3위 DeepSeek-V4 Flash 0731 (0.571), 4위 Gemma 4 12B QAT Q4 (0.855), 5위 Gemma 4 E4B QAT Q4 (1.577). 주황색 막대는 외부 베이스라인: Hy-MT-7B (1.863), Papago (2.699), Gemini 3.5 Live Translate (2.991), MiLMMT 46-4B (3.087), DeepL (3.914), Google Cloud Translation Basic (5.731).](docs/images/performance/2.png)
 
-- 파란색 막대는 개별 모델의 과거 측정값이에요. 단독 클라우드 Gemma 모델은 더 이상 선택할 수 없으며, 현재 클라우드 선택지는 **Gemma 4 26B + 31B**예요.
+- 파란색 막대 그래프들이 PuriPuly에서 사용할 수 있는 모델이에요.
 - 마이크로소프트의 Gemba MQM 프레임워크를 사용해서 실험했어요.
 - 실제 대화 환경과 가깝게 맥락을 포함한 멀티턴 환경으로 구성했어요.
 - 전체 실험 결과는 [여기](https://github.com/kapitalismho/korean-llm-context-translation-benchmark)를 참조해주세요.
@@ -111,7 +111,7 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 | LLM \ ASR                 | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 | ------------------------- | --------- | ------------------- | ------ | ---------- |
 | **Gemma 4 E4B (Local)**   | 무제한       | 무제한                 | 5,000회 | 7,260회     |
-| **Gemma 4 26B + 31B** | 13,940회 | 13,940회 | 3,680회 | 4,770회 |
+| **Gemma 4 26B A4B + 31B** | 13,940회 | 13,940회 | 3,680회 | 4,770회 |
 | **DeepSeek V4 Flash (OpenRouter)** | 17,020회   | 17,020회             | 3,860회 | 5,090회     |
 | **DeepSeek V4.1 Flash**   | 16,800회   | 16,800회             | 3,860회 | 5,070회     |
 
@@ -133,7 +133,7 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 | LLM \ ASR                 | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 | ------------------------- | --------- | ------------------- | ------ | ---------- |
 | **Gemma 4 E4B (Local)**   | 0원        | 0원                  | ~0.3원  | ~0.2원      |
-| **Gemma 4 26B + 31B** | ~0.1원 | ~0.1원 | ~0.4원 | ~0.3원 |
+| **Gemma 4 26B A4B + 31B** | ~0.1원 | ~0.1원 | ~0.4원 | ~0.3원 |
 | **DeepSeek V4 Flash (OpenRouter)** | ~0.08원    | ~0.08원              | ~0.4원  | ~0.3원      |
 | **DeepSeek V4.1 Flash**   | ~0.08원    | ~0.08원              | ~0.4원  | ~0.3원      |
 
