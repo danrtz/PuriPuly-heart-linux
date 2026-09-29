@@ -1,0 +1,16 @@
+{
+  "filename": "EN2002a.Array1-01.wav",
+  "source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002a/audio/EN2002a.Array1-01.wav",
+  "source_total_bytes": 68566744,
+  "source_sample_count": 34283350,
+  "original_wav_header_sha256": "c1c8eca1fb4d075bf80c0a4d8609abc2d67fc9e70fec6f836dbe8a785be8db6f",
+  "original_wav_data_offset": 44,
+  "start_s": 1890,
+  "duration_s": 120,
+  "byte_range": [
+    60480044,
+    64320043
+  ],
+  "pcm_sha256": "331839fb6b0d91d253b0f2a985d1d71ce444bb5904a1ac9d2b1d9220e4ac82c3",
+  "local_pcm": "source_audio/EN2002a.Array1-01.window.pcm"
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "filename": "EN2002a.Mix-Headset.wav",
+    "official_source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002a/audio/EN2002a.Mix-Headset.wav",
+    "download_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002a/audio/EN2002a.Mix-Headset.wav",
+    "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+    "sha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+    "bytes": 68566744
+  },
+  {
+    "filename": "EN2002b.Mix-Headset.wav",
+    "official_source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002b/audio/EN2002b.Mix-Headset.wav",
+    "download_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002b/audio/EN2002b.Mix-Headset.wav",
+    "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+    "sha256": "50e2c8e4737850c4bf3cc24e7087c755e1c733cd91822106afd0df485ba64893",
+    "bytes": 57179180
+  },
+  {
+    "filename": "EN2002c.Mix-Headset.wav",
+    "official_source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002c/audio/EN2002c.Mix-Headset.wav",
+    "download_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002c/audio/EN2002c.Mix-Headset.wav",
+    "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+    "sha256": "a057708b3adb553f709fcde97d2af8e0455076bc3f88c250975227433d6e0270",
+    "bytes": 95112236
+  },
+  {
+    "filename": "EN2002d.Mix-Headset.wav",
+    "official_source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002d/audio/EN2002d.Mix-Headset.wav",
+    "download_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002d/audio/EN2002d.Mix-Headset.wav",
+    "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+    "sha256": "6aa99d9d71cb695ea699d6be277f78eff68e847c93560031486eba9f18164ebe",
+    "bytes": 70716802
+  },
+  {
+    "filename": "ES2004b.Mix-Headset.wav",
+    "official_source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2004b/audio/ES2004b.Mix-Headset.wav",
+    "download_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/ES2004b/audio/ES2004b.Mix-Headset.wav",
+    "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+    "sha256": "ad0cf07c42b1694ccf7bea8f1a37348d9cfab194787abc7d050b29ba56e365c8",
+    "bytes": 75055832
+  },
+  {
+    "filename": "IS1009b.Mix-Headset.wav",
+    "official_source_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/IS1009b/audio/IS1009b.Mix-Headset.wav",
+    "download_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/IS1009b/audio/IS1009b.Mix-Headset.wav",
+    "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+    "sha256": "07c2891ae6ad7c507b2a4f15b2dcd0a2343491df9e4e6a58f9db0d0b2c5e1382",
+    "bytes": 65676093
+  }
+]

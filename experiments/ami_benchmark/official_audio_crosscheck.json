@@ -1,0 +1,521 @@
+{
+  "method": "Official HTTP 206 Content-Range; first 4096 WAV bytes then 4096-frame PCM blocks selected independently from maximum-energy second in start/middle/end 11-second bands of each published window; mirror entire-file SHA pinned separately; only spot checks, not entire official file equality",
+  "sources": [
+    {
+      "meeting": "EN2002a",
+      "case": "overlap_heavy",
+      "official_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002a/audio/EN2002a.Mix-Headset.wav",
+      "mirror_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002a/audio/EN2002a.Mix-Headset.wav",
+      "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+      "mirror_full_wav_sha256": "a15017d0d3c871866971ee178052a0ce3a7e44d6fbf89fc23dcab326511b65f5",
+      "official_total_bytes": 68566744,
+      "mirror_total_bytes": 68566744,
+      "header_range": [
+        0,
+        4095
+      ],
+      "official_prefix_sha256": "ad3617b48045af7b5ba24c1e026017cbb1b734c7327ede3e16e79f3b67f6b02d",
+      "mirror_prefix_sha256": "ad3617b48045af7b5ba24c1e026017cbb1b734c7327ede3e16e79f3b67f6b02d",
+      "official_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 34283350,
+        "data_offset_bytes": 44,
+        "data_bytes": 68566700
+      },
+      "mirror_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 34283350,
+        "data_offset_bytes": 44,
+        "data_bytes": 68566700
+      },
+      "header_format_and_full_data_length_match": true,
+      "blocks": [
+        {
+          "band": "start",
+          "local_offset_s": 6,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 624.268,
+          "official_byte_range": [
+            60672044,
+            60680235
+          ],
+          "mirror_byte_range": [
+            60672044,
+            60680235
+          ],
+          "expected_mirror_pcm_sha256": "fa307ba195b32f9db5e20c7e22ade4ff2e07eb2d65d6d9eb8e95868859f58f20",
+          "observed_official_pcm_sha256": "fa307ba195b32f9db5e20c7e22ade4ff2e07eb2d65d6d9eb8e95868859f58f20",
+          "matched": true
+        },
+        {
+          "band": "middle",
+          "local_offset_s": 61,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 578.539,
+          "official_byte_range": [
+            62432044,
+            62440235
+          ],
+          "mirror_byte_range": [
+            62432044,
+            62440235
+          ],
+          "expected_mirror_pcm_sha256": "566b7122fa5d4071c816b6a16c704f1f367c7418ca746c60c4c0da173699936f",
+          "observed_official_pcm_sha256": "566b7122fa5d4071c816b6a16c704f1f367c7418ca746c60c4c0da173699936f",
+          "matched": true
+        },
+        {
+          "band": "end",
+          "local_offset_s": 116,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 631.458,
+          "official_byte_range": [
+            64192044,
+            64200235
+          ],
+          "mirror_byte_range": [
+            64192044,
+            64200235
+          ],
+          "expected_mirror_pcm_sha256": "98a05cb47a1a7cd541508961090c4de046db927f4c1421854cead78b8029a082",
+          "observed_official_pcm_sha256": "98a05cb47a1a7cd541508961090c4de046db927f4c1421854cead78b8029a082",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "meeting": "EN2002b",
+      "case": "brief_interjections",
+      "official_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002b/audio/EN2002b.Mix-Headset.wav",
+      "mirror_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002b/audio/EN2002b.Mix-Headset.wav",
+      "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+      "mirror_full_wav_sha256": "50e2c8e4737850c4bf3cc24e7087c755e1c733cd91822106afd0df485ba64893",
+      "official_total_bytes": 57179180,
+      "mirror_total_bytes": 57179180,
+      "header_range": [
+        0,
+        4095
+      ],
+      "official_prefix_sha256": "9efcbdb6cba0eaf7d7feb0f11f31e4a53ac18c1bea35f7606cbe18f997a3da75",
+      "mirror_prefix_sha256": "9efcbdb6cba0eaf7d7feb0f11f31e4a53ac18c1bea35f7606cbe18f997a3da75",
+      "official_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 28589568,
+        "data_offset_bytes": 44,
+        "data_bytes": 57179136
+      },
+      "mirror_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 28589568,
+        "data_offset_bytes": 44,
+        "data_bytes": 57179136
+      },
+      "header_format_and_full_data_length_match": true,
+      "blocks": [
+        {
+          "band": "start",
+          "local_offset_s": 3,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 2646.55,
+          "official_byte_range": [
+            9056044,
+            9064235
+          ],
+          "mirror_byte_range": [
+            9056044,
+            9064235
+          ],
+          "expected_mirror_pcm_sha256": "78036bad7000b7cb6d8ff36d306590875e61527b86087cc2dce3fcee880dd80e",
+          "observed_official_pcm_sha256": "78036bad7000b7cb6d8ff36d306590875e61527b86087cc2dce3fcee880dd80e",
+          "matched": true
+        },
+        {
+          "band": "middle",
+          "local_offset_s": 56,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 548.945,
+          "official_byte_range": [
+            10752044,
+            10760235
+          ],
+          "mirror_byte_range": [
+            10752044,
+            10760235
+          ],
+          "expected_mirror_pcm_sha256": "4658ca939a96a8c916242fc086cddfdd73810439eecec50cf8750394bf848ed0",
+          "observed_official_pcm_sha256": "4658ca939a96a8c916242fc086cddfdd73810439eecec50cf8750394bf848ed0",
+          "matched": true
+        },
+        {
+          "band": "end",
+          "local_offset_s": 116,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 376.909,
+          "official_byte_range": [
+            12672044,
+            12680235
+          ],
+          "mirror_byte_range": [
+            12672044,
+            12680235
+          ],
+          "expected_mirror_pcm_sha256": "20e5ad70e80b8e585150b024a20fd2a57ad5e83bf597a36811bfa8427ac9369e",
+          "observed_official_pcm_sha256": "20e5ad70e80b8e585150b024a20fd2a57ad5e83bf597a36811bfa8427ac9369e",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "meeting": "EN2002c",
+      "case": "long_context",
+      "official_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002c/audio/EN2002c.Mix-Headset.wav",
+      "mirror_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002c/audio/EN2002c.Mix-Headset.wav",
+      "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+      "mirror_full_wav_sha256": "a057708b3adb553f709fcde97d2af8e0455076bc3f88c250975227433d6e0270",
+      "official_total_bytes": 95112236,
+      "mirror_total_bytes": 95112236,
+      "header_range": [
+        0,
+        4095
+      ],
+      "official_prefix_sha256": "cd96bd03f9ad28f6746e039e38f091b3981b17090c44d3971d64aa0824628a5e",
+      "mirror_prefix_sha256": "cd96bd03f9ad28f6746e039e38f091b3981b17090c44d3971d64aa0824628a5e",
+      "official_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 47556096,
+        "data_offset_bytes": 44,
+        "data_bytes": 95112192
+      },
+      "mirror_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 47556096,
+        "data_offset_bytes": 44,
+        "data_bytes": 95112192
+      },
+      "header_format_and_full_data_length_match": true,
+      "blocks": [
+        {
+          "band": "start",
+          "local_offset_s": 9,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 800.578,
+          "official_byte_range": [
+            63328044,
+            63336235
+          ],
+          "mirror_byte_range": [
+            63328044,
+            63336235
+          ],
+          "expected_mirror_pcm_sha256": "1e36fec083212010e35270fcdf8478d61c6aa0999d3dbcb02e7fc4ae6bc6b93b",
+          "observed_official_pcm_sha256": "1e36fec083212010e35270fcdf8478d61c6aa0999d3dbcb02e7fc4ae6bc6b93b",
+          "matched": true
+        },
+        {
+          "band": "middle",
+          "local_offset_s": 301,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 881.983,
+          "official_byte_range": [
+            72672044,
+            72680235
+          ],
+          "mirror_byte_range": [
+            72672044,
+            72680235
+          ],
+          "expected_mirror_pcm_sha256": "f2c40d8948d1ba40f096e8003f5963524ffa010cb76a1f0146aed4b31e4914ba",
+          "observed_official_pcm_sha256": "f2c40d8948d1ba40f096e8003f5963524ffa010cb76a1f0146aed4b31e4914ba",
+          "matched": true
+        },
+        {
+          "band": "end",
+          "local_offset_s": 592,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 2350.595,
+          "official_byte_range": [
+            81984044,
+            81992235
+          ],
+          "mirror_byte_range": [
+            81984044,
+            81992235
+          ],
+          "expected_mirror_pcm_sha256": "82722c7c7c086fe5cc017c2ce353d493e945eaf3fd393d8183fce9b9079299b4",
+          "observed_official_pcm_sha256": "82722c7c7c086fe5cc017c2ce353d493e945eaf3fd393d8183fce9b9079299b4",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "meeting": "EN2002d",
+      "case": "rapid_turn_taking",
+      "official_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/EN2002d/audio/EN2002d.Mix-Headset.wav",
+      "mirror_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/EN2002d/audio/EN2002d.Mix-Headset.wav",
+      "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+      "mirror_full_wav_sha256": "6aa99d9d71cb695ea699d6be277f78eff68e847c93560031486eba9f18164ebe",
+      "official_total_bytes": 70716802,
+      "mirror_total_bytes": 70716802,
+      "header_range": [
+        0,
+        4095
+      ],
+      "official_prefix_sha256": "7bdc2e2024ac345d96712fd150e2dae7463878dcd6d61092d86e6577c5787844",
+      "mirror_prefix_sha256": "7bdc2e2024ac345d96712fd150e2dae7463878dcd6d61092d86e6577c5787844",
+      "official_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 35358379,
+        "data_offset_bytes": 44,
+        "data_bytes": 70716758
+      },
+      "mirror_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 35358379,
+        "data_offset_bytes": 44,
+        "data_bytes": 70716758
+      },
+      "header_format_and_full_data_length_match": true,
+      "blocks": [
+        {
+          "band": "start",
+          "local_offset_s": 8,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 441.508,
+          "official_byte_range": [
+            42496044,
+            42504235
+          ],
+          "mirror_byte_range": [
+            42496044,
+            42504235
+          ],
+          "expected_mirror_pcm_sha256": "52e17feba6c90f3152e7e22d93ae67e8d49fb03a985a72583652c325b9229694",
+          "observed_official_pcm_sha256": "52e17feba6c90f3152e7e22d93ae67e8d49fb03a985a72583652c325b9229694",
+          "matched": true
+        },
+        {
+          "band": "middle",
+          "local_offset_s": 58,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 550.507,
+          "official_byte_range": [
+            44096044,
+            44104235
+          ],
+          "mirror_byte_range": [
+            44096044,
+            44104235
+          ],
+          "expected_mirror_pcm_sha256": "1fa62eceb96e41b16e7402c7d7ca3facd4e3284b86e0b24e812a38cda40a0f12",
+          "observed_official_pcm_sha256": "1fa62eceb96e41b16e7402c7d7ca3facd4e3284b86e0b24e812a38cda40a0f12",
+          "matched": true
+        },
+        {
+          "band": "end",
+          "local_offset_s": 115,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 995.253,
+          "official_byte_range": [
+            45920044,
+            45928235
+          ],
+          "mirror_byte_range": [
+            45920044,
+            45928235
+          ],
+          "expected_mirror_pcm_sha256": "6f5854ea77fbb4737a80ec29dc7e06ba0e3c7ddcea113d08b7833b31ca35411b",
+          "observed_official_pcm_sha256": "6f5854ea77fbb4737a80ec29dc7e06ba0e3c7ddcea113d08b7833b31ca35411b",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "meeting": "ES2004b",
+      "case": "long_return_gap",
+      "official_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2004b/audio/ES2004b.Mix-Headset.wav",
+      "mirror_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/ES2004b/audio/ES2004b.Mix-Headset.wav",
+      "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+      "mirror_full_wav_sha256": "ad0cf07c42b1694ccf7bea8f1a37348d9cfab194787abc7d050b29ba56e365c8",
+      "official_total_bytes": 75055832,
+      "mirror_total_bytes": 75055832,
+      "header_range": [
+        0,
+        4095
+      ],
+      "official_prefix_sha256": "ebaf2484decbb61a5e2b0af90754710e374071cfc04711f6c9fb4b9a291fc168",
+      "mirror_prefix_sha256": "ebaf2484decbb61a5e2b0af90754710e374071cfc04711f6c9fb4b9a291fc168",
+      "official_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 37527894,
+        "data_offset_bytes": 44,
+        "data_bytes": 75055788
+      },
+      "mirror_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 37527894,
+        "data_offset_bytes": 44,
+        "data_bytes": 75055788
+      },
+      "header_format_and_full_data_length_match": true,
+      "blocks": [
+        {
+          "band": "start",
+          "local_offset_s": 3,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 414.696,
+          "official_byte_range": [
+            4896044,
+            4904235
+          ],
+          "mirror_byte_range": [
+            4896044,
+            4904235
+          ],
+          "expected_mirror_pcm_sha256": "2598c12e8cc77d570e6fb1f73dfcd39b082a198bd40448bd524716c7fc3e5cab",
+          "observed_official_pcm_sha256": "2598c12e8cc77d570e6fb1f73dfcd39b082a198bd40448bd524716c7fc3e5cab",
+          "matched": true
+        },
+        {
+          "band": "middle",
+          "local_offset_s": 88,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 686.911,
+          "official_byte_range": [
+            7616044,
+            7624235
+          ],
+          "mirror_byte_range": [
+            7616044,
+            7624235
+          ],
+          "expected_mirror_pcm_sha256": "fc91144e77a8b616dad866fa303f5a883d38fade5e88205a6032ec1263fb20c0",
+          "observed_official_pcm_sha256": "fc91144e77a8b616dad866fa303f5a883d38fade5e88205a6032ec1263fb20c0",
+          "matched": true
+        },
+        {
+          "band": "end",
+          "local_offset_s": 176,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 1275.104,
+          "official_byte_range": [
+            10432044,
+            10440235
+          ],
+          "mirror_byte_range": [
+            10432044,
+            10440235
+          ],
+          "expected_mirror_pcm_sha256": "a0a02082fc302f1ef15b2bbb594c14de31d163071922d645b48071de98963e49",
+          "observed_official_pcm_sha256": "a0a02082fc302f1ef15b2bbb594c14de31d163071922d645b48071de98963e49",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "meeting": "IS1009b",
+      "case": "low_overlap",
+      "official_url": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/IS1009b/audio/IS1009b.Mix-Headset.wav",
+      "mirror_url": "https://huggingface.co/datasets/ggfox00000/dia-AMICorpus-all/resolve/a249db53de253a3a0a864c93a51d613159dfec7c/amicorpus/IS1009b/audio/IS1009b.Mix-Headset.wav",
+      "mirror_revision": "a249db53de253a3a0a864c93a51d613159dfec7c",
+      "mirror_full_wav_sha256": "07c2891ae6ad7c507b2a4f15b2dcd0a2343491df9e4e6a58f9db0d0b2c5e1382",
+      "official_total_bytes": 65676093,
+      "mirror_total_bytes": 65676093,
+      "header_range": [
+        0,
+        4095
+      ],
+      "official_prefix_sha256": "46b8df5ffe795fd5afa156d0d559010bbd0051156e85ef38faea5c36a71101f9",
+      "mirror_prefix_sha256": "46b8df5ffe795fd5afa156d0d559010bbd0051156e85ef38faea5c36a71101f9",
+      "official_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 32837333,
+        "data_offset_bytes": 44,
+        "data_bytes": 65674666
+      },
+      "mirror_format": {
+        "channels": 1,
+        "sample_width_bytes": 2,
+        "sample_rate_hz": 16000,
+        "sample_count": 32837333,
+        "data_offset_bytes": 44,
+        "data_bytes": 65674666
+      },
+      "header_format_and_full_data_length_match": true,
+      "blocks": [
+        {
+          "band": "start",
+          "local_offset_s": 10,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 4230.869,
+          "official_byte_range": [
+            14400044,
+            14408235
+          ],
+          "mirror_byte_range": [
+            14400044,
+            14408235
+          ],
+          "expected_mirror_pcm_sha256": "2e43f2fdb4384a9d53da6387df9bd1bd0bed84a6dab5afa4c14d1253730f731a",
+          "observed_official_pcm_sha256": "2e43f2fdb4384a9d53da6387df9bd1bd0bed84a6dab5afa4c14d1253730f731a",
+          "matched": true
+        },
+        {
+          "band": "middle",
+          "local_offset_s": 61,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 4152.256,
+          "official_byte_range": [
+            16032044,
+            16040235
+          ],
+          "mirror_byte_range": [
+            16032044,
+            16040235
+          ],
+          "expected_mirror_pcm_sha256": "d0cb12c9791a40942859db0e8df4f5ed0b642e8b6f5eb489e3aff554e8270f81",
+          "observed_official_pcm_sha256": "d0cb12c9791a40942859db0e8df4f5ed0b642e8b6f5eb489e3aff554e8270f81",
+          "matched": true
+        },
+        {
+          "band": "end",
+          "local_offset_s": 110,
+          "duration_s": 0.256,
+          "mirror_pcm_rms_s16": 4859.847,
+          "official_byte_range": [
+            17600044,
+            17608235
+          ],
+          "mirror_byte_range": [
+            17600044,
+            17608235
+          ],
+          "expected_mirror_pcm_sha256": "dd66caaa255920aa0d8b470accaf13ffebddf9f03da9a772f104dd0381639a4e",
+          "observed_official_pcm_sha256": "dd66caaa255920aa0d8b470accaf13ffebddf9f03da9a772f104dd0381639a4e",
+          "matched": true
+        }
+      ]
+    }
+  ]
+}

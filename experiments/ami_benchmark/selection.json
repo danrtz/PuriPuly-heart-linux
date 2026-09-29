@@ -1,0 +1,225 @@
+{
+  "method": "10-second grid, six distinct meetings, >=40% annotated speech and >=3 speakers, scenario-specific constraints and lexicographic feature ranks; turns join same-speaker annotation intervals separated by <=0.6 s for selection only",
+  "source_stats": [
+    {
+      "meeting": "EN2002a",
+      "last_annotation_s": 2142.344,
+      "annotated_speakers": 4,
+      "segments": 1642
+    },
+    {
+      "meeting": "EN2002b",
+      "last_annotation_s": 1785.126,
+      "annotated_speakers": 4,
+      "segments": 1186
+    },
+    {
+      "meeting": "EN2002c",
+      "last_annotation_s": 2888.998,
+      "annotated_speakers": 3,
+      "segments": 1891
+    },
+    {
+      "meeting": "EN2002d",
+      "last_annotation_s": 2208.224,
+      "annotated_speakers": 4,
+      "segments": 1583
+    },
+    {
+      "meeting": "ES2004a",
+      "last_annotation_s": 1048.968,
+      "annotated_speakers": 4,
+      "segments": 552
+    },
+    {
+      "meeting": "ES2004b",
+      "last_annotation_s": 2341.952,
+      "annotated_speakers": 4,
+      "segments": 1143
+    },
+    {
+      "meeting": "ES2004c",
+      "last_annotation_s": 2331.824,
+      "annotated_speakers": 4,
+      "segments": 1165
+    },
+    {
+      "meeting": "ES2004d",
+      "last_annotation_s": 2222.291,
+      "annotated_speakers": 4,
+      "segments": 1140
+    },
+    {
+      "meeting": "IS1009a",
+      "last_annotation_s": 805.774,
+      "annotated_speakers": 4,
+      "segments": 363
+    },
+    {
+      "meeting": "IS1009b",
+      "last_annotation_s": 2026.528,
+      "annotated_speakers": 4,
+      "segments": 885
+    },
+    {
+      "meeting": "IS1009c",
+      "last_annotation_s": 1788.862,
+      "annotated_speakers": 4,
+      "segments": 715
+    },
+    {
+      "meeting": "IS1009d",
+      "last_annotation_s": 1925.648,
+      "annotated_speakers": 4,
+      "segments": 937
+    },
+    {
+      "meeting": "TS3003a",
+      "last_annotation_s": 1475.16,
+      "annotated_speakers": 4,
+      "segments": 627
+    },
+    {
+      "meeting": "TS3003b",
+      "last_annotation_s": 2149.238,
+      "annotated_speakers": 4,
+      "segments": 1077
+    },
+    {
+      "meeting": "TS3003c",
+      "last_annotation_s": 2280.311,
+      "annotated_speakers": 4,
+      "segments": 1112
+    },
+    {
+      "meeting": "TS3003d",
+      "last_annotation_s": 2591.379,
+      "annotated_speakers": 4,
+      "segments": 1423
+    }
+  ],
+  "candidate_counts": {
+    "low_overlap": 405,
+    "rapid_turn_taking": 2657,
+    "overlap_heavy": 942,
+    "long_return_gap": 154,
+    "brief_interjections": 2430,
+    "long_context": 2203
+  },
+  "cases": [
+    {
+      "id": "low_overlap",
+      "active_speakers": 3,
+      "speech_s": 103.205,
+      "overlap_s": 0.0,
+      "overlap_fraction_of_speech": 0.0,
+      "turns": 13,
+      "speaker_changes": 3,
+      "short_turns_le_0_7_s": 2,
+      "qualified_return_gaps_ge_40_s": 0,
+      "longest_return_gap_s": 0,
+      "return_event": null,
+      "meeting": "IS1009b",
+      "start_s": 440,
+      "duration_s": 120
+    },
+    {
+      "id": "rapid_turn_taking",
+      "active_speakers": 4,
+      "speech_s": 98.425,
+      "overlap_s": 38.316,
+      "overlap_fraction_of_speech": 0.3893,
+      "turns": 96,
+      "speaker_changes": 85,
+      "short_turns_le_0_7_s": 37,
+      "qualified_return_gaps_ge_40_s": 0,
+      "longest_return_gap_s": 0,
+      "return_event": null,
+      "meeting": "EN2002d",
+      "start_s": 1320,
+      "duration_s": 120
+    },
+    {
+      "id": "overlap_heavy",
+      "active_speakers": 4,
+      "speech_s": 90.672,
+      "overlap_s": 30.801,
+      "overlap_fraction_of_speech": 0.3397,
+      "turns": 90,
+      "speaker_changes": 75,
+      "short_turns_le_0_7_s": 39,
+      "qualified_return_gaps_ge_40_s": 0,
+      "longest_return_gap_s": 0,
+      "return_event": null,
+      "meeting": "EN2002a",
+      "start_s": 1890,
+      "duration_s": 120
+    },
+    {
+      "id": "long_return_gap",
+      "active_speakers": 4,
+      "speech_s": 120.742,
+      "overlap_s": 3.393,
+      "overlap_fraction_of_speech": 0.0281,
+      "turns": 38,
+      "speaker_changes": 14,
+      "short_turns_le_0_7_s": 10,
+      "qualified_return_gaps_ge_40_s": 1,
+      "longest_return_gap_s": 143.978,
+      "return_event": {
+        "speaker": "ES2004b.D",
+        "before_s": 21.034,
+        "before_end_s": 25.764,
+        "after_s": 169.742,
+        "after_end_s": 175.282,
+        "gap_s": 143.978,
+        "intervening_other_speaker_seconds": 93.632,
+        "intervening_speakers": 3
+      },
+      "meeting": "ES2004b",
+      "start_s": 150,
+      "duration_s": 180
+    },
+    {
+      "id": "brief_interjections",
+      "active_speakers": 4,
+      "speech_s": 93.531,
+      "overlap_s": 21.589,
+      "overlap_fraction_of_speech": 0.2308,
+      "turns": 75,
+      "speaker_changes": 62,
+      "short_turns_le_0_7_s": 38,
+      "qualified_return_gaps_ge_40_s": 0,
+      "longest_return_gap_s": 0,
+      "return_event": null,
+      "meeting": "EN2002b",
+      "start_s": 280,
+      "duration_s": 120
+    },
+    {
+      "id": "long_context",
+      "active_speakers": 3,
+      "speech_s": 454.292,
+      "overlap_s": 85.553,
+      "overlap_fraction_of_speech": 0.1883,
+      "turns": 300,
+      "speaker_changes": 232,
+      "short_turns_le_0_7_s": 107,
+      "qualified_return_gaps_ge_40_s": 1,
+      "longest_return_gap_s": 65.037,
+      "return_event": {
+        "speaker": "EN2002c.C",
+        "before_s": 139.738,
+        "before_end_s": 140.738,
+        "after_s": 205.775,
+        "after_end_s": 210.835,
+        "gap_s": 65.037,
+        "intervening_other_speaker_seconds": 48.918,
+        "intervening_speakers": 2
+      },
+      "meeting": "EN2002c",
+      "start_s": 1970,
+      "duration_s": 600
+    }
+  ]
+}

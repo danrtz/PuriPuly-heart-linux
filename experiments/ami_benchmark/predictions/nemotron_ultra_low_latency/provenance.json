@@ -1,0 +1,89 @@
+{
+  "model": "nvidia/Nemotron-3-Diarization",
+  "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+  "weights_sha256": "c074d86335b3b794f8fa5edc25594558f128bdb3914d27806a3a5a2e44963cb6",
+  "mode": "ultra_low_latency",
+  "effective_config": {
+    "speaker_cache_length": 264,
+    "fifo_length": 264,
+    "chunk_length": 3,
+    "right_context": 1,
+    "speaker_cache_update_period": 222
+  },
+  "nominal_input_buffer_s": 0.32,
+  "live_e2e_latency_measured": false,
+  "model_load_s": 6.33,
+  "runtime": {
+    "os": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "device": "cpu",
+    "python": "3.12.3",
+    "torch": "2.14.0+cpu",
+    "transformers": "5.18.0.dev0",
+    "torch_num_threads": 8
+  },
+  "cases": [
+    {
+      "id": "low_overlap",
+      "input_pcm_sha256": "262f71c543590dc526b8e33ecd7a7a46bc81f4ea33fbfac04323b7ffe3b3d2fa",
+      "compute_s": 82.596,
+      "model_forwards": 500,
+      "native_segments": 38,
+      "written_segments": 38,
+      "prediction_rttm_sha256": "f0f1beca0aa3cb56136081ccd1561be4a863ebd6df5e7a194b6f44101554443a"
+    },
+    {
+      "id": "rapid_turn_taking",
+      "input_pcm_sha256": "d2d561db92691f27ed9bbf6e6c309d0469b200f4729038712e09404a77d378d0",
+      "compute_s": 79.238,
+      "model_forwards": 500,
+      "native_segments": 156,
+      "written_segments": 156,
+      "prediction_rttm_sha256": "fd0f2fde406b92d4a276b657ab92ef44ebc62b52391959d66183ad814c02aa93"
+    },
+    {
+      "id": "overlap_heavy",
+      "input_pcm_sha256": "4fe0b6a53c6b21369ec204a830611e43b0b0f66c8ba5f5cc04ae199166f0b006",
+      "compute_s": 78.865,
+      "model_forwards": 500,
+      "native_segments": 140,
+      "written_segments": 140,
+      "prediction_rttm_sha256": "b15331fc6d3a26a45c377b7b43a72722fe60b10d9701150adb5821dd3441b6de"
+    },
+    {
+      "id": "long_return_gap",
+      "input_pcm_sha256": "64d1ef63b71dfc78334ec742c8d5c661ca796e02a3b1dd25f494634f71722ef9",
+      "compute_s": 126.294,
+      "model_forwards": 750,
+      "native_segments": 72,
+      "written_segments": 72,
+      "prediction_rttm_sha256": "7c656d28028e8690dc9f37be62098ebd4dad57aa194aa2e67a47976f8f912d11"
+    },
+    {
+      "id": "brief_interjections",
+      "input_pcm_sha256": "58a76f6f139d99357eed3855c8b447812847592c30b89fae7697d0ea1e72eb5f",
+      "compute_s": 79.482,
+      "model_forwards": 500,
+      "native_segments": 130,
+      "written_segments": 130,
+      "prediction_rttm_sha256": "d8579a9fbbafc5e77c773f84f6e371c97455febdceba122488a494f6da263c74"
+    },
+    {
+      "id": "long_context",
+      "input_pcm_sha256": "2421a3954fd006645f3b8db2543a3f6c9f180010ba80d04eaba71cbdd4fbf9ed",
+      "compute_s": 446.031,
+      "model_forwards": 2500,
+      "native_segments": 511,
+      "written_segments": 511,
+      "prediction_rttm_sha256": "994d16979b929e2f1124df6efc32579c6f42d5b1daf2bfbed817482419695a95"
+    },
+    {
+      "id": "far_field_pair",
+      "input_pcm_sha256": "331839fb6b0d91d253b0f2a985d1d71ce444bb5904a1ac9d2b1d9220e4ac82c3",
+      "compute_s": 78.702,
+      "model_forwards": 500,
+      "native_segments": 147,
+      "written_segments": 147,
+      "prediction_rttm_sha256": "c7e75b021e6cd49a08f9083601854a66bf475e73000ef9cf9b98002209960134"
+    }
+  ]
+}

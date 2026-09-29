@@ -1,0 +1,7 @@
+source_audio/
+audio/
+*.part
+__pycache__/
+.venv/
+.cache/
+smoke_raw/

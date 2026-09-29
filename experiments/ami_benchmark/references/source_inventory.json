@@ -1,0 +1,101 @@
+{
+  "repository_revision": "9527b7c64846fb38316a610f32e9d3466bd6d8b7",
+  "files": [
+    {
+      "meeting": "EN2002a",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/EN2002a.rttm",
+      "reference_sha256": "3f8938f08b19eea51529cfeda608543e0c3c885c679d2b8f2360d668bdba406b",
+      "segments": 1642
+    },
+    {
+      "meeting": "EN2002b",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/EN2002b.rttm",
+      "reference_sha256": "07a861ce71802ed83df55408dace96006a6c4a96fd44ec35ecb248f3803479bb",
+      "segments": 1186
+    },
+    {
+      "meeting": "EN2002c",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/EN2002c.rttm",
+      "reference_sha256": "a62bb8379aba37ae0f7288fe98ba058eb1b2d9d867f5e8c62cbc205c60ffa897",
+      "segments": 1891
+    },
+    {
+      "meeting": "EN2002d",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/EN2002d.rttm",
+      "reference_sha256": "0cbdf77a9651b1998061430d946995d32e877e67b989790c4155970c65e16899",
+      "segments": 1583
+    },
+    {
+      "meeting": "ES2004a",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/ES2004a.rttm",
+      "reference_sha256": "3ed314bb088e11a2a53f6eb1a8ed3876f6ae6f3f92d3340640baabac90167c98",
+      "segments": 552
+    },
+    {
+      "meeting": "ES2004b",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/ES2004b.rttm",
+      "reference_sha256": "1dafa3e1867c3cb774b332c1023bf033a247dbb1f699bee2e49c366148154503",
+      "segments": 1143
+    },
+    {
+      "meeting": "ES2004c",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/ES2004c.rttm",
+      "reference_sha256": "ba0f256fd97bfc0829f2f066569d87c091b8d9634cecd54c1cda8ee26f3548d4",
+      "segments": 1165
+    },
+    {
+      "meeting": "ES2004d",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/ES2004d.rttm",
+      "reference_sha256": "3c86b5a3d5c27c2b445ca879a19503856d403e6665a74cf9da00143924cad611",
+      "segments": 1140
+    },
+    {
+      "meeting": "IS1009a",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/IS1009a.rttm",
+      "reference_sha256": "2558f451d58c14173920e1446a9b5a0129a529200e085f56acc3bbebf7302e40",
+      "segments": 363
+    },
+    {
+      "meeting": "IS1009b",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/IS1009b.rttm",
+      "reference_sha256": "47debfc3e4174d850a0c1cba7baf33fa28302562081e81582dfae010847f5afa",
+      "segments": 885
+    },
+    {
+      "meeting": "IS1009c",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/IS1009c.rttm",
+      "reference_sha256": "d247294366f1741156057917c28311c06c1ad4d70308c1517f0e10cfa7b61b97",
+      "segments": 715
+    },
+    {
+      "meeting": "IS1009d",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/IS1009d.rttm",
+      "reference_sha256": "07ca6e54d9dedbc852c5419e177e8861e0bbd6db0e63e1e391c100882722e9ec",
+      "segments": 937
+    },
+    {
+      "meeting": "TS3003a",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/TS3003a.rttm",
+      "reference_sha256": "e54428dc033c8ebda5dbed4d0781e62d23e376ca4ee09e6f8319e579a1acfb98",
+      "segments": 627
+    },
+    {
+      "meeting": "TS3003b",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/TS3003b.rttm",
+      "reference_sha256": "64e1b119caef61b361b1d5e51bfdd68c2c4f417bbe4ab248ebe0c63f1edbccb2",
+      "segments": 1077
+    },
+    {
+      "meeting": "TS3003c",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/TS3003c.rttm",
+      "reference_sha256": "bebc0ab9335677bb4af468bf41274c041747eac1f6a38816a6fefe9e5cb2cf85",
+      "segments": 1112
+    },
+    {
+      "meeting": "TS3003d",
+      "reference_url": "https://raw.githubusercontent.com/nttcslab-sp/diar-forced-alignment/9527b7c64846fb38316a610f32e9d3466bd6d8b7/AMI/test/TS3003d.rttm",
+      "reference_sha256": "4ddae8079132a9eb74e56953014f991ffe45e221cac9f3e482ca0417297c5c5c",
+      "segments": 1423
+    }
+  ]
+}
