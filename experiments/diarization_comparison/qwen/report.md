@@ -2,7 +2,7 @@
 
 ## Outcome
 
-**Completed one live session.** The exact Qwen3.8 LiveTranslate realtime model processed the full six-speaker comparison waveform in Beijing, with no alternate model or retry. The complete sanitized native event stream and normalized intervals are saved in the ignored evidence artifacts.
+**Completed one live session.** The exact Qwen3.8 LiveTranslate realtime model processed the full six-speaker comparison waveform in Beijing, with no alternate model or retry. The complete sanitized native event stream and normalized intervals are saved as tracked evidence artifacts.
 
 The fixture was read from `experiments/diarization_comparison/nemotron/fixture.wav` and validated as mono, 16-kHz PCM16, 51.730 seconds. Its decoded PCM SHA-256 is `2eb1ab143c2a7dbaa7448c31b44dd8c517b85042e769f2da5d2ddaec14028762`, matching the comparison fixture.
 
@@ -27,7 +27,7 @@ The actual invocation used the main repository's virtual-environment Python from
 <main-repo>/.venv/Scripts/python.exe experiments/diarization_comparison/qwen/run.py --region beijing
 ```
 
-Observed outcome in `result.json`: `status=evaluation_status=completed`; fixture hash matched; one websocket connection request/session; 51.73 seconds / 1,655,360 bytes sent; 324 native events received; `session.finished` received; no errors. The full harness wall runtime was 63.359704 seconds.
+Observed outcome in `result.json`: `status=completed`, `evaluation_status=evaluated`; fixture hash matched; one websocket connection request/session; 51.73 seconds / 1,655,360 bytes sent; 324 native events received; `session.finished` received; no errors. The full harness wall runtime was 63.359704 seconds.
 
 The provider returned 13 bounded speech intervals and 13 completed source transcripts; all 13 `response.done` events had `completed` status. There were no missing speaker attributions, ambiguous/unbounded intervals, or overlaps. The emitted speaker IDs were `"1"` through `"12"` across those intervals; this is an observed provider labeling count, not a ground-truth accuracy claim or a supplied speaker-count constraint. `unknown_coverage` is empty.
 
@@ -43,8 +43,16 @@ The largest `speech_stopped.audio_end_ms` was 50,880 ms (50.88 s), while 51.73 s
 
 ## Reproduction and files
 
-From `experiments/diarization_comparison/qwen`, run `python run.py --region beijing` using the existing main-repository `.env.local` host/key or equivalent local environment values. The harness verifies the fixture hash before connecting, uses only allow-listed local env entries or matching keyring credentials, preserves complete sanitized native events with separate reception timestamps, and writes normalized results in original-source seconds. `result.json` and `events.jsonl` are now regular task artifacts rather than ignore rules; `.gitignore` only excludes Python bytecode/cache. No product tests, product/config changes, alternate models, or second live session were used.
+From `experiments/diarization_comparison/qwen`, run `python run.py --region beijing` using the existing main-repository `.env.local` host/key or equivalent local environment values. The harness verifies the fixture hash before connecting, uses only allow-listed local env entries or matching keyring credentials, preserves complete sanitized native events with separate reception timestamps, and writes normalized results in original-source seconds. `result.json` and `events.jsonl` are regular task artifacts; `.gitignore` only excludes Python bytecode/cache. No product tests, product/config changes, alternate models, or repeat of the original six-speaker session were used. Two subsequent, different-input controls are documented below.
 
 Task files: `run.py`, `.gitignore`, this report. Local evidence: `result.json`, `events.jsonl`.
 
 Official API references: [Qwen LiveTranslate model and streaming procedure](https://help.aliyun.com/en/model-studio/qwen3-5-livetranslate-flash-realtime), [client events](https://help.aliyun.com/en/model-studio/live-translator-client-events), and [server events](https://help.aliyun.com/en/model-studio/live-translator-server-events).
+
+## Interpretation after validation controls
+
+The [focused follow-up](../qwen_validation/report.md) found no request, audio-transmission or native-ID normalization error in the original evidence. Its observed six-person 0/6 dominant-ID recurrence result remains unchanged.
+
+However, one 22.28-second identical-copy A A B B A A control returned native IDs **1, 1, 2, 1, 1** over five speech intervals, and one 14.08-second **different-utterance** A1 B1 A2 B2 control returned **1, 2, 1, 2**, preserving both people's returning IDs. These are counterexamples to any claim that this API inherently increments IDs on every speaker change or cannot recognize a returning person across different utterances.
+
+The original six-person session was not repeated. The smaller controls vary several conditions together, so they do not establish why the original failed, a speaker-count ceiling, or a representative accuracy rate. Keep the original observation, but qualify any general conclusion that Qwen cannot maintain person identity or is generally unsuitable for persistent labels. Official documentation calls this feature real-time speaker diarization; absence of an explicit ID-stability guarantee is not proof of absent capability.

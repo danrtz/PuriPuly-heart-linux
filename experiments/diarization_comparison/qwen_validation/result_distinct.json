@@ -1,0 +1,329 @@
+{
+  "started_at_utc": "2026-09-29T15:48:49.588365+00:00",
+  "model_requested": "qwen3.8-livetranslate-flash-realtime",
+  "input": {
+    "order": [
+      "A1",
+      "B1",
+      "A2",
+      "B2"
+    ],
+    "intervals": [
+      {
+        "label": "A1",
+        "source_clip": "1089-134686-0001",
+        "start_s": 0.0,
+        "end_s": 3.275,
+        "copy_sha256": "b52828469c97b5867391d346c440d7afa635b42e6040eaabdbe6ddc8d7ad525b",
+        "copy_bytes": 104800
+      },
+      {
+        "label": "B1",
+        "source_clip": "1995-1826-0003",
+        "start_s": 3.775,
+        "end_s": 6.865,
+        "copy_sha256": "14e3724571e33f4c529e066d4eff753c5295d33be50fe3e6c705f090eb358ae5",
+        "copy_bytes": 98880
+      },
+      {
+        "label": "A2",
+        "source_clip": "1089-134686-0003",
+        "start_s": 7.365,
+        "end_s": 10.045,
+        "copy_sha256": "8a5f532db44f46bbcc1a139475c0f1c9850f2379bd82f59e5e91e71421ae9075",
+        "copy_bytes": 85760
+      },
+      {
+        "label": "B2",
+        "source_clip": "1995-1826-0004",
+        "start_s": 10.545,
+        "end_s": 13.58,
+        "copy_sha256": "1347eea6a391eabab1cf39f490857366ae5f76750e86b19216fce780cff3944f",
+        "copy_bytes": 97120
+      }
+    ],
+    "silence_after_every_clip_s": 0.5,
+    "format": "mono PCM16 LE 16000Hz",
+    "chunk_ms": 50,
+    "duration_s": 14.08,
+    "pcm_bytes": 450560,
+    "pcm_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6"
+  },
+  "requested_session_update": {
+    "output_modalities": [
+      "text"
+    ],
+    "audio": {
+      "input": {
+        "turn_detection": {
+          "type": "speaker_detection",
+          "threshold": 0.5
+        }
+      }
+    },
+    "translation": {
+      "language": "ko"
+    }
+  },
+  "effective_config": {
+    "id": "sess_Uj2iksUg3jq1bIyiuKTKw",
+    "object": "realtime.session",
+    "model": "qwen3.8-livetranslate-flash-realtime",
+    "output_modalities": [
+      "text"
+    ],
+    "input_modalities": [
+      "audio"
+    ],
+    "audio": {
+      "input": {
+        "format": {
+          "type": "pcm",
+          "sample_rate": 16000
+        },
+        "turn_detection": {
+          "type": "speaker_detection",
+          "threshold": 0.5,
+          "create_response": true,
+          "interrupt_response": true
+        }
+      },
+      "output": {
+        "format": {
+          "type": "pcm",
+          "sample_rate": 24000
+        },
+        "voice": "Tina"
+      }
+    },
+    "turn_detection": {
+      "type": "speaker_detection",
+      "threshold": 0.5,
+      "create_response": true,
+      "interrupt_response": true
+    },
+    "translation": {
+      "language": "ko"
+    }
+  },
+  "run": {
+    "connection_attempted": true,
+    "connection_opened": true,
+    "session_created_received": true,
+    "session_updated_received": true,
+    "session_finished_received": true,
+    "effective_config": {
+      "id": "sess_Uj2iksUg3jq1bIyiuKTKw",
+      "object": "realtime.session",
+      "model": "qwen3.8-livetranslate-flash-realtime",
+      "output_modalities": [
+        "text"
+      ],
+      "input_modalities": [
+        "audio"
+      ],
+      "audio": {
+        "input": {
+          "format": {
+            "type": "pcm",
+            "sample_rate": 16000
+          },
+          "turn_detection": {
+            "type": "speaker_detection",
+            "threshold": 0.5,
+            "create_response": true,
+            "interrupt_response": true
+          }
+        },
+        "output": {
+          "format": {
+            "type": "pcm",
+            "sample_rate": 24000
+          },
+          "voice": "Tina"
+        }
+      },
+      "turn_detection": {
+        "type": "speaker_detection",
+        "threshold": 0.5,
+        "create_response": true,
+        "interrupt_response": true
+      },
+      "translation": {
+        "language": "ko"
+      }
+    },
+    "errors": [],
+    "bytes_sent": 450560,
+    "sent_audio_s": 14.08,
+    "audio_stream_wall_s": 14.08644859999913,
+    "post_audio_wait_s": 0.7538075999982539,
+    "websocket_requests_attempted": 1,
+    "websocket_sessions_opened": 1,
+    "session_finished_utc": "2026-09-29T15:48:39.473545+00:00"
+  },
+  "event_counts": {
+    "conversation.item.created": 8,
+    "conversation.item.input_audio_transcription.completed": 4,
+    "conversation.item.input_audio_transcription.delta": 24,
+    "input_audio_buffer.speech_started": 4,
+    "input_audio_buffer.speech_stopped": 4,
+    "response.content_part.added": 4,
+    "response.content_part.done": 4,
+    "response.created": 4,
+    "response.done": 4,
+    "response.output_item.added": 4,
+    "response.output_item.done": 4,
+    "response.text.delta": 31,
+    "response.text.done": 4,
+    "session.created": 1,
+    "session.finished": 1,
+    "session.updated": 1
+  },
+  "native_event_count": 106,
+  "native_speaker_related_fields": [
+    {
+      "event_type": "input_audio_buffer.speech_started",
+      "field": "speaker_id",
+      "value": 1
+    },
+    {
+      "event_type": "input_audio_buffer.speech_started",
+      "field": "speaker_id",
+      "value": 2
+    },
+    {
+      "event_type": "input_audio_buffer.speech_started",
+      "field": "speaker_id",
+      "value": 1
+    },
+    {
+      "event_type": "input_audio_buffer.speech_started",
+      "field": "speaker_id",
+      "value": 2
+    }
+  ],
+  "native_starts": [
+    {
+      "event_id": "event_TSpK8TMYTb4PIkDcGnWZj",
+      "audio_start_ms": 120,
+      "item_id": "item_XTpIEbkjIzIOVTCm5tXT4",
+      "speaker_id": 1
+    },
+    {
+      "event_id": "event_UXwiDwR5hnSayzsdnmobo",
+      "audio_start_ms": 3920,
+      "item_id": "item_QQkzbLnHa9ltGdxd6ZXBP",
+      "speaker_id": 2
+    },
+    {
+      "event_id": "event_NZofxLjBldoT35QpNsbvY",
+      "audio_start_ms": 7760,
+      "item_id": "item_VKpJlEBTErVhztgi982cg",
+      "speaker_id": 1
+    },
+    {
+      "event_id": "event_Q61qntUZ67Tjzu3bHbsU6",
+      "audio_start_ms": 10800,
+      "item_id": "item_WCHzs1zoI8DFlDJfm4S5X",
+      "speaker_id": 2
+    }
+  ],
+  "segments": [
+    {
+      "start_s": 0.12,
+      "end_s": 3.92,
+      "speaker": "1"
+    },
+    {
+      "start_s": 3.92,
+      "end_s": 7.76,
+      "speaker": "2"
+    },
+    {
+      "start_s": 7.76,
+      "end_s": 10.8,
+      "speaker": "1"
+    },
+    {
+      "start_s": 10.8,
+      "end_s": 13.2,
+      "speaker": "2"
+    }
+  ],
+  "segment_details": [
+    {
+      "item_id": "item_XTpIEbkjIzIOVTCm5tXT4",
+      "status": "bounded",
+      "issues": [],
+      "speech_started_event_count": 1,
+      "speech_stopped_event_count": 1
+    },
+    {
+      "item_id": "item_QQkzbLnHa9ltGdxd6ZXBP",
+      "status": "bounded",
+      "issues": [],
+      "speech_started_event_count": 1,
+      "speech_stopped_event_count": 1
+    },
+    {
+      "item_id": "item_VKpJlEBTErVhztgi982cg",
+      "status": "bounded",
+      "issues": [],
+      "speech_started_event_count": 1,
+      "speech_stopped_event_count": 1
+    },
+    {
+      "item_id": "item_WCHzs1zoI8DFlDJfm4S5X",
+      "status": "bounded",
+      "issues": [],
+      "speech_started_event_count": 1,
+      "speech_stopped_event_count": 1
+    }
+  ],
+  "overlaps": [],
+  "source_transcripts": [
+    {
+      "event_id": "event_CjVPS3zYhKqIWhRKDwnpa",
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_XTpIEbkjIzIOVTCm5tXT4",
+      "content_index": 0,
+      "transcript": "Stuff it into you. his belly counseled him. "
+    },
+    {
+      "event_id": "event_NE7dUJcZCmYgj8jZKyl67",
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_QQkzbLnHa9ltGdxd6ZXBP",
+      "content_index": 0,
+      "transcript": "Better go. it counseled sententiously. "
+    },
+    {
+      "event_id": "event_UsPTtTbqVu5S284FMu32K",
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_VKpJlEBTErVhztgi982cg",
+      "content_index": 0,
+      "transcript": "hello, bertie. any good in your mind? "
+    },
+    {
+      "event_id": "event_Mr97CUsmBXwjzY7NaTRLE",
+      "type": "conversation.item.input_audio_transcription.completed",
+      "item_id": "item_WCHzs1zoI8DFlDJfm4S5X",
+      "content_index": 0,
+      "transcript": "might learn something useful down there. "
+    }
+  ],
+  "response_done_statuses": [
+    "completed",
+    "completed",
+    "completed",
+    "completed"
+  ],
+  "session_finish_events": [
+    {
+      "event_id": "event_UY26PKRKa69ukIexrVWqg",
+      "type": "session.finished"
+    }
+  ],
+  "server_errors": [],
+  "events_path": "events_distinct.jsonl"
+}

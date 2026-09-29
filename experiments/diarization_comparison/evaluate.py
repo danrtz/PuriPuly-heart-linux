@@ -706,6 +706,12 @@ def render_report(comparison: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Qwen follow-up: persistence is possible",
+            "",
+            "The Qwen 0/6 row is retained as the observed result of the original six-person session, not a general inability to reuse speaker IDs. [Two subsequent controls](qwen_validation/report.md) used the same endpoint, model and configuration: identical-waveform A A B B A A (22.28 s) returned native IDs 1, 1, 2, 1, 1 over five bounded turns; different-utterance A1 B1 A2 B2 (14.08 s) returned 1, 2, 1, 2, correctly reusing both people's IDs.",
+            "",
+            "These controls disprove the always-incrementing counter and inherent cross-utterance-persistence explanations. The original six-person run was not repeated; its raw evidence was audited. Speaker count, duration, ordering and intervening context differ from the controls, so the cause of its 0/6 outcome remains unisolated. Do not infer general model accuracy, a speaker-capacity limit, or general unsuitability for persistent labels from that single result.",
+            "",
             "### Per-clip dominant labels and duration support",
             "",
             "Unique-ID durations include only uniquely labeled time. Unknown, ambiguous, and uncovered seconds partition the remainder of each known clip; uncovered time is a support diagnostic, not a missed-speech score. `Observed IDs` exposes within-clip changes that a single dominant label can hide.",
