@@ -11,10 +11,12 @@ from puripuly_heart.app.services.osc.control_application import (
     OscControlApplyResult,
     SettingsBackedOscControlApplication,
 )
+from puripuly_heart.app.wiring.wiring_llm_factory import runtime_resolution_input_from_vnext
 from puripuly_heart.app.wiring.wiring_provider_runtime_policy import (
     provider_llm_for_translation,
 )
 from puripuly_heart.config.provider_values import STTProviderName
+from puripuly_heart.config.runtime_resolution import resolve_llm_config
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import TranslationConnection, TranslationModel
 
@@ -127,10 +129,123 @@ async def test_osc_luna_first_selection_and_saved_route_survive_model_switch() -
     await application.set_translation_model("gpt_6_luna", "official_byok")
     assert current.intent.translation.connection == "official_byok"
     await application.set_translation_model("gemma4")
+    assert current.intent.translation.connection == "managed"
+    assert current.intent.translation.connection_history["gemma4"] == "managed"
+    gemma_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert (gemma_runtime.provider, gemma_runtime.model) == (
+        "openrouter",
+        "google/gemma-4-26b-a4b-it",
+    )
+    assert (gemma_runtime.credential.source, gemma_runtime.credential.reference) == (
+        "managed",
+        "openrouter:managed",
+    )
     assert current.intent.translation.connection_history["gpt_6_luna"] == "official_byok"
     await application.set_translation_model("gpt_6_luna")
     assert current.intent.translation.connection == "official_byok"
     assert current.intent.translation.openrouter_selection_alias is None
+    luna_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert (luna_runtime.provider, luna_runtime.model) == ("openai", "gpt-6-luna")
+    assert luna_runtime.credential.reference == "openai:byok"
+
+
+@pytest.mark.asyncio
+async def test_osc_model_only_selection_restores_other_model_history_or_default() -> None:
+    current = _with_translation(
+        AppSettingsVNext(),
+        model="gemma4",
+        connection="openrouter",
+        connection_history={"gemma4": "openrouter", "gpt_6_luna": "official_byok"},
+    )
+
+    async def apply_settings(settings: object) -> object:
+        nonlocal current
+        assert isinstance(settings, AppSettingsVNext)
+        current = settings
+        return current
+
+    application = SettingsBackedOscControlApplication(
+        settings_provider=lambda: current,
+        apply_settings=apply_settings,
+        translation_model_normalizer=materialize_canonical_translation_settings,
+    )
+    await application.set_translation_model("gpt_6_luna")
+    assert current.intent.translation.connection == "official_byok"
+    await application.set_translation_model("gemma4")
+    assert current.intent.translation.connection == "openrouter"
+    assert current.intent.translation.connection_history == {
+        "gemma4": "openrouter",
+        "gpt_6_luna": "official_byok",
+    }
+    gemma_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert (gemma_runtime.credential.source, gemma_runtime.credential.reference) == (
+        "secret_store",
+        "openrouter:byok",
+    )
+
+    await application.set_translation_model("gemini_flash")
+    assert current.intent.translation.connection == "official_byok"
+    gemini_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert (gemini_runtime.provider, gemini_runtime.credential.reference) == (
+        "gemini",
+        "gemini:byok",
+    )
+    await application.set_translation_model("gpt_6_luna")
+    assert current.intent.translation.connection == "official_byok"
+    assert current.intent.translation.connection_history["gemma4"] == "openrouter"
+
+
+@pytest.mark.asyncio
+async def test_osc_same_model_repairs_invalid_connection_from_saved_history() -> None:
+    current = _with_translation(
+        AppSettingsVNext(),
+        model="gemma4",
+        connection="official_byok",
+        connection_history={"gemma4": "openrouter"},
+    )
+
+    async def apply_settings(settings: object) -> object:
+        nonlocal current
+        assert isinstance(settings, AppSettingsVNext)
+        current = settings
+        return settings
+
+    application = SettingsBackedOscControlApplication(
+        settings_provider=lambda: current,
+        apply_settings=apply_settings,
+        translation_model_normalizer=materialize_canonical_translation_settings,
+    )
+    await application.set_translation_model("gemma4")
+    assert current.intent.translation.connection == "openrouter"
+    assert current.intent.translation.connection_history["gemma4"] == "openrouter"
+    runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert runtime.credential.reference == "openrouter:byok"
+
+
+@pytest.mark.asyncio
+async def test_osc_model_only_restores_regional_managed_connection_history() -> None:
+    from puripuly_heart.config.settings_vnext.defaults import new_settings_for_first_run
+
+    current = new_settings_for_first_run("zh-CN")
+
+    async def apply_settings(settings: object) -> object:
+        nonlocal current
+        assert isinstance(settings, AppSettingsVNext)
+        current = settings
+        return settings
+
+    application = SettingsBackedOscControlApplication(
+        settings_provider=lambda: current,
+        apply_settings=apply_settings,
+        translation_model_normalizer=materialize_canonical_translation_settings,
+    )
+    await application.set_translation_model("gpt_6_luna")
+    assert current.intent.translation.connection == "openrouter"
+    await application.set_translation_model("deepseek_v4_flash")
+    assert current.intent.translation.connection == "managed_china"
+    assert current.intent.translation.connection_history["deepseek_v4_flash"] == "managed_china"
+    runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert runtime.credential.reference == "openrouter:managed_qq"
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,11 @@ from dataclasses import dataclass, replace
 
 from puripuly_heart.app.ports.osc_control import OscControlApplicationPort
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.config.translation_values import (
+    TranslationModel,
+    default_translation_connection,
+    supported_translation_connections,
+)
 
 SettingsProvider = Callable[[], AppSettingsVNext | None]
 SettingsApply = Callable[[AppSettingsVNext], Awaitable[object]]
@@ -153,6 +158,8 @@ class SettingsBackedOscControlApplication(OscControlApplicationPort):
             current is not None
             and _osc_translation_model_value(current.intent.translation.model) == model
             and (connection is None or current.intent.translation.connection == connection)
+            and current.intent.translation.connection
+            in supported_translation_connections(TranslationModel(model))
         ):
             return True
         return await self._apply_settings(
@@ -259,19 +266,15 @@ class SettingsBackedOscControlApplication(OscControlApplicationPort):
     ) -> AppSettingsVNext:
         translation = settings.intent.translation
         current_value = translation.model
-        if model == "gpt_6_luna":
-            history = dict(translation.connection_history)
-            if current_value == "gpt_6_luna":
-                history[current_value] = translation.connection
-            selected_connection = connection or history.get(model)
-            if selected_connection not in {"openrouter", "official_byok"}:
-                selected_connection = "openrouter"
-            history[model] = selected_connection
-        else:
-            history = translation.connection_history
-            selected_connection = connection if connection is not None else translation.connection
-            if current_value == "gpt_6_luna":
-                history = {**history, current_value: translation.connection}
+        target_model = TranslationModel(model)
+        supported_connections = supported_translation_connections(target_model)
+        history = dict(translation.connection_history)
+        if current_value != model or translation.connection in supported_connections:
+            history[current_value] = translation.connection
+        selected_connection = connection if connection is not None else history.get(model)
+        if selected_connection not in supported_connections:
+            selected_connection = default_translation_connection(target_model).value
+        history[model] = selected_connection
         next_translation = replace(
             translation,
             previous_llm_model=(
