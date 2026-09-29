@@ -191,21 +191,21 @@ class QwenAudioStreamingSTTBackend(STTBackend):
         return session
 
     @staticmethod
-    async def verify_api_key(api_key: str, *, endpoint: str = QWEN_AUDIO_DEFAULT_ENDPOINT) -> bool:
+    async def verify_api_key(
+        api_key: str,
+        *,
+        endpoint: str = QWEN_AUDIO_DEFAULT_ENDPOINT,
+        model: str = QWEN_AUDIO_MODEL,
+    ) -> bool:
         if not api_key:
             return False
-        import websockets
-
+        backend = QwenAudioStreamingSTTBackend(api_key=api_key, endpoint=endpoint, model=model)
+        session = await backend.open_session()
         try:
-            async with websockets.connect(
-                endpoint,
-                additional_headers={"Authorization": f"Bearer {api_key}"},
-                ping_interval=None,
-                open_timeout=5,
-            ):
-                return True
-        except Exception:
-            return False
+            await asyncio.wait_for(session.stop(), timeout=7.0)
+            return session.task_finished_count == 1
+        finally:
+            await session.close()
 
 
 @dataclass(slots=True)
@@ -266,6 +266,7 @@ class _QwenAudioSession(STTBackendSession):
     _loop: asyncio.AbstractEventLoop | None = field(init=False, default=None, repr=False)
     _failure: BaseException | None = field(init=False, default=None, repr=False)
     _scoped_task_id: str | None = field(init=False, default=None, repr=False)
+    _task_finished_count: int = field(init=False, default=0, repr=False)
 
     def __post_init__(self) -> None:
         self._event_projection = STTSessionEventProjection(self.projection)
@@ -284,6 +285,10 @@ class _QwenAudioSession(STTBackendSession):
     @property
     def task_id(self) -> str | None:
         return self._task_id
+    @property
+    def task_finished_count(self) -> int:
+        return self._task_finished_count
+
 
     def update_hotwords(self, hotwords: HotwordInput) -> None:
         self.hotwords = hotwords
@@ -627,6 +632,7 @@ class _QwenAudioSession(STTBackendSession):
         if self._state is not QwenAudioSessionState.FINISHING_TASK or self._active_boundary is None:
             logger.debug("Qwen Audio duplicate task-finished ignored task_id=%s", event_task_id)
             return
+        self._task_finished_count += 1
         self._cancel_finish_timeout()
         self._cancel_start_timeout()
         terminal_text = _join_sentences(self._sentences)

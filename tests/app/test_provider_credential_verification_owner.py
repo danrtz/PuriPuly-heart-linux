@@ -7,7 +7,6 @@ from puripuly_heart.app.services.provider_credential_verification import (
     PROVIDER_CREDENTIAL_EMPTY,
     PROVIDER_CREDENTIAL_ERROR,
     PROVIDER_CREDENTIAL_FAILED,
-    PROVIDER_CREDENTIAL_MODEL_UNAVAILABLE,
     PROVIDER_CREDENTIAL_UNKNOWN,
     PROVIDER_CREDENTIAL_VERIFIED,
     ProviderCredentialVerificationInteractionOwner,
@@ -85,37 +84,19 @@ async def test_owner_routes_direct_provider_verification(
 
 
 @pytest.mark.asyncio
-async def test_owner_reports_selected_qwen_model_unavailable_when_fallback_works() -> None:
+async def test_owner_does_not_probe_fallback_qwen_models() -> None:
     verifier = RecordingVerifier(outcomes={("qwen", "fallback"): True})
     owner = ProviderCredentialVerificationOwner(verifier=verifier)
-
     outcome = await owner.verify(
         ProviderCredentialVerificationRequest(
             provider="alibaba_singapore",
             api_key="secret",
             selected_model="selected",
-            fallback_models=("selected", "fallback", "unused"),
-            low_latency=True,
         )
     )
-
-    assert outcome.status == PROVIDER_CREDENTIAL_MODEL_UNAVAILABLE
-    assert outcome.unavailable_model == "selected"
+    assert outcome.status == PROVIDER_CREDENTIAL_FAILED
     assert verifier.calls == [
-        (
-            "qwen",
-            "secret",
-            "selected",
-            "https://dashscope-intl.aliyuncs.com/api/v1",
-            True,
-        ),
-        (
-            "qwen",
-            "secret",
-            "fallback",
-            "https://dashscope-intl.aliyuncs.com/api/v1",
-            True,
-        ),
+        ("qwen", "secret", "selected", "https://dashscope-intl.aliyuncs.com/api/v1", False)
     ]
 
 
@@ -129,7 +110,6 @@ async def test_owner_preserves_qwen_success_and_failure_outcomes() -> None:
             provider="alibaba_beijing",
             api_key="secret",
             selected_model="selected",
-            fallback_models=("fallback",),
             low_latency=True,
         )
     )
@@ -197,24 +177,6 @@ async def test_owner_contains_verifier_failure_and_emits_safe_diagnostics() -> N
     assert "private provider detail" not in str(diagnostics[0][1])
 
 
-@pytest.mark.asyncio
-async def test_interaction_owner_resolves_current_model_and_maps_qwen_unavailable() -> None:
-    selected = ["selected"]
-    verifier = RecordingVerifier(outcomes={("qwen", "fallback"): True})
-    owner = ProviderCredentialVerificationInteractionOwner(
-        verification_owner=ProviderCredentialVerificationOwner(verifier=verifier),
-        selected_model_provider=lambda _provider: selected[0],
-        fallback_models=("selected", "fallback"),
-        low_latency=True,
-    )
-
-    first = await owner.verify("alibaba_beijing", "secret")
-    selected[0] = "fallback"
-    second = await owner.verify("alibaba_beijing", "secret")
-
-    assert first == (False, "qwen_model_unavailable:selected")
-    assert second == (True, "Verification successful")
-
 
 @pytest.mark.asyncio
 async def test_interaction_owner_maps_empty_unknown_failed_and_error_results() -> None:
@@ -245,12 +207,10 @@ def test_interaction_owner_factory_composes_verifier_and_callbacks() -> None:
     owner = create_provider_credential_verification_interaction_owner(
         verifier=verifier,
         selected_model_provider=lambda provider: f"{provider}-model",
-        fallback_models=("fallback",),
         low_latency=True,
     )
 
     assert isinstance(owner, ProviderCredentialVerificationInteractionOwner)
     assert owner.verification_owner.verifier is verifier
     assert owner.selected_model_provider("google") == "google-model"
-    assert owner.fallback_models == ("fallback",)
     assert owner.low_latency is True

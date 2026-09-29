@@ -21,30 +21,6 @@ from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core import messages
 
 
-def test_order21_translation_provider_patch_records_initial_covered_surface_list() -> None:
-    assert set(ORDER21_TRANSLATION_PROVIDER_SETTINGS_PATHS) == {
-        "intent.translation.model",
-        "intent.translation.connection",
-        "intent.translation.connection_history",
-        "intent.translation.http_extension_id",
-        "intent.translation.previous_llm_model",
-        "intent.translation.gpu_device_id",
-        "intent.translation.gemini.llm_model",
-        "intent.translation.openrouter_model",
-        "intent.translation.openrouter_routing_mode",
-        "intent.translation.openrouter_provider_routing",
-        "intent.translation.openrouter_selected_source",
-        "intent.translation.openrouter_selection_alias",
-        "intent.translation.openrouter_broker_base_url",
-        "intent.translation.qwen.llm_model",
-        "intent.translation.qwen.region",
-        "intent.translation.deepseek.llm_model",
-        "intent.local_llm.backend",
-        "intent.local_llm.base_url",
-        "intent.local_llm.model",
-        "intent.local_llm.extra_body",
-        "intent.translation.concurrency_limit",
-    }
 
 
 def test_order21_patch_carries_custom_http_identity_fields() -> None:

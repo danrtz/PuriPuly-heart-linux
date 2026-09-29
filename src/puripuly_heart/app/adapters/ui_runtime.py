@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from typing import Literal
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
 from puripuly_heart.app.ports.settings_view import (
+    AlibabaConnectionApplyResult,
+    AlibabaConnectionDraftSnapshot,
     GeneralSettingsSnapshot,
     ImmediateSettingsIntent,
     OpenRouterPkceTarget,
@@ -37,6 +40,7 @@ from puripuly_heart.app.services.overlay_application import OverlayApplicationOw
 from puripuly_heart.app.services.overlay_calibration_application import (
     OverlayCalibrationApplicationOwner,
 )
+from puripuly_heart.app.services.provider.alibaba_workspace import AlibabaWorkspaceOwner
 from puripuly_heart.app.services.provider_credential_verification import (
     ProviderCredentialVerificationInteractionOwner,
 )
@@ -62,6 +66,7 @@ from puripuly_heart.app.wiring_managed_account import ManagedAccountComponents
 from puripuly_heart.app.wiring_microphone_test import MicrophoneTestRuntime
 from puripuly_heart.app.wiring_peer_application import PeerApplicationRuntime
 from puripuly_heart.app.wiring_runtime_pipeline import RuntimePipelineHandle
+from puripuly_heart.config.alibaba_connection import AlibabaEndpointMode, AlibabaRegion
 from puripuly_heart.config.prompts import resolve_system_prompt
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core.http_extensions import (
@@ -371,6 +376,54 @@ class UiProviderRuntimeAdapter:
     build_byok_target_settings: Callable[[AppSettingsVNext | None], AppSettingsVNext | None]
     managed_gemma: ManagedGemmaTranslationOwner | None = None
     llm_devices_sink: Callable[[tuple[GpuDeviceOption, ...]], None] | None = None
+    _alibaba_workspace: AlibabaWorkspaceOwner | None = field(default=None, init=False)
+
+    def alibaba_workspace(self) -> AlibabaWorkspaceOwner:
+        if self._alibaba_workspace is None:
+            self._alibaba_workspace = AlibabaWorkspaceOwner(
+                self.settings, self.provider_settings,
+                self.credential_verification.verification_owner.verifier,
+            )
+        return self._alibaba_workspace
+
+    async def begin_alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot:
+        return await self.alibaba_workspace().begin()
+
+    async def alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot:
+        return await self.alibaba_workspace().read()
+
+    async def alibaba_active_connection(self) -> AlibabaConnectionDraftSnapshot:
+        return await self.alibaba_workspace().active()
+
+    async def edit_alibaba_connection_draft(
+        self, *, token: str, region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None, api_host: str | None = None,
+    ) -> AlibabaConnectionDraftSnapshot:
+        return await self.alibaba_workspace().edit(
+            token=token, region=region, endpoint_mode=endpoint_mode, api_host=api_host,
+        )
+
+    async def verify_alibaba_connection_draft(
+        self, *, token: str, capability: Literal["asr", "translation", "both"],
+        api_key: str | None = None,
+    ) -> AlibabaConnectionDraftSnapshot:
+        return await self.alibaba_workspace().verify(
+            token=token, capability=capability, api_key=api_key,
+        )
+
+    async def apply_alibaba_connection_draft(self, *, token: str) -> AlibabaConnectionApplyResult:
+        affected = (await self.alibaba_workspace().read()).affected_consumers
+        committed = await self.alibaba_workspace().apply(
+            token=token, apply_settings=self.apply_providers
+        )
+        return AlibabaConnectionApplyResult(
+            committed=bool(committed),
+            affected_consumers=affected,
+            transaction=self.provider_application.results.current,
+        )
+
+    def cancel_alibaba_connection_draft(self, *, token: str) -> None:
+        self.alibaba_workspace().cancel(token=token)
 
     async def apply_providers(
         self,
@@ -471,6 +524,8 @@ class UiProviderRuntimeAdapter:
             rebind = getattr(self.provider_application, "rebind_rolling_stt_secret", None)
             if callable(rebind):
                 rebind(key, value)
+        if succeeded and key in {"alibaba_api_key_beijing", "alibaba_api_key_singapore"}:
+            await self.apply_providers(persist_settings=False)
         current = self.settings.canonical
         http_extension_id = (
             None if current is None else current.intent.translation.http_extension_id

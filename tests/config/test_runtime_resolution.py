@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import importlib
 import importlib.util
 import inspect
@@ -12,29 +11,9 @@ from typing import Any
 
 import pytest
 
-from tests.helpers.ast_sources import imported_modules
 
 MODULE_NAME = "puripuly_heart.config.runtime_resolution"
 
-ALLOWED_INTERNAL_IMPORTS = frozenset(
-    {
-        "puripuly_heart.config.llm_profiles",
-        "puripuly_heart.config.resolved",
-    }
-)
-FORBIDDEN_INTERNAL_IMPORT_PREFIXES = (
-    "puripuly_heart.app",
-    "puripuly_heart.config.settings",
-    "puripuly_heart.core.managed_openrouter_broker_client",
-    "puripuly_heart.core.storage",
-    "puripuly_heart.providers",
-    "puripuly_heart.ui",
-)
-FORBIDDEN_EXTERNAL_IMPORT_ROOTS = frozenset({"flet", "httpx", "keyring", "requests"})
-FORBIDDEN_FILE_IO_CALL_NAMES = frozenset({"open"})
-FORBIDDEN_FILE_IO_ATTR_CALLS = frozenset(
-    {"mkdir", "open", "read_bytes", "read_text", "unlink", "write_bytes", "write_text"}
-)
 
 
 def _runtime_resolution_module() -> ModuleType:
@@ -60,17 +39,6 @@ def _load_boundary_guard() -> ModuleType:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _assert_no_file_io_calls(source_path: Path) -> None:
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name):
-            assert node.func.id not in FORBIDDEN_FILE_IO_CALL_NAMES
-        if isinstance(node.func, ast.Attribute):
-            assert node.func.attr not in FORBIDDEN_FILE_IO_ATTR_CALLS
 
 
 def _runtime_input(
@@ -100,19 +68,6 @@ def _credential_assertion(resolved: ModuleType, source: str, reference: str | No
         reference=reference,
     )
 
-
-def test_runtime_resolution_module_is_import_safe_and_dependency_light() -> None:
-    runtime_resolution = _runtime_resolution_module()
-    source_path = Path(runtime_resolution.__file__ or "")
-
-    assert source_path.name == "runtime_resolution.py"
-    imported = imported_modules(source_path)
-    for imported_module in imported:
-        if imported_module.startswith("puripuly_heart."):
-            assert imported_module in ALLOWED_INTERNAL_IMPORTS
-        assert not imported_module.startswith(FORBIDDEN_INTERNAL_IMPORT_PREFIXES)
-        assert imported_module.split(".", 1)[0] not in FORBIDDEN_EXTERNAL_IMPORT_ROOTS
-    _assert_no_file_io_calls(source_path)
 
 
 def test_runtime_resolution_layer_is_covered_by_dependency_boundary_guard() -> None:

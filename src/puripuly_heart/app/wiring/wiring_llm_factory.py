@@ -13,12 +13,12 @@ from puripuly_heart.app.services.managed_auth_claims import (
     ManagedAuthClaimGuard,
     local_managed_auth_blocking_source,
 )
+from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
 from puripuly_heart.config.llm_profiles import openrouter_alias_for_fields
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     OpenRouterLLMModel,
     OpenRouterSelectionAlias,
-    QwenRegion,
     parse_openrouter_llm_model,
 )
 from puripuly_heart.config.resolved import (
@@ -144,6 +144,9 @@ def runtime_resolution_input_from_vnext(settings: AppSettingsVNext) -> RuntimeRe
             deepseek_v4_flash_model=translation.deepseek.llm_model,
             qwen_38_flash_model=translation.qwen.llm_model,
             qwen_region=translation.qwen.region,
+            qwen_connection=resolve_alibaba_connection(
+                translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
+            ) if translation.model == "qwen38_flash" else None,
             local_llm_backend=local_llm.backend,
             local_llm_base_url=local_llm.base_url,
             local_llm_model=local_llm.model,
@@ -510,21 +513,11 @@ def _qwen_api_key_for_resolved_credential(
     raise ValueError("Unsupported Qwen resolved credential reference")
 
 
-def _qwen_sync_base_url(target: ResolvedLLMTarget) -> str:
-    if target.service_endpoint:
-        return target.service_endpoint
-    if target.region == QwenRegion.SINGAPORE.value:
-        return "https://dashscope-intl.aliyuncs.com/api/v1"
-    return "https://dashscope.aliyuncs.com/api/v1"
-
-
 def _qwen_async_base_url(target: ResolvedLLMTarget) -> str:
-    sync_base_url = _qwen_sync_base_url(target).rstrip("/")
-    if sync_base_url.endswith("/compatible-mode/v1"):
-        return sync_base_url
-    if sync_base_url.endswith("/api/v1"):
-        return sync_base_url[: -len("/api/v1")] + "/compatible-mode/v1"
-    return sync_base_url + "/compatible-mode/v1"
+    native_url = target.service_endpoint
+    if native_url is None or not native_url.endswith("/api/v1"):
+        raise ValueError("Qwen target requires a resolved native endpoint")
+    return native_url[: -len("/api/v1")] + "/compatible-mode/v1"
 
 
 def _openrouter_provider_from_resolved_config(
@@ -861,7 +854,8 @@ def create_llm_provider_from_resolved_config(
             attempt_providers.append(
                 LLMProviderAttempt(
                     provider=_LazyFactoryLLMProvider(
-                        factory=lambda attempt_plan=attempt_plan, force_managed_wrapper=force_managed_wrapper: (
+                        factory=lambda attempt_plan=attempt_plan,
+                        force_managed_wrapper=force_managed_wrapper: (
                             _provider_from_resolved_target(
                                 attempt_plan.target,
                                 secrets=secrets,

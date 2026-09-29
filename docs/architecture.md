@@ -281,6 +281,16 @@ Includes:
 
 Runtime owners should consume resolved configuration (`config/resolved.py`, `config/runtime_resolution.py`).
 
+### Alibaba workspace connections
+
+`AppSettingsVNext` schema 49 stores separate Beijing and Singapore Qwen endpoint modes (`legacy_shared` or `workspace_dedicated`), normalized API hosts, and connection revisions. Older settings migrate to shared endpoints. The selected Qwen region determines which region's saved credential is used; a key from one region does not establish access to the other. Workspace API Host must match its selected region's `*.cn-beijing.maas.aliyuncs.com` or `*.ap-southeast-1.maas.aliyuncs.com` domain; enter the host from the Alibaba workspace management page, not a key, WebSocket URL, or arbitrary endpoint. Both regions retain their configured host when switching, and returning to shared mode is explicit.
+
+`config/alibaba_connection.py` resolves one immutable region/mode/host/credential/revision snapshot into compatible, native HTTPS, and streaming WebSocket URLs. `config/runtime_resolution.py` supplies that snapshot to Self and Peer Qwen Audio, Qwen translation, signatures, and credential verification; unrelated providers do not inherit an Alibaba endpoint. The Qwen LLM factory requires the resolved native URL instead of falling back silently to a shared endpoint. Secret changes advance the selected region's revision and trigger the existing provider apply lifecycle.
+
+The typed, nonvisual settings boundary is `app/ports/settings_view.py`, `app/ports/ui_application.py`, `app/services/ui_application.py`, and `app/adapters/ui_runtime.py`; `app/services/provider/alibaba_workspace.py` owns the draft. Begin/edit/verify/apply/cancel keep a single draft token, both regional edits, selected-region validation, and independent ASR/translation evidence. An incomplete or mismatched workspace host cannot be probed or applied. ASR verification requires task-started and task-finished on one WebSocket; translation verifies only the selected model against the selected native endpoint. Verification may consume provider usage; no model fallback probes run automatically. Classifications distinguish authentication/access, model availability, rate limit, network, and ambiguous failures without exposing keys, host-bearing error messages, or raw provider responses.
+
+Apply uses the existing provider settings transaction and runtime replacement policy, returns committed status and affected consumers, and preserves saved-key verification evidence only while its connection, credential, and capability model remain current. Cancel and stale responses cannot mutate canonical settings. A maintenance announcement is not a service shutdown; this flow does not promise availability during maintenance or manufacture a fallback endpoint. No rendered desktop controls are part of this boundary. Controlled adapter and provider-transport checks are in `tests/app/test_alibaba_workspace.py` and `tests/config/test_alibaba_connection.py`; dedicated-host live acceptance requires an actual workspace host.
+
 ### Runtime state
 
 Examples:

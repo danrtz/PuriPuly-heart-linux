@@ -75,6 +75,14 @@ class ProviderVerifierPort(Protocol):
         low_latency: bool,
     ) -> bool: ...
 
+    async def probe_qwen_llm_api_key(
+        self, api_key: str, *, base_url: str, model: str
+    ) -> bool: ...
+
+    async def verify_qwen_audio_api_key(
+        self, api_key: str, *, endpoint: str, model: str
+    ) -> bool: ...
+
     async def fetch_openrouter_key_metadata(
         self,
         api_key: str,

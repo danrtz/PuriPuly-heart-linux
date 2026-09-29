@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
@@ -21,6 +21,8 @@ from puripuly_heart.app.ports.application_runtime_shutdown import (
 from puripuly_heart.app.ports.application_startup import ApplicationStartupDiagnostic
 from puripuly_heart.app.ports.settings_secrets import SettingsSecretsPort
 from puripuly_heart.app.ports.settings_view import (
+    AlibabaConnectionApplyResult,
+    AlibabaConnectionDraftSnapshot,
     GeneralSettingsSnapshot,
     ImmediateSettingsIntent,
     OpenRouterPkceTarget,
@@ -57,6 +59,7 @@ from puripuly_heart.app.services.application_shutdown import (
     application_shutdown_callback,
 )
 from puripuly_heart.app.services.application_startup import ApplicationStartupOwner
+from puripuly_heart.config.alibaba_connection import AlibabaEndpointMode, AlibabaRegion
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core.lifecycle import (
     SHUTDOWN_PHASE_FREEZE_INGRESS,
@@ -72,12 +75,15 @@ UI_APPLICATION_USER_INTENT_METHODS = frozenset(
         "apply_loopback_capture_option",
         "apply_overlay_calibration",
         "apply_providers",
+        "apply_alibaba_connection_draft",
         "apply_settings",
         "apply_settings_intent",
         "apply_prompt_intent",
         "apply_provider_intent",
         "apply_telemetry_enabled",
         "begin_overlay_calibration",
+        "begin_alibaba_connection_draft",
+        "cancel_alibaba_connection_draft",
         "cancel_discord_managed_auth",
         "cancel_overlay_calibration",
         "capture_settings_view_change",
@@ -92,6 +98,7 @@ UI_APPLICATION_USER_INTENT_METHODS = frozenset(
         "handle_gpu_notice_action",
         "handle_managed_gemma_notice_action",
         "install_selected_gpu_model_if_needed",
+        "edit_alibaba_connection_draft",
         "on_dashboard_language_change",
         "persist_api_key_verification",
         "persist_github_star_prompt_clicked",
@@ -122,6 +129,7 @@ UI_APPLICATION_USER_INTENT_METHODS = frozenset(
         "start_qq_managed_auth_from_dialog",
         "stop_microphone_test",
         "submit_text",
+        "verify_alibaba_connection_draft",
         "verify_api_key",
     }
 )
@@ -132,8 +140,10 @@ _ORDERED_INTENTS = frozenset(
         "apply_loopback_capture_option",
         "apply_providers",
         "apply_settings",
+        "apply_alibaba_connection_draft",
         "apply_settings_intent",
         "apply_prompt_intent",
+        "edit_alibaba_connection_draft",
         "apply_provider_intent",
         "apply_telemetry_enabled",
         "on_dashboard_language_change",
@@ -679,6 +689,39 @@ class UiApplicationBoundary:
 
     def build_managed_openrouter_byok_target(self) -> OpenRouterPkceTarget | None:
         return self._provider.build_managed_openrouter_byok_target()
+
+    async def begin_alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot:
+        return await self._provider.begin_alibaba_connection_draft()
+
+    async def alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot:
+        return await self._provider.alibaba_connection_draft()
+
+    async def alibaba_active_connection(self) -> AlibabaConnectionDraftSnapshot:
+        return await self._provider.alibaba_active_connection()
+
+    async def edit_alibaba_connection_draft(
+        self, *, token: str, region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None, api_host: str | None = None,
+    ) -> AlibabaConnectionDraftSnapshot:
+        return await self._provider.edit_alibaba_connection_draft(
+            token=token, region=region, endpoint_mode=endpoint_mode, api_host=api_host,
+        )
+
+    async def verify_alibaba_connection_draft(
+        self, *, token: str, capability: Literal["asr", "translation", "both"],
+        api_key: str | None = None,
+    ) -> AlibabaConnectionDraftSnapshot:
+        return await self._provider.verify_alibaba_connection_draft(
+            token=token, capability=capability, api_key=api_key,
+        )
+
+    async def apply_alibaba_connection_draft(self, *, token: str) -> AlibabaConnectionApplyResult:
+        result = await self._provider.apply_alibaba_connection_draft(token=token)
+        await self._publish_osc_state()
+        return result
+
+    def cancel_alibaba_connection_draft(self, *, token: str) -> None:
+        self._provider.cancel_alibaba_connection_draft(token=token)
 
     async def verify_api_key(self, provider: str, key: str) -> tuple[bool, str]:
         return await self._provider.verify_api_key(provider, key)
