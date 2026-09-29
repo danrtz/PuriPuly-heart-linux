@@ -416,12 +416,23 @@ class SettingsRuntimeEffectsAdapter:
     def _self_runtime_converged(self, settings: AppSettingsVNext) -> bool | None:
         capture_provider = getattr(self, "_self_capture", None)
         capture = capture_provider() if callable(capture_provider) else None
-        if capture is None or not capture.snapshot.desired_active:
+        if capture is None:
             return None
+        expected = build_self_capture_session_config_from_vnext(self._canonical_settings(settings))
+        if not capture.snapshot.desired_active:
+            runtime = getattr(self._pipeline, "local_asr_runtime", None)
+            channel = runtime.snapshot.channel_for("self") if runtime is not None else None
+            return (
+                False
+                if (
+                    capture.snapshot.failure_reason is not None
+                    and (channel is None or channel.provider_id != expected.provider_id)
+                )
+                else None
+            )
         local_asr_runtime = getattr(self._pipeline, "local_asr_runtime", None)
         if local_asr_runtime is None:
             return False
-        expected = build_self_capture_session_config_from_vnext(self._canonical_settings(settings))
         snapshot = capture.snapshot
         channel = local_asr_runtime.snapshot.channel_for("self")
         provider_status = getattr(snapshot.provider_status, "value", snapshot.provider_status)
@@ -615,6 +626,11 @@ class SettingsRuntimeEffectsAdapter:
                 == build_self_capture_vad_signature_from_vnext(canonical)
             )
             await self._replace_self_stt(smooth_local)
+            self_runtime_converged = self._self_runtime_converged(canonical)
+        if self_runtime_converged is False:
+            raise ProviderRuntimeConvergenceError(
+                "Self STT runtime did not converge to requested settings",
+            )
 
         self._sync_signatures(settings)
 

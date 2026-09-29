@@ -277,6 +277,38 @@ class _LiveAudienceFilter(logging.Filter):
         )
 
 
+class _HeadlessConsolePrivacyFilter(logging.Filter):
+    """Never expose free-form app records or conversation text on a host console."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if getattr(record, _CONTENT_CATEGORY_ATTR, None) in {
+            _CONVERSATION_CATEGORY,
+            _CONTEXT_CATEGORY,
+        }:
+            return False
+        return _is_metadata_only_text(record.getMessage())
+
+
+def install_headless_console_privacy_filter(
+    sinks: RuntimeLoggingSinks | None = None,
+) -> Callable[[], None]:
+    stream_handler = (
+        sinks.stream_handler
+        if sinks is not None
+        else _find_main_stream_handler(logging.getLogger())
+    )
+    if stream_handler is None:
+        return lambda: None
+    privacy_filter = _HeadlessConsolePrivacyFilter()
+    stream_handler.filters.insert(0, privacy_filter)
+
+    def detach() -> None:
+        if privacy_filter in stream_handler.filters:
+            stream_handler.removeFilter(privacy_filter)
+
+    return detach
+
+
 class _BatchingRotatingFileHandler(RotatingFileHandler):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)

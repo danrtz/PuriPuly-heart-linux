@@ -84,7 +84,7 @@ def _retry_after_ms(response: httpx.Response) -> int | None:
     else:
         try:
             when = parsedate_to_datetime(value)
-        except (ValueError, TypeError, IndexError, OverflowError):
+        except ValueError, TypeError, IndexError, OverflowError:
             return None
         if when.tzinfo is None:
             return None

@@ -769,9 +769,7 @@ async def test_openrouter_report_appears_in_primary_text_then_speech_replaces_it
         bridge = make_bridge(app, runtime_logging=runtime_logging)
         key = "provider.openrouter.key_limit"
         report = messages.UserErrorReport(
-            message=messages.UserMessageRef(
-                key=key, params={}, severity=messages.SEVERITY_ERROR
-            ),
+            message=messages.UserMessageRef(key=key, params={}, severity=messages.SEVERITY_ERROR),
             diagnostics=messages.ErrorDiagnostics(
                 component="provider.llm",
                 operation="translate",
@@ -1299,7 +1297,9 @@ async def test_event_bridge_error_with_broken_runtime_logging_uses_safe_standard
 
 
 @pytest.mark.asyncio
-async def test_event_bridge_managed_report_clears_auth_pending_and_displays_dashboard_error() -> None:
+async def test_event_bridge_managed_report_clears_auth_pending_and_displays_dashboard_error() -> (
+    None
+):
     previous_locale = get_locale()
     set_locale("en")
     try:
@@ -1344,7 +1344,9 @@ async def test_event_bridge_managed_report_clears_auth_pending_and_displays_dash
 
 
 @pytest.mark.asyncio
-async def test_event_bridge_managed_auth_error_clears_pending_and_displays_dashboard_error() -> None:
+async def test_event_bridge_managed_auth_error_clears_pending_and_displays_dashboard_error() -> (
+    None
+):
     previous_locale = get_locale()
     set_locale("en")
     try:

@@ -2433,6 +2433,7 @@ async def test_presenter_evicted_turn_remains_ignored_after_tombstone_cap_overfl
     assert len(bridge.snapshots) == snapshot_count_before_late_update
     assert bridge.snapshots[-1].blocks == blocks_before_late_update
 
+
 @pytest.mark.asyncio
 async def test_scoped_peer_children_survive_earlier_sibling_retirement() -> None:
     presenter = OverlayPresenter(
@@ -2470,9 +2471,7 @@ async def test_scoped_peer_children_survive_earlier_sibling_retirement() -> None
         assert presenter.snapshot().blocks[-1].id == f"peer:{child_id}"
         assert presenter.snapshot().blocks[-1].publication_index == index
         close_receipt = await presenter.emit(
-            adapter.utterance_closed(
-                utterance_id=child_id, channel="peer", output_scope=scope
-            )
+            adapter.utterance_closed(utterance_id=child_id, channel="peer", output_scope=scope)
         )
         assert close_receipt.outcome == "applied"
         if index == 2:
@@ -2486,7 +2485,8 @@ async def test_scoped_peer_children_survive_earlier_sibling_retirement() -> None
                 for frontier in snapshot.semantic_retirement_frontiers
             ] == [(0, 0)]
     assert [block.id for block in presenter.snapshot().blocks] == [
-        f"peer:{children[4]}", f"peer:{children[5]}"
+        f"peer:{children[4]}",
+        f"peer:{children[5]}",
     ]
     assert (
         await presenter.emit(
@@ -2567,13 +2567,13 @@ async def test_scoped_self_children_use_displayed_parent_target_index() -> None:
         assert receipt.outcome == "applied"
         assert presenter.snapshot().blocks[-1].publication_index == index
     assert [block.id for block in presenter.snapshot().blocks] == [
-        f"self:{children[1]}", f"self:{children[2]}"
+        f"self:{children[1]}",
+        f"self:{children[2]}",
     ]
     assert [
         (frontier.order, frontier.index)
         for frontier in presenter.snapshot().semantic_retirement_frontiers
     ] == [(0, 0)]
-
 
 
 @pytest.mark.asyncio

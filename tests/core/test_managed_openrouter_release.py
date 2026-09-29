@@ -529,6 +529,9 @@ async def test_prepare_for_translation_short_circuits_when_managed_key_exists() 
     assert result.local_key_available is True
     assert result.pending_issue is False
     assert client.calls == []
+    noninteractive = await service.prepare_for_translation(allow_authorization=False)
+    assert noninteractive.behavior is ManagedOpenRouterReleaseBehavior.READY
+    assert client.calls == []
 
 
 @pytest.mark.asyncio
@@ -697,6 +700,32 @@ async def test_standard_managed_prepare_preserves_discord_flow_without_reading_q
     assert harness.listeners[0].closed is True
     assert secrets.get(OPENROUTER_MANAGED_API_KEY_SECRET) == "managed-key"
     assert secrets.get(OPENROUTER_MANAGED_QQ_API_KEY_SECRET) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credential_state", ("missing", "expired", "stale_token"))
+async def test_noninteractive_prepare_never_starts_discord_authorization(
+    credential_state: str,
+) -> None:
+    settings = ReleaseSettings()
+    settings.openrouter.selected_source = OpenRouterCredentialSource.MANAGED
+    settings.translation.connection = TranslationConnection.MANAGED
+    if credential_state == "expired":
+        settings.managed_identity.active_managed_expires_at = "2020-01-01T00:00:00Z"
+        settings.managed_identity.active_managed_credential_ref = "expired-reference"
+    if credential_state == "stale_token":
+        settings.managed_identity.release_token = "stale-token"
+    secrets = InMemorySecretStore()
+    service, _, _, client, harness = _make_discord_service(
+        settings=settings,
+        secrets=secrets,
+    )
+
+    result = await service.prepare_for_translation(allow_authorization=False)
+
+    assert result.behavior is ManagedOpenRouterReleaseBehavior.RESTART
+    assert not any(name == "discord_start" for name, _ in client.calls)
+    assert harness.listeners == []
 
 
 @pytest.mark.asyncio
@@ -1846,7 +1875,7 @@ async def test_prepare_for_translation_reuses_verified_pending_release_state_and
     )
     service, _, _ = _make_service(client=client, settings=settings, secrets=secrets)
 
-    prepare_result = await service.prepare_for_translation()
+    prepare_result = await service.prepare_for_translation(allow_authorization=False)
 
     assert prepare_result.behavior == ManagedOpenRouterReleaseBehavior.READY
     assert prepare_result.api_key == "managed-key"

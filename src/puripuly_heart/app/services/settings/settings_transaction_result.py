@@ -1,25 +1,65 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from puripuly_heart.core.messages import (
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
     TransactionResult,
 )
 
 
 @dataclass(slots=True)
-class SettingsTransactionResultOwner:
+class _ResultScope:
     current: TransactionResult | None = None
+    revision: Callable[[], int] | None = None
+    committed_revision: int | None = None
+
+
+class SettingsTransactionResultOwner:
+    def __init__(self) -> None:
+        self._latest: TransactionResult | None = None
+        self._scope: ContextVar[_ResultScope | None] = ContextVar(
+            "settings_transaction_result_scope",
+            default=None,
+        )
+
+    @property
+    def current(self) -> TransactionResult | None:
+        scope = self._scope.get()
+        return scope.current if scope is not None else self._latest
+
+    @contextmanager
+    def capture(self, *, revision: Callable[[], int] | None = None):
+        scope = _ResultScope(revision=revision)
+        token = self._scope.set(scope)
+        try:
+            yield scope
+        finally:
+            self._scope.reset(token)
 
     def set(self, result: TransactionResult) -> None:
-        self.current = result
+        self._latest = result
+        scope = self._scope.get()
+        if scope is not None:
+            scope.current = result
+
+    def mark_settings_committed(self) -> None:
+        scope = self._scope.get()
+        if scope is not None and scope.revision is not None:
+            scope.current = None
+            scope.committed_revision = scope.revision()
 
     def committed(self) -> bool:
-        return self.current is not None and self.current.status in {
+        current = self.current
+        return current is not None and current.status in {
             TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
             TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+            TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
         }
 
 

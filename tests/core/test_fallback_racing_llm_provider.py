@@ -345,12 +345,8 @@ async def test_fallback_racer_preserves_both_errors_when_both_branches_fail() ->
     ("primary", "fallback", "key", "status", "retry"),
     [
         (
-            OpenRouterResponseError(
-                402, limit_source="openrouter_key_limit", retry_after_ms=9_000
-            ),
-            OpenRouterResponseError(
-                402, limit_source="openrouter_key_limit", retry_after_ms=9_000
-            ),
+            OpenRouterResponseError(402, limit_source="openrouter_key_limit", retry_after_ms=9_000),
+            OpenRouterResponseError(402, limit_source="openrouter_key_limit", retry_after_ms=9_000),
             "provider.openrouter.key_limit",
             402,
             9_000,
@@ -386,7 +382,9 @@ async def test_race_reports_only_diagnosis_shared_by_every_failed_branch(
         assert report.message.key == key
         assert report.diagnostics.status_code == status
         assert report.diagnostics.retry_after_ms == retry
-        assert ("limit_source" in report.diagnostics.fields) == (key == "provider.openrouter.key_limit")
+        assert ("limit_source" in report.diagnostics.fields) == (
+            key == "provider.openrouter.key_limit"
+        )
         assert report.diagnostics.category != "invalid_response"
         if status is None:
             assert report.message.params["provider"] == "llm"

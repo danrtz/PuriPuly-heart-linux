@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
+from puripuly_heart.app.ports.application_control import ApplicationControl
 from puripuly_heart.app.ports.application_runtime_logging import (
     ApplicationRuntimeLoggingPort,
 )
@@ -126,13 +127,48 @@ UI_APPLICATION_USER_INTENT_METHODS = frozenset(
 )
 
 
+_ORDERED_INTENTS = frozenset(
+    {
+        "apply_loopback_capture_option",
+        "apply_providers",
+        "apply_settings",
+        "apply_settings_intent",
+        "apply_prompt_intent",
+        "apply_provider_intent",
+        "apply_telemetry_enabled",
+        "on_dashboard_language_change",
+        "set_stt_enabled",
+        "set_peer_translation_enabled",
+        "set_translation_enabled",
+        "set_overlay_enabled",
+        "persist_provider_secret_change",
+    }
+)
+
+
 def _guard_application_intent(method: Callable[..., Any]) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(method):
 
         @functools.wraps(method)
         async def invoke_async(self, *args: Any, **kwargs: Any) -> Any:
             self._admit_application_intent(method.__name__)
-            return await method(self, *args, **kwargs)
+            control = self._control
+            if (
+                method.__name__ not in _ORDERED_INTENTS
+                or control is None
+                or control.lock_owned_by_current_task()
+            ):
+                return await method(self, *args, **kwargs)
+            capture_off = (
+                method.__name__ in {"set_stt_enabled", "set_peer_translation_enabled"}
+                and (args[0] if args else kwargs.get("enabled")) is False
+            )
+            if not capture_off:
+                async with control._resource_lock:
+                    async with control._lock:
+                        return await method(self, *args, **kwargs)
+            async with control._lock:
+                return await method(self, *args, **kwargs)
 
         return invoke_async
 
@@ -163,6 +199,7 @@ class UiApplicationBoundary:
         runtime_logging: ApplicationRuntimeLoggingPort,
         settings_secrets: SettingsSecretsPort,
         osc_state_publisher: Callable[[], object] | None = None,
+        output_status_provider: Callable[[], dict[str, dict[str, object]]] | None = None,
         http_extension_registry: object | None = None,
     ) -> None:
         self._startup = startup
@@ -181,6 +218,7 @@ class UiApplicationBoundary:
         self._runtime_shutdown = runtime_shutdown
         self._state_owner = state
         self._osc_state_publisher = osc_state_publisher
+        self._output_status_provider = output_status_provider
         self._github_star_prompt_runtime = GithubStarPromptRuntime(
             diagnostics_sink=self._github_star_prompt_runtime_diagnostics_sink,
         )
@@ -191,6 +229,8 @@ class UiApplicationBoundary:
             *compose_application_runtime_shutdown_callbacks(runtime_shutdown),
         )
         self._application_lifecycle: ApplicationShutdownCoordinator | None = None
+        self._control: ApplicationControl | None = None
+        self._presentation_close: Callable[[], Awaitable[None]] | None = None
 
     def _boundary_application_shutdown_callbacks(
         self,
@@ -216,6 +256,25 @@ class UiApplicationBoundary:
             ),
         )
 
+    def control(self) -> ApplicationControl:
+        if self._control is None:
+            raise RuntimeError("application control is not composed")
+        return self._control
+
+    def attach_control(self, control: ApplicationControl) -> None:
+        self._control = control
+
+    def bind_presentation_close(self, callback: Callable[[], Awaitable[None]]) -> None:
+        if self._presentation_close is not None:
+            raise RuntimeError("presentation close is already bound")
+        self._presentation_close = callback
+
+    async def close_presentation(self) -> None:
+        callback = self._presentation_close
+        if callback is None:
+            raise RuntimeError("GUI presentation close is unavailable")
+        await callback()
+
     def http_extension_registry(self) -> object | None:
         return self._http_extension_registry
 
@@ -227,6 +286,14 @@ class UiApplicationBoundary:
 
     def effective_osc_ports(self) -> tuple[int | None, int | None]:
         return self._runtime_shutdown.effective_osc_ports()
+
+    def output_status(self) -> dict[str, dict[str, object]]:
+        if self._output_status_provider is None:
+            raise RuntimeError("application output owners are not composed")
+        return self._output_status_provider()
+
+    async def wait_overlay_transition(self) -> dict[str, object]:
+        return await self._overlay.wait_overlay_transition()
 
     def compatibility_settings(self) -> AppSettingsVNext | None:
         return self._state_owner.compatibility_settings()
@@ -343,8 +410,13 @@ class UiApplicationBoundary:
     def set_manual_input_activity(self, has_text: bool) -> None:
         self._input_runtime.set_manual_input_activity(has_text)
 
-    async def set_translation_enabled(self, enabled: bool) -> object:
-        result = await self._input_runtime.set_translation_enabled(enabled)
+    async def set_translation_enabled(
+        self, enabled: bool, *, allow_authorization: bool = True
+    ) -> object:
+        result = await self._input_runtime.set_translation_enabled(
+            enabled,
+            allow_authorization=allow_authorization,
+        )
         await self._publish_osc_state()
         return result
 
@@ -487,19 +559,25 @@ class UiApplicationBoundary:
             result = start()
         return bool(await result if inspect.isawaitable(result) else result)
 
+    def microphone_test_snapshot(self) -> dict[str, object]:
+        return self._microphone.microphone_test_snapshot()
+
+    async def wait_microphone_test_ready(self) -> bool:
+        return await self._microphone.wait_microphone_test_ready()
+
     async def stop_microphone_test(self) -> None:
         result = self._microphone.stop_microphone_test()
         if inspect.isawaitable(result):
             await result
 
-    async def set_desktop_overlay_captions_locked(self, locked: bool) -> None:
-        await self._overlay.set_desktop_overlay_captions_locked(locked)
+    async def set_desktop_overlay_captions_locked(self, locked: bool) -> dict[str, str]:
+        return await self._overlay.set_desktop_overlay_captions_locked(locked)
 
-    async def set_desktop_overlay_size_preset(self, size_preset: str) -> None:
-        await self._overlay.set_desktop_overlay_size_preset(size_preset)
+    async def set_desktop_overlay_size_preset(self, size_preset: str) -> dict[str, str]:
+        return await self._overlay.set_desktop_overlay_size_preset(size_preset)
 
-    async def reset_desktop_overlay_position(self) -> None:
-        await self._overlay.reset_desktop_overlay_position()
+    async def reset_desktop_overlay_position(self) -> dict[str, str]:
+        return await self._overlay.reset_desktop_overlay_position()
 
     def begin_overlay_calibration(self) -> object:
         return self._overlay.begin_overlay_calibration()
@@ -580,12 +658,19 @@ class UiApplicationBoundary:
         return self.state().provider_name == "local_llm"
 
     async def connect_openrouter_via_pkce(
-        self, *, target: OpenRouterPkceTarget, launch_source: str
+        self,
+        *,
+        target: OpenRouterPkceTarget,
+        launch_source: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:
         return bool(
             await self._provider.connect_openrouter_via_pkce(
                 target=target,
                 launch_source=launch_source,
+                open_browser=open_browser,
+                authorization_url_sink=authorization_url_sink,
             )
         )
 
@@ -612,6 +697,9 @@ class UiApplicationBoundary:
 
     async def start_discord_managed_auth_from_dialog(self, **kwargs: Any) -> object:
         return await self._managed.start_discord_managed_auth_from_dialog(**kwargs)
+
+    async def logout_local_managed(self, provider: str) -> dict[str, object]:
+        return await self._managed.logout_local_managed(provider)
 
     def reopen_discord_managed_auth_browser(self) -> object:
         return None

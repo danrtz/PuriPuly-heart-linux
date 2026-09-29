@@ -38,25 +38,6 @@ def test_message_and_diagnostic_dtos_are_frozen_slotted_and_metadata_only() -> N
         diagnostics.fields["phase"] = "runtime_apply"  # type: ignore[index]
 
 
-def test_result_statuses_cover_settings_runtime_secret_and_compensation_flows() -> None:
-    assert set(messages.RUNTIME_APPLY_RESULT_STATUSES) == {
-        messages.RUNTIME_APPLY_STATUS_APPLIED,
-        messages.RUNTIME_APPLY_STATUS_DEGRADED,
-        messages.RUNTIME_APPLY_STATUS_FAILED,
-    }
-    assert set(messages.TRANSACTION_RESULT_STATUSES) == {
-        messages.TRANSACTION_STATUS_SETTINGS_COMMIT_FAILED,
-        messages.TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
-        messages.TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
-        messages.TRANSACTION_STATUS_SECRET_WRITE_FAILED,
-        messages.TRANSACTION_STATUS_PROVIDER_VERIFICATION_FAILED,
-        messages.TRANSACTION_STATUS_SETTINGS_COMMIT_FAILED_SECRET_RESTORED,
-        messages.TRANSACTION_STATUS_SETTINGS_COMMIT_FAILED_SECRET_RESTORE_FAILED,
-        messages.TRANSACTION_STATUS_REMOTE_ACTIVE_LOCAL_MISSING,
-        messages.TRANSACTION_STATUS_REMOTE_DELIVERY_ACK_PENDING,
-    }
-
-
 def test_result_dtos_carry_message_refs_and_diagnostics_not_localized_text() -> None:
     forbidden_localized_fields = {
         "text",

@@ -73,6 +73,12 @@ class MicrophoneTestCaptureAdapter:
                 if not observation.should_attempt_open:
                     cause = observation.resolution_exception_class or "unavailable"
                     self.log_sink(f"[MicTest] failed cause={cause}")
+                    if request.failure_callback is not None:
+                        request.failure_callback(
+                            capture_generation,
+                            "input_route_unavailable",
+                            cause,
+                        )
                     return
 
                 decision = self.channel_decision(
@@ -96,6 +102,12 @@ class MicrophoneTestCaptureAdapter:
                         return
                 except Exception as exc:
                     end_exception = exc
+                    if request.failure_callback is not None:
+                        request.failure_callback(
+                            capture_generation,
+                            "source_open_failed",
+                            type(exc).__name__,
+                        )
                     self.log_sink(f"[MicTest] failed cause={type(exc).__name__}")
                     return
 
@@ -120,6 +132,8 @@ class MicrophoneTestCaptureAdapter:
                         request.meter_callback,
                         capture_generation,
                     )
+                    if frame_count == 1 and request.ready_callback is not None:
+                        request.ready_callback(capture_generation)
                     pending_frame = runtime.create_frame_task(
                         anext(frame_iterator),
                         generation=capture_generation,
@@ -131,6 +145,12 @@ class MicrophoneTestCaptureAdapter:
                 raise
             except Exception as exc:
                 end_exception = exc
+                if request.failure_callback is not None:
+                    request.failure_callback(
+                        capture_generation,
+                        "capture_failed",
+                        type(exc).__name__,
+                    )
             finally:
                 cleanup_failures: list[Exception] = []
                 if pending_frame is not None and not pending_frame.done():
@@ -144,6 +164,12 @@ class MicrophoneTestCaptureAdapter:
                         await runtime.close_source(source)
                     except Exception as exc:
                         cleanup_failures.append(exc)
+                        if request.failure_callback is not None:
+                            request.failure_callback(
+                                capture_generation,
+                                "source_close_failed",
+                                type(exc).__name__,
+                            )
 
                 if opened:
                     if end_exception is None:

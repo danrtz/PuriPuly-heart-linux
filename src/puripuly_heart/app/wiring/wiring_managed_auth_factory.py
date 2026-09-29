@@ -5,7 +5,8 @@ import contextlib
 import copy
 import inspect
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -30,7 +31,10 @@ from puripuly_heart.app.ports.managed_identity_state import (
     ManagedIdentitySnapshot,
     ManagedIdentityStatePort,
 )
-from puripuly_heart.app.ports.settings_repository import SettingsRepositoryPort
+from puripuly_heart.app.ports.settings_repository import (
+    SettingsCommitRequest,
+    SettingsRepositoryPort,
+)
 from puripuly_heart.app.services.canonical_settings_persistence import SettingsOwner
 from puripuly_heart.app.services.github_star_prompt import (
     github_star_prompt_utc_timestamp,
@@ -73,6 +77,7 @@ from puripuly_heart.config.translation_values import (
     TranslationConnection,
     TranslationModel,
 )
+from puripuly_heart.core.discord_managed_oauth import run_discord_oauth_callback_flow
 from puripuly_heart.core.discord_oauth_loopback import (
     DiscordOAuthCallbackError,
     DiscordOAuthLoopbackClosedError,
@@ -111,6 +116,10 @@ from puripuly_heart.core.messages import (
 )
 from puripuly_heart.core.openrouter_credentials import (
     OPENROUTER_MANAGED_API_KEY_SECRET,
+    OPENROUTER_MANAGED_QQ_API_KEY_SECRET,
+    OPENROUTER_MANAGED_QQ_STATUS_AUTH_SECRET,
+    OPENROUTER_MANAGED_USER_ID_SECRET,
+    OPENROUTER_MANAGED_USER_INSTALLATION_ID_SECRET,
     OpenRouterCredentialRuntimeConfig,
     resolve_openrouter_credentials,
 )
@@ -1056,6 +1065,78 @@ class ManagedAuthRuntimeAdapter:
     runtime_presence_provider: ManagedAuthRuntimePresenceProvider
     ingress_provider: ManagedAuthIngressProvider
 
+    async def logout_local_managed(self, provider: str) -> dict[str, object]:
+        if provider not in {"qq", "discord"}:
+            raise ValueError("unsupported managed account provider")
+        current = self.settings.require_canonical()
+        state = current.state.managed_connection
+        if state.pending_delivery_ack_source or state.pending_managed_operation_id:
+            return {"status": "action_required", "action": "resolve_pending_managed_authorization"}
+        keys = (
+            (OPENROUTER_MANAGED_QQ_API_KEY_SECRET, OPENROUTER_MANAGED_QQ_STATUS_AUTH_SECRET)
+            if provider == "qq"
+            else (
+                OPENROUTER_MANAGED_API_KEY_SECRET,
+                OPENROUTER_MANAGED_USER_ID_SECRET,
+                OPENROUTER_MANAGED_USER_INSTALLATION_ID_SECRET,
+            )
+        )
+        store = SyncSecretStoreAdapter(
+            self.secret_store_factory(current.intent.secrets, config_path=self.config_path)
+        )
+        snapshots = [await store.snapshot_secret(key) for key in keys]
+        if not snapshots[0].existed:
+            return {"status": "rejected", "provider": provider, "reason": "not_authorized"}
+        cleared = []
+        try:
+            for snapshot in snapshots:
+                await store.clear_secret(snapshot.key)
+                cleared.append(snapshot)
+            translation = current.intent.translation
+            active_account = managed_openrouter_selected_from_vnext(current) and (
+                (provider == "qq" and translation.connection == "managed_china")
+                or (provider == "discord" and translation.connection == "managed")
+            )
+            updated_state = replace(
+                state,
+                active_managed_credential_ref=(
+                    None if active_account else state.active_managed_credential_ref
+                ),
+                active_managed_expires_at=(
+                    None if active_account else state.active_managed_expires_at
+                ),
+                founder_letter_seen_credential_ref=(
+                    None if active_account else state.founder_letter_seen_credential_ref
+                ),
+                referral_id=None if state.referral_source == provider else state.referral_id,
+                referral_source=(
+                    None if state.referral_source == provider else state.referral_source
+                ),
+            )
+            updated = replace(
+                current, state=replace(current.state, managed_connection=updated_state)
+            )
+            repository = self.settings.create_canonical_patch_repository(
+                base_settings=current, committed_settings=updated, surface="managed_logout"
+            )
+            commit = await repository.save(
+                SettingsCommitRequest(
+                    values={"state": {"managed_connection": asdict(updated_state)}},
+                    expected_revision=None,
+                    reason="managed_logout",
+                )
+            )
+            if not commit.succeeded:
+                for snapshot in reversed(cleared):
+                    await store.restore_secret(snapshot)
+                return {"status": "persistence_failed", "provider": provider}
+            self.settings.complete()
+        except BaseException:
+            for snapshot in reversed(cleared):
+                await store.restore_secret(snapshot)
+            raise
+        return {"status": "applied", "provider": provider, "scope": "local_only"}
+
     def state(self) -> ManagedAuthState:
         current = self.settings.canonical
         canonical = self.settings.projected_canonical()
@@ -1176,12 +1257,20 @@ class ManagedAuthRuntimeAdapter:
         referral_id: str | None,
         on_callback_received: Callable[[], None] | None,
         on_recovery_started: Callable[[], None] | None = None,
+        *,
+        authorization_url_sink: Callable[[str], None] | None = None,
+        open_browser: bool = True,
     ) -> ManagedAuthExecutionResult:
         release_service = self.release_service_provider()
         current = self.settings.canonical
         if release_service is None or current is None:
             return ManagedAuthExecutionResult(succeeded=False)
         if not _supports_transaction_auth(release_service):
+            if authorization_url_sink is not None or not open_browser:
+                return ManagedAuthExecutionResult(
+                    succeeded=False,
+                    message_key="discord_auth.error.action_required",
+                )
             return await self._execute_legacy_discord(
                 release_service,
                 referral_id=referral_id,
@@ -1191,6 +1280,8 @@ class ManagedAuthRuntimeAdapter:
             referral_id=referral_id,
             on_callback_received=on_callback_received,
             on_recovery_started=on_recovery_started,
+            authorization_url_sink=authorization_url_sink,
+            open_browser=open_browser,
         )
 
     async def _execute_transaction_discord(
@@ -1200,6 +1291,8 @@ class ManagedAuthRuntimeAdapter:
         referral_id: str | None,
         on_callback_received: Callable[[], None] | None,
         on_recovery_started: Callable[[], None] | None = None,
+        authorization_url_sink: Callable[[str], None] | None = None,
+        open_browser: bool = True,
     ) -> ManagedAuthExecutionResult:
         current = self.settings.canonical
         canonical = self.settings.canonical
@@ -1228,7 +1321,15 @@ class ManagedAuthRuntimeAdapter:
             ),
             oauth_runtime=release_service.oauth_runtime,
             listener_factory=release_service.discord_oauth_listener_factory,
-            callback_runner=release_service.discord_oauth_callback_runner,
+            callback_runner=(
+                release_service.discord_oauth_callback_runner
+                if authorization_url_sink is None and open_browser
+                else partial(
+                    run_discord_oauth_callback_flow,
+                    open_browser=open_browser,
+                    authorization_url_sink=authorization_url_sink,
+                )
+            ),
             referral_id=referral_id,
             on_callback_received=on_callback_received,
         )
@@ -1550,7 +1651,7 @@ class ManagedTranslationRuntimeAdapter:
             ingress_frozen=self.ingress_provider(),
         )
 
-    async def prepare(self) -> ManagedTranslationPreparation:
+    async def prepare(self, allow_authorization: bool = True) -> ManagedTranslationPreparation:
         canonical = self.settings.canonical
         current = self.settings.canonical
         service = self.release_service_provider()
@@ -1581,7 +1682,9 @@ class ManagedTranslationRuntimeAdapter:
                     ),
                     message_kwargs=(dict(message.params) if message is not None else {}),
                 )
-        result = await service.prepare_for_translation()
+        result = await service.prepare_for_translation(
+            allow_authorization=allow_authorization,
+        )
         if result.behavior == ManagedOpenRouterReleaseBehavior.READY and result.local_key_available:
             if claim_guard is not None:
                 with contextlib.suppress(Exception):

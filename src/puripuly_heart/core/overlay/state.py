@@ -862,8 +862,7 @@ class OverlayPresentationState:
         native_fresh_render_targets: NativeFreshRenderTargets | None = None,
         native_quiet_tail_episodes: NativeQuietTailEpisodes | None = None,
         entry_ordering: Mapping[OverlayEntryKey, tuple[str, int, int, int]] | None = None,
-        semantic_retirement_frontiers: Mapping[tuple[str, int], tuple[int, int]]
-        | None = None,
+        semantic_retirement_frontiers: Mapping[tuple[str, int], tuple[int, int]] | None = None,
         speaker_divider: bool = False,
     ) -> OverlayPresentationSnapshot:
         ordering = entry_ordering or {}

@@ -29,6 +29,10 @@ SettingsPresentationSink = Callable[[GeneralSettingsSnapshot], None]
 WarningReset = Callable[[], None]
 
 
+class PeerCaptureTargetUnavailable(ValueError):
+    pass
+
+
 @dataclass(slots=True)
 class PeerCaptureTargetApplicationOwner:
     settings: SettingsOwner
@@ -128,6 +132,8 @@ class PeerCaptureTargetApplicationOwner:
         current = self.settings.canonical
         if current is None:
             return
+        if not any(option.value == value and not option.disabled for option in self.options()):
+            raise PeerCaptureTargetUnavailable("capture target is not available")
         apply_capture_target = getattr(self.settings, "apply_capture_target", None)
         if apply_capture_target is not None:
             next_settings = apply_capture_target(self.decode_option(value))
@@ -212,4 +218,4 @@ class PeerCaptureTargetApplicationOwner:
         return base
 
 
-__all__ = ["PeerCaptureTargetApplicationOwner"]
+__all__ = ["PeerCaptureTargetApplicationOwner", "PeerCaptureTargetUnavailable"]

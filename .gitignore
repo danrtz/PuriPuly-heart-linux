@@ -241,6 +241,7 @@ refactoring/
 !/scripts/installer/install-local-stt-model.ps1
 !/scripts/release/
 /scripts/release/*
+!/scripts/release/console_bootstrap.py
 !/scripts/release/unattended-runtime-evidence.py
 !/scripts/release/huggingface-xet-frozen-smoke.py
 .codex/

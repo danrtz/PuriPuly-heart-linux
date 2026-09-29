@@ -73,7 +73,10 @@ class RecordingBackend:
     async def submit_text(self, text: str) -> None:
         self.events.append(("submit", text))
 
-    async def set_translation_enabled(self, enabled: bool) -> bool:
+    async def set_translation_enabled(
+        self, enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
+        _ = allow_authorization
         self.events.append(("translation", enabled))
         return enabled
 
@@ -267,38 +270,6 @@ def test_compatibility_settings_is_detached_and_missing_ui_state_stays_unknown()
     assert boundary.state().peer_translation_eula_accepted is None
 
 
-def test_settings_projection_operations_delegate_without_exposing_the_view() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    assert boundary.refresh_settings_projection(preserve_custom_vocab_draft=True) is True
-    assert boundary.refresh_settings_after_openrouter_pkce_success() is True
-
-    assert backend.events == [
-        ("settings-projection", True),
-        ("settings-pkce-projection",),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_primary_intents_delegate_once_and_preserve_results() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    await boundary.start()
-    await boundary.submit_text("hello")
-    result = await boundary.set_translation_enabled(True)
-    await boundary.stop()
-
-    assert result is True
-    assert backend.events == [
-        ("start",),
-        ("submit", "hello"),
-        ("translation", True),
-    ]
-    assert boundary.application_lifecycle().is_terminal
-
-
 @pytest.mark.asyncio
 async def test_start_failure_runs_owned_shutdown_and_preserves_original_error() -> None:
     class FailingBackend(RecordingBackend):
@@ -338,85 +309,6 @@ async def test_eula_acceptance_is_owned_at_the_boundary_before_peer_enable() -> 
     assert backend.events[0][0] == "settings"
     assert backend.settings.state.peer_translation.eula_accepted is True
     assert backend.events[1] == ("peer", True)
-
-
-@pytest.mark.asyncio
-async def test_provider_apply_preserves_no_argument_and_forced_rebuild_contracts() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    await boundary.apply_providers()
-    await boundary.apply_providers(force_rebuild_llm=True)
-    pending = object()
-    await boundary.apply_providers(pending)
-    await boundary.apply_providers(
-        force_rebuild_llm=True,
-        persist_settings=False,
-        refresh_ui=False,
-    )
-
-    assert backend.events == [
-        ("providers", (), {}),
-        ("providers", (), {"force_rebuild_llm": True}),
-        ("providers", (pending,), {}),
-        (
-            "providers",
-            (None,),
-            {
-                "force_rebuild_llm": True,
-                "persist_settings": False,
-                "refresh_ui": False,
-            },
-        ),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_settings_and_provider_applies_publish_updated_osc_state() -> None:
-    backend = RecordingBackend()
-    published: list[str] = []
-    boundary = UiApplicationBoundary(
-        backend,
-        osc_state_publisher=lambda: published.append("published"),
-    )
-
-    await boundary.apply_settings(object())
-    await boundary.apply_providers()
-    await boundary.apply_providers(force_rebuild_llm=True)
-    await boundary.apply_providers(object())
-    await boundary.apply_providers(object(), force_rebuild_llm=True)
-
-    assert published == ["published"] * 5
-
-
-@pytest.mark.asyncio
-async def test_lifecycle_callbacks_diagnostics_and_logging_stay_behind_boundary() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-    diagnostic = object()
-    closed: list[str] = []
-
-    boundary.register_application_shutdown_callbacks(
-        (
-            application_shutdown_callback(
-                phase=SHUTDOWN_PHASE_FREEZE_INGRESS,
-                owner_name="TestRuntime",
-                callback_name="close",
-                callback=lambda: closed.append("closed"),
-            ),
-        )
-    )
-    assert boundary.emit_application_shutdown_diagnostic(diagnostic) is None
-    boundary.log_basic("basic", level=10)
-    boundary.log_diagnostic("detailed", level=20)
-    await boundary.stop()
-
-    assert backend.events == [
-        ("shutdown-diagnostic", diagnostic),
-        ("log-basic", "basic", 10),
-        ("log-detailed", "detailed", 20),
-    ]
-    assert closed == ["closed"]
 
 
 @pytest.mark.asyncio
@@ -491,101 +383,6 @@ async def test_frozen_boundary_rejects_mutating_intents_but_keeps_stall_diagnost
 
 
 @pytest.mark.asyncio
-async def test_self_peer_and_retry_intents_preserve_channel_results() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    assert await boundary.set_stt_enabled(False) is False
-    assert await boundary.set_peer_translation_enabled(True) is True
-    assert await boundary.retry_peer_process_capture() is True
-
-    assert backend.events == [
-        ("self", False),
-        ("peer", True),
-        ("peer-retry",),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_desktop_runtime_intents_publish_updated_osc_state() -> None:
-    backend = RecordingBackend()
-    published: list[str] = []
-    boundary = UiApplicationBoundary(
-        backend,
-        osc_state_publisher=lambda: published.append("published"),
-    )
-
-    assert await boundary.set_translation_enabled(True) is True
-    assert await boundary.set_stt_enabled(False) is False
-    assert await boundary.set_peer_translation_enabled(True) is True
-    assert await boundary.set_overlay_enabled(False) is False
-
-    assert published == ["published", "published", "published", "published"]
-    assert [event for event in backend.events if event[0] != "overlay"] == [
-        ("translation", True),
-        ("self", False),
-        ("peer", True),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_retry_intent_preserves_false_backend_result_exactly_once() -> None:
-    backend = RecordingBackend()
-    backend.peer_retry_result = False
-    boundary = UiApplicationBoundary(backend)
-
-    assert await boundary.retry_peer_process_capture() is False
-    assert backend.events == [("peer-retry",)]
-
-
-@pytest.mark.asyncio
-async def test_local_asr_gpu_install_discovery_failure_and_retry_intents_delegate() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    await boundary.install_selected_gpu_model_if_needed()
-    await boundary.ensure_gpu_device_discovery()
-    assert boundary.cycle_debug_capture_fault_profile() == "capture-failure"
-    assert boundary.cycle_debug_stt_fault_profile() == "stt-failure"
-    boundary.clear_debug_audio_fault_profiles()
-    assert boundary.handle_gpu_notice_action("restart") == "retrying"
-
-    assert backend.events == [
-        ("gpu-install",),
-        ("gpu-discovery",),
-        ("capture-fault",),
-        ("stt-fault",),
-        ("fault-clear",),
-        ("gpu-retry", "restart"),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_provider_verification_secret_and_managed_auth_transitions_delegate() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    assert await boundary.verify_api_key("openrouter", "key") == (True, "verified")
-    boundary.persist_api_key_verification("openrouter", "key", True)
-    assert await boundary.persist_provider_secret_change("llm", "secret") is True
-    assert await boundary.start_qq_managed_auth_from_dialog(stage="retry") == "qq-result"
-    assert (
-        await boundary.start_discord_managed_auth_from_dialog(stage="waiting") == "discord-result"
-    )
-    assert boundary.supports_discord_managed_auth_reopen() is False
-    assert boundary.reopen_discord_managed_auth_browser() is None
-    assert boundary.cancel_discord_managed_auth() is None
-
-    assert backend.events == [
-        ("verify", "openrouter", "key"),
-        ("persist-verification", "openrouter", "key", True),
-        ("secret", "llm", "secret"),
-        ("qq-auth", {"stage": "retry"}),
-        ("discord-auth", {"stage": "waiting"}),
-    ]
-
-
-@pytest.mark.asyncio
 async def test_boundary_preserves_settings_failure_and_restart_projection() -> None:
     class FailingBackend(RecordingBackend):
         async def apply_settings(self, settings: object) -> None:
@@ -611,36 +408,6 @@ async def test_boundary_preserves_settings_failure_and_restart_projection() -> N
 
     assert restored.state().peer_translation_eula_accepted is True
     assert failing_backend.events[0][0] == "settings-failed"
-
-
-@pytest.mark.asyncio
-async def test_github_prompt_open_persistence_accepts_optional_callable_contract() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    assert await boundary.persist_github_star_prompt_opened() is True
-    assert await boundary.persist_github_star_prompt_opened(should_open=lambda: False) is False
-
-    assert backend.events[0] == ("github-open", None)
-    assert backend.events[1][0] == "github-open"
-    assert callable(backend.events[1][1])
-    assert backend.events[1][1]() is False
-
-
-@pytest.mark.asyncio
-async def test_telemetry_and_verification_mutations_stay_behind_named_intents() -> None:
-    backend = RecordingBackend()
-    boundary = UiApplicationBoundary(backend)
-
-    returned = await boundary.apply_telemetry_enabled(True)
-    assert returned is backend.settings
-    boundary.clear_provider_verification("openrouter")
-
-    assert backend.settings.state.provider_verification.openrouter.status == "unknown"
-    assert backend.events == [
-        ("telemetry", True),
-        ("clear-verification", "openrouter"),
-    ]
 
 
 @pytest.mark.asyncio

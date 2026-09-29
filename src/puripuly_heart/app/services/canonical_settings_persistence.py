@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -69,6 +70,7 @@ class CanonicalSettingsPatchRepository:
     surface: str = "translation_provider"
     provider_verification_binding: ProviderVerificationBinding | None = None
     save_failure_sink: Callable[[str], None] | None = None
+    commit_sink: Callable[[], None] | None = None
     commit_succeeded: bool = False
 
     async def load(self) -> SettingsSnapshot:
@@ -106,7 +108,10 @@ class CanonicalSettingsPatchRepository:
             )
             if self.provider_verification_binding is not None:
                 self.owner.bind_provider_verification(self.provider_verification_binding)
-            await asyncio.to_thread(self.owner.persist)
+            await self.owner.persist_async()
+            self.commit_succeeded = True
+            if self.commit_sink is not None:
+                self.commit_sink()
         except asyncio.CancelledError:
             self.owner.rollback()
             raise
@@ -127,7 +132,6 @@ class CanonicalSettingsPatchRepository:
             )
         self.committed_settings = next_settings
         self.owner.remember_projection(next_settings)
-        self.commit_succeeded = True
         return SettingsCommitResult(
             succeeded=True,
             snapshot=SettingsSnapshot(
@@ -173,11 +177,25 @@ class SettingsOwner:
     _rollback_authoritative: bool = False
     _rollback_pending: bool = False
     _mutation_depth: int = 0
+    committed_settings: AppSettingsVNext | None = None
+    commit_listener: Callable[[AppSettingsVNext], None] | None = None
+    _commit_loop: asyncio.AbstractEventLoop | None = None
+    _commit_thread: int | None = None
 
     def require_canonical(self) -> AppSettingsVNext:
         if self.canonical is None:
             raise RuntimeError("settings owner has no canonical settings")
         return self.canonical
+
+    def observe_commits(self, listener: Callable[[AppSettingsVNext], None]) -> None:
+        try:
+            self._commit_loop = asyncio.get_running_loop()
+            self._commit_thread = threading.get_ident()
+        except RuntimeError:
+            pass
+        self.commit_listener = listener
+        if self.committed_settings is not None:
+            listener(self.committed_settings)
 
     def projected_canonical(self) -> AppSettingsVNext | None:
         return self.canonical
@@ -204,11 +222,18 @@ class SettingsOwner:
         self._peer_translation_enabled = bool(enabled)
 
     def start(self) -> SettingsOwnerStartResult:
+        if self.commit_listener is not None and self._commit_loop is None:
+            try:
+                self._commit_loop = asyncio.get_running_loop()
+                self._commit_thread = threading.get_ident()
+            except RuntimeError:
+                pass
         if not self.path.exists():
             self.canonical = new_settings_for_first_run()
             self.persistence.persist(self.path, self.canonical)
             loaded = self.persistence.load_active(self.path)
             self.canonical = loaded.canonical_settings
+            self._publish_commit(copy.deepcopy(self.canonical))
             return SettingsOwnerStartResult(
                 settings=self.canonical,
                 migrated=False,
@@ -216,14 +241,47 @@ class SettingsOwner:
             )
         loaded = self.persistence.load_active(self.path)
         self.canonical = loaded.canonical_settings
+        self._publish_commit(copy.deepcopy(self.canonical))
         return SettingsOwnerStartResult(
             settings=self.canonical,
             migrated=loaded.migrated,
             backup_path=loaded.backup_path,
         )
 
+    def _publish_commit(self, snapshot: AppSettingsVNext) -> None:
+        self.committed_settings = snapshot
+        if self.commit_listener is not None:
+            self.commit_listener(snapshot)
+
     def persist(self) -> None:
-        self.persistence.persist(self.path, self.require_canonical())
+        loop = self._commit_loop
+        different_thread = (
+            self.commit_listener is not None and threading.get_ident() != self._commit_thread
+        )
+        if different_thread and (loop is None or not loop.is_running()):
+            raise RuntimeError("settings commit observer loop is unavailable")
+        snapshot = copy.deepcopy(self.require_canonical())
+        self.persistence.persist(self.path, snapshot)
+        if different_thread:
+            completed = threading.Event()
+
+            def publish() -> None:
+                try:
+                    self._publish_commit(snapshot)
+                finally:
+                    completed.set()
+
+            loop.call_soon_threadsafe(publish)
+            completed.wait()
+        else:
+            self._publish_commit(snapshot)
+
+    async def persist_async(self) -> None:
+        task = asyncio.create_task(asyncio.to_thread(self.persist))
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await asyncio.shield(task)
 
     def save_current(
         self,
@@ -460,6 +518,7 @@ class SettingsOwner:
         surface: str = "translation_provider",
         provider_verification_binding: ProviderVerificationBinding | None = None,
         save_failure_sink: Callable[[str], None] | None = None,
+        commit_sink: Callable[[], None] | None = None,
     ) -> CanonicalSettingsPatchRepository:
         return CanonicalSettingsPatchRepository(
             owner=self,
@@ -468,6 +527,7 @@ class SettingsOwner:
             surface=surface,
             provider_verification_binding=provider_verification_binding,
             save_failure_sink=save_failure_sink,
+            commit_sink=commit_sink,
         )
 
     def apply_capture_target(self, capture_target: CaptureTargetIntent) -> AppSettingsVNext:

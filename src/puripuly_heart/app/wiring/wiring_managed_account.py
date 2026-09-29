@@ -316,6 +316,7 @@ class ManagedUsageRuntimeAdapter:
 class ManagedAccountComponents:
     release: ManagedOpenRouterReleaseRuntime
     auth: ManagedAuthOwner
+    auth_runtime: ManagedAuthRuntimeAdapter
     usage: ManagedUsageOwner
     translation: TranslationEnableOwner
     pkce_flow: OpenRouterPkceFlowOwner
@@ -514,6 +515,7 @@ def compose_managed_account(
     return ManagedAccountComponents(
         release=release,
         auth=auth_owner,
+        auth_runtime=auth_adapter,
         usage=usage_owner,
         translation=translation_owner,
         pkce_flow=pkce_flow,

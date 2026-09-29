@@ -660,7 +660,7 @@ async def test_capture_target_owner_publishes_general_snapshot_after_apply() -> 
         settings=settings,
         localize=t,
         processes=SimpleNamespace(candidates=lambda: ()),
-        devices=SimpleNamespace(names=lambda: ()),
+        devices=SimpleNamespace(names=lambda: ("Headset",)),
         runtime_effects=SimpleNamespace(apply_capture_target=apply_capture_target),
         settings_presentation_sink=presented.append,
         warning_reset=lambda: None,

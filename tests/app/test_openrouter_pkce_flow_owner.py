@@ -325,7 +325,8 @@ async def test_application_owner_commits_verified_pkce_secret_settings_and_runti
     )
 
     runtime.cancel = False
-    results.current = None
+    results = SettingsTransactionResultOwner()
+    owner.results = results
     flow.api_key = "sk-or-v1-replaced"
     persist_entered = threading.Event()
     persist_release = threading.Event()

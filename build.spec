@@ -63,6 +63,7 @@ entry_script = (
     else src_path / "puripuly_heart" / "main.py"
 )
 executable_name = "PuriPulyHeartProcessCaptureSmoke" if release_smoke else "PuriPulyHeart"
+console_script = Path("scripts/release/console_bootstrap.py").resolve()
 
 _repo_root = Path.cwd()
 _project_version = read_project_version(_repo_root)
@@ -357,6 +358,8 @@ hiddenimports = [
     "numpy._core._multiarray_umath",
     "soxr",
     "sounddevice",
+    "puripuly_heart.main",
+    "puripuly_heart.core.windows_process_ownership",
     "puripuly_heart.core.local_asr",
     "puripuly_heart.core.local_asr.local_qwen_runtime",
     "puripuly_heart.config.process_capture_platform",
@@ -441,8 +444,36 @@ exe = EXE(
     version=str(windows_version_file.resolve()),
 )
 
+if not release_smoke:
+    console_scripts = a.scripts[:-1] + [("console_bootstrap", str(console_script), "PYSOURCE")]
+    console_exe = EXE(
+        pyz,
+        console_scripts,
+        [],
+        exclude_binaries=True,
+        name="puripuly",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        console=True,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        contents_directory=".",
+        icon=str(src_path / "puripuly_heart" / "data" / "icons" / "icon.ico"),
+        version=str(
+            ensure_pyinstaller_version_file(
+                repo_root=_repo_root, executable_name="puripuly"
+            ).resolve()
+        ),
+    )
+
 coll = COLLECT(
     exe,
+    *([] if release_smoke else [console_exe]),
     a.binaries,
     a.zipfiles,
     a.datas,
