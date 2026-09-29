@@ -9,6 +9,7 @@
 
 - Prefer contract and behavior tests over implementation-detail tests.
 - Test observable outcomes and invariants so behavior-preserving refactors normally do not require test changes.
+- When possible, verify application behavior by operating it through the CLI and checking JSON results and effective state. Verify UI presentation and interactions separately in the actual GUI.
 ## Experimentation
 
 - Treat experiments as engineering probes, using the minimum validation needed to support the immediate engineering decision.
