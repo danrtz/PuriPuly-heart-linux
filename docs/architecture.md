@@ -221,7 +221,7 @@ GUI and headless hosts share application owners and runtime resources. Presentat
 
 - Settings and provider edits use existing owners, with shared ordering for CLI commands, ordered GUI intents, and OSC edits.
 - Canonical mutations and resource conflicts have separate ordering boundaries.
-- Queries project committed settings and effective runtime state; staged edits are not reported as committed.
+- `settings.current` projects committed settings. Status queries distinguish selected settings from effective runtime state.
 - Submitted tasks and bounded operation receipts belong to the control owner, not client connections. Receipts distinguish durable settings commits from runtime completion.
 - `ControlEvents` provides bounded, privacy-filtered subscriptions to the shared runtime event stream. Content requires explicit opt-in; slow clients do not block producers, and gaps require snapshot resynchronization.
 

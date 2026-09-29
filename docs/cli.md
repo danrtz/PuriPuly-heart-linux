@@ -2,8 +2,6 @@
 
 PuriPuly's CLI controls the same application owners used by the desktop GUI. It can start a GUI-free host, attach to an already-running GUI or headless host, inspect the active runtime, and submit typed application operations. It is not a second ASR/translation runtime and it does not edit the settings JSON directly.
 
-For the complete GUI-workflow mapping, see [CLI capability matrix](cli-capabilities.md). The matrix describes implemented control and observation surfaces; it does not replace issue acceptance evidence.
-
 ## Choose the entry point
 
 ### Installed Windows command
@@ -17,7 +15,7 @@ puripuly.exe app status
 puripuly.exe app stop
 ```
 
-The package declares the `puripuly` console entry point. Its CLI contract is JSON on stdout, diagnostics on stderr, and documented process exit codes. The installed Windows console, lifecycle and child-process matrix was exercised separately; see the scoped [issue #193 acceptance record](cli-acceptance.md) for artifact identity, original evidence, historical installer failure and remaining live-runtime/authorization gaps.
+The package declares the `puripuly` console entry point. Its CLI contract is JSON on stdout, diagnostics on stderr, and documented process exit codes.
 
 ### Development checkout
 
@@ -87,7 +85,7 @@ puripuly.exe query settings.choices
 puripuly.exe query consent.peer_translation
 ```
 
-Other query names and their results are listed in the capability matrix. Queries are side-effect-free observations; discovery commands such as audio-device enumeration may read the current desktop/audio environment, but do not enable capture or start recording.
+Use `capabilities` to discover the supported query names. Queries are side-effect-free observations; discovery commands such as audio-device enumeration may read the current desktop/audio environment, but do not enable capture or start recording.
 
 ## Common controls
 
@@ -173,7 +171,7 @@ A file-based command can also express both channels explicitly:
 
 Use `asr set` with `--channel self|peer|both` for the same STT provider on the requested channel(s), or settings fields when the two channels need different providers. `settings choices` is the authority for currently available values and valid model/connection combinations. A successful persistence receipt is not proof that a provider is attached or active; inspect `asr status` / `providers.status` and its selected, runtime, capture-attached, activity, pending-handoff, and failure fields.
 
-The finite command catalog also includes Soniox diarization, managed referral settings, custom and local provider settings, GPU device selection, both-channel provider updates, free-tier provider choices, Qwen region, model/connection history, prompts, languages, vocabulary, VAD, audio devices/host APIs, overlay values, OSC and telemetry settings. See [the full matrix](cli-capabilities.md) for field names. Use capabilities and settings choices for values rather than reproducing dynamic lists.
+The finite command catalog also includes Soniox diarization, managed referral settings, custom and local provider settings, GPU device selection, both-channel provider updates, free-tier provider choices, Qwen region, model/connection history, prompts, languages, vocabulary, VAD, audio devices/host APIs, overlay values, OSC and telemetry settings. Use `capabilities` for field names and types, and `settings choices` for supported values rather than reproducing dynamic lists.
 
 In an already-running GUI, focused external changes preserve unrelated provider/prompt drafts; overlapping changes require explicit conflict resolution. A successful pending GUI apply acknowledges only its submitted values. Newer edits made while it was pending remain staged, and a failed apply retains its draft for retry.
 
@@ -239,7 +237,7 @@ puripuly.exe secrets presence
 puripuly.exe secrets verify soniox_api_key
 ```
 
-Verification reads a secret using the same hidden-input/stdin rule and is separate from storage. The declared secret identifiers are listed in `capabilities` and `secrets presence`; loaded HTTP-extension declarations are included. A key without a supported verification protocol returns terminal `action_required` (`verification: unavailable`), not a fabricated verification success. Secret values are never returned in settings, query results, operation receipts, or logs. Delete is local storage deletion; account logout behavior is described in the matrix.
+Verification reads a secret using the same hidden-input/stdin rule and is separate from storage. The declared secret identifiers are listed in `capabilities` and `secrets presence`; loaded HTTP-extension declarations are included. A key without a supported verification protocol returns terminal `action_required` (`verification: unavailable`), not a fabricated verification success. Secret values are never returned in settings, query results, operation receipts, or logs. Delete is local storage deletion.
 
 Authentication commands are explicit:
 
