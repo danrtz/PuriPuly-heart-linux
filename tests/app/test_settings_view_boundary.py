@@ -221,7 +221,10 @@ def test_vad_threshold_intents_enforce_shared_range_and_independent_values() -> 
         SelfVadSettingsIntent(0.10),
     )
     assert self_updated.intent.stt.vad_speech_threshold == 0.10
-    assert self_updated.intent.desktop_audio.vad_speech_threshold == 0.5
+    assert (
+        self_updated.intent.desktop_audio.vad_speech_threshold
+        == current.intent.desktop_audio.vad_speech_threshold
+    )
 
     peer_updated = materialize_immediate_settings_intent(
         self_updated,

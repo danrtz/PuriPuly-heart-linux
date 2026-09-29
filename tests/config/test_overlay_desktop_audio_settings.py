@@ -81,7 +81,7 @@ def test_desktop_audio_settings_round_trip_with_defaults() -> None:
     settings = AppSettingsVNext()
 
     assert settings.intent.desktop_audio.output_device == ""
-    assert settings.intent.desktop_audio.vad_speech_threshold == 0.5
+    assert settings.intent.desktop_audio.vad_speech_threshold == 0.4
     assert settings.intent.desktop_audio.vad_hangover_ms == 500
     assert settings.intent.desktop_audio.vad_pre_roll_ms == 500
 

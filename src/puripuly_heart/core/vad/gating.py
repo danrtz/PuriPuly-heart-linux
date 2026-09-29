@@ -99,7 +99,7 @@ class VadGating:
         *,
         sample_rate_hz: int,
         ring_buffer_ms: int = 500,
-        speech_threshold: float = 0.4,
+        speech_threshold: float = 0.3,
         continuation_threshold: float | None = None,
         hangover_ms: int = 1100,
         chunk_samples: int | None = None,
@@ -546,7 +546,7 @@ class VadGating:
         self._hard_rollover_pre_roll_capture = ()
 
 
-PEER_VAD_SPEECH_THRESHOLD = 0.5
+PEER_VAD_SPEECH_THRESHOLD = 0.4
 PEER_VAD_START_DEBOUNCE_CHUNKS = 3
 PEER_VAD_START_COMMIT_CHUNKS = 3
 PEER_VAD_DELIVERY_BOUNDARIES_EXTERNAL = True
