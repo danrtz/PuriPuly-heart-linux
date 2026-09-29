@@ -34,11 +34,12 @@ _ALIBABA_BASE_URLS = {
     "alibaba_beijing": "https://dashscope.aliyuncs.com/api/v1",
     "alibaba_singapore": "https://dashscope-intl.aliyuncs.com/api/v1",
 }
-_MODEL_AWARE_PROVIDERS = frozenset({"google"})
+_MODEL_AWARE_PROVIDERS = frozenset({"google", "openai"})
 _DIRECT_PROVIDERS = frozenset(
     {
         "google",
         "openrouter",
+        "openai",
         "deepseek",
         "deepgram",
         "gemini_transcribe",

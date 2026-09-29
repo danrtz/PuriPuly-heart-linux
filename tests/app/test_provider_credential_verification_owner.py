@@ -58,6 +58,7 @@ class RecordingVerifier:
     ("provider", "selected_model"),
     (
         ("google", "gemini-model"),
+        ("openai", "gpt-6-luna"),
         ("openrouter", None),
         ("deepseek", None),
         ("deepgram", None),

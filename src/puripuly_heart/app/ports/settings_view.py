@@ -32,6 +32,7 @@ class ProviderVerificationSnapshot:
     soniox: bool
     google: bool
     openrouter: bool
+    openai: bool
     deepseek: bool
     alibaba_beijing: bool
     alibaba_singapore: bool

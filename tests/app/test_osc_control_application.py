@@ -103,6 +103,37 @@ async def test_translation_model_control_materializes_provider_and_connection() 
 
 
 @pytest.mark.asyncio
+async def test_osc_luna_first_selection_and_saved_route_survive_model_switch() -> None:
+    from puripuly_heart.config.settings_vnext import serialization
+    from puripuly_heart.config.settings_vnext.migration import from_dict
+
+    current = AppSettingsVNext()
+
+    async def apply_settings(settings: object) -> object:
+        nonlocal current
+        assert isinstance(settings, AppSettingsVNext)
+        current = from_dict(serialization.to_dict(settings))
+        return current
+
+    application = SettingsBackedOscControlApplication(
+        settings_provider=lambda: current,
+        apply_settings=apply_settings,
+        translation_model_normalizer=materialize_canonical_translation_settings,
+    )
+    await application.set_translation_model("gpt_6_luna")
+    assert current.intent.translation.connection == "openrouter"
+    assert current.intent.translation.openrouter_selected_source == "byok"
+
+    await application.set_translation_model("gpt_6_luna", "official_byok")
+    assert current.intent.translation.connection == "official_byok"
+    await application.set_translation_model("gemma4")
+    assert current.intent.translation.connection_history["gpt_6_luna"] == "official_byok"
+    await application.set_translation_model("gpt_6_luna")
+    assert current.intent.translation.connection == "official_byok"
+    assert current.intent.translation.openrouter_selection_alias is None
+
+
+@pytest.mark.asyncio
 async def test_managed_local_models_control_materializes_provider_and_connection() -> None:
     current = _with_translation(AppSettingsVNext(), connection=TranslationConnection.MANAGED.value)
     applied: list[AppSettingsVNext] = []

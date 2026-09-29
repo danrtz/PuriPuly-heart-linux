@@ -4,9 +4,12 @@ from dataclasses import replace
 
 from puripuly_heart.app.wiring_provider_runtime_policy import (
     build_llm_provider_signature,
+    llm_provider_requires_secret,
+    provider_llm_for_translation,
 )
 
-from puripuly_heart.config.provider_values import OpenRouterSelectionAlias
+from puripuly_heart.config.provider_values import OpenRouterLLMModel, OpenRouterSelectionAlias
+from puripuly_heart.config.runtime_resolution import OPENAI_MODEL_GPT_6_LUNA, PROVIDER_OPENAI
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core.openrouter_routing import OpenRouterProviderRouting
 
@@ -164,3 +167,34 @@ def test_managed_gemma_signature_tracks_prefix_and_ignores_cloud_state() -> None
     assert _signature(base) != _signature(changed_language)
     assert _signature(base) != _signature(changed_prompt)
     assert _signature(base) != _signature(changed_backend)
+
+
+def test_openai_luna_signature_binds_its_direct_runtime_model() -> None:
+    baseline = AppSettingsVNext()
+    direct = _with_translation(
+        baseline,
+        model="gpt_6_luna",
+        connection="official_byok",
+    )
+    routed = _with_translation(
+        baseline,
+        model="gpt_6_luna",
+        connection="openrouter",
+        openrouter_model=OpenRouterLLMModel.GPT_6_LUNA.value,
+        openrouter_selected_source="byok",
+        openrouter_selection_alias=OpenRouterSelectionAlias.GPT_6_LUNA_BYOK.value,
+    )
+    signature = _signature(direct)
+
+    assert PROVIDER_OPENAI in signature
+    assert OPENAI_MODEL_GPT_6_LUNA in signature
+    assert signature != _signature(routed)
+
+
+def test_openai_luna_requires_a_credential_for_runtime_readiness() -> None:
+    provider = provider_llm_for_translation("gpt_6_luna", "official_byok")
+
+    assert provider == PROVIDER_OPENAI
+    assert llm_provider_requires_secret("gpt_6_luna", provider)
+    assert not llm_provider_requires_secret("local_llm", "local_llm")
+    assert not llm_provider_requires_secret("custom_http", PROVIDER_OPENAI)

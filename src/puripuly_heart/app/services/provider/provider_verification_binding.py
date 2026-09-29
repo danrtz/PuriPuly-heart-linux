@@ -13,6 +13,7 @@ ProviderVerificationContextProvider = Callable[[str], Mapping[str, object]]
 _SECRET_KEY_BY_PROVIDER = {
     "google": "google_api_key",
     "openrouter": "openrouter_api_key",
+    "openai": "openai_api_key",
     "deepseek": "deepseek_api_key",
     "alibaba_beijing": "alibaba_api_key_beijing",
     "alibaba_singapore": "alibaba_api_key_singapore",

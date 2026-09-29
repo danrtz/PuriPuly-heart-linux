@@ -99,6 +99,7 @@ TRANSLATION_MODEL_IDS: Final[Mapping[int, str]] = MappingProxyType(
         10: "managed_gemma",
         11: "managed_gemma",
         13: "deepseek_v4_flash_41",
+        14: "gpt_6_luna",
     }
 )
 

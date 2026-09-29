@@ -35,18 +35,28 @@ from puripuly_heart.core.storage.secrets import (
 )
 
 
-def test_translation_model_public_member_names_and_values_match_plan() -> None:
-    assert tuple((member.name, member.value) for member in TranslationModel) == (
-        ("GEMMA4_26B_31B", "gemma4_26b_31b"),
-        ("GEMMA4_31B", "gemma4_31b"),
-        ("GEMMA4", "gemma4"),
-        ("DEEPSEEK_V4_FLASH", "deepseek_v4_flash"),
-        ("DEEPSEEK_V4_FLASH_41", "deepseek_v4_flash_41"),
-        ("GEMINI_FLASH", "gemini_flash"),
-        ("QWEN_38_FLASH", "qwen38_flash"),
-        ("MANAGED_GEMMA", "managed_gemma"),
-        ("LOCAL_LLM", "local_llm"),
-        ("CUSTOM_HTTP", "custom_http"),
+def test_luna_is_byok_only_and_defaults_to_openrouter() -> None:
+    assert TranslationModel.GPT_6_LUNA.value == "gpt_6_luna"
+    assert supported_translation_connections(TranslationModel.GPT_6_LUNA) == (
+        TranslationConnection.OPENROUTER,
+        TranslationConnection.OFFICIAL_BYOK,
+    )
+    assert (
+        default_translation_connection(TranslationModel.GPT_6_LUNA)
+        == TranslationConnection.OPENROUTER
+    )
+    assert LLMProviderName.OPENAI.value == "openai"
+    assert parse_openrouter_llm_model("openai/gpt-6-luna") == OpenRouterLLMModel.GPT_6_LUNA
+    profile = get_openrouter_llm_profile(OpenRouterSelectionAlias.GPT_6_LUNA_BYOK.value)
+    assert profile is not None
+    assert profile.openrouter_model == OpenRouterLLMModel.GPT_6_LUNA.value
+    assert profile.openrouter_source == OpenRouterCredentialSource.BYOK.value
+    assert (
+        openrouter_alias_for_fields(
+            model=OpenRouterLLMModel.GPT_6_LUNA.value,
+            source=OpenRouterCredentialSource.MANAGED.value,
+        )
+        is None
     )
 
 

@@ -25,6 +25,7 @@ _PROVIDER_VERIFICATION_FIELDS: Final = (
     "soniox",
     "google",
     "openrouter",
+    "openai",
     "deepseek",
     "alibaba_beijing",
     "alibaba_singapore",

@@ -107,6 +107,8 @@
 | 10 | Gemma 4 E4B CPU |
 | 11 | Gemma 4 E4B GPU |
 | 13 | DeepSeek V4.1 Flash |
+| 14 | GPT 6 Luna |
+
 
 - Used by: `PuriPuly_Translator`
 

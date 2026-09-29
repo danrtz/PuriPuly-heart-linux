@@ -8,6 +8,7 @@ from typing import Generic, Protocol, TypeVar
 class SettingsSecretKey(StrEnum):
     GOOGLE_API_KEY = "google_api_key"
     OPENROUTER_API_KEY = "openrouter_api_key"
+    OPENAI_API_KEY = "openai_api_key"
     DEEPSEEK_API_KEY = "deepseek_api_key"
     DEEPGRAM_API_KEY = "deepgram_api_key"
     GEMINI_TRANSCRIBE_API_KEY = "gemini_transcribe_api_key"
@@ -23,6 +24,7 @@ class SettingsSecretKey(StrEnum):
 class SettingsSecretSnapshot:
     google_api_key: str | None = None
     openrouter_api_key: str | None = None
+    openai_api_key: str | None = None
     deepseek_api_key: str | None = None
     deepgram_api_key: str | None = None
     gemini_transcribe_api_key: str | None = None

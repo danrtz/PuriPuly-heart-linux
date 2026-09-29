@@ -82,6 +82,28 @@ async def test_provider_verifier_adapter_maps_controller_provider_checks(
 
 
 @pytest.mark.asyncio
+async def test_direct_openai_verification_requires_the_luna_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter_module = importlib.import_module("puripuly_heart.app.adapters.provider_verifier")
+    calls: list[tuple[str, str]] = []
+
+    async def probe(api_key: str, *, model: str) -> bool:
+        calls.append((api_key, model))
+        return True
+
+    monkeypatch.setattr(
+        adapter_module.OpenAILLMProvider,
+        "verify_api_key",
+        staticmethod(probe),
+    )
+    adapter = adapter_module.ProviderVerifierAdapter()
+    assert await adapter.verify_api_key("openai", "luna-secret", model="gpt-6-luna")
+    assert not await adapter.verify_api_key("openai", "luna-secret", model="other-model")
+    assert calls == [("luna-secret", "gpt-6-luna")]
+
+
+@pytest.mark.asyncio
 async def test_retired_provider_cannot_be_verified() -> None:
     adapter_module = importlib.import_module("puripuly_heart.app.adapters.provider_verifier")
 

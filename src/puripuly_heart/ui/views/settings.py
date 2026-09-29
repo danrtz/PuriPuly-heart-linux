@@ -285,6 +285,7 @@ _TRANSLATION_MODEL_LABEL_KEYS = {
     TranslationModel.GEMMA4: "provider.gemma4_26b_a4b_it",
     TranslationModel.DEEPSEEK_V4_FLASH: "provider.deepseek_v4_flash",
     TranslationModel.DEEPSEEK_V4_FLASH_41: "provider.deepseek_v4_flash_41",
+    TranslationModel.GPT_6_LUNA: "provider.gpt_6_luna",
     TranslationModel.GEMINI_FLASH: "provider.gemini_flash",
     TranslationModel.QWEN_38_FLASH: "provider.qwen38_flash",
     TranslationModel.LOCAL_LLM: "provider.local_llms",
@@ -307,6 +308,7 @@ _TRANSLATION_MODELS = (
     TranslationModel.GEMMA4_31B,
     TranslationModel.DEEPSEEK_V4_FLASH,
     TranslationModel.DEEPSEEK_V4_FLASH_41,
+    TranslationModel.GPT_6_LUNA,
     TranslationModel.LOCAL_LLM,
     TranslationModel.CUSTOM_HTTP,
     TranslationModel.GEMINI_FLASH,
@@ -326,6 +328,7 @@ _TRANSLATION_MODEL_SECTION_BY_MODEL: dict[TranslationModel, str] = {
     TranslationModel.GEMMA4_31B: "settings.translation_model.section.others",
     TranslationModel.DEEPSEEK_V4_FLASH: "settings.translation_model.section.recommended_cloud",
     TranslationModel.DEEPSEEK_V4_FLASH_41: "settings.translation_model.section.recommended_cloud",
+    TranslationModel.GPT_6_LUNA: "settings.translation_model.section.recommended_cloud",
     TranslationModel.LOCAL_LLM: "settings.translation_model.section.user_settings",
     TranslationModel.CUSTOM_HTTP: "settings.translation_model.section.user_settings",
     TranslationModel.GEMINI_FLASH: "settings.translation_model.section.others",
@@ -411,6 +414,8 @@ def _derive_openrouter_selection_alias(
     llm_model: OpenRouterLLMModel,
     selected_source: OpenRouterCredentialSource,
 ) -> OpenRouterSelectionAlias:
+    if llm_model == OpenRouterLLMModel.GPT_6_LUNA:
+        return OpenRouterSelectionAlias.GPT_6_LUNA_BYOK
     if llm_model == OpenRouterLLMModel.QWEN_35_FLASH_02_23:
         if selected_source == OpenRouterCredentialSource.MANAGED:
             return OpenRouterSelectionAlias.QWEN35_FLASH_MANAGED
@@ -1247,6 +1252,22 @@ class SettingsView(ft.Column):
                 self.show_snackbar(msg, bg) if self.show_snackbar else None
             ),
         )
+        self._openai_key = ApiKeyField(
+            "settings.openai_api_key",
+            "openai_api_key",
+            "openai",
+            on_verify=self._verify_key,
+            on_save=self._on_secret_change,
+            show_snackbar=lambda msg, bg: (
+                self.show_snackbar(msg, bg) if self.show_snackbar else None
+            ),
+        )
+        self._openai_verification_notice = ft.Text(
+            t("settings.openai_verification_charge"),
+            size=15,
+            color=COLOR_SECONDARY,
+            max_lines=2,
+        )
         self._openrouter_pkce_button = self._build_action_button(
             t("settings.openrouter_authenticate"),
             self._on_openrouter_pkce_click,
@@ -1361,6 +1382,7 @@ class SettingsView(ft.Column):
                 self._soniox_key,
                 self._google_key,
                 self._deepseek_key,
+                self._openai_key,
                 self._alibaba_key_beijing,
                 self._alibaba_key_singapore,
                 self._openrouter_key,
@@ -1395,7 +1417,11 @@ class SettingsView(ft.Column):
         api_header = ft.Row(
             controls=[
                 self._api_title,
-                ft.Container(expand=True),
+                ft.Container(
+                    content=self._openai_verification_notice,
+                    expand=True,
+                    padding=ft.Padding.symmetric(horizontal=12),
+                ),
                 self._api_guide_btn,
                 self._qwen_region_btn,
             ],
@@ -2963,6 +2989,8 @@ class SettingsView(ft.Column):
         stored_alias = self._stored_openrouter_selection_alias(settings)
         if stored_alias is not None:
             return stored_alias
+        if settings.openrouter_llm_model == OpenRouterLLMModel.GPT_6_LUNA:
+            return OpenRouterSelectionAlias.GPT_6_LUNA_BYOK
         if settings.openrouter_llm_model == OpenRouterLLMModel.QWEN_35_FLASH_02_23:
             return OpenRouterSelectionAlias.QWEN35_FLASH_MANAGED
         if settings.openrouter_llm_model == OpenRouterLLMModel.DEEPSEEK_V4_FLASH:
@@ -3021,6 +3049,8 @@ class SettingsView(ft.Column):
             return "gemini"
         if settings.llm_provider == LLMProviderName.OPENROUTER:
             return "openrouter"
+        if settings.llm_provider == LLMProviderName.OPENAI:
+            return "openai"
         if settings.llm_provider == LLMProviderName.DEEPSEEK:
             return "deepseek"
         if settings.llm_provider == LLMProviderName.LOCAL_LLM:
@@ -4116,6 +4146,8 @@ class SettingsView(ft.Column):
             self._google_key.value = snapshot.google_api_key
         if snapshot.openrouter_api_key is not None:
             self._openrouter_key.value = snapshot.openrouter_api_key
+        if snapshot.openai_api_key is not None:
+            self._openai_key.value = snapshot.openai_api_key
         if snapshot.deepseek_api_key is not None:
             self._deepseek_key.value = snapshot.deepseek_api_key
         if snapshot.deepgram_api_key is not None:
@@ -4179,6 +4211,7 @@ class SettingsView(ft.Column):
             (self._soniox_key, self._soniox_key.value, verified.soniox),
             (self._google_key, self._google_key.value, verified.google),
             (self._openrouter_key, self._openrouter_key.value, verified.openrouter),
+            (self._openai_key, self._openai_key.value, verified.openai),
             (self._deepseek_key, self._deepseek_key.value, verified.deepseek),
             (self._alibaba_key_beijing, self._alibaba_key_beijing.value, verified.alibaba_beijing),
             (
@@ -4307,6 +4340,8 @@ class SettingsView(ft.Column):
         )
         self._openrouter_key.visible = bool(not is_custom_http and openrouter_byok_selected)
         self._openrouter_pkce_button_row.visible = openrouter_byok_selected
+        self._openai_key.visible = bool(not is_custom_http and llm == LLMProviderName.OPENAI)
+        self._openai_verification_notice.visible = self._openai_key.visible
         self._deepseek_key.visible = bool(not is_custom_http and llm == LLMProviderName.DEEPSEEK)
         self._sync_openrouter_pkce_button_state(settings)
         self._translation_connection_row.visible = (
@@ -4349,6 +4384,7 @@ class SettingsView(ft.Column):
                     self._soniox_key,
                     self._google_key,
                     self._deepseek_key,
+                    self._openai_key,
                     self._alibaba_key_beijing,
                     self._alibaba_key_singapore,
                     self._openrouter_pkce_button_row,
@@ -4791,7 +4827,17 @@ class SettingsView(ft.Column):
         openrouter_model = settings.openrouter_llm_model
         openrouter_source = settings.openrouter_selected_source
         openrouter_alias = settings.openrouter_selection_alias
-        if model == TranslationModel.GEMMA4_26B_31B:
+        if model == TranslationModel.GPT_6_LUNA:
+            if connection == TranslationConnection.OFFICIAL_BYOK:
+                llm_provider = LLMProviderName.OPENAI
+                openrouter_source = OpenRouterCredentialSource.NONE
+                openrouter_alias = None
+            else:
+                llm_provider = LLMProviderName.OPENROUTER
+                openrouter_model = OpenRouterLLMModel.GPT_6_LUNA
+                openrouter_source = OpenRouterCredentialSource.BYOK
+                openrouter_alias = OpenRouterSelectionAlias.GPT_6_LUNA_BYOK
+        elif model == TranslationModel.GEMMA4_26B_31B:
             llm_provider = LLMProviderName.OPENROUTER
             openrouter_model = OpenRouterLLMModel.GEMMA_4_26B_A4B_IT
             openrouter_source = (
@@ -6729,6 +6775,8 @@ class SettingsView(ft.Column):
         self._google_key.apply_locale()
         self._managed_trial_usage_bar.apply_locale()
         self._openrouter_key.apply_locale()
+        self._openai_key.apply_locale()
+        self._openai_verification_notice.value = t("settings.openai_verification_charge")
         self._deepseek_key.apply_locale()
         self._alibaba_key_beijing.apply_locale()
         self._alibaba_key_singapore.apply_locale()

@@ -19,6 +19,7 @@ _LLM_PROVIDER_PROMPT_KEYS = {
     "gemini",
     "qwen",
     "deepseek",
+    "openai",
     "openrouter",
     "local_llm",
     "managed_gemma",

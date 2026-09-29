@@ -925,14 +925,14 @@
       "tests/ui/test_desktop_overlay_renderer.py::test_desktop_overlay_snapshot_mapping_table_covers_block_contract_and_emitted_lines"
     ],
     "prompt_loader": [
-      "tests/config/test_public_compatibility_surfaces.py::test_prompt_loader_snapshot_freezes_fallback_order_and_translation_prompt_requirement",
+      "tests/config/test_public_compatibility_surfaces.py::test_prompt_loader_prefers_named_files_then_defaults",
       "tests/config/test_prompt_loader.py::test_load_prompt_for_llm_providers_uses_shared_translation_prompt",
       "tests/config/test_prompt_loader.py::test_load_prompt_falls_back_to_default",
       "tests/config/test_prompt_loader.py::test_load_prompt_for_provider_requires_translation_prompt_for_llm_provider",
       "tests/config/test_prompt_loader.py::test_get_default_prompt_reads_translation_prompt"
     ],
     "provider_aliases": [
-      "tests/config/test_public_compatibility_surfaces.py::test_provider_alias_snapshot_matches_current_aliases_and_legacy_acceptance",
+      "tests/config/test_config_and_secrets.py::test_legacy_gemini_byok_alias_is_compatibility_only",
       "tests/config/test_config_and_secrets.py::test_openrouter_alias_for_fields_does_not_expose_deepseek_v4_pro"
     ],
     "provider_runtime_public_config": [

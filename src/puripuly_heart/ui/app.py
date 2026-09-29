@@ -2042,6 +2042,7 @@ class TranslatorApp:
         if provider in (
             "google",
             "openrouter",
+            "openai",
             "deepseek",
             "alibaba_beijing",
             "alibaba_singapore",
@@ -2072,6 +2073,7 @@ class TranslatorApp:
             "soniox_api_key": "soniox",
             "google_api_key": "google",
             "openrouter_api_key": "openrouter",
+            "openai_api_key": "openai",
             "deepseek_api_key": "deepseek",
             "alibaba_api_key_beijing": "alibaba_beijing",
             "alibaba_api_key_singapore": "alibaba_singapore",
@@ -2096,6 +2098,7 @@ class TranslatorApp:
         if provider in {
             "google",
             "openrouter",
+            "openai",
             "deepseek",
             "alibaba_beijing",
             "alibaba_singapore",
@@ -2127,6 +2130,7 @@ class TranslatorApp:
             "soniox_api_key": "soniox",
             "google_api_key": "google",
             "openrouter_api_key": "openrouter",
+            "openai_api_key": "openai",
             "deepseek_api_key": "deepseek",
             "alibaba_api_key": "alibaba_beijing",  # Use beijing as default
             "alibaba_api_key_beijing": "alibaba_beijing",
@@ -2157,6 +2161,7 @@ class TranslatorApp:
             if provider in (
                 "google",
                 "openrouter",
+                "openai",
                 "deepseek",
                 "alibaba_beijing",
                 "alibaba_singapore",

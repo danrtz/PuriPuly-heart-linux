@@ -259,6 +259,19 @@ class SettingsBackedOscControlApplication(OscControlApplicationPort):
     ) -> AppSettingsVNext:
         translation = settings.intent.translation
         current_value = translation.model
+        if model == "gpt_6_luna":
+            history = dict(translation.connection_history)
+            if current_value == "gpt_6_luna":
+                history[current_value] = translation.connection
+            selected_connection = connection or history.get(model)
+            if selected_connection not in {"openrouter", "official_byok"}:
+                selected_connection = "openrouter"
+            history[model] = selected_connection
+        else:
+            history = translation.connection_history
+            selected_connection = connection if connection is not None else translation.connection
+            if current_value == "gpt_6_luna":
+                history = {**history, current_value: translation.connection}
         next_translation = replace(
             translation,
             previous_llm_model=(
@@ -267,7 +280,8 @@ class SettingsBackedOscControlApplication(OscControlApplicationPort):
                 else translation.previous_llm_model
             ),
             model=model,
-            connection=connection if connection is not None else translation.connection,
+            connection=selected_connection,
+            connection_history=history,
         )
         updated = replace(
             settings,
