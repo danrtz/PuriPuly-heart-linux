@@ -404,10 +404,10 @@ def _vnext(
         connection = connection or "ollama"
     elif apply_llm_defaults and llm == "openrouter":
         if openrouter_source == "managed":
-            model = model or "gemma4"
+            model = model or "gemma4_26b_31b"
             connection = connection or "managed"
         else:
-            model = model or "gemma4"
+            model = model or "gemma4_26b_31b"
             connection = connection or "openrouter"
     elif apply_llm_defaults and llm == "managed_gemma":
         model = model or "managed_gemma"
@@ -1103,7 +1103,7 @@ def test_update_api_visibility_shows_openrouter_key(monkeypatch: pytest.MonkeyPa
     settings = _vnext(
         llm="openrouter",
         openrouter_source="byok",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
     )
 
     view, _ = _make_settings_view(monkeypatch, settings=settings)
@@ -1206,7 +1206,7 @@ def test_load_from_settings_places_managed_key_card_above_provider_fields(
     ),
     [
         (
-            TranslationModel.GEMMA4,
+            TranslationModel.GEMMA4_26B_31B,
             TranslationConnection.MANAGED,
             OpenRouterCredentialSource.MANAGED,
             None,
@@ -1222,7 +1222,7 @@ def test_load_from_settings_places_managed_key_card_above_provider_fields(
             True,
         ),
         (
-            TranslationModel.GEMMA4,
+            TranslationModel.GEMMA4_26B_31B,
             TranslationConnection.OPENROUTER,
             OpenRouterCredentialSource.BYOK,
             "managed-ref",
@@ -1230,7 +1230,7 @@ def test_load_from_settings_places_managed_key_card_above_provider_fields(
             False,
         ),
         (
-            TranslationModel.GEMMA4,
+            TranslationModel.GEMMA4_26B_31B,
             TranslationConnection.OPENROUTER,
             OpenRouterCredentialSource.BYOK,
             None,
@@ -1366,7 +1366,7 @@ def test_set_managed_key_state_hides_card_for_openrouter_connection(
         settings,
         connection_history={
             **settings.intent.translation.connection_history,
-            TranslationModel.GEMMA4.value: TranslationConnection.OPENROUTER,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER,
         },
     )
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
@@ -1396,7 +1396,7 @@ def test_set_managed_key_state_keeps_card_visible_for_managed_connection_when_us
         settings,
         connection_history={
             **settings.intent.translation.connection_history,
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
         },
     )
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.MANAGED)
@@ -1427,14 +1427,14 @@ def test_set_managed_key_state_keeps_card_visible_for_managed_connection_when_us
         (
             TranslationConnection.OPENROUTER,
             OpenRouterCredentialSource.BYOK,
-            OpenRouterSelectionAlias.GEMMA4_BYOK,
+            OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK,
             TranslationConnection.MANAGED,
             True,
         ),
         (
             TranslationConnection.MANAGED,
             OpenRouterCredentialSource.MANAGED,
-            OpenRouterSelectionAlias.GEMMA4_MANAGED,
+            OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED,
             TranslationConnection.OPENROUTER,
             False,
         ),
@@ -1450,11 +1450,11 @@ def test_translation_connection_selected_repaints_managed_key_card_immediately(
 ) -> None:
     settings = _vnext(
         llm="openrouter",
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=initial_connection,
         openrouter_source=initial_source,
         openrouter_alias=initial_alias,
-        connection_history={TranslationModel.GEMMA4.value: initial_connection},
+        connection_history={TranslationModel.GEMMA4_26B_31B.value: initial_connection},
     )
     view = _make_llm_selection_view(monkeypatch, settings)
     updates: list[str] = []
@@ -1607,7 +1607,7 @@ def test_managed_key_invite_progress_survives_managed_china_round_trip_before_se
         openrouter_source=OpenRouterCredentialSource.MANAGED,
         connection_history={
             TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED,
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
         },
     )
 
@@ -1634,7 +1634,7 @@ def test_managed_key_invite_progress_survives_managed_china_round_trip_before_se
     assert view._managed_key_invite_progress_row.visible is True
     assert view._managed_key_invite_progress_value.value == "1 / 3"
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     assert view._managed_key_referral_id == "7KQ9M2"
     assert view._managed_key_invite_progress_row.visible is True
     assert view._managed_key_invite_progress_value.value == "1 / 3"
@@ -2781,14 +2781,14 @@ def test_on_translation_connection_selected_updates_openrouter_model_and_prompt_
         AssertionError("BYOK selection should not launch PKCE immediately")
     )
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     view._on_translation_connection_selected(TranslationConnection.OPENROUTER.value)
 
     pending = view.build_provider_apply_settings()
 
     assert _llm(settings) == LLMProviderName.GEMINI.value
     assert pending is not None
-    assert pending.intent.translation.model == TranslationModel.GEMMA4.value
+    assert pending.intent.translation.model == TranslationModel.GEMMA4_26B_31B.value
     assert pending.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
@@ -2800,7 +2800,7 @@ def test_on_translation_connection_selected_updates_openrouter_model_and_prompt_
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_BYOK.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value
     )
     assert pending.intent.prompts.system_prompt_override == "G"
     assert view._prompt_editor.value == "G"
@@ -2814,10 +2814,10 @@ def test_translation_selection_preserves_all_staged_history_and_unrelated_latest
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.MANAGED,
         connection_history={
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
             TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED_CHINA,
             TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK,
         },
@@ -2839,7 +2839,7 @@ def test_translation_selection_preserves_all_staged_history_and_unrelated_latest
     pending = view.build_provider_apply_settings()
 
     assert pending is not None
-    assert pending.intent.translation.connection_history[TranslationModel.GEMMA4.value] == (
+    assert pending.intent.translation.connection_history[TranslationModel.GEMMA4_26B_31B.value] == (
         TranslationConnection.OPENROUTER.value
     )
     assert pending.intent.translation.connection_history[
@@ -2892,16 +2892,16 @@ def test_on_llm_selected_restores_saved_connection_history(
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.MANAGED,
         connection_history={
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
             TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.OFFICIAL_BYOK,
         },
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.MANAGED)
-    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_MANAGED)
+    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED)
     settings = _vnext(settings, system_prompt="O")
 
     view, _ = _make_settings_view(monkeypatch, settings=settings)
@@ -2996,7 +2996,7 @@ def test_on_llm_selected_stages_byok_with_default_openrouter_prompt_when_unsaved
         AssertionError("BYOK selection should not launch PKCE immediately")
     )
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     view._on_translation_connection_selected(TranslationConnection.OPENROUTER.value)
 
     pending = view.build_provider_apply_settings()
@@ -3019,7 +3019,7 @@ def test_on_llm_selected_updates_managed_openrouter_label_and_source(
     settings = _vnext(settings, system_prompt="G")
 
     view, _ = _make_settings_view(monkeypatch, settings=settings)
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
 
     pending = view.build_provider_apply_settings()
 
@@ -3034,9 +3034,9 @@ def test_on_llm_selected_updates_managed_openrouter_label_and_source(
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_MANAGED.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value
     )
-    assert view._llm_text.content.value == t("provider.gemma4_26b_a4b_it")
+    assert view._llm_text.content.value == t("provider.gemma4_26b_31b")
     assert view._translation_connection_text.content.value == t(
         "settings.translation_connection.managed"
     )
@@ -3066,9 +3066,9 @@ def test_on_llm_selected_openrouter_provider_value_defaults_to_gemma_managed(
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_MANAGED.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value
     )
-    assert view._llm_text.content.value == t("provider.gemma4_26b_a4b_it")
+    assert view._llm_text.content.value == t("provider.gemma4_26b_31b")
 
 
 def test_on_llm_selected_sets_deepseek_managed_connection_and_label(
@@ -3161,12 +3161,12 @@ def test_on_llm_selected_switching_away_from_openrouter_preserves_saved_selectio
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.OPENROUTER,
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
-    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
+    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK)
     settings = _vnext(settings, system_prompt="O")
 
     view, _ = _make_settings_view(monkeypatch)
@@ -3184,7 +3184,7 @@ def test_on_llm_selected_switching_away_from_openrouter_preserves_saved_selectio
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_BYOK.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value
     )
 
 
@@ -3252,7 +3252,7 @@ def test_luna_ui_selection_switches_applicable_keys_and_restores_connection(
     assert not view._openrouter_key.visible
     assert not view._openrouter_pkce_button_row.visible
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
     restored = view.build_provider_apply_settings()
     assert restored is not None
@@ -3303,9 +3303,9 @@ def test_on_translation_connection_selected_auto_applies_managed_connection(
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.OPENROUTER,
-        connection_history={TranslationModel.GEMMA4.value: TranslationConnection.OPENROUTER},
+        connection_history={TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER},
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
@@ -3596,7 +3596,7 @@ def test_refresh_after_openrouter_pkce_success_preserves_unrelated_drafts(
         llm="openrouter",
         source_language="ko",
         openrouter_source="byok",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
         system_prompt="O",
         verified_providers=("openrouter",),
     )
@@ -6749,7 +6749,7 @@ async def test_translation_apply_clears_draft_after_history_order_changes(
         model=TranslationModel.GEMINI_FLASH,
         connection=TranslationConnection.OFFICIAL_BYOK,
         connection_history={
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
             TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK,
         },
     )
@@ -6764,7 +6764,7 @@ async def test_translation_apply_clears_draft_after_history_order_changes(
 
     assert backend.settings.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH_41.value
     assert backend.settings.intent.translation.connection_history == {
-        TranslationModel.GEMMA4.value: TranslationConnection.MANAGED.value,
+        TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED.value,
         TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK.value,
         TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED.value,
     }

@@ -796,32 +796,6 @@ async def test_runtime_message_and_diagnostics_take_precedence_over_commit_value
     )
 
 
-def test_typed_translation_provider_mutation_builds_request_for_order21_surface() -> None:
-    settings_mutation = _service_module()
-
-    mutation = settings_mutation.TranslationProviderSettingsMutation(
-        values={
-            "translation.model": "gemma4",
-            "openrouter.selection_alias": "gemma4_byok",
-        }
-    )
-
-    request = mutation.to_mutation_request(
-        expected_revision="settings-r1",
-        correlation_id="corr-order21",
-    )
-
-    assert request == settings_mutation.SettingsMutationRequest(
-        values={
-            "translation.model": "gemma4",
-            "openrouter.selection_alias": "gemma4_byok",
-        },
-        expected_revision="settings-r1",
-        reason=settings_mutation.SETTINGS_MUTATION_SURFACE_TRANSLATION_PROVIDER,
-        correlation_id="corr-order21",
-    )
-
-
 def test_typed_stt_language_audio_mutation_builds_request_for_order22_surface() -> None:
     settings_mutation = _service_module()
 

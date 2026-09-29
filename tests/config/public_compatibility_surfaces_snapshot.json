@@ -763,7 +763,8 @@
       "MyOverlayExeName": "PuriPulyHeartOverlay.exe",
       "MyPackagedAppDir": "dist\\PuriPulyHeart",
       "MyStagedOverlayDir": "build\\overlay",
-      "MyAppId": "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+      "MyAppId": "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}",
+      "CanonicalSettingsVersion": "49"
     },
     "setup_lines": [
       "AppId={#MyAppId}",
@@ -815,19 +816,20 @@
     "openrouter_main_selection_aliases": [
       "gemma4_26b_31b_managed",
       "gemma4_26b_31b_byok",
-      "gemma4_31b_managed",
-      "gemma4_31b_byok",
-      "gemma4_managed",
       "qwen35_flash_managed",
       "deepseek_v4_flash_managed",
       "gemini_flash_byok",
       "deepseek_v4_flash_41_managed",
-      "gemma4_byok",
       "qwen35_flash_byok",
       "deepseek_v4_flash_byok",
-      "deepseek_v4_flash_41_byok"
+      "deepseek_v4_flash_41_byok",
+      "gpt_6_luna_byok"
     ],
     "legacy_selection_aliases": [
+      "gemma4_managed",
+      "gemma4_byok",
+      "gemma4_31b_managed",
+      "gemma4_31b_byok",
       "gemini31_flash_lite_byok",
       "openrouter:byok:google/gemma-4-26b-a4b-it",
       "openrouter:byok:qwen/qwen3.5-flash-02-23",

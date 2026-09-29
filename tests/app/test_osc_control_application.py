@@ -128,9 +128,9 @@ async def test_osc_luna_first_selection_and_saved_route_survive_model_switch() -
 
     await application.set_translation_model("gpt_6_luna", "official_byok")
     assert current.intent.translation.connection == "official_byok"
-    await application.set_translation_model("gemma4")
+    await application.set_translation_model("gemma4_26b_31b")
     assert current.intent.translation.connection == "managed"
-    assert current.intent.translation.connection_history["gemma4"] == "managed"
+    assert current.intent.translation.connection_history["gemma4_26b_31b"] == "managed"
     gemma_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
     assert (gemma_runtime.provider, gemma_runtime.model) == (
         "openrouter",
@@ -153,9 +153,9 @@ async def test_osc_luna_first_selection_and_saved_route_survive_model_switch() -
 async def test_osc_model_only_selection_restores_other_model_history_or_default() -> None:
     current = _with_translation(
         AppSettingsVNext(),
-        model="gemma4",
+        model="gemma4_26b_31b",
         connection="openrouter",
-        connection_history={"gemma4": "openrouter", "gpt_6_luna": "official_byok"},
+        connection_history={"gemma4_26b_31b": "openrouter", "gpt_6_luna": "official_byok"},
     )
 
     async def apply_settings(settings: object) -> object:
@@ -171,10 +171,10 @@ async def test_osc_model_only_selection_restores_other_model_history_or_default(
     )
     await application.set_translation_model("gpt_6_luna")
     assert current.intent.translation.connection == "official_byok"
-    await application.set_translation_model("gemma4")
+    await application.set_translation_model("gemma4_26b_31b")
     assert current.intent.translation.connection == "openrouter"
     assert current.intent.translation.connection_history == {
-        "gemma4": "openrouter",
+        "gemma4_26b_31b": "openrouter",
         "gpt_6_luna": "official_byok",
     }
     gemma_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
@@ -192,16 +192,16 @@ async def test_osc_model_only_selection_restores_other_model_history_or_default(
     )
     await application.set_translation_model("gpt_6_luna")
     assert current.intent.translation.connection == "official_byok"
-    assert current.intent.translation.connection_history["gemma4"] == "openrouter"
+    assert current.intent.translation.connection_history["gemma4_26b_31b"] == "openrouter"
 
 
 @pytest.mark.asyncio
 async def test_osc_same_model_repairs_invalid_connection_from_saved_history() -> None:
     current = _with_translation(
         AppSettingsVNext(),
-        model="gemma4",
+        model="gemma4_26b_31b",
         connection="official_byok",
-        connection_history={"gemma4": "openrouter"},
+        connection_history={"gemma4_26b_31b": "openrouter"},
     )
 
     async def apply_settings(settings: object) -> object:
@@ -215,9 +215,9 @@ async def test_osc_same_model_repairs_invalid_connection_from_saved_history() ->
         apply_settings=apply_settings,
         translation_model_normalizer=materialize_canonical_translation_settings,
     )
-    await application.set_translation_model("gemma4")
+    await application.set_translation_model("gemma4_26b_31b")
     assert current.intent.translation.connection == "openrouter"
-    assert current.intent.translation.connection_history["gemma4"] == "openrouter"
+    assert current.intent.translation.connection_history["gemma4_26b_31b"] == "openrouter"
     runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
     assert runtime.credential.reference == "openrouter:byok"
 

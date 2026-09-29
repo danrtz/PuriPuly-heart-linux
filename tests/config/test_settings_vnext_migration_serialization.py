@@ -880,7 +880,7 @@ def test_v43_translation_fallback_settings_are_discarded_without_touching_other_
 
 
 @pytest.mark.parametrize("source_version", [33, 34])
-def test_pre_v35_cerebras_model_migrates_to_gemma31_connection_and_preserves_return_target(
+def test_pre_v35_cerebras_model_migrates_to_combined_connection_and_preserves_return_target(
     source_version: int,
 ) -> None:
     migration = _migration()
@@ -909,14 +909,14 @@ def test_pre_v35_cerebras_model_migrates_to_gemma31_connection_and_preserves_ret
     translated = loaded.intent.translation
 
     assert loaded.settings_version == VNEXT_SETTINGS_SCHEMA_VERSION
-    assert translated.previous_llm_model == "gemma4_31b"
-    assert translated.connection_history == {"gemma4_31b": "openrouter"}
+    assert translated.previous_llm_model == "gemma4_26b_31b"
+    assert translated.connection_history == {"gemma4_26b_31b": "openrouter"}
     persisted = serialization.to_dict(loaded)
     assert "cerebras" not in json.dumps(persisted)
 
 
 @pytest.mark.parametrize("source_version", [33, 34])
-def test_pre_v35_active_cerebras_model_migrates_primary(
+def test_pre_v35_active_cerebras_model_migrates_to_combined_primary(
     source_version: int,
 ) -> None:
     migration = _migration()
@@ -943,11 +943,11 @@ def test_pre_v35_active_cerebras_model_migrates_primary(
     loaded = migration.from_dict(raw)
     translated = loaded.intent.translation
 
-    assert translated.model == "gemma4_31b"
+    assert translated.model == "gemma4_26b_31b"
     assert translated.connection == "openrouter"
     assert translated.openrouter_selected_source == "byok"
-    assert translated.openrouter_selection_alias == "gemma4_31b_byok"
-    assert translated.connection_history == {"gemma4_31b": "openrouter"}
+    assert translated.openrouter_selection_alias == "gemma4_26b_31b_byok"
+    assert translated.connection_history == {"gemma4_26b_31b": "openrouter"}
     assert "cerebras" not in json.dumps(serialization.to_dict(loaded))
 
 
@@ -982,13 +982,13 @@ def test_v41_cerebras_retirement_migrates_primary_history_and_drops_extensions()
 
     translated = once.intent.translation
     assert once.settings_version == VNEXT_SETTINGS_SCHEMA_VERSION
-    assert translated.model == "gemma4_31b"
+    assert translated.model == "gemma4_26b_31b"
     assert translated.connection == "openrouter"
-    assert translated.openrouter_model == "google/gemma-4-31b-it"
+    assert translated.openrouter_model == "google/gemma-4-26b-a4b-it"
     assert translated.openrouter_selected_source == "byok"
-    assert translated.openrouter_selection_alias == "gemma4_31b_byok"
-    assert translated.connection_history == {"gemma4_31b": "openrouter"}
-    assert translated.previous_llm_model == "gemma4_31b"
+    assert translated.openrouter_selection_alias == "gemma4_26b_31b_byok"
+    assert translated.connection_history == {"gemma4_26b_31b": "openrouter"}
+    assert translated.previous_llm_model == "gemma4_26b_31b"
     assert "cerebras" not in json.dumps(persisted_once)
     assert serialization.to_dict(twice) == persisted_once
 

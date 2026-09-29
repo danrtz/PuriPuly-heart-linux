@@ -21,41 +21,109 @@ def _runtime_input(
     )
 
 
-def test_gemma_product_catalog_has_distinct_single_and_unified_profiles() -> None:
-    assert llm_profiles.PROFILE_BY_ALIAS[
-        llm_profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK
-    ].openrouter_models == (
+def test_gemma_catalog_exposes_combined_profiles_and_normalizes_retired_aliases() -> None:
+    models = (
         llm_profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
         llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,
     )
-    assert llm_profiles.PROFILE_BY_ALIAS[
-        llm_profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_31B_BYOK
-    ].openrouter_models == (llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,)
-    assert llm_profiles.PROFILE_BY_ALIAS[
-        llm_profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_BYOK
-    ].openrouter_models == (llm_profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,)
+    assert {alias for alias in llm_profiles.PROFILE_BY_ALIAS if alias.startswith("gemma4")} == {
+        llm_profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_MANAGED,
+        llm_profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK,
+    }
+    for source in ("managed", "byok"):
+        canonical = f"gemma4_26b_31b_{source}"
+        for alias in (canonical, f"gemma4_{source}", f"gemma4_31b_{source}"):
+            profile = llm_profiles.get_openrouter_llm_profile(alias)
+            assert profile is not None
+            assert profile.alias == canonical
+            assert profile.openrouter_source == source
+            assert profile.openrouter_models == models
+    assert not {"gemma4", "gemma4_31b"} & set(runtime_resolution.TRANSLATION_MODELS)
 
 
-def test_runtime_resolves_unified_and_standalone_gemma_targets() -> None:
-    unified = runtime_resolution.resolve_llm_config(
-        _runtime_input(model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B)
-    )
-    standalone_31b = runtime_resolution.resolve_llm_config(
-        _runtime_input(model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_31B)
-    )
-    compatibility_26b = runtime_resolution.resolve_llm_config(
-        _runtime_input(model=runtime_resolution.TRANSLATION_MODEL_GEMMA4)
-    )
+def test_retired_gemma_product_intents_resolve_to_the_combined_pool() -> None:
+    for model in ("gemma4", "gemma4_31b", "gemma4_26b_31b"):
+        for connection, credential_source in (
+            ("managed", "managed"),
+            ("openrouter", "secret_store"),
+        ):
+            intent = runtime_resolution.TranslationRuntimeIntent(
+                model=model,
+                connection=connection,
+            )
+            config = runtime_resolution.resolve_llm_config(
+                runtime_resolution.RuntimeResolutionInput(translation=intent)
+            )
+            assert intent.model == "gemma4_26b_31b"
+            assert config.primary.models == (
+                llm_profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
+                llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,
+            )
+            assert config.primary.provider_routing == "gemma4_26b_31b_latency"
+            assert config.primary.credential.source == credential_source
+            assert config.attempts[1].target == config.primary
+            assert config.attempts[2].target.models == (
+                llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,
+            )
+            assert config.attempts[2].target.model == llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT
+            assert config.attempts[2].target.credential.source == credential_source
 
-    assert unified.primary.models == (
-        llm_profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
-        llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,
+
+def test_retired_aliases_preserve_credential_source_and_derive_combined_product() -> None:
+    for source, opposite in (("managed", "byok"), ("byok", "managed")):
+        for alias in (f"gemma4_{source}", f"gemma4_31b_{source}"):
+            router = runtime_resolution.normalize_openrouter_runtime_intent(
+                provider_llm="openrouter",
+                selected_source=opposite,
+                selection_alias=alias,
+                provider_routing="gemma4_31b_latency",
+            )
+            translation = runtime_resolution.derive_translation_runtime_intent_from_compatibility(
+                provider_llm="openrouter",
+                openrouter_model=router.model,
+                openrouter_selected_source=router.selected_source,
+                openrouter_provider_routing=router.provider_routing,
+            )
+            resolved = runtime_resolution.resolve_llm_config(
+                runtime_resolution.RuntimeResolutionInput(
+                    translation=translation,
+                    openrouter=router,
+                )
+            )
+            assert router.selection_alias == f"gemma4_26b_31b_{source}"
+            assert router.selected_source == source
+            assert router.provider_routing == "gemma4_26b_31b_latency"
+            assert translation.model == "gemma4_26b_31b"
+            assert translation.connection == ("managed" if source == "managed" else "openrouter")
+            assert resolved.primary.models == (
+                llm_profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
+                llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,
+            )
+            assert resolved.primary.credential.reference == (
+                "openrouter:managed" if source == "managed" else "openrouter:byok"
+            )
+
+
+def test_dormant_gemma_alias_cannot_override_active_non_gemma_product() -> None:
+    router = runtime_resolution.normalize_openrouter_runtime_intent(
+        provider_llm="openrouter",
+        selected_source="byok",
+        selection_alias="gemma4_31b_byok",
     )
-    assert unified.primary.provider_routing == "gemma4_26b_31b_latency"
-    assert standalone_31b.primary.models == (llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT,)
-    assert standalone_31b.primary.provider_routing == "gemma4_31b_latency"
-    assert compatibility_26b.primary.models == (llm_profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,)
-    assert compatibility_26b.primary.provider_routing == "gemma4_26b_latency"
+    config = runtime_resolution.resolve_llm_config(
+        runtime_resolution.RuntimeResolutionInput(
+            translation=runtime_resolution.TranslationRuntimeIntent(
+                model="deepseek_v4_flash",
+                connection="managed",
+            ),
+            openrouter=router,
+        )
+    )
+    assert config.primary.model == llm_profiles.OPENROUTER_MODEL_DEEPSEEK_V4_FLASH
+    assert config.primary.credential.reference == "openrouter:managed"
+    assert config.primary.provider_routing == "deepseek_v4_flash_latency"
+    assert config.attempts[2].target.model == llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT
+    assert config.attempts[2].target.provider_routing == "gemma4_31b_modelrun_only"
 
 
 def test_runtime_resolves_three_stage_plan_without_deduplicating_targets() -> None:

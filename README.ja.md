@@ -86,9 +86,9 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 ---
 
 ## 翻訳比較
-![韓国語→英語/日本語/中国語（簡体）翻訳の文あたり平均エラーペナルティチャート。216マルチターンサンプル、Gemba MQM評価、低いほど良い。青い棒はPuriPulyで使用できるモデル：1位 Gemma 4 31B (0.353)、2位 Gemma 4 26B A4B (0.387)、3位 DeepSeek-V4 Flash 0731 (0.571)、4位 Gemma 4 12B QAT Q4 (0.855)、5位 Gemma 4 E4B QAT Q4 (1.577)。オレンジの棒は外部ベースライン：Hy-MT-7B (1.863)、Papago (2.699)、Gemini 3.5 Live Translate (2.991)、MiLMMT 46-4B (3.087)、DeepL (3.914)、Google Cloud Translation Basic (5.731)。](docs/images/performance/2.png)
+![過去の翻訳比較。韓国語から英語・日本語・中国語への216マルチターンサンプルのGemba MQM評価（低いほど良い）。Gemma 4 31B (0.353) と Gemma 4 26B A4B (0.387) は個別モデルの過去の結果で、現在選択できる Gemma 4 26B + 31B の測定値ではありません。その他のモデルと外部ベースラインも比較しています。](docs/images/performance/2.png)
 
-- 青い棒グラフはPuriPulyで使用できるモデルです。
+- 青い棒グラフは個別モデルの過去の測定結果です。単体のクラウドGemmaは現在選択できず、クラウドの選択肢は **Gemma 4 26B + 31B** です。
 - マイクロソフトのGemba MQMフレームワークを使って実験しました。
 - 実際の会話に近づけるため、マルチターン環境で構成しました。
 - 全体の実験結果は[こちら](https://github.com/kapitalismho/korean-llm-context-translation-benchmark)を参照してください。
@@ -102,7 +102,7 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | 無制限 | 無制限 | 5,000回 | 7,260回 |
-| **Gemma 4 26B A4B + 31B** | 13,940回 | 13,940回 | 3,680回 | 4,770回 |
+| **Gemma 4 26B + 31B** | 13,940回 | 13,940回 | 3,680回 | 4,770回 |
 | **DeepSeek V4 Flash (OpenRouter)** | 17,020回 | 17,020回 | 3,860回 | 5,090回 |
 | **DeepSeek V4.1 Flash** | 16,800回 | 16,800回 | 3,860回 | 5,070回 |
 
@@ -110,8 +110,6 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | 14,380回 | 14,380回 | 3,710回 | 4,820回 |
-| **Gemma 4 31B** | 10,940回 | 10,940回 | 3,430回 | 4,360回 |
 | **Gemini 3.8 Flash** | 1,160回 | 1,160回 | 940回 | 1,000回 |
 | **Qwen 3.8 Flash** | 7,460回 | 7,460回 | 2,990回 | 3,680回 |
 
@@ -122,7 +120,7 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | 0円 | 0円 | ~0.03円 | ~0.02円 |
-| **Gemma 4 26B A4B + 31B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
+| **Gemma 4 26B + 31B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 | **DeepSeek V4 Flash (OpenRouter)** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 | **DeepSeek V4.1 Flash** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 
@@ -130,8 +128,6 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
-| **Gemma 4 31B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 | **Gemini 3.8 Flash** | ~0.13円 | ~0.13円 | ~0.16円 | ~0.15円 |
 | **Qwen 3.8 Flash** | ~0.02円 | ~0.02円 | ~0.05円 | ~0.04円 |
 

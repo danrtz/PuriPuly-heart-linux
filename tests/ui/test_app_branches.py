@@ -78,10 +78,10 @@ def _vnext(
         connection = connection or "ollama"
     elif llm == "openrouter":
         if openrouter_source == "managed":
-            model = model or "gemma4"
+            model = model or "gemma4_26b_31b"
             connection = connection or "managed"
         else:
-            model = model or "gemma4"
+            model = model or "gemma4_26b_31b"
             connection = connection or "openrouter"
     if model is not None or connection is not None:
         translation = replace(
@@ -3116,7 +3116,7 @@ async def test_settings_apply_closes_microphone_test_modal_after_audio_cleanup()
 
 def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
-    target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
+    target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK)
     reopen_calls: list[str] = []
 
     async def fake_connect_openrouter_via_pkce(
@@ -3146,7 +3146,7 @@ def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active(
 @pytest.mark.asyncio
 async def test_on_request_openrouter_pkce_coalesces_while_active_and_allows_retry() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
-    target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
+    target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK)
     pkce_calls: list[str] = []
 
     async def fake_connect_openrouter_via_pkce(

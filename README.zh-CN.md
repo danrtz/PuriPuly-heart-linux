@@ -87,9 +87,9 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 ---
 
 ## 翻译比较
-![韩语→英语/日语/中文（简体）翻译的每句平均错误惩罚图表。216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的模型：第 1 名 Gemma 4 31B (0.353)，第 2 名 Gemma 4 26B A4B (0.387)，第 3 名 DeepSeek-V4 Flash 0731 (0.571)，第 4 名 Gemma 4 12B QAT Q4 (0.855)，第 5 名 Gemma 4 E4B QAT Q4 (1.577)。橙色柱状图是外部基线：Hy-MT-7B (1.863)、Papago (2.699)、Gemini 3.5 Live Translate (2.991)、MiLMMT 46-4B (3.087)、DeepL (3.914)、Google Cloud Translation Basic (5.731)。](docs/images/performance/2.png)
+![历史翻译对比：216 个韩语到英语、日语和简体中文的多轮样本，Gemba MQM 评分越低越好。Gemma 4 31B (0.353) 和 Gemma 4 26B A4B (0.387) 是单独模型的历史成绩，不是当前可选的 Gemma 4 26B + 31B 组合模型的测量结果。图表还包括其他模型和外部基线。](docs/images/performance/2.png)
 
-- 蓝色柱状图是PuriPuly中可用的模型。
+- 柱状图显示单独模型的历史测量结果。单独的云端 Gemma 型号已不可选；当前云端选项是 **Gemma 4 26B + 31B**。
 - 我们使用微软的 Gemba MQM 框架进行实验。
 - 为贴近真实对话环境，采用了多轮对话设置。
 - 完整实验结果请参阅[此处](https://github.com/kapitalismho/korean-llm-context-translation-benchmark)。
@@ -103,7 +103,7 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
 | **Gemma 4 E4B (本地)** | 无限制 | 无限制 | 5,000 次 | 7,260 次 |
-| **Gemma 4 26B A4B + 31B** | 13,940 次 | 13,940 次 | 3,680 次 | 4,770 次 |
+| **Gemma 4 26B + 31B** | 13,940 次 | 13,940 次 | 3,680 次 | 4,770 次 |
 | **DeepSeek V4 Flash (OpenRouter)** | 17,020 次 | 17,020 次 | 3,860 次 | 5,090 次 |
 | **DeepSeek V4.1 Flash** | 16,800 次 | 16,800 次 | 3,860 次 | 5,070 次 |
 
@@ -111,8 +111,6 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | 14,380 次 | 14,380 次 | 3,710 次 | 4,820 次 |
-| **Gemma 4 31B** | 10,940 次 | 10,940 次 | 3,430 次 | 4,360 次 |
 | **Gemini 3.8 Flash** | 1,160 次 | 1,160 次 | 940 次 | 1,000 次 |
 | **Qwen 3.8 Flash** | 7,460 次 | 7,460 次 | 2,990 次 | 3,680 次 |
 
@@ -123,7 +121,7 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
 | **Gemma 4 E4B (本地)** | 0 元 | 0 元 | ~0.001 元 | ~0.001 元 |
-| **Gemma 4 26B A4B + 31B** | ~0.0005 元 | ~0.0005 元 | ~0.002 元 | ~0.0015 元 |
+| **Gemma 4 26B + 31B** | ~0.0005 元 | ~0.0005 元 | ~0.002 元 | ~0.0015 元 |
 | **DeepSeek V4 Flash (OpenRouter)** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
 | **DeepSeek V4.1 Flash** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
 
@@ -131,8 +129,6 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | ~0.0005 元 | ~0.0005 元 | ~0.002 元 | ~0.0015 元 |
-| **Gemma 4 31B** | ~0.0007 元 | ~0.0007 元 | ~0.002 元 | ~0.0017 元 |
 | **Gemini 3.8 Flash** | ~0.006 元 | ~0.006 元 | ~0.008 元 | ~0.007 元 |
 | **Qwen 3.8 Flash** | ~0.001 元 | ~0.001 元 | ~0.002 元 | ~0.002 元 |
 

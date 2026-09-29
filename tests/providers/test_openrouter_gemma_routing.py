@@ -17,17 +17,18 @@ def _body(client: HttpxOpenRouterClient) -> dict[str, object]:
     )
 
 
-def test_openrouter_single_model_request_uses_model_only() -> None:
+def test_openrouter_internal_emergency_uses_single_model_and_modelrun_only() -> None:
     body = _body(
         HttpxOpenRouterClient(
             api_key="key",
             model="google/gemma-4-31b-it",
-            models=("google/gemma-4-31b-it",),
+            provider_routing=OpenRouterProviderRouting.GEMMA4_31B_MODELRUN_ONLY,
         )
     )
 
     assert body["model"] == "google/gemma-4-31b-it"
     assert "models" not in body
+    assert body["provider"] == {"only": ["modelrun/fp4"], "allow_fallbacks": False}
 
 
 def test_openrouter_unified_request_uses_models_only() -> None:
@@ -50,7 +51,7 @@ def test_openrouter_unified_request_uses_models_only() -> None:
     assert "model" not in body
 
 
-def test_gemma_semantic_routes_produce_issue_provider_policies() -> None:
+def test_gemma_combined_and_internal_emergency_provider_policies() -> None:
     assert _build_provider_preferences(OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY) == {
         "only": [
             "cloudflare",
@@ -61,16 +62,6 @@ def test_gemma_semantic_routes_produce_issue_provider_policies() -> None:
             "makora",
         ],
         "sort": {"by": "latency", "partition": "none"},
-        "allow_fallbacks": True,
-    }
-    assert _build_provider_preferences(OpenRouterProviderRouting.GEMMA4_31B_LATENCY) == {
-        "only": ["coreweave/fp4", "deepinfra/turbo"],
-        "sort": {"by": "latency"},
-        "allow_fallbacks": True,
-    }
-    assert _build_provider_preferences(OpenRouterProviderRouting.GEMMA4_26B_LATENCY) == {
-        "only": ["cloudflare", "dekallm/bf16", "nextbit/bf16", "makora"],
-        "sort": {"by": "latency"},
         "allow_fallbacks": True,
     }
     assert _build_provider_preferences(OpenRouterProviderRouting.GEMMA4_31B_MODELRUN_ONLY) == {

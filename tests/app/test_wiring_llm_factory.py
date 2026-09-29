@@ -30,8 +30,15 @@ from puripuly_heart.config.resolved import (
     ResolvedLLMFallbackPlan,
     ResolvedLLMTarget,
 )
+from puripuly_heart.config.runtime_resolution import (
+    RuntimeResolutionInput,
+    TranslationRuntimeIntent,
+    resolve_llm_config,
+)
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.core.llm.fallback_racing import FallbackRacingLLMProvider
 from puripuly_heart.core.llm.provider import SemaphoreLLMProvider
+from puripuly_heart.core.openrouter_routing import OpenRouterProviderRouting
 from puripuly_heart.core.storage.secrets import InMemorySecretStore
 from puripuly_heart.providers.llm.managed_gemma import ManagedGemmaLLMProvider
 from puripuly_heart.providers.llm.openrouter import OpenRouterLLMProvider
@@ -324,3 +331,75 @@ async def test_standard_lazy_managed_provider_records_discord_claim_after_releas
     assert release_service.ensure_calls == 1
     assert managed_state.local_managed_claim_sources == ("discord",)
     assert managed_state.persist_calls == 1
+
+
+@pytest.mark.parametrize("connection", ["managed", "openrouter"])
+def test_combined_gemma_composes_pooled_attempts_and_single_model_emergency(
+    connection: str,
+) -> None:
+    from puripuly_heart.core.managed_openrouter_release import ManagedOpenRouterLLMProvider
+
+    secrets = InMemorySecretStore()
+    if connection == "managed":
+        secrets.set(OPENROUTER_MANAGED_API_KEY_SECRET, "fixture-managed-key")
+    else:
+        secrets.set("openrouter_api_key", "fixture-byok-key")
+    config = resolve_llm_config(
+        RuntimeResolutionInput(
+            translation=TranslationRuntimeIntent(model="gemma4_31b", connection=connection)
+        )
+    )
+    provider = create_llm_provider_from_resolved_config(
+        config,
+        secrets=secrets,
+        managed_release_service=object() if connection == "managed" else None,
+    )
+
+    assert isinstance(provider.inner, FallbackRacingLLMProvider)
+    attempts = provider.inner.attempts
+    assert [attempt.start_after_ms for attempt in attempts] == [0, 1300, 4400]
+    assert [attempt.start_on_primary_error for attempt in attempts] == [False, True, False]
+    assert provider.inner.loser_grace_ms == 50
+    first = attempts[0].provider
+    assert isinstance(first, OpenRouterLLMProvider)
+    for attempt in attempts[1:]:
+        candidate = attempt.provider.factory()
+        if connection == "managed":
+            assert isinstance(candidate, ManagedOpenRouterLLMProvider)
+            candidate = candidate.delegate_factory("fixture-managed-key")
+        assert isinstance(candidate, OpenRouterLLMProvider)
+        if attempt.start_after_ms == 1300:
+            assert candidate.models == (
+                "google/gemma-4-26b-a4b-it",
+                "google/gemma-4-31b-it",
+            )
+            assert candidate.provider_routing == OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY
+        else:
+            assert candidate.models == ("google/gemma-4-31b-it",)
+            assert candidate.provider_routing == OpenRouterProviderRouting.GEMMA4_31B_MODELRUN_ONLY
+    assert first.models == ("google/gemma-4-26b-a4b-it", "google/gemma-4-31b-it")
+    assert first.provider_routing == OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY
+
+
+def test_combined_gemma_byok_without_key_does_not_fall_back_to_managed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    secrets = InMemorySecretStore()
+    secrets.set(OPENROUTER_MANAGED_API_KEY_SECRET, "fixture-managed-key")
+    config = resolve_llm_config(
+        RuntimeResolutionInput(
+            translation=TranslationRuntimeIntent(
+                model="gemma4_31b",
+                connection="openrouter",
+            )
+        )
+    )
+
+    assert config.primary.credential.reference == "openrouter:byok"
+    with pytest.raises(ValueError, match="Missing secret `openrouter_api_key`"):
+        create_llm_provider_from_resolved_config(
+            config,
+            secrets=secrets,
+            managed_release_service=object(),
+        )

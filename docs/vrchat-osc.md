@@ -97,8 +97,8 @@
 | ID | Model |
 | ---: | --- |
 | 0 | Gemma 4 26B + 31B |
-| 1 | Gemma 4 31B |
-| 2 | Gemma 4 26B A4B |
+| 1 | Deprecated input alias for Gemma 4 26B + 31B |
+| 2 | Deprecated input alias for Gemma 4 26B + 31B |
 | 3 | DeepSeek V4 Flash |
 | 5 | Gemini 3.8 Flash |
 | 7 | Qwen 3.8 Flash |
@@ -111,4 +111,6 @@
 
 
 - Used by: `PuriPuly_Translator`
+
+IDs 1 and 2 are accepted only as legacy inputs for the combined Gemma selection. PuriPuly always publishes ID 0 for that selection, including after receiving either alias; existing avatar controls may keep sending 1 or 2, but new controls should send 0.
 

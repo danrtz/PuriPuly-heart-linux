@@ -35,7 +35,7 @@ def test_llm_provider_signature_tracks_all_runtime_inputs() -> None:
         model="gemma4_26b_31b",
         connection="openrouter",
         openrouter_selected_source="managed",
-        openrouter_selection_alias=OpenRouterSelectionAlias.GEMMA4_MANAGED.value,
+        openrouter_selection_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value,
     )
     different_selection = _with_translation(
         canonical,

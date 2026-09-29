@@ -229,18 +229,6 @@ def _build_provider_preferences(
             "sort": {"by": "latency", "partition": "none"},
             "allow_fallbacks": True,
         }
-    if provider_routing == OpenRouterProviderRouting.GEMMA4_31B_LATENCY:
-        return {
-            "only": ["coreweave/fp4", "deepinfra/turbo"],
-            "sort": {"by": "latency"},
-            "allow_fallbacks": True,
-        }
-    if provider_routing == OpenRouterProviderRouting.GEMMA4_26B_LATENCY:
-        return {
-            "only": ["cloudflare", "dekallm/bf16", "nextbit/bf16", "makora"],
-            "sort": {"by": "latency"},
-            "allow_fallbacks": True,
-        }
     if provider_routing == OpenRouterProviderRouting.GEMMA4_31B_MODELRUN_ONLY:
         return {
             "only": ["modelrun/fp4"],

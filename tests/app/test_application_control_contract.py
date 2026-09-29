@@ -60,7 +60,7 @@ async def test_cli_model_only_selection_restores_saved_luna_connection(
             (
                 {"translation.model": "gpt_6_luna"},
                 {"translation.connection": "official_byok"},
-                {"translation.model": "gemma4"},
+                {"translation.model": "gemma4_26b_31b"},
                 {"translation.model": "gpt_6_luna"},
             )
         ):

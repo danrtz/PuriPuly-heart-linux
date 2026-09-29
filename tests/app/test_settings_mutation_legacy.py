@@ -310,31 +310,6 @@ def test_runtime_only_secret_and_legacy_order24_fields_are_not_covered() -> None
     }.isdisjoint(ORDER24_UI_PROMPT_CLIPBOARD_STATE_SETTINGS_PATHS)
 
 
-def test_settings_path_patch_builds_typed_mutation_request_for_order21_surface() -> None:
-    patch = SettingsPathPatch(
-        values_by_path={
-            "intent.translation.model": "gemma4",
-            "intent.translation.openrouter_selection_alias": "gemma4_byok",
-        },
-        surface=settings_mutation.SETTINGS_MUTATION_SURFACE_TRANSLATION_PROVIDER,
-    )
-
-    request = patch.to_mutation_request(
-        expected_revision="settings-r1",
-        correlation_id="corr-order21",
-    )
-
-    assert request == settings_mutation.SettingsMutationRequest(
-        values={
-            "intent.translation.model": "gemma4",
-            "intent.translation.openrouter_selection_alias": "gemma4_byok",
-        },
-        expected_revision="settings-r1",
-        reason=settings_mutation.SETTINGS_MUTATION_SURFACE_TRANSLATION_PROVIDER,
-        correlation_id="corr-order21",
-    )
-
-
 def test_settings_path_patch_builds_typed_mutation_request_for_order22_surface() -> None:
     patch = SettingsPathPatch(
         values_by_path={

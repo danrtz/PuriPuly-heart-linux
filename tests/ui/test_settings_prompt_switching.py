@@ -150,7 +150,7 @@ def test_settings_view_switches_prompt_on_llm_change(monkeypatch) -> None:
     assert pending is not None
     assert _llm(pending) == LLMProviderName.GEMINI.value
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     pending = view.build_provider_apply_settings()
 
     assert view._prompt_editor.value == load_prompt_for_provider("openrouter")
@@ -249,7 +249,7 @@ def test_settings_view_uses_single_prompt_across_provider_switches(monkeypatch) 
     assert pending is not None
     assert _prompt(pending) == "QWEN EDITED"
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     pending = view.build_provider_apply_settings()
     assert view._prompt_editor.value == "QWEN EDITED"
     assert _prompt(settings) == "GEMINI CUSTOM"
@@ -293,7 +293,15 @@ def test_single_prompt_whitespace_survives_provider_switch(monkeypatch) -> None:
     assert _prompt(pending) == "  CUSTOM PROMPT\n"
 
 
-def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypatch) -> None:
+@pytest.fixture(params=["en", "ja", "ko", "ru", "zh-CN"])
+def selection_locale(request):
+    previous = i18n_module.get_locale()
+    i18n_module.set_locale(request.param)
+    yield request.param
+    i18n_module.set_locale(previous)
+
+
+def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypatch, selection_locale) -> None:
     settings = AppSettingsVNext()
     view = _make_settings_view(monkeypatch)
     view.load_from_settings(settings, config_path=Path("settings.json"))
@@ -365,16 +373,13 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
         "settings.translation_model.section.gpu_inference"
     )
 
-    gemma31 = next(
-        option for option in options if option.value == TranslationModel.GEMMA4_31B.value
+    cloud_gemma = next(
+        option for option in options if option.value == TranslationModel.GEMMA4_26B_31B.value
     )
-    assert gemma31.section == t("settings.translation_model.section.others")
-    assert gemma31.description == ""
-
-    gemma26_a4b = next(
-        option for option in options if option.value == TranslationModel.GEMMA4.value
-    )
-    assert gemma26_a4b.section == t("settings.translation_model.section.others")
+    assert cloud_gemma.section == t("settings.translation_model.section.recommended_cloud")
+    assert cloud_gemma.label == t("provider.gemma4_26b_31b") == "Gemma 4 26B + 31B"
+    assert values.count(TranslationModel.GEMMA4_26B_31B.value) == 1
+    assert not {"gemma4", "gemma4_31b"} & set(values)
 
     sections: list[str] = []
     for option in options:
@@ -388,17 +393,20 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
         t("settings.translation_model.section.others"),
     ]
 
-    others_options = [option for option in options if option.section == gemma26_a4b.section]
+    others_options = [
+        option
+        for option in options
+        if option.section == t("settings.translation_model.section.others")
+    ]
     assert others_options[0] is deepseek_v4_flash
-    assert others_options[1] is gemma26_a4b
-    assert others_options[2] is gemma31
+    assert all(option.value != cloud_gemma.value for option in others_options)
 
 
-def test_gemma31_connection_modal_lists_managed_and_openrouter(monkeypatch) -> None:
+def test_combined_gemma_connection_modal_lists_managed_and_openrouter(monkeypatch) -> None:
     settings = _settings(
-        model="gemma4_31b",
+        model="gemma4_26b_31b",
         connection="openrouter",
-        history={"gemma4_31b": "openrouter"},
+        history={"gemma4_26b_31b": "openrouter"},
     )
     view = _make_settings_view(monkeypatch)
     view.load_from_settings(settings, config_path=Path("settings.json"))

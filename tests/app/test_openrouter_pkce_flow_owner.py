@@ -228,11 +228,11 @@ async def test_application_owner_commits_verified_pkce_secret_settings_and_runti
     provider_snapshot, _general, _prompt, _overlay = settings_view_surface_snapshots(current)
     staged_translation = replace(
         provider_snapshot.translation,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.OPENROUTER,
     )
     target = OpenRouterPkceTarget(
-        selection_alias=OpenRouterSelectionAlias.GEMMA4_BYOK,
+        selection_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK,
         provider_intent=ProviderApplyIntent(
             (
                 TranslationSelectionEdit(
@@ -291,7 +291,7 @@ async def test_application_owner_commits_verified_pkce_secret_settings_and_runti
     assert store.values["openrouter_api_key"] == "sk-or-v1-user"
     assert settings.canonical is not None
     assert settings.canonical.intent.translation.openrouter_selection_alias == (
-        OpenRouterSelectionAlias.GEMMA4_BYOK.value
+        OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value
     )
     assert settings.canonical.intent.translation.openrouter_selected_source == (
         OpenRouterCredentialSource.BYOK.value
@@ -301,7 +301,7 @@ async def test_application_owner_commits_verified_pkce_secret_settings_and_runti
     )
     assert settings.canonical.state.provider_verification.openrouter.status == "verified"
     assert settings.canonical.intent.prompts.system_prompt_override == "PKCE prompt draft"
-    assert settings.canonical.intent.translation.model == TranslationModel.GEMMA4.value
+    assert settings.canonical.intent.translation.model == TranslationModel.GEMMA4_26B_31B.value
     assert (
         settings.canonical.intent.translation.connection == TranslationConnection.OPENROUTER.value
     )
