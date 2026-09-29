@@ -2603,3 +2603,56 @@ def test_create_stt_backend_soniox_passes_effective_custom_terms() -> None:
 
     assert isinstance(backend, SonioxRealtimeSTTBackend)
     assert list(backend.context_terms) == ["Puripuly", "VRChat"]
+
+
+def test_chatgpt_plan_hedge_reuses_primary_connection_pool() -> None:
+    from puripuly_heart.config.runtime_resolution import (
+        RuntimeResolutionInput,
+        normalize_translation_runtime_intent,
+        resolve_llm_config,
+    )
+    from puripuly_heart.core.chatgpt.session import CHATGPT_REFRESH_TOKEN_SECRET
+    from puripuly_heart.providers.llm.chatgpt_plan import ChatGptPlanLLMProvider
+
+    secrets = InMemorySecretStore()
+    secrets.set(CHATGPT_REFRESH_TOKEN_SECRET, "refresh")
+    session = SimpleNamespace(token_generation=0)
+    config = resolve_llm_config(
+        RuntimeResolutionInput(
+            translation=normalize_translation_runtime_intent(
+                model="gpt_6_luna", connection="chatgpt"
+            )
+        )
+    )
+
+    provider = wiring_llm_factory_module.create_llm_provider_from_resolved_config(
+        config, secrets=secrets, chatgpt_session=session
+    )
+
+    racing = provider.inner
+    assert isinstance(racing, FallbackRacingLLMProvider)
+    assert isinstance(racing.primary, ChatGptPlanLLMProvider)
+    assert [attempt.provider for attempt in racing.attempts] == [racing.primary, racing.primary]
+    assert racing.attempts[1].start_after_ms == 2000
+
+
+def test_chatgpt_plan_requires_sign_in_secret() -> None:
+    from puripuly_heart.config.runtime_resolution import (
+        RuntimeResolutionInput,
+        normalize_translation_runtime_intent,
+        resolve_llm_config,
+    )
+
+    config = resolve_llm_config(
+        RuntimeResolutionInput(
+            translation=normalize_translation_runtime_intent(
+                model="gpt_6_luna", connection="chatgpt"
+            )
+        )
+    )
+    with pytest.raises(ValueError, match="chatgpt_refresh_token"):
+        wiring_llm_factory_module.create_llm_provider_from_resolved_config(
+            config,
+            secrets=InMemorySecretStore(),
+            chatgpt_session=SimpleNamespace(token_generation=0),
+        )

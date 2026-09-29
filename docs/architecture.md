@@ -71,6 +71,7 @@ Broker is a control-plane dependency, not part of the normal utterance data path
 | Output runtime          | Routing, delivery tasks, destinations, delivery history    | `core/runtime/output.py`                              |
 | Overlay owners          | Overlay selection, process lifecycle, state, calibration   | `app/services/overlay/overlay_application.py`            |
 | Managed-account runtime | Authentication, entitlement, usage, credential release     | `app/wiring/wiring_managed_account.py`                      |
+| ChatGPT account owner   | Sign in with ChatGPT OAuth, refresh-token storage, access-token refresh | `app/services/chatgpt_account.py`, `core/chatgpt/session.py` |
 | OSC control runtime   | Receiver lifecycle, routing, state publication, restart    | `app/services/osc/control_runtime.py`                        |
 | OSCQuery service      | Zeroconf discovery, receiver advertisement, OSCQuery tree | `core/osc/oscquery.py`                                        |
 | Shutdown adapter        | Ordered application teardown                               | `app/adapters/application_runtime_shutdown.py`      |
@@ -341,6 +342,12 @@ Provider adapters own:
 
 The managed local Gemma adapter remains behind `LLMProvider`; its application/runtime owners handle model provisioning, backend readiness, and process lifecycle.
 
+GPT 6 Luna over the `chatgpt` connection uses the user's ChatGPT plan through Sign in with ChatGPT:
+
+- `ChatGptAccountOwner` runs the loopback OAuth flow (PKCE, dynamic client registration, ID-token verification) and never routes through the Broker.
+- `ChatGptSession` is shared across provider rebuilds. The secret store keeps only the refresh token, issued client ID, host ID, and account label; access tokens stay in memory because they exceed the Windows credential size limit.
+- `ChatGptPlanLLMProvider` owns a pool of Responses API WebSocket connections. One connection serves one request at a time, so concurrent Self, Peer, and hedged requests use separate connections. The hedged attempt reuses the primary provider's pool instead of building a second provider, so it starts on an already-open connection. Connections are replaced after a token refresh and closed with the provider. `LlmConnectionReadinessOwner` opens them ahead of the first utterance once translation is on and Talk or Listen is active, and releases them when translation stops or both Talk and Listen stop; idle connections close immediately and in-flight ones close after their response (`app/services/llm_connection_readiness.py`).
+
 Cloud translation may use bounded hedged attempts according to resolved runtime policy, not persisted fallback selections (`config/runtime_resolution.py`, `core/llm/fallback_racing.py`).
 
 Translation owners retain:
@@ -356,7 +363,7 @@ Peer translations may execute concurrently, but source-context preparation and p
 
 Self speculative selection remains in the Self owner. Once a turn is admitted, the turn lifecycle owns subsequent translation and publication.
 
-Implementation: `core/orchestrator/translation_turn.py`, `core/orchestrator/translation_request.py`. Behavior tests: `tests/core/test_translation_turn_owner.py`, `tests/core/test_translation_request_owner.py`, `tests/core/test_hedged_attempts.py`.
+Implementation: `core/orchestrator/translation_turn.py`, `core/orchestrator/translation_request.py`, `providers/llm/chatgpt_plan.py`. Behavior tests: `tests/core/test_translation_turn_owner.py`, `tests/core/test_translation_request_owner.py`, `tests/core/test_hedged_attempts.py`.
 
 ## Output
 

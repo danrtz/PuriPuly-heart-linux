@@ -235,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
     auth_sub = auth.add_subparsers(dest="action", required=True)
     auth_sub.add_parser("status")
     auth_login = auth_sub.add_parser("login")
-    auth_login.add_argument("provider", choices=("qq", "discord", "openrouter"))
+    auth_login.add_argument("provider", choices=("qq", "discord", "openrouter", "chatgpt"))
     auth_login.add_argument(
         "--stdin", action="store_true", help="Read protected JSON fields from stdin"
     )
@@ -244,7 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     auth_login.add_argument("--no-wait", action="store_true")
     auth_logout = auth_sub.add_parser("logout")
-    auth_logout.add_argument("provider", choices=("qq", "discord", "openrouter"))
+    auth_logout.add_argument("provider", choices=("qq", "discord", "openrouter", "chatgpt"))
     auth_logout.add_argument("--no-wait", action="store_true")
     return parser
 
@@ -389,7 +389,7 @@ async def _submit(record: Any, name: str, values: dict[str, Any], args: argparse
             "malformed_response", "Accepted operation omitted its operation ID"
         )
     try:
-        if name == "auth.login" and values["provider"] in ("discord", "openrouter"):
+        if name == "auth.login" and values["provider"] in ("discord", "openrouter", "chatgpt"):
             deadline = time.monotonic() + args.timeout
             while True:
                 remaining = deadline - time.monotonic()

@@ -687,8 +687,8 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
         translation = replace(translation, model="qwen38_flash")
         model = "qwen38_flash"
     connection = translation.connection
-    if model == "gpt_6_luna" and connection not in {"openrouter", "official_byok"}:
-        connection = "openrouter"
+    if model == "gpt_6_luna" and connection not in {"chatgpt", "openrouter", "official_byok"}:
+        connection = "chatgpt"
         translation = replace(translation, connection=connection)
     if model == "deepseek_v4_flash" and connection == "official_byok":
         translation = replace(translation, model="deepseek_v4_flash_41")

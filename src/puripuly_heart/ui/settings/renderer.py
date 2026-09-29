@@ -60,6 +60,8 @@ def compose_settings_api_surface(
         slots.managed_key,
         slots.api_keys,
     ]
+    if slots.chatgpt_account is not None:
+        rows.insert(rows.index(slots.managed_key), slots.chatgpt_account)
     if slots.http_extension is not None:
         rows.insert(2, slots.http_extension)
 

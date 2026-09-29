@@ -111,8 +111,8 @@ COMMANDS = {
     "secrets.set": "Store provider credential (value never returned)",
     "secrets.delete": "Delete provider credential",
     "secrets.verify": "Verify provider credential separately from storage",
-    "auth.login": "Authorize a QQ, Discord, or OpenRouter account with explicit browser consent",
-    "auth.logout": "Remove locally stored account authorization (does not revoke remote access)",
+    "auth.login": "Authorize a QQ, Discord, OpenRouter, or ChatGPT account with explicit browser consent",
+    "auth.logout": "Remove locally stored account authorization (ChatGPT also requests remote revocation)",
     "overlay.set": "Set overlay enabled state",
     "overlay.lock": "Lock/unlock desktop caption positioning",
     "overlay.size": "Select desktop overlay size",
@@ -178,13 +178,13 @@ COMMAND_ARGUMENTS = {
     "overlay.lock": {"locked": "boolean"},
     "overlay.size": {"preset": "settings.choices overlay size"},
     "auth.login": {
-        "provider": ["qq", "discord", "openrouter"],
+        "provider": ["qq", "discord", "openrouter", "chatgpt"],
         "qq_identity": "required non-empty string for QQ",
         "credential": "required non-empty secret for QQ (stdin/hidden input only)",
         "referral_id": "optional referral string for QQ or Discord",
         "open_browser": "optional boolean, default false (OAuth only)",
     },
-    "auth.logout": {"provider": ["qq", "discord", "openrouter"]},
+    "auth.logout": {"provider": ["qq", "discord", "openrouter", "chatgpt"]},
     "models.cancel": {"backend": "cpu or gpu (optional; default gpu)"},
     "gemma.prepare": {},
     "gemma.cancel": {},
@@ -1095,6 +1095,7 @@ class ApplicationControlOwner:
                 "challenge": (
                     dict(self._auth_challenge) if self._auth_challenge is not None else None
                 ),
+                "chatgpt": _chatgpt_status(self.application),
             }
         if name == "consent.peer_translation":
             return {
@@ -1780,7 +1781,7 @@ class ApplicationControlOwner:
 
     async def _login(self, args: dict, operation_id: str) -> dict:
         provider = _string(args, "provider")
-        if provider not in {"qq", "discord", "openrouter"}:
+        if provider not in {"qq", "discord", "openrouter", "chatgpt"}:
             raise ValueError("unsupported account provider")
         app = self.application
         before = getattr(self.results, "current", None)
@@ -1813,6 +1814,28 @@ class ApplicationControlOwner:
                     }
                 )
 
+            if provider == "chatgpt":
+                connect = await app.connect_chatgpt(
+                    open_browser=open_browser,
+                    authorization_url_sink=authorization_url,
+                )
+                self.sync_ui()
+                if connect.succeeded:
+                    return {
+                        "status": "applied",
+                        "provider": provider,
+                        "authorization": "complete",
+                        "first_sign_in": connect.first_sign_in,
+                    }
+                return {
+                    "status": (
+                        "rejected"
+                        if connect.failure_code in {"access_denied", "plan_scope_missing"}
+                        else "failed"
+                    ),
+                    "provider": provider,
+                    "reason": connect.failure_code or "authorization_failed",
+                }
             if provider == "discord":
                 result = await app.start_discord_managed_auth_from_dialog(
                     referral_id=args.get("referral_id"),
@@ -1897,9 +1920,17 @@ class ApplicationControlOwner:
 
     async def _logout(self, args: dict) -> dict:
         provider = _string(args, "provider")
-        if provider not in {"qq", "discord", "openrouter"}:
+        if provider not in {"qq", "discord", "openrouter", "chatgpt"}:
             raise ValueError("unsupported account provider")
         app = self.application
+        if provider == "chatgpt":
+            signed_out = await app.sign_out_chatgpt()
+            self.sync_ui()
+            return {
+                "status": "applied",
+                "provider": provider,
+                "scope": "remote_revoked" if signed_out.remote_revoked else "local_only",
+            }
         current = app.compatibility_settings()
         managed = current.state.managed_connection
         if provider in {"qq", "discord"} and (
@@ -2425,7 +2456,7 @@ def _validate_command_args(command: str, args: dict, *, locale_choices: tuple[st
             raise ValueError("verify_checksums must be a boolean")
     elif command in {"auth.login", "auth.logout"}:
         provider = args["provider"]
-        if type(provider) is not str or provider not in {"qq", "discord", "openrouter"}:
+        if type(provider) is not str or provider not in {"qq", "discord", "openrouter", "chatgpt"}:
             raise ValueError("unsupported account provider")
         if command == "auth.login":
             _validate_auth_login_args(args, provider)
@@ -2469,6 +2500,21 @@ def _validate_auth_login_args(args: dict, provider: str) -> None:
         raise ValueError("OAuth login does not accept QQ credentials")
     if provider == "openrouter" and referral_id is not None:
         raise ValueError("referral_id is not valid for OpenRouter authorization")
+    if provider == "chatgpt" and referral_id is not None:
+        raise ValueError("referral_id is not valid for ChatGPT authorization")
+
+
+def _chatgpt_status(application: object) -> dict[str, bool]:
+    snapshot_provider = getattr(application, "chatgpt_account_snapshot", None)
+    if not callable(snapshot_provider):
+        return {"signed_in": False, "in_progress": False, "sign_in_required": False}
+    snapshot = snapshot_provider()
+    required = getattr(application, "chatgpt_sign_in_required", None)
+    return {
+        "signed_in": bool(snapshot.signed_in),
+        "in_progress": bool(snapshot.in_progress),
+        "sign_in_required": bool(required()) if callable(required) else False,
+    }
 
 
 def _validate_calibration_args(args: dict) -> None:

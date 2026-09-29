@@ -164,6 +164,7 @@ from puripuly_heart.ui.i18n import (
 from puripuly_heart.ui.overlay_peer_contract import OverlayPeerConsumerContract
 from puripuly_heart.ui.settings.contract import (
     SettingsApiSurfaceSlots,
+    SettingsChatGptIntents,
     SettingsGeneralIntents,
     SettingsGeneralSurfaceSlots,
     SettingsOverlayIntents,
@@ -300,6 +301,7 @@ _TRANSLATION_CONNECTION_LABEL_KEYS = {
     TranslationConnection.GPU: "settings.translation_connection.gpu",
     TranslationConnection.MANAGED: "settings.translation_connection.managed",
     TranslationConnection.MANAGED_CHINA: "settings.translation_connection.managed_china",
+    TranslationConnection.CHATGPT: "settings.translation_connection.chatgpt",
     TranslationConnection.OPENROUTER: "settings.translation_connection.openrouter",
     TranslationConnection.OFFICIAL_BYOK: "settings.translation_connection.official_byok",
     TranslationConnection.OLLAMA: "settings.translation_connection.ollama",
@@ -571,6 +573,9 @@ class SettingsView(ft.Column):
     def managed_key_control(self) -> ft.Control:
         return self._managed_key_card
 
+    def chatgpt_account_control(self) -> ft.Control:
+        return self._chatgpt_account_card
+
     def api_keys_control(self) -> ft.Control:
         return self._api_keys_card
 
@@ -598,6 +603,7 @@ class SettingsView(ft.Column):
         self.on_custom_stt_secret_changed = provider.custom_stt_secret_changed
         self.on_gpu_discovery_requested = provider.gpu_discovery_requested
         self._settings_secrets = provider.settings_secrets
+        self._chatgpt_intents = provider.chatgpt
         self.on_start_microphone_test = general.start_microphone_test
         self.on_telemetry_enabled_change = general.telemetry_enabled_change
         self.on_list_loopback_capture_options = general.list_loopback_capture_options
@@ -1351,6 +1357,57 @@ class SettingsView(ft.Column):
             expand=False,
         )
         self._managed_key_card.visible = False
+        self._chatgpt_intents: SettingsChatGptIntents | None = None
+        self._chatgpt_account_title = ft.Text(
+            t("settings.chatgpt_account.title"),
+            size=24,
+            weight=ft.FontWeight.BOLD,
+            color=COLOR_SECONDARY,
+        )
+        self._chatgpt_account_status = ft.Text(
+            t("settings.chatgpt_account.signed_out"),
+            size=18,
+            color=COLOR_ON_BACKGROUND,
+        )
+        self._chatgpt_connect_button = self._build_action_button(
+            t("settings.chatgpt_account.connect"),
+            self._on_chatgpt_connect_click,
+            size=20,
+            default_color=COLOR_NEUTRAL_DARK,
+            disabled_color=COLOR_NEUTRAL_DARK,
+        )
+        self._chatgpt_usage_button = self._build_action_button(
+            t("settings.chatgpt_account.manage_usage"),
+            self._on_chatgpt_usage_click,
+            size=20,
+        )
+        self._chatgpt_sign_out_button = self._build_action_button(
+            t("settings.chatgpt_account.sign_out"),
+            self._on_chatgpt_sign_out_click,
+            size=20,
+        )
+        self._chatgpt_account_card = self._wrap_card(
+            ft.Column(
+                [
+                    self._chatgpt_account_title,
+                    ft.Container(height=4),
+                    self._chatgpt_account_status,
+                    ft.Row(
+                        [
+                            self._chatgpt_usage_button,
+                            self._chatgpt_sign_out_button,
+                            self._chatgpt_connect_button,
+                        ],
+                        alignment=ft.MainAxisAlignment.END,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=8,
+            ),
+            height=None,
+            expand=False,
+        )
+        self._chatgpt_account_card.visible = False
         self._alibaba_key_beijing = ApiKeyField(
             "settings.alibaba_api_key_beijing",
             "alibaba_api_key_beijing",
@@ -3069,7 +3126,7 @@ class SettingsView(ft.Column):
             return "gemini"
         if settings.llm_provider == LLMProviderName.OPENROUTER:
             return "openrouter"
-        if settings.llm_provider == LLMProviderName.OPENAI:
+        if settings.llm_provider in (LLMProviderName.OPENAI, LLMProviderName.CHATGPT):
             return "openai"
         if settings.llm_provider == LLMProviderName.DEEPSEEK:
             return "deepseek"
@@ -4288,6 +4345,12 @@ class SettingsView(ft.Column):
         self._openrouter_key.visible = bool(not is_custom_http and openrouter_byok_selected)
         self._openrouter_pkce_button_row.visible = openrouter_byok_selected
         self._openai_key.visible = bool(not is_custom_http and llm == LLMProviderName.OPENAI)
+        chatgpt_account_card = getattr(self, "_chatgpt_account_card", None)
+        if chatgpt_account_card is not None:
+            chatgpt_account_card.visible = bool(
+                not is_custom_http and llm == LLMProviderName.CHATGPT
+            )
+            self._sync_chatgpt_account_card()
         self._openai_verification_notice.visible = self._openai_key.visible
         self._deepseek_key.visible = bool(not is_custom_http and llm == LLMProviderName.DEEPSEEK)
         self._sync_openrouter_pkce_button_state(settings)
@@ -4783,6 +4846,10 @@ class SettingsView(ft.Column):
                 llm_provider = LLMProviderName.OPENAI
                 openrouter_source = OpenRouterCredentialSource.NONE
                 openrouter_alias = None
+            elif connection == TranslationConnection.CHATGPT:
+                llm_provider = LLMProviderName.CHATGPT
+                openrouter_source = OpenRouterCredentialSource.NONE
+                openrouter_alias = None
             else:
                 llm_provider = LLMProviderName.OPENROUTER
                 openrouter_model = OpenRouterLLMModel.GPT_6_LUNA
@@ -5054,6 +5121,51 @@ class SettingsView(ft.Column):
         if is_control_mounted(self):
             self._ui_text.update()
         self._emit_settings_changed(LocaleSettingsIntent(value))
+
+    def refresh_chatgpt_account(self) -> None:
+        self._sync_chatgpt_account_card()
+        _update_control_if_mounted(self._chatgpt_account_card)
+
+    def _sync_chatgpt_account_card(self) -> None:
+        intents = getattr(self, "_chatgpt_intents", None)
+        snapshot = intents.account_snapshot() if intents is not None else None
+        signed_in = bool(snapshot is not None and snapshot.signed_in)
+        in_progress = bool(snapshot is not None and snapshot.in_progress)
+        if signed_in and snapshot is not None and snapshot.email:
+            status = t("settings.chatgpt_account.signed_in", email=snapshot.email)
+        elif signed_in:
+            status = t("settings.chatgpt_account.signed_in_no_email")
+        elif in_progress:
+            status = t("settings.chatgpt_account.in_progress")
+        else:
+            status = t("settings.chatgpt_account.signed_out")
+        self._chatgpt_account_status.value = status
+        _set_text_button_label(
+            self._chatgpt_connect_button,
+            t(
+                "settings.chatgpt_account.reopen"
+                if in_progress
+                else "settings.chatgpt_account.connect"
+            ),
+        )
+        self._chatgpt_connect_button.visible = not signed_in
+        self._chatgpt_usage_button.visible = signed_in
+        self._chatgpt_sign_out_button.visible = signed_in
+
+    def _on_chatgpt_connect_click(self, _e) -> None:
+        intents = getattr(self, "_chatgpt_intents", None)
+        if intents is not None:
+            intents.connect()
+
+    def _on_chatgpt_usage_click(self, _e) -> None:
+        intents = getattr(self, "_chatgpt_intents", None)
+        if intents is not None:
+            intents.open_usage()
+
+    def _on_chatgpt_sign_out_click(self, _e) -> None:
+        intents = getattr(self, "_chatgpt_intents", None)
+        if intents is not None:
+            intents.sign_out()
 
     def _on_api_guide_click(self, _e) -> None:
         if self.on_open_api_keys_guide is not None:

@@ -58,6 +58,7 @@ TRANSLATION_MODEL_CUSTOM_HTTP: Final = "custom_http"
 
 _FIRST_HEDGE_DELAY_MS: Final = 1300
 _EMERGENCY_HEDGE_DELAY_MS: Final = 4400
+_CHATGPT_FIRST_HEDGE_DELAY_MS: Final = 2000
 _LOSER_GRACE_MS: Final = 50
 
 TranslationModelName: TypeAlias = Literal[
@@ -87,6 +88,7 @@ TRANSLATION_MODELS: Final[tuple[TranslationModelName, ...]] = (
 
 TRANSLATION_CONNECTION_MANAGED: Final = "managed"
 TRANSLATION_CONNECTION_MANAGED_CHINA: Final = "managed_china"
+TRANSLATION_CONNECTION_CHATGPT: Final = "chatgpt"
 TRANSLATION_CONNECTION_OPENROUTER: Final = "openrouter"
 TRANSLATION_CONNECTION_OFFICIAL_BYOK: Final = "official_byok"
 TRANSLATION_CONNECTION_OLLAMA: Final = "ollama"
@@ -97,6 +99,7 @@ TRANSLATION_CONNECTION_CUSTOM_HTTP: Final = "custom_http"
 TranslationConnectionName: TypeAlias = Literal[
     "managed",
     "managed_china",
+    "chatgpt",
     "openrouter",
     "official_byok",
     "ollama",
@@ -107,6 +110,7 @@ TranslationConnectionName: TypeAlias = Literal[
 TRANSLATION_CONNECTIONS: Final[tuple[TranslationConnectionName, ...]] = (
     TRANSLATION_CONNECTION_MANAGED,
     TRANSLATION_CONNECTION_MANAGED_CHINA,
+    TRANSLATION_CONNECTION_CHATGPT,
     TRANSLATION_CONNECTION_OPENROUTER,
     TRANSLATION_CONNECTION_OFFICIAL_BYOK,
     TRANSLATION_CONNECTION_OLLAMA,
@@ -138,6 +142,7 @@ TRANSLATION_CONNECTIONS_BY_MODEL: Final[
             TRANSLATION_CONNECTION_OPENROUTER,
         ),
         TRANSLATION_MODEL_GPT_6_LUNA: (
+            TRANSLATION_CONNECTION_CHATGPT,
             TRANSLATION_CONNECTION_OPENROUTER,
             TRANSLATION_CONNECTION_OFFICIAL_BYOK,
         ),
@@ -156,6 +161,7 @@ TRANSLATION_CONNECTIONS_BY_MODEL: Final[
 )
 TRANSLATION_CONNECTION_PRIORITY: Final[tuple[TranslationConnectionName, ...]] = (
     TRANSLATION_CONNECTION_MANAGED,
+    TRANSLATION_CONNECTION_CHATGPT,
     TRANSLATION_CONNECTION_OPENROUTER,
     TRANSLATION_CONNECTION_OFFICIAL_BYOK,
 )
@@ -180,6 +186,7 @@ OPENROUTER_MANAGED_CREDENTIAL_KINDS: Final[tuple[OpenRouterManagedCredentialKind
 PROVIDER_OPENROUTER: Final = "openrouter"
 PROVIDER_DEEPSEEK: Final = "deepseek"
 PROVIDER_OPENAI: Final = "openai"
+PROVIDER_CHATGPT: Final = "chatgpt"
 PROVIDER_GEMINI: Final = "gemini"
 PROVIDER_QWEN: Final = "qwen"
 PROVIDER_MANAGED_GEMMA: Final = "managed_gemma"
@@ -214,6 +221,7 @@ CREDENTIAL_REF_OPENROUTER_MANAGED_QQ: Final = "openrouter:managed_qq"
 CREDENTIAL_REF_GEMINI_BYOK: Final = "gemini:byok"
 CREDENTIAL_REF_DEEPSEEK_BYOK: Final = "deepseek:byok"
 CREDENTIAL_REF_OPENAI_BYOK: Final = "openai:byok"
+CREDENTIAL_REF_CHATGPT_OAUTH: Final = "chatgpt:oauth"
 CREDENTIAL_REF_QWEN_BEIJING: Final = "qwen:beijing"
 CREDENTIAL_REF_QWEN_SINGAPORE: Final = "qwen:singapore"
 CREDENTIAL_REF_DEEPGRAM_STT: Final = "deepgram:stt"
@@ -1526,6 +1534,15 @@ def _resolve_translation_target(
             ),
         )
     if translation.model == TRANSLATION_MODEL_GPT_6_LUNA:
+        if translation.connection == TRANSLATION_CONNECTION_CHATGPT:
+            return _resolved_direct_provider_target(
+                provider=PROVIDER_CHATGPT,
+                model=OPENAI_MODEL_GPT_6_LUNA,
+                credential=_required_credential(
+                    CREDENTIAL_SOURCE_SECRET_STORE,
+                    CREDENTIAL_REF_CHATGPT_OAUTH,
+                ),
+            )
         if translation.connection == TRANSLATION_CONNECTION_OFFICIAL_BYOK:
             return _resolved_direct_provider_target(
                 provider=PROVIDER_OPENAI,
@@ -1605,7 +1622,11 @@ def _fallback_plan_for_target(
 ) -> ResolvedLLMFallbackPlan:
     return ResolvedLLMFallbackPlan(
         target=target,
-        timeout_ms=_FIRST_HEDGE_DELAY_MS,
+        timeout_ms=(
+            _CHATGPT_FIRST_HEDGE_DELAY_MS
+            if target.provider == PROVIDER_CHATGPT
+            else _FIRST_HEDGE_DELAY_MS
+        ),
         force_managed_wrapper=(
             target.provider == PROVIDER_OPENROUTER
             and target.credential.source == CREDENTIAL_SOURCE_MANAGED
@@ -1684,6 +1705,7 @@ def resolve_llm_config(runtime_input: RuntimeResolutionInput) -> ResolvedLLMConf
 
 __all__ = [
     "CREDENTIAL_REF_DEEPSEEK_BYOK",
+    "CREDENTIAL_REF_CHATGPT_OAUTH",
     "CREDENTIAL_REF_OPENAI_BYOK",
     "CREDENTIAL_REF_GEMINI_BYOK",
     "CREDENTIAL_REF_OPENROUTER_BYOK",
@@ -1728,6 +1750,7 @@ __all__ = [
     "PROVIDER_MANAGED_GEMMA",
     "PROVIDER_LOCAL_LLM",
     "PROVIDER_OPENROUTER",
+    "PROVIDER_CHATGPT",
     "PROVIDER_OPENAI",
     "PROVIDER_QWEN",
     "QWEN_MODEL_35_FLASH",
@@ -1770,6 +1793,7 @@ __all__ = [
     "TRANSLATION_CONNECTION_MANAGED_CHINA",
     "TRANSLATION_CONNECTION_CPU",
     "TRANSLATION_CONNECTION_GPU",
+    "TRANSLATION_CONNECTION_CHATGPT",
     "TRANSLATION_CONNECTION_OFFICIAL_BYOK",
     "TRANSLATION_CONNECTION_OLLAMA",
     "TRANSLATION_CONNECTION_CUSTOM_HTTP",

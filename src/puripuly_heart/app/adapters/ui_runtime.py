@@ -6,6 +6,11 @@ from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
+from puripuly_heart.app.ports.chatgpt_account import (
+    ChatGptAccountSnapshot,
+    ChatGptConnectResult,
+    ChatGptSignOutResult,
+)
 from puripuly_heart.app.ports.settings_view import (
     AlibabaConnectionApplyResult,
     AlibabaConnectionDraftSnapshot,
@@ -27,11 +32,13 @@ from puripuly_heart.app.services.application_after_launch import (
     ApplicationAfterLaunchOwner,
 )
 from puripuly_heart.app.services.canonical_settings_persistence import SettingsOwner
+from puripuly_heart.app.services.chatgpt_account import ChatGptAccountOwner
 from puripuly_heart.app.services.desktop_overlay_application import (
     DesktopOverlayApplicationOwner,
 )
 from puripuly_heart.app.services.github_star_prompt import GithubStarPromptOwner
 from puripuly_heart.app.services.gpu_runtime_interaction import GpuRuntimeInteractionOwner
+from puripuly_heart.app.services.llm_connection_readiness import LlmConnectionReadinessOwner
 from puripuly_heart.app.services.managed_gemma_translation import (
     ManagedGemmaTranslationOwner,
 )
@@ -69,6 +76,7 @@ from puripuly_heart.app.wiring_runtime_pipeline import RuntimePipelineHandle
 from puripuly_heart.config.alibaba_connection import AlibabaEndpointMode, AlibabaRegion
 from puripuly_heart.config.prompts import resolve_system_prompt
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.config.translation_values import provider_llm_for_translation
 from puripuly_heart.core.http_extensions import (
     http_extension_secret_key_prefix,
 )
@@ -97,6 +105,7 @@ class UiInputRuntimeAdapter:
     manual_typing: ManualTypingOwner
     translation: TranslationEnableOwner
     self_capture: SelfCaptureApplicationOwner
+    connection_readiness: LlmConnectionReadinessOwner | None = None
 
     async def submit_text(self, text: str) -> None:
         owner = self.pipeline.self_translation_channel
@@ -109,19 +118,33 @@ class UiInputRuntimeAdapter:
     async def set_translation_enabled(
         self, enabled: bool, *, allow_authorization: bool = True
     ) -> object:
-        return await self.translation.set_enabled(enabled, allow_authorization=allow_authorization)
+        result = await self.translation.set_enabled(
+            enabled, allow_authorization=allow_authorization
+        )
+        self._sync_connection_readiness()
+        return result
 
     async def set_stt_enabled(self, enabled: bool) -> object:
-        return await self.self_capture.set_enabled(enabled)
+        result = await self.self_capture.set_enabled(enabled)
+        self._sync_connection_readiness()
+        return result
+
+    def _sync_connection_readiness(self) -> None:
+        if self.connection_readiness is not None:
+            self.connection_readiness.sync()
 
 
 @dataclass(slots=True)
 class UiPeerCaptureRuntimeAdapter:
     peer: PeerApplicationRuntime
     overlay: OverlayApplicationOwner
+    connection_readiness: LlmConnectionReadinessOwner | None = None
 
     async def set_peer_translation_enabled(self, enabled: bool) -> object:
-        return await self.peer.owner.set_enabled(enabled)
+        result = await self.peer.owner.set_enabled(enabled)
+        if self.connection_readiness is not None:
+            self.connection_readiness.sync()
+        return result
 
     async def retry_peer_process_capture(self) -> bool:
         return await self.peer.owner.retry_process_capture()
@@ -376,6 +399,7 @@ class UiProviderRuntimeAdapter:
     build_byok_target_settings: Callable[[AppSettingsVNext | None], AppSettingsVNext | None]
     managed_gemma: ManagedGemmaTranslationOwner | None = None
     llm_devices_sink: Callable[[tuple[GpuDeviceOption, ...]], None] | None = None
+    chatgpt: ChatGptAccountOwner | None = None
     _alibaba_workspace: AlibabaWorkspaceOwner | None = field(default=None, init=False)
 
     def alibaba_workspace(self) -> AlibabaWorkspaceOwner:
@@ -489,6 +513,52 @@ class UiProviderRuntimeAdapter:
 
     def reopen_openrouter_pkce_authorization_url(self) -> object:
         return self.managed.pkce_flow.reopen_authorization_url()
+
+    def chatgpt_account_snapshot(self) -> ChatGptAccountSnapshot:
+        if self.chatgpt is None:
+            return ChatGptAccountSnapshot(signed_in=False)
+        return self.chatgpt.snapshot()
+
+    async def connect_chatgpt(
+        self,
+        *,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
+    ) -> ChatGptConnectResult:
+        if self.chatgpt is None:
+            return ChatGptConnectResult(succeeded=False, failure_code="unavailable")
+        result = await self.chatgpt.connect(
+            open_browser=open_browser,
+            authorization_url_sink=authorization_url_sink,
+        )
+        if result.succeeded and self.chatgpt_route_active():
+            await self.apply_providers(force_rebuild_llm=True, persist_settings=False)
+        return result
+
+    def reopen_chatgpt_authorization_url(self) -> bool:
+        return self.chatgpt is not None and self.chatgpt.reopen_authorization_url()
+
+    async def sign_out_chatgpt(self) -> ChatGptSignOutResult:
+        if self.chatgpt is None:
+            return ChatGptSignOutResult(remote_revoked=False)
+        result = await self.chatgpt.sign_out()
+        if self.chatgpt_route_active():
+            await self.apply_providers(force_rebuild_llm=True, persist_settings=False)
+        return result
+
+    def cancel_chatgpt_sign_in(self) -> None:
+        if self.chatgpt is not None:
+            self.chatgpt.cancel()
+
+    def chatgpt_sign_in_required(self) -> bool:
+        return self.chatgpt_route_active() and not self.chatgpt_account_snapshot().signed_in
+
+    def chatgpt_route_active(self) -> bool:
+        canonical = self.settings.canonical
+        if canonical is None:
+            return False
+        translation = canonical.intent.translation
+        return provider_llm_for_translation(translation.model, translation.connection) == "chatgpt"
 
     def build_managed_openrouter_byok_target(self) -> OpenRouterPkceTarget | None:
         from puripuly_heart.config.provider_values import OpenRouterSelectionAlias

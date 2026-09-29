@@ -60,6 +60,7 @@ from puripuly_heart.app.services.audio_diagnostics_application import (
 from puripuly_heart.app.services.canonical_settings_persistence import (
     compose_settings_owner,
 )
+from puripuly_heart.app.services.chatgpt_account import ChatGptAccountOwner
 from puripuly_heart.app.services.clipboard_auto_translation import (
     ClipboardAutoTranslationOwner,
 )
@@ -85,6 +86,7 @@ from puripuly_heart.app.services.gpu_runtime_interaction import (
 from puripuly_heart.app.services.http_extension_registry import (
     HttpExtensionRegistryService,
 )
+from puripuly_heart.app.services.llm_connection_readiness import LlmConnectionReadinessOwner
 from puripuly_heart.app.services.local_asr_diagnostics import LocalASRDiagnosticsOwner
 from puripuly_heart.app.services.local_asr_gpu_provisioning import (
     LocalASRGpuProvisioningDiagnostic,
@@ -227,6 +229,7 @@ from puripuly_heart.config.resolved import OVERLAY_TARGET_STEAMVR
 from puripuly_heart.config.runtime_resolution import stt_supports_peer_auto_detection
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import TranslationModel
+from puripuly_heart.core.chatgpt.session import ChatGptSession
 from puripuly_heart.core.clipboard.watcher import create_clipboard_watcher
 from puripuly_heart.core.clock import SystemClock
 from puripuly_heart.core.http_extensions import HttpExtensionRegistry
@@ -1830,6 +1833,34 @@ def compose_application_runtime(
             )
         )
 
+    chatgpt_session = ChatGptSession(secret_store=create_settings_secret_store)
+    chatgpt_account = ChatGptAccountOwner(
+        session=chatgpt_session,
+        locale_provider=lambda: (
+            settings.canonical.intent.ui.locale if settings.canonical is not None else None
+        ),
+    )
+
+    def translation_runtime_enabled() -> bool:
+        owner = pipeline.translation_runtime_configuration
+        return owner.snapshot().value.translation_enabled if owner is not None else False
+
+    def capture_desired_active() -> bool:
+        components = getattr(pipeline, "current", None)
+        captures = (
+            getattr(pipeline, "self_capture", None),
+            components.peer_capture if components is not None else None,
+        )
+        return any(capture is not None and capture.snapshot.desired_active for capture in captures)
+
+    llm_connection_readiness = LlmConnectionReadinessOwner(
+        llm_provider=lambda: (
+            pipeline.llm_runtime.provider if pipeline.llm_runtime is not None else None
+        ),
+        translation_enabled=translation_runtime_enabled,
+        capture_active=capture_desired_active,
+    )
+
     provider_runtime: ProviderRuntimeComponents = compose_provider_runtime(
         config_path=config_path,
         settings=settings,
@@ -1870,6 +1901,7 @@ def compose_application_runtime(
         additional_signature_sink=sync_non_provider_signatures,
         managed_gemma=managed_gemma,
         signatures=signatures,
+        chatgpt_session=chatgpt_session,
     )
 
     def apply_managed_usage_view(state) -> None:
@@ -1982,6 +2014,7 @@ def compose_application_runtime(
         cleanup_failure_sink=lambda message, exc: log_error(f"{message}: {exc}"),
         managed_gemma=managed_gemma,
         http_extensions=http_extensions,
+        chatgpt_session=chatgpt_session,
     )
 
     runtime_components = RuntimeCompositionComponents(
@@ -2086,7 +2119,11 @@ def compose_application_runtime(
             await provisioning.close()
 
     async def close_openrouter_oauth() -> None:
-        await managed_account.pkce_flow.close()
+        try:
+            await managed_account.pkce_flow.close()
+        finally:
+            await llm_connection_readiness.close()
+            await chatgpt_account.close()
 
     def clear_event_runtime() -> None:
         nonlocal event_bridge, bridge_task
@@ -2132,10 +2169,12 @@ def compose_application_runtime(
             manual_typing=require_manual_typing(),
             translation=managed_account.translation,
             self_capture=require_self_application(),
+            connection_readiness=llm_connection_readiness,
         ),
         peer_capture=UiPeerCaptureRuntimeAdapter(
             peer=peer_runtime,
             overlay=overlay_owner,
+            connection_readiness=llm_connection_readiness,
         ),
         settings=UiSettingsRuntimeAdapter(
             settings=settings,
@@ -2153,6 +2192,7 @@ def compose_application_runtime(
             provider_settings=require_provider_settings(),
             build_byok_target_settings=settings.build_managed_openrouter_byok_target,
             managed_gemma=managed_gemma,
+            chatgpt=chatgpt_account,
             llm_devices_sink=lambda devices: presentation.set_dashboard_llm_gpu_devices(
                 devices=devices
             ),

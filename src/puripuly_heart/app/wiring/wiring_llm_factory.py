@@ -33,6 +33,7 @@ from puripuly_heart.config.resolved import (
     ResolvedLLMTarget,
 )
 from puripuly_heart.config.runtime_resolution import (
+    CREDENTIAL_REF_CHATGPT_OAUTH,
     CREDENTIAL_REF_OPENAI_BYOK,
     CREDENTIAL_REF_OPENROUTER_BYOK,
     CREDENTIAL_REF_OPENROUTER_MANAGED,
@@ -40,6 +41,7 @@ from puripuly_heart.config.runtime_resolution import (
     CREDENTIAL_REF_QWEN_BEIJING,
     CREDENTIAL_REF_QWEN_SINGAPORE,
     OPENAI_MODEL_GPT_6_LUNA,
+    PROVIDER_CHATGPT,
     PROVIDER_DEEPSEEK,
     PROVIDER_GEMINI,
     PROVIDER_LOCAL_LLM,
@@ -54,6 +56,10 @@ from puripuly_heart.config.runtime_resolution import (
     resolve_llm_config,
 )
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.core.chatgpt.session import (
+    CHATGPT_REFRESH_TOKEN_SECRET,
+    ChatGptAccessTokenPort,
+)
 from puripuly_heart.core.llm import FallbackRacingLLMProvider
 from puripuly_heart.core.llm.fallback_racing import LLMProviderAttempt
 from puripuly_heart.core.llm.provider import LLMProvider, SemaphoreLLMProvider
@@ -76,6 +82,7 @@ from puripuly_heart.core.openrouter_routing import (
 from puripuly_heart.core.storage.secrets import SecretStore
 from puripuly_heart.core.translation_policy import FIXED_TRANSLATION_POLICY
 from puripuly_heart.domain.models import Translation
+from puripuly_heart.providers.llm.chatgpt_plan import ChatGptPlanLLMProvider
 from puripuly_heart.providers.llm.deepseek import DeepSeekLLMProvider
 from puripuly_heart.providers.llm.gemini import GeminiLLMProvider
 from puripuly_heart.providers.llm.local_openai import LocalOpenAICompatibleLLMProvider
@@ -679,7 +686,21 @@ def _provider_from_resolved_target(
     qwen_low_latency_mode: bool,
     force_managed_wrapper: bool = False,
     include_selection_alias: bool = True,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> LLMProvider:
+    if target.provider == PROVIDER_CHATGPT:
+        if target.credential.reference != CREDENTIAL_REF_CHATGPT_OAUTH:
+            raise ValueError("ChatGPT plan requires its OAuth credential")
+        if chatgpt_session is None:
+            raise RuntimeError("ChatGPT session is unavailable")
+        if not (secrets.get(CHATGPT_REFRESH_TOKEN_SECRET) or "").strip():
+            raise ValueError(f"Missing secret `{CHATGPT_REFRESH_TOKEN_SECRET}`")
+        return ChatGptPlanLLMProvider(
+            session=chatgpt_session,
+            model=target.model,
+            runtime_logging=runtime_logging,
+        )
+
     if target.provider == PROVIDER_MANAGED_GEMMA:
         if managed_gemma_runtime is None:
             raise RuntimeError("managed Gemma runtime is unavailable")
@@ -781,6 +802,7 @@ def _base_llm_provider_from_resolved_config(
     managed_gemma_runtime: ManagedGemmaRuntimeOwner | None,
     managed_gemma_release: Callable[[], Awaitable[None]] | None,
     qwen_low_latency_mode: bool,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> LLMProvider:
     return _provider_from_resolved_target(
         config.primary,
@@ -792,6 +814,7 @@ def _base_llm_provider_from_resolved_config(
         managed_gemma_runtime=managed_gemma_runtime,
         managed_gemma_release=managed_gemma_release,
         qwen_low_latency_mode=qwen_low_latency_mode,
+        chatgpt_session=chatgpt_session,
     )
 
 
@@ -824,6 +847,7 @@ def create_llm_provider_from_resolved_config(
     managed_gemma_runtime: ManagedGemmaRuntimeOwner | None = None,
     managed_gemma_release: Callable[[], Awaitable[None]] | None = None,
     qwen_low_latency_mode: bool = True,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> LLMProvider:
     base = _base_llm_provider_from_resolved_config(
         config,
@@ -835,6 +859,7 @@ def create_llm_provider_from_resolved_config(
         managed_gemma_runtime=managed_gemma_runtime,
         managed_gemma_release=managed_gemma_release,
         qwen_low_latency_mode=qwen_low_latency_mode,
+        chatgpt_session=chatgpt_session,
     )
     if len(config.attempts) > 1:
         fallback_managed_release_service = _shared_managed_release_service_for_fallback(
@@ -851,6 +876,22 @@ def create_llm_provider_from_resolved_config(
             )
             if index == 1 and config.fallback is not None:
                 force_managed_wrapper = config.fallback.force_managed_wrapper
+            if (
+                attempt_plan.target.provider == PROVIDER_CHATGPT
+                and config.primary.provider == PROVIDER_CHATGPT
+            ):
+                attempt_providers.append(
+                    LLMProviderAttempt(
+                        provider=base,
+                        start_after_ms=attempt_plan.start_after_ms,
+                        start_on_primary_error=attempt_plan.start_on_primary_error,
+                        log_summary=_fallback_attempt_log_summary(
+                            attempt_plan.target,
+                            start_after_ms=attempt_plan.start_after_ms,
+                        ),
+                    )
+                )
+                continue
             attempt_providers.append(
                 LLMProviderAttempt(
                     provider=_LazyFactoryLLMProvider(
@@ -867,6 +908,7 @@ def create_llm_provider_from_resolved_config(
                                 qwen_low_latency_mode=qwen_low_latency_mode,
                                 force_managed_wrapper=force_managed_wrapper,
                                 include_selection_alias=False,
+                                chatgpt_session=chatgpt_session,
                             )
                         )
                     ),
@@ -902,6 +944,7 @@ def create_llm_provider(
     runtime_logging: ProviderObservationPort | None = None,
     managed_gemma_runtime: ManagedGemmaRuntimeOwner | None = None,
     managed_gemma_release: Callable[[], Awaitable[None]] | None = None,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> LLMProvider:
     return create_llm_provider_from_resolved_config(
         resolve_llm_config(runtime_input),
@@ -913,4 +956,5 @@ def create_llm_provider(
         managed_gemma_runtime=managed_gemma_runtime,
         managed_gemma_release=managed_gemma_release,
         qwen_low_latency_mode=FIXED_TRANSLATION_POLICY.fast_translation_enabled,
+        chatgpt_session=chatgpt_session,
     )

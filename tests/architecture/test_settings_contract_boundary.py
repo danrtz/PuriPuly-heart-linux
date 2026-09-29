@@ -34,6 +34,7 @@ G14_PROVIDER_INTENT_FIELDS = (
     "gpu_discovery_requested",
     "settings_secrets",
     "custom_stt_secret_changed",
+    "chatgpt",
 )
 G14_OWNED_VIEW_CALLBACKS = (
     "on_settings_changed",

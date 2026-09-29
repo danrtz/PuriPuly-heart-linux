@@ -35,15 +35,15 @@ from puripuly_heart.core.storage.secrets import (
 )
 
 
-def test_luna_is_byok_only_and_defaults_to_openrouter() -> None:
+def test_luna_supports_chatgpt_plan_first_then_byok_connections() -> None:
     assert TranslationModel.GPT_6_LUNA.value == "gpt_6_luna"
     assert supported_translation_connections(TranslationModel.GPT_6_LUNA) == (
+        TranslationConnection.CHATGPT,
         TranslationConnection.OPENROUTER,
         TranslationConnection.OFFICIAL_BYOK,
     )
     assert (
-        default_translation_connection(TranslationModel.GPT_6_LUNA)
-        == TranslationConnection.OPENROUTER
+        default_translation_connection(TranslationModel.GPT_6_LUNA) == TranslationConnection.CHATGPT
     )
     assert LLMProviderName.OPENAI.value == "openai"
     assert parse_openrouter_llm_model("openai/gpt-6-luna") == OpenRouterLLMModel.GPT_6_LUNA

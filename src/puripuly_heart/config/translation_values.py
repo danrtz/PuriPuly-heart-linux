@@ -18,6 +18,7 @@ class TranslationModel(str, Enum):
 class TranslationConnection(str, Enum):
     MANAGED = "managed"
     MANAGED_CHINA = "managed_china"
+    CHATGPT = "chatgpt"
     OPENROUTER = "openrouter"
     OFFICIAL_BYOK = "official_byok"
     OLLAMA = "ollama"
@@ -51,6 +52,7 @@ TRANSLATION_CONNECTIONS_BY_MODEL: dict[
     ),
     TranslationModel.QWEN_38_FLASH: (TranslationConnection.OFFICIAL_BYOK,),
     TranslationModel.GPT_6_LUNA: (
+        TranslationConnection.CHATGPT,
         TranslationConnection.OPENROUTER,
         TranslationConnection.OFFICIAL_BYOK,
     ),
@@ -64,6 +66,7 @@ TRANSLATION_CONNECTIONS_BY_MODEL: dict[
 
 TRANSLATION_CONNECTION_PRIORITY: tuple[TranslationConnection, ...] = (
     TranslationConnection.MANAGED,
+    TranslationConnection.CHATGPT,
     TranslationConnection.OPENROUTER,
     TranslationConnection.OFFICIAL_BYOK,
 )
@@ -96,6 +99,8 @@ def provider_llm_for_translation(model: str, connection: str) -> str:
         return "deepseek"
     if model == "gpt_6_luna" and connection == "official_byok":
         return "openai"
+    if model == "gpt_6_luna" and connection == "chatgpt":
+        return "chatgpt"
     if model == "gemini_flash":
         if connection == "openrouter":
             return "openrouter"

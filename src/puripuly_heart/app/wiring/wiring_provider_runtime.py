@@ -21,6 +21,7 @@ from puripuly_heart.config.paths import default_http_extensions_dir
 from puripuly_heart.config.prompts import resolve_system_prompt
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.vad_defaults import DEFAULT_STABLE_VAD_HANGOVER_MS
+from puripuly_heart.core.chatgpt.session import ChatGptAccessTokenPort
 from puripuly_heart.core.http_extensions import HttpExtensionRegistry
 from puripuly_heart.core.local_asr_provider_runtime import LocalASRProviderRuntimePort
 from puripuly_heart.core.observability import ProviderObservationPort
@@ -400,6 +401,7 @@ def compose_provider_runtime(
     additional_signature_sink: Callable[[AppSettingsVNext], None],
     managed_gemma: ManagedGemmaTranslationOwner | None = None,
     signatures: ProviderRuntimeSignatures | None = None,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> ProviderRuntimeComponents:
     effective_http_extensions = http_extensions
     if effective_http_extensions is None:
@@ -522,6 +524,7 @@ def compose_provider_runtime(
             managed_release_service=release.service,
             managed_delegate_ready=managed_delegate_ready,
             runtime_logging=runtime_logging,
+            chatgpt_session=chatgpt_session,
         )
 
     llm_rebuild = LlmProviderRebuildOwner(

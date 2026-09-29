@@ -145,6 +145,7 @@ def custom_stt_selection_for_provider(
 class LLMProviderName(str, Enum):
     GEMINI = "gemini"
     OPENAI = "openai"
+    CHATGPT = "chatgpt"
     OPENROUTER = "openrouter"
     QWEN = "qwen"
     DEEPSEEK = "deepseek"

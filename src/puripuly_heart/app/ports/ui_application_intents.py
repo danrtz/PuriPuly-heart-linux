@@ -4,6 +4,11 @@ from collections.abc import Callable
 from typing import Literal, Protocol
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
+from puripuly_heart.app.ports.chatgpt_account import (
+    ChatGptAccountSnapshot,
+    ChatGptConnectResult,
+    ChatGptSignOutResult,
+)
 from puripuly_heart.app.ports.settings_view import (
     AlibabaConnectionApplyResult,
     AlibabaConnectionDraftSnapshot,
@@ -117,6 +122,23 @@ class UiProviderRuntimePort(Protocol):
     ) -> bool: ...
 
     def reopen_openrouter_pkce_authorization_url(self) -> object: ...
+
+    def chatgpt_account_snapshot(self) -> ChatGptAccountSnapshot: ...
+
+    async def connect_chatgpt(
+        self,
+        *,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
+    ) -> ChatGptConnectResult: ...
+
+    def reopen_chatgpt_authorization_url(self) -> bool: ...
+
+    async def sign_out_chatgpt(self) -> ChatGptSignOutResult: ...
+
+    def cancel_chatgpt_sign_in(self) -> None: ...
+
+    def chatgpt_sign_in_required(self) -> bool: ...
 
     def build_managed_openrouter_byok_target(self) -> OpenRouterPkceTarget | None: ...
 
@@ -249,7 +271,6 @@ class UiEngagementRuntimePort(Protocol):
 
 
 class UiDiagnosticsRuntimePort(Protocol):
-
     def cycle_debug_capture_fault_profile(self) -> str: ...
 
     def cycle_debug_stt_fault_profile(self) -> str: ...

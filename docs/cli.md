@@ -245,13 +245,17 @@ Authentication commands are explicit:
 puripuly.exe auth login qq
 puripuly.exe auth login discord
 puripuly.exe auth login openrouter
+puripuly.exe auth login chatgpt --open-browser
 puripuly.exe auth login discord --open-browser
 puripuly.exe auth logout discord
+puripuly.exe auth logout chatgpt
 ```
 
 Browser opening is off by default. `--open-browser` is the sole CLI permission to launch a browser. QQ uses hidden prompts for its identity and credential, or accepts a protected JSON object on stdin with the supported fields `qq_identity`, `credential`, and optional `referral_id`. Discord/OpenRouter accept optional `referral_id` only where allowed; OpenRouter does not accept one. For automation, use the dedicated `auth login ... --stdin` protected JSON input rather than generic arguments. A login request itself is the explicit authorization action; translation toggles, settings/provider changes, generic commands, and OSC translation commands must not initiate OAuth implicitly. Existing authorization may still be used for normal operation.
 
-Account logout is local-only and does not revoke a remote provider grant. Logging out an inactive account preserves unrelated BYOK, local, or other-account translation; only the affected active route is stopped/rebuilt. Failed logout persistence does not silently leave that route's translation disabled. Authentication and model operations can require a human step or missing entitlement and report `action_required`. The CLI never auto-accepts consent. Peer terms are available through `capture terms`; an informed user can explicitly accept them when enabling peer capture as described above.
+ChatGPT login authorizes GPT 6 Luna on the `chatgpt` translation connection with the user's ChatGPT plan. It does not change the selected translation model or connection. `auth status` reports `chatgpt.signed_in`, `chatgpt.in_progress`, and `chatgpt.sign_in_required` without the account email.
+
+Account logout is local-only and does not revoke a remote provider grant, except ChatGPT logout, which also requests revocation of the refresh token and reports `scope: remote_revoked` or `scope: local_only` when revocation was not confirmed. Logging out an inactive account preserves unrelated BYOK, local, or other-account translation; only the affected active route is stopped/rebuilt. Failed logout persistence does not silently leave that route's translation disabled. Authentication and model operations can require a human step or missing entitlement and report `action_required`. The CLI never auto-accepts consent. Peer terms are available through `capture terms`; an informed user can explicitly accept them when enabling peer capture as described above.
 
 ## Output, events, logs, and privacy
 

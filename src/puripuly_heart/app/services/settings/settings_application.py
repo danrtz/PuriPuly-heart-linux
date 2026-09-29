@@ -174,6 +174,8 @@ def _active_prompt_key(settings: AppSettingsVNext) -> str:
         settings.intent.translation.model,
         settings.intent.translation.connection,
     )
+    if provider == "chatgpt":
+        return "openai"
     if provider in {"gemini", "openrouter", "openai", "deepseek", "local_llm", "managed_gemma"}:
         return provider
     return "qwen"

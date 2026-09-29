@@ -3235,10 +3235,20 @@ def test_luna_ui_selection_switches_applicable_keys_and_restores_connection(
     view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
     first = view.build_provider_apply_settings()
     assert first is not None
-    assert first.intent.translation.connection == TranslationConnection.OPENROUTER.value
-    assert first.intent.translation.openrouter_selection_alias == "gpt_6_luna_byok"
+    assert first.intent.translation.connection == TranslationConnection.CHATGPT.value
+    assert first.intent.translation.openrouter_selection_alias is None
+    assert view._chatgpt_account_card.visible
+    assert not view._openrouter_key.visible
+    assert not view._openrouter_pkce_button_row.visible
+    assert not view._openai_key.visible
+
+    view._on_translation_connection_selected(TranslationConnection.OPENROUTER.value)
+    routed = view.build_provider_apply_settings()
+    assert routed is not None
+    assert routed.intent.translation.openrouter_selection_alias == "gpt_6_luna_byok"
     assert view._openrouter_key.visible
     assert view._openrouter_pkce_button_row.visible
+    assert not view._chatgpt_account_card.visible
     assert not view._openai_key.visible
     assert not view._openai_verification_notice.visible
 
@@ -5016,7 +5026,7 @@ def test_api_tab_places_independent_managed_key_card_above_api_keys(
     view, _ = _make_settings_view(monkeypatch)
     api_controls = _subtab_controls(view, "api")
 
-    assert len(api_controls) == 8
+    assert len(api_controls) == 9
     assert _row_card_titles(api_controls[0]) == [
         t("settings.section.stt"),
         t("settings.section.peer_stt"),
@@ -5045,10 +5055,12 @@ def test_api_tab_places_independent_managed_key_card_above_api_keys(
     assert api_controls[4] is view._local_llm_connection_card
     assert api_controls[5] is view._custom_stt_connection_card
     assert _row_card_titles(api_controls[5]) == [t("settings.custom_stt.title")]
-    assert api_controls[6] is view._managed_key_card
-    assert _row_card_titles(api_controls[6]) == [t("settings.managed_key.title")]
-    assert api_controls[7] is not view._api_keys_column
-    assert _row_card_titles(api_controls[7]) == [t("settings.section.api_keys")]
+    assert api_controls[6] is view._chatgpt_account_card
+    assert _row_card_titles(api_controls[6]) == [t("settings.chatgpt_account.title")]
+    assert api_controls[7] is view._managed_key_card
+    assert _row_card_titles(api_controls[7]) == [t("settings.managed_key.title")]
+    assert api_controls[8] is not view._api_keys_column
+    assert _row_card_titles(api_controls[8]) == [t("settings.section.api_keys")]
 
 
 def test_api_tab_primary_value_typography_is_consistent_across_rows(

@@ -15,6 +15,10 @@ from puripuly_heart.core.discord_oauth_loopback import (
 from puripuly_heart.core.managed_openrouter_release import TalkTogetherPassStatus
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
+from puripuly_heart.app.ports.chatgpt_account import (
+    CHATGPT_USAGE_SETTINGS_URL,
+    ChatGptConnectResult,
+)
 from puripuly_heart.app.ports.settings_view import (
     ImmediateSettingsIntent,
     OpenRouterPkceTarget,
@@ -37,6 +41,7 @@ from puripuly_heart.core.lifecycle import (
     SHUTDOWN_PHASE_STOP_EXTERNAL_PRODUCERS,
 )
 from puripuly_heart.ui.components.bottom_nav import BottomNavBar
+from puripuly_heart.ui.components.chatgpt_auth_dialog import ChatGptAuthDialog
 from puripuly_heart.ui.components.debug_preview_panel import DebugPreviewPanel
 from puripuly_heart.ui.components.discord_managed_auth_dialog import DiscordManagedAuthDialog
 from puripuly_heart.ui.components.founder_letter_dialog import FounderLetterDialog
@@ -70,6 +75,7 @@ from puripuly_heart.ui.i18n import (
 )
 from puripuly_heart.ui.presentation_adapter import FletUiPresentationAdapter
 from puripuly_heart.ui.settings.contract import (
+    SettingsChatGptIntents,
     SettingsGeneralIntents,
     SettingsOverlayIntents,
     SettingsPromptIntents,
@@ -261,6 +267,12 @@ class TranslatorApp:
                 custom_stt_secret_changed=self._on_custom_stt_secret_changed,
                 gpu_discovery_requested=self._on_gpu_discovery_requested,
                 settings_secrets=self.application.settings_secrets(),
+                chatgpt=SettingsChatGptIntents(
+                    account_snapshot=self.application.chatgpt_account_snapshot,
+                    connect=self._on_chatgpt_connect_from_settings,
+                    sign_out=self._on_chatgpt_sign_out,
+                    open_usage=lambda: webbrowser.open(CHATGPT_USAGE_SETTINGS_URL),
+                ),
             ),
             general=SettingsGeneralIntents(
                 start_microphone_test=self._on_start_microphone_test,
@@ -1323,7 +1335,18 @@ class TranslatorApp:
             return "discord"
         return "qq" if resolved == "qq" else "discord"
 
+    def _chatgpt_sign_in_required(self) -> bool:
+        try:
+            return bool(self.application.chatgpt_sign_in_required())
+        except Exception:
+            logger.exception("Failed to evaluate ChatGPT sign-in gate")
+            return False
+
     def _on_translation_toggle(self, enabled: bool) -> bool:
+        if enabled and self._chatgpt_sign_in_required():
+            self._revert_dashboard_translation_toggle()
+            self.show_chatgpt_auth_dialog()
+            return False
         if enabled:
             managed_auth_action = self._dashboard_managed_auth_action()
             if managed_auth_action in {"prompt", "in_progress"}:
@@ -1576,6 +1599,82 @@ class TranslatorApp:
                 self._openrouter_pkce_request_active = False
 
         self._queue_settings_mutation_task(_task)
+
+    def show_chatgpt_auth_dialog(self) -> None:
+        dialog = getattr(self, "_chatgpt_auth_dialog", None)
+        if dialog is not None and dialog.is_open:
+            return
+        self._mark_launch_high_priority_feedback_shown("auth_required")
+        dialog = ChatGptAuthDialog(
+            self.page,
+            on_continue=self._start_chatgpt_auth_from_dialog,
+            on_close=lambda: None,
+            on_cancel=self.application.cancel_chatgpt_sign_in,
+        )
+        self._chatgpt_auth_dialog = dialog
+        dialog.open()
+
+    def _start_chatgpt_auth_from_dialog(self) -> None:
+        dialog = getattr(self, "_chatgpt_auth_dialog", None)
+        if dialog is not None:
+            dialog.set_waiting()
+        self._run_chatgpt_connect(enable_translation=True)
+
+    def _on_chatgpt_connect_from_settings(self) -> None:
+        if self.application.chatgpt_account_snapshot().in_progress:
+            self.application.reopen_chatgpt_authorization_url()
+            return
+        self._run_chatgpt_connect(enable_translation=False)
+
+    def _run_chatgpt_connect(self, *, enable_translation: bool) -> None:
+        async def _task() -> None:
+            self._refresh_chatgpt_account_card()
+            try:
+                result = await self.application.connect_chatgpt()
+            except Exception:
+                self._log_basic("[ChatGPT] sign-in task failed", level=logging.ERROR)
+                result = ChatGptConnectResult(succeeded=False, failure_code="failed")
+            dialog = getattr(self, "_chatgpt_auth_dialog", None)
+            if dialog is not None:
+                dialog.close()
+            self._refresh_chatgpt_account_card()
+            if not result.succeeded:
+                if result.failure_code not in {"cancelled", "in_progress"}:
+                    self._show_snackbar(
+                        t(_chatgpt_failure_message_key(result.failure_code)),
+                        COLOR_WARNING,
+                    )
+                return
+            self._show_snackbar(t("chatgpt_auth.success"), COLOR_SUCCESS)
+            if enable_translation:
+                enable_result = await self.application.set_translation_enabled(True)
+                if self.application.translation_enable_succeeded(enable_result):
+                    self._set_dashboard_translation_visual_state(True)
+
+        self._run_page_task(_task)
+
+    def _on_chatgpt_sign_out(self) -> None:
+        async def _task() -> None:
+            result = await self.application.sign_out_chatgpt()
+            self._refresh_chatgpt_account_card()
+            self._show_snackbar(
+                t(
+                    "chatgpt_auth.signed_out"
+                    if result.remote_revoked
+                    else "chatgpt_auth.signed_out_local_only"
+                ),
+                COLOR_SUCCESS if result.remote_revoked else COLOR_WARNING,
+            )
+
+        self._queue_settings_mutation_task(_task)
+
+    def _refresh_chatgpt_account_card(self) -> None:
+        refresh = getattr(getattr(self, "view_settings", None), "refresh_chatgpt_account", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                logger.exception("Failed to refresh ChatGPT account card")
 
     def _close_discord_managed_auth_dialog(self) -> None:
         dialog = getattr(self, "_discord_managed_auth_dialog", None)
@@ -2351,3 +2450,15 @@ async def _check_and_notify_update(
             log_diagnostic(message)
             return
         logger.debug(message)
+
+
+def _chatgpt_failure_message_key(failure_code: str | None) -> str:
+    if failure_code == "access_denied":
+        return "chatgpt_auth.error.access_denied"
+    if failure_code == "plan_scope_missing":
+        return "chatgpt_auth.error.plan_not_enabled"
+    if failure_code == "timeout":
+        return "chatgpt_auth.error.timeout"
+    if failure_code == "loopback_unavailable":
+        return "chatgpt_auth.error.loopback_unavailable"
+    return "chatgpt_auth.error.retry"

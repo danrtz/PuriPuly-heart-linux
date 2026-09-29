@@ -7,6 +7,7 @@ from puripuly_heart.app.wiring.wiring_llm_factory import (
     create_llm_provider,
 )
 from puripuly_heart.config.runtime_resolution import RuntimeResolutionInput
+from puripuly_heart.core.chatgpt.session import ChatGptAccessTokenPort
 from puripuly_heart.core.http_extensions import (
     HttpExtensionConfigurationError,
     HttpExtensionRegistry,
@@ -34,6 +35,7 @@ def create_translation_backend(
     runtime_logging: ProviderObservationPort | None = None,
     managed_gemma_runtime: ManagedGemmaRuntimeOwner | None = None,
     managed_gemma_release: Callable[[], Awaitable[None]] | None = None,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> TranslationBackend:
     model = getattr(translation_model, "value", translation_model)
     if model != "custom_http":
@@ -49,6 +51,7 @@ def create_translation_backend(
                 runtime_logging=runtime_logging,
                 managed_gemma_runtime=managed_gemma_runtime,
                 managed_gemma_release=managed_gemma_release,
+                chatgpt_session=chatgpt_session,
             )
         )
 

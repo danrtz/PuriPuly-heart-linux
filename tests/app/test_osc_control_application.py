@@ -123,8 +123,11 @@ async def test_osc_luna_first_selection_and_saved_route_survive_model_switch() -
         translation_model_normalizer=materialize_canonical_translation_settings,
     )
     await application.set_translation_model("gpt_6_luna")
-    assert current.intent.translation.connection == "openrouter"
-    assert current.intent.translation.openrouter_selected_source == "byok"
+    assert current.intent.translation.connection == "chatgpt"
+    assert current.intent.translation.openrouter_selected_source == "none"
+    chatgpt_runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
+    assert (chatgpt_runtime.provider, chatgpt_runtime.model) == ("chatgpt", "gpt-6-luna")
+    assert chatgpt_runtime.credential.reference == "chatgpt:oauth"
 
     await application.set_translation_model("gpt_6_luna", "official_byok")
     assert current.intent.translation.connection == "official_byok"
@@ -240,7 +243,7 @@ async def test_osc_model_only_restores_regional_managed_connection_history() -> 
         translation_model_normalizer=materialize_canonical_translation_settings,
     )
     await application.set_translation_model("gpt_6_luna")
-    assert current.intent.translation.connection == "openrouter"
+    assert current.intent.translation.connection == "chatgpt"
     await application.set_translation_model("deepseek_v4_flash")
     assert current.intent.translation.connection == "managed_china"
     assert current.intent.translation.connection_history["deepseek_v4_flash"] == "managed_china"

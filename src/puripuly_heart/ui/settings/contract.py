@@ -7,6 +7,7 @@ from typing import Protocol
 
 import flet as ft
 
+from puripuly_heart.app.ports.chatgpt_account import ChatGptAccountSnapshot
 from puripuly_heart.app.ports.settings_secrets import SettingsSecretsPort
 from puripuly_heart.app.ports.settings_view import (
     GeneralSettingsSnapshot,
@@ -30,6 +31,14 @@ class SettingsSurfaceIntents:
 
 
 @dataclass(frozen=True, slots=True)
+class SettingsChatGptIntents:
+    account_snapshot: Callable[[], ChatGptAccountSnapshot]
+    connect: Callable[[], None]
+    sign_out: Callable[[], None]
+    open_usage: Callable[[], None]
+
+
+@dataclass(frozen=True, slots=True)
 class SettingsProviderIntents:
     providers_changed: Callable[[], None]
     request_openrouter_pkce: Callable[[OpenRouterPkceTarget], None]
@@ -40,6 +49,7 @@ class SettingsProviderIntents:
     gpu_discovery_requested: Callable[[], object]
     settings_secrets: SettingsSecretsPort
     custom_stt_secret_changed: Callable[[], None] | None = None
+    chatgpt: SettingsChatGptIntents | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,10 +194,12 @@ class SettingsApiSurfaceSlots:
     managed_key: ft.Control
     api_keys: ft.Control
     http_extension: ft.Control | None = None
+    chatgpt_account: ft.Control | None = None
 
     @classmethod
     def from_slot_provider(cls, provider: SettingsApiSlotProvider) -> SettingsApiSurfaceSlots:
         extension_factory = getattr(provider, "http_extension_control", None)
+        chatgpt_factory = getattr(provider, "chatgpt_account_control", None)
         return cls(
             self_stt=provider.self_stt_control(),
             peer_stt=provider.peer_stt_control(),
@@ -203,6 +215,7 @@ class SettingsApiSurfaceSlots:
             managed_key=provider.managed_key_control(),
             api_keys=provider.api_keys_control(),
             http_extension=(extension_factory() if callable(extension_factory) else None),
+            chatgpt_account=(chatgpt_factory() if callable(chatgpt_factory) else None),
         )
 
 
@@ -300,6 +313,7 @@ __all__ = [
     "SettingsPromptIntents",
     "SettingsPromptSurfaceRegions",
     "SettingsPromptSurfaceSlots",
+    "SettingsChatGptIntents",
     "SettingsProviderIntents",
     "SettingsProviderStateSink",
     "SettingsSurfaceIntents",

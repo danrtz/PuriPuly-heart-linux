@@ -807,7 +807,7 @@ def test_luna_attempt_plan_retains_same_route_hedge_and_only_router_emergency(
 
 
 @pytest.mark.parametrize("requested_connection", [None, "managed", "managed_china", "cpu"])
-def test_luna_invalid_or_missing_connection_selects_openrouter_only(
+def test_luna_invalid_or_missing_connection_selects_chatgpt_plan(
     requested_connection: str | None,
 ) -> None:
     runtime_resolution = _runtime_resolution_module()
@@ -815,12 +815,37 @@ def test_luna_invalid_or_missing_connection_selects_openrouter_only(
         model="gpt_6_luna", connection=requested_connection
     )
     assert intent.model == "gpt_6_luna"
-    assert intent.connection == "openrouter"
+    assert intent.connection == "chatgpt"
+    target = runtime_resolution.resolve_llm_config(
+        runtime_resolution.RuntimeResolutionInput(translation=intent)
+    ).primary
+    assert target.provider == "chatgpt"
+    assert target.model == "gpt-6-luna"
+    assert target.credential.reference == "chatgpt:oauth"
+
+
+def test_luna_openrouter_connection_keeps_openrouter_byok_target() -> None:
+    runtime_resolution = _runtime_resolution_module()
+    intent = runtime_resolution.normalize_translation_runtime_intent(
+        model="gpt_6_luna", connection="openrouter"
+    )
     target = runtime_resolution.resolve_llm_config(
         runtime_resolution.RuntimeResolutionInput(translation=intent)
     ).primary
     assert target.model == "openai/gpt-6-luna"
     assert target.credential.reference == "openrouter:byok"
+
+
+def test_luna_chatgpt_plan_hedges_after_serial_websocket_latency() -> None:
+    runtime_resolution = _runtime_resolution_module()
+    intent = runtime_resolution.normalize_translation_runtime_intent(
+        model="gpt_6_luna", connection="chatgpt"
+    )
+    config = runtime_resolution.resolve_llm_config(
+        runtime_resolution.RuntimeResolutionInput(translation=intent)
+    )
+    assert [attempt.target.provider for attempt in config.attempts] == ["chatgpt", "chatgpt"]
+    assert config.attempts[1].start_after_ms == 2000
 
 
 def test_luna_compatibility_provider_and_profile_resolve_to_same_product() -> None:

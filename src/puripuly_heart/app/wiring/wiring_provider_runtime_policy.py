@@ -8,6 +8,7 @@ from puripuly_heart.config.prompts import resolve_system_prompt
 from puripuly_heart.config.provider_values import STTProviderName
 from puripuly_heart.config.runtime_resolution import (
     OPENAI_MODEL_GPT_6_LUNA,
+    PROVIDER_CHATGPT,
     PROVIDER_OPENAI,
 )
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
@@ -22,6 +23,7 @@ def llm_provider_requires_secret(translation_model: str, provider: str) -> bool:
     return translation_model != "custom_http" and provider in {
         "gemini",
         "openai",
+        "chatgpt",
         "openrouter",
         "qwen",
         "deepseek",
@@ -61,7 +63,7 @@ def build_llm_provider_signature(
         provider_llm,
         translation.concurrency_limit,
         translation.gemini.llm_model if provider_llm == "gemini" else None,
-        OPENAI_MODEL_GPT_6_LUNA if provider_llm == PROVIDER_OPENAI else None,
+        OPENAI_MODEL_GPT_6_LUNA if provider_llm in {PROVIDER_OPENAI, PROVIDER_CHATGPT} else None,
         translation.openrouter_model if primary_uses_openrouter else None,
         translation.openrouter_routing_mode if uses_openrouter else None,
         (

@@ -737,9 +737,9 @@ def test_luna_materialization_does_not_persist_managed_connection() -> None:
     actual = materialize_canonical_translation_settings(
         replace(canonical, intent=replace(canonical.intent, translation=translated))
     ).intent.translation
-    assert actual.connection == "openrouter"
-    assert actual.openrouter_model == "openai/gpt-6-luna"
-    assert actual.openrouter_selected_source == "byok"
+    assert actual.connection == "chatgpt"
+    assert actual.openrouter_selected_source == "none"
+    assert actual.openrouter_selection_alias is None
 
 
 @pytest.mark.parametrize("connection", ["managed", "managed_china", "openrouter"])

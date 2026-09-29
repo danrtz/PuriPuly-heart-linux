@@ -296,6 +296,14 @@ def _failure_report(
             )
             else "provider.openrouter.payment_required" if unanimous_402 else "provider.failure"
         )
+        if (
+            matching
+            and branch_reports[0].message.key.startswith("provider.chatgpt.")
+            and all(
+                report.message.key == branch_reports[0].message.key for report in branch_reports
+            )
+        ):
+            message_key = branch_reports[0].message.key
         retry_values = {report.diagnostics.retry_after_ms for report in branch_reports}
         retry_after_ms = retry_values.pop() if matching and len(retry_values) == 1 else None
         shared_fields = {}
@@ -314,6 +322,8 @@ def _failure_report(
         shared_fields = _openrouter_limit_fields(exc) if status_code == 402 else {}
         if status_code == 402 and provider_label == "openrouter":
             message_key = _openrouter_402_message_key(shared_fields)
+        if provider_label == "chatgpt":
+            message_key = _chatgpt_message_key(exc, status_code) or message_key
     fields: dict[str, DiagnosticFieldValue] = dict(extra_fields)
     fields["exception_type"] = type(exc).__name__ if exc is not None else "UnknownError"
     fields["provider"] = provider_label
@@ -356,6 +366,20 @@ def _openrouter_limit_fields(exc: BaseException | None) -> dict[str, DiagnosticF
             fields["limit_reason"] = reason
         return fields
     return {}
+
+
+def _chatgpt_message_key(exc: BaseException | None, status_code: int | None) -> str | None:
+    for item in _exception_chain(exc):
+        if getattr(item, "chatgpt_reauth_required", False):
+            return "provider.chatgpt.reauth_required"
+        code = getattr(item, "subscription_code", None)
+        if code == "subscription_sharing_usage_limit_exceeded":
+            return "provider.chatgpt.usage_limit"
+        if code in ("subscription_sharing_user_not_eligible", "chatpass_v2_scope_not_authorized"):
+            return "provider.chatgpt.not_eligible"
+    if status_code == 401:
+        return "provider.chatgpt.reauth_required"
+    return None
 
 
 def _openrouter_402_message_key(fields: Mapping[str, DiagnosticFieldValue]) -> str:

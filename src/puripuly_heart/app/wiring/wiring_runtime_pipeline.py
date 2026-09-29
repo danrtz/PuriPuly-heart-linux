@@ -27,6 +27,7 @@ from puripuly_heart.config.runtime_resolution import RuntimeResolutionInput
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import TranslationModel
 from puripuly_heart.core.audio.gate import VrcMicAudioGate
+from puripuly_heart.core.chatgpt.session import ChatGptAccessTokenPort
 from puripuly_heart.core.clock import Clock
 from puripuly_heart.core.http_extensions import HttpExtensionRegistry
 from puripuly_heart.core.local_asr_provider_runtime import (
@@ -618,6 +619,7 @@ class RuntimePipelineLauncher:
     managed_gemma: ManagedGemmaTranslationOwner | None = None
     http_extensions: HttpExtensionRegistry | None = None
     vrchat_scene_factory: Callable[[], VrchatSceneService] | None = None
+    chatgpt_session: ChatGptAccessTokenPort | None = None
     failed_resources: RuntimePipelineResourceOwner | None = field(
         init=False,
         default=None,
@@ -687,6 +689,7 @@ class RuntimePipelineLauncher:
                 http_extensions=self.http_extensions,
                 resources=resources,
                 vrchat_scene=scene,
+                chatgpt_session=self.chatgpt_session,
             )
             if pipeline.prepare_self_provider:
                 snapshot = await pipeline.self_capture.prepare_provider(inputs.self_capture_session)
@@ -756,6 +759,7 @@ async def compose_runtime_pipeline(
     http_extensions: HttpExtensionRegistry | None = None,
     resources: RuntimePipelineResourceOwner | None = None,
     vrchat_scene: VrchatSceneService | None = None,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> RuntimePipelineComponents:
     owned_resources = resources is None
     pipeline_resources = resources or RuntimePipelineResourceOwner()
@@ -779,6 +783,7 @@ async def compose_runtime_pipeline(
             http_extensions=http_extensions,
             resources=pipeline_resources,
             vrchat_scene=vrchat_scene,
+            chatgpt_session=chatgpt_session,
         )
     except BaseException as exc:
         if not owned_resources:
@@ -828,6 +833,7 @@ async def _compose_runtime_pipeline(
     http_extensions: HttpExtensionRegistry | None,
     resources: RuntimePipelineResourceOwner,
     vrchat_scene: VrchatSceneService | None,
+    chatgpt_session: ChatGptAccessTokenPort | None = None,
 ) -> RuntimePipelineComponents:
     _ = config_path
     if http_extensions is None and inputs.translation_model == TranslationModel.CUSTOM_HTTP.value:
@@ -868,6 +874,7 @@ async def _compose_runtime_pipeline(
             runtime_logging=runtime_logging,
             managed_gemma_runtime=gemma_runtime,
             managed_gemma_release=gemma_release,
+            chatgpt_session=chatgpt_session,
         )
         resources.pending_llm = llm
 

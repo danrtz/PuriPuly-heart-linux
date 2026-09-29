@@ -19,6 +19,11 @@ from puripuly_heart.app.ports.application_runtime_shutdown import (
     ApplicationRuntimeShutdownPort,
 )
 from puripuly_heart.app.ports.application_startup import ApplicationStartupDiagnostic
+from puripuly_heart.app.ports.chatgpt_account import (
+    ChatGptAccountSnapshot,
+    ChatGptConnectResult,
+    ChatGptSignOutResult,
+)
 from puripuly_heart.app.ports.settings_secrets import SettingsSecretsPort
 from puripuly_heart.app.ports.settings_view import (
     AlibabaConnectionApplyResult,
@@ -61,6 +66,7 @@ from puripuly_heart.app.services.application_shutdown import (
 from puripuly_heart.app.services.application_startup import ApplicationStartupOwner
 from puripuly_heart.config.alibaba_connection import AlibabaEndpointMode, AlibabaRegion
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.config.translation_values import provider_llm_for_translation
 from puripuly_heart.core.lifecycle import (
     SHUTDOWN_PHASE_FREEZE_INGRESS,
     SHUTDOWN_PHASE_STOP_EXTERNAL_PRODUCERS,
@@ -686,6 +692,41 @@ class UiApplicationBoundary:
 
     def reopen_openrouter_pkce_authorization_url(self) -> None:
         self._provider.reopen_openrouter_pkce_authorization_url()
+
+    def chatgpt_account_snapshot(self) -> ChatGptAccountSnapshot:
+        return self._provider.chatgpt_account_snapshot()
+
+    async def connect_chatgpt(
+        self,
+        *,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
+    ) -> ChatGptConnectResult:
+        result = await self._provider.connect_chatgpt(
+            open_browser=open_browser,
+            authorization_url_sink=authorization_url_sink,
+        )
+        await self._publish_osc_state()
+        return result
+
+    def reopen_chatgpt_authorization_url(self) -> bool:
+        return bool(self._provider.reopen_chatgpt_authorization_url())
+
+    def cancel_chatgpt_sign_in(self) -> None:
+        self._provider.cancel_chatgpt_sign_in()
+
+    def chatgpt_sign_in_required(self) -> bool:
+        return bool(self._provider.chatgpt_sign_in_required())
+
+    async def sign_out_chatgpt(self) -> ChatGptSignOutResult:
+        settings = self.compatibility_settings()
+        if settings is not None and self.state().translation_enabled:
+            translation = settings.intent.translation
+            if provider_llm_for_translation(translation.model, translation.connection) == "chatgpt":
+                await self.set_translation_enabled(False)
+        result = await self._provider.sign_out_chatgpt()
+        await self._publish_osc_state()
+        return result
 
     def build_managed_openrouter_byok_target(self) -> OpenRouterPkceTarget | None:
         return self._provider.build_managed_openrouter_byok_target()

@@ -108,7 +108,7 @@
         "tests/config/test_runtime_resolution.py::test_old_openrouter_credential_source_keys_normalize_through_settings_to_resolved_dto",
         "tests/config/test_runtime_resolution.py::test_runtime_resolution_resolved_llm_path_has_no_legacy_alias_literals",
         "tests/app/test_wiring_providers.py",
-        "tests/config/test_config_and_secrets.py::test_luna_is_byok_only_and_defaults_to_openrouter"
+        "tests/config/test_config_and_secrets.py::test_luna_supports_chatgpt_plan_first_then_byok_connections"
       ],
       "detail_owner_work_ref": "freeze-provider-config-prompt-and-i18n-fixtures"
     },
@@ -1156,9 +1156,10 @@
       "classification": "internal_provider_implementation_modules",
       "modules": [
         "puripuly_heart.providers.llm.error_details",
-        "puripuly_heart.providers.llm.managed_gemma"
+        "puripuly_heart.providers.llm.managed_gemma",
+        "puripuly_heart.providers.llm.chatgpt_plan"
       ],
-      "rationale": "Provider error-detail helpers and managed local-model adapters are internal implementation contracts, not external public compatibility facades."
+      "rationale": "Provider error-detail helpers, managed local-model adapters, and the ChatGPT plan WebSocket provider are internal implementation contracts, not external public compatibility facades."
     },
     {
       "surface": "managed local translation runtime and asset modules",
@@ -1356,6 +1357,14 @@
         "puripuly_heart.core.openrouter"
       ],
       "rationale": "Domain-aligned grouping package that re-exports the moved OpenRouter credential, PKCE, handoff, and managed release modules and registers pre-move import-path compatibility aliases; it is internal structure, not an external public compatibility facade."
+    },
+    {
+      "surface": "puripuly_heart.core.chatgpt Sign in with ChatGPT package",
+      "classification": "internal_domain_grouping_package",
+      "module_prefixes": [
+        "puripuly_heart.core.chatgpt"
+      ],
+      "rationale": "Sign in with ChatGPT OAuth primitives, loopback callback, and token session are internal implementation modules consumed by composition, the ChatGPT account service, and the ChatGPT plan provider; they are not external public compatibility facades."
     },
     {
       "surface": "puripuly_heart.core.local_asr domain grouping package",
