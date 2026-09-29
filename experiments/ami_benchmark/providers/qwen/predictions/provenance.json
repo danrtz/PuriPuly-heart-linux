@@ -1,10 +1,8 @@
 {
   "model": "qwen3.8-livetranslate-flash-realtime",
   "mode": "realtime",
-  "status": "incomplete",
-  "missing_cases": [
-    "brief_interjections"
-  ],
+  "status": "completed",
+  "missing_cases": [],
   "cases": [
     {
       "id": "low_overlap",
@@ -37,6 +35,14 @@
       "completed": true,
       "native_result": "results/long_return_gap.json",
       "native_result_sha256": "fe5e2cfe7765840cbffe4a7f13cd56b339ab8607f23c329dc869e109831df2a1"
+    },
+    {
+      "id": "brief_interjections",
+      "input_pcm_sha256": "58a76f6f139d99357eed3855c8b447812847592c30b89fae7697d0ea1e72eb5f",
+      "prediction_rttm_sha256": "fffc81c1a4517d03ccdd070b8ef6ab92348a8273b9c8f7c2e95aa34d45015f31",
+      "completed": true,
+      "native_result": "results/brief_interjections.json",
+      "native_result_sha256": "8c0e052135f43877aca1b129680e3f181ca44cb7029f964d4e98294cfa4b53af"
     },
     {
       "id": "long_context",

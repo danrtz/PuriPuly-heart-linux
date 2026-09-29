@@ -1,9 +1,9 @@
 {
   "benchmark": "AMItest-derived scenario subset",
   "manifest_sha256": "85fafad005b1ce73b9c1e066313a04bc2ec496b9748b9db59721b75d94ccde73",
-  "status": "incomplete",
+  "status": "complete",
   "measurement_protocol": "Declared output-segment DER: Soniox official SDK speaker segments, Qwen native utterances, Nemotron native activity",
-  "completed_cloud_case_runs": 34,
+  "completed_cloud_case_runs": 35,
   "expected_cloud_case_runs": 35,
   "retained_nemotron_case_runs": 7,
   "cases": [
@@ -1115,20 +1115,39 @@
       "provider": "Qwen",
       "arm": "realtime",
       "model": "qwen3.8-livetranslate-flash-realtime",
-      "status": "incomplete",
-      "missing_cases": [
-        "brief_interjections"
-      ],
+      "status": "complete",
+      "missing_cases": [],
       "hypothesis": {
         "method": "qwen_native_utterances"
       },
       "provenance": "providers/qwen/predictions/provenance.json",
-      "provenance_sha256": "a5c62ba569a82977f4b64fbf54d6a4122b5a5fc25d64256b6ae1220f386a16e6",
-      "score_artifact": null,
-      "score_artifact_sha256": null,
+      "provenance_sha256": "74e09fca9640caaa6d746e319bf02698e9902f39d4c504d65257604de2470178",
+      "score_artifact": "providers/qwen/score.json",
+      "score_artifact_sha256": "3cd589e8e1340f2fa72f2ec8425ade6715270b36ed194a5550426b60dc41fad5",
       "score": {
-        "independent_six": null,
-        "paired_far_field": null,
+        "benchmark": "AMItest-derived scenario subset",
+        "metric": "pyannote.metrics DiarizationErrorRate; full-duration UEM; collar=0; skip_overlap=False; optimal speaker mapping; native RTTM time support",
+        "pyannote_metrics_version": "4.0.0",
+        "independent_six": {
+          "cases": 6,
+          "der": 0.7288488033010493,
+          "speaker_count_accuracy": 0.0,
+          "speaker_count_mae": 7.5,
+          "total": 1170.0519999999976,
+          "missed detection": 222.56499999999951,
+          "false alarm": 249.39299999999977,
+          "confusion": 380.83299999999826
+        },
+        "paired_far_field": {
+          "cases": 1,
+          "der": 0.7981380915438329,
+          "speaker_count_accuracy": 0.0,
+          "speaker_count_mae": 7.0,
+          "total": 128.8999999999999,
+          "missed detection": 42.008999999999986,
+          "false alarm": 23.269000000000005,
+          "confusion": 37.601999999999975
+        },
         "per_case": [
           {
             "id": "low_overlap",
@@ -1181,6 +1200,19 @@
             "missed detection": 3.5640000000000036,
             "false alarm": 39.282999999999966,
             "confusion": 0.620999999999988
+          },
+          {
+            "id": "brief_interjections",
+            "pair_with": null,
+            "duration_s": 120,
+            "reference_speakers": 4,
+            "predicted_speakers": 11,
+            "speaker_count_absolute_error": 7,
+            "der": 0.7662009676788466,
+            "total": 117.60099999999993,
+            "missed detection": 26.61999999999999,
+            "false alarm": 21.339000000000002,
+            "confusion": 42.14699999999999
           },
           {
             "id": "long_context",

@@ -62,12 +62,12 @@ Runner uses the pinned NVIDIA checkpoint and official `ultra_low_latency` preset
 
 ## Soniox and Qwen comparison
 
-[Corrected output-segment comparison](provider_comparison.md) and [machine-readable evidence](provider_comparison.json) contain four Soniox arms, Qwen realtime, and the retained Nemotron baseline. Soniox's 28 stored complete responses have been reprojected and rescored without new provider calls; their original JSON bytes remain unchanged. Qwen completed 6/7 and a fresh brief-only recovery attempt again stopped at unstable Beijing TLS preflight, before a model connection or audio submission. Failed attempts are retained, not scored as empty predictions. The seven-case Qwen aggregate remains unavailable; completing `brief_interjections` is still an outstanding requirement.
+[Corrected output-segment comparison](provider_comparison.md) and [machine-readable evidence](provider_comparison.json) contain four Soniox arms, Qwen realtime, and the retained Nemotron baseline. All **35/35 cloud case/arm runs** are now complete, plus seven retained Nemotron cases. Soniox's 28 stored complete responses were reprojected and rescored without new provider calls; their original JSON bytes remain unchanged. A fresh Qwen `brief_interjections` run sent the full 120 s in one Beijing session and received `session.finished`, completing Qwen **7/7** without changing its previous six results. Failed attempts remain preserved and excluded from scoring.
 
 Provider execution, settings, conversion diagnostics, resource cleanup and recovery commands are documented separately:
 
 - [Soniox](providers/soniox/execution_report.md): continuous, forced-six-second finalization, app-equivalent VAD/SmartTurn segmentation, and whole-file async.
-- [Qwen](providers/qwen/execution_report.md): six completed sessions plus failed-attempt and same-route TLS diagnostics; recover only the missing case once connectivity is reliable.
+- [Qwen](providers/qwen/execution_report.md): seven completed cases, the successful brief-only recovery, and retained failed-attempt/TLS diagnostics. The recovered case has DER 76.62%, with 11 native speaker IDs against four reference speakers. Six-primary pooled DER is 72.88%; the dependent far-field pair is 79.81%, scored separately.
 
 The old 60-ms token-pulse RTTMs, four scores and four provenance files are preserved under [the non-primary baseline archive](providers/soniox/token_pulse_baseline/README.md), with hashes. They are no longer the canonical Soniox hypothesis or a valid basis for a general voice-recognition ranking. Current SDK groups and source projections are in `providers/soniox/sdk_output/`; current receipts declare `hypothesis.method=soniox_sdk_speaker_segments` and record the pinned package, bridge and derived-artifact hashes. Embedded projection metadata in old raw result JSON is historical, not the current receipt.
 
@@ -83,12 +83,12 @@ python experiments/ami_benchmark/providers/soniox/receipts.py
 
 No Soniox client or API request is created by the SDK grouping bridge. `run.py` live conversion and saved-output conversion use the same corrected adapter. Run the standard scorer above for each `providers/soniox/predictions/ARM` directory to update `providers/soniox/scores/ARM.json` if predictions change; the execution report records all four actual scorer invocations.
 
-Rebuild available results offline under Linux/WSL:
+Rebuild the complete comparison offline under Linux/WSL:
 
 ```sh
-experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py --allow-incomplete
+experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py
 ```
 
-This checks input, native-result and prediction digests, rejects the obsolete Soniox projection method, reproduces every complete-arm score, and scores only completed cases of the explicitly incomplete Qwen arm. Missing rows are `NOT COMPLETED`; Qwen aggregate scores remain unavailable. Without `--allow-incomplete`, the comparison rejects the missing case. `score.py` still requires all seven predictions; standard DER, references, UEM and the retained Qwen/Nemotron hypotheses are unchanged.
+This checks input, native-result and prediction digests, rejects the obsolete Soniox projection method, and reproduces every complete-arm score. The default strict command now succeeds with all seven Qwen predictions and their full provenance; no incomplete-mode exception is needed. `--allow-incomplete` remains available only for explicitly declared partial Qwen evidence and cannot supply a missing case or aggregate. `score.py` still requires all seven predictions; standard DER, references, UEM and the existing Qwen/Nemotron interval-construction policies are unchanged.
 
 Provider JSON, JSONL and RTTM evidence has byte-preserving Git attributes so line-ending conversion cannot silently invalidate retained digest chains. Existing benchmark audio, references, Nemotron output and production application behavior are unchanged.

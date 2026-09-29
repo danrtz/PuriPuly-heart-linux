@@ -1,6 +1,6 @@
 # AMI scenario subset: corrected output-segment comparison
 
-Status: **incomplete**. Available completed cloud case/arm runs: **34/35**, plus seven retained Nemotron CPU runs. This comparison is rebuilt from saved outputs without provider calls. A missing case has no score and prevents that arm's complete benchmark aggregate. The paired far-field microphone case is excluded from the six-primary-case aggregate.
+Status: **complete**. Available completed cloud case/arm runs: **35/35**, plus seven retained Nemotron CPU runs. This comparison is rebuilt from saved outputs without provider calls. A missing case has no score and prevents that arm's complete benchmark aggregate. The paired far-field microphone case is excluded from the six-primary-case aggregate.
 
 **Corrected protocol:** Soniox hypotheses now come from the official `@soniox/node@2.3.0` `segmentTranscript(tokens, {group_by: ['speaker']})` function, not a union of 60-ms token pulses. Speaker runs are grouped in provider time before mapping to original audio. Qwen native utterances and Nemotron native activity intervals are unchanged. This is end-to-end DER of these declared system outputs, not pure voice-identity or word accuracy.
 
@@ -20,7 +20,7 @@ All error columns are percentages of scored reference speaker-time. DER = Miss +
 | Soniox / forced | 70.28 | 28.21 | 21.04 | 21.03 | 16.67% | 1.167 |
 | Soniox / segmented | 68.15 | 26.87 | 21.80 | 19.48 | 16.67% | 1.000 |
 | Soniox / async_full_file | 48.27 | 24.81 | 17.37 | 6.09 | 33.33% | 0.667 |
-| Qwen / realtime | INCOMPLETE | — | — | — | — | — |
+| Qwen / realtime | 72.88 | 19.02 | 21.31 | 32.55 | 0.00% | 7.500 |
 | Nemotron / ultra_low_latency | 14.22 | 7.14 | 4.45 | 2.63 | 66.67% | 0.333 |
 
 ## Soniox before/after: representation repair, not new inference
@@ -53,7 +53,7 @@ These are the original token widths before SDK grouping, preserved to explain th
 | rapid_turn_taking | 64.54 | 78.31 | 76.96 | 72.90 | 84.40 | 23.09 |
 | overlap_heavy | 70.90 | 82.46 | 77.23 | 68.15 | 83.46 | 15.85 |
 | long_return_gap | 44.57 | 51.59 | 41.43 | 45.16 | 34.98 | 3.69 |
-| brief_interjections | 62.60 | 80.31 | 84.90 | 49.67 | NOT COMPLETED | 31.18 |
+| brief_interjections | 62.60 | 80.31 | 84.90 | 49.67 | 76.62 | 31.18 |
 | long_context | 42.58 | 77.28 | 74.18 | 43.61 | 85.68 | 12.63 |
 | far_field_pair | 61.44 | 80.88 | 80.17 | 69.49 | 79.81 | 18.74 |
 
@@ -65,7 +65,7 @@ These are the original token widths before SDK grouping, preserved to explain th
 | rapid_turn_taking | 4 | 2 | 2 | 2 | 3 | 12 | 4 |
 | overlap_heavy | 4 | 2 | 2 | 3 | 3 | 17 | 4 |
 | long_return_gap | 4 | 3 | 3 | 3 | 3 | 3 | 3 |
-| brief_interjections | 4 | 3 | 3 | 3 | 4 | NOT COMPLETED | 4 |
+| brief_interjections | 4 | 3 | 3 | 3 | 4 | 11 | 4 |
 | long_context | 3 | 3 | 3 | 3 | 3 | 18 | 3 |
 | far_field_pair | 4 | 3 | 3 | 3 | 3 | 11 | 4 |
 
@@ -77,8 +77,6 @@ These are the original token widths before SDK grouping, preserved to explain th
 - Each case starts fresh state; the 600-second case retains one continuous session/cache. Speaker identity is not compared across cases. Six primary windows are nonduplicated audio, not independent participants; several meetings can share participants.
 - This is an annotation-selected AMI test subset, not the full AMI test score, ASR/translation accuracy, a statistically independent population estimate, or evidence about six-plus speakers and VRChat. The forced-aligned reference covers words, not all vocal sounds; boundaries and missing annotations can affect DER.
 - No oracle speaker counts or reference timings are supplied to inference or SDK grouping. Unattributed output is not assigned an invented speaker ID. SDK grouping, not gold timing, defines Soniox interval support; grouping does not prove continuous acoustic speech. Completed inference is not proof of complete transcription.
-- Benchmark waveforms, references, standard DER semantics, Qwen outputs and previous Nemotron evidence are unchanged. Soniox interval construction is deliberately corrected; original responses remain immutable and prior token-pulse artifacts are archived. No production UI, configuration or application behavior changes.
+- Benchmark waveforms, references, standard DER semantics, previously completed Qwen outputs and Nemotron evidence are unchanged. Soniox interval construction is deliberately corrected; original responses remain immutable and prior token-pulse artifacts are archived. No production UI, configuration or application behavior changes.
 
-Rebuild this comparison offline with `experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py` under Linux/WSL. It makes no provider/model calls and normally requires all 35 completed cloud case/arm runs plus seven retained Nemotron predictions. `--allow-incomplete` explicitly permits declared incomplete Qwen receipts, reports only completed per-case values, and withholds Qwen aggregate scores. It does not satisfy the outstanding inference requirement.
-
-**Outstanding:** Qwen / realtime: brief_interjections. See the provider execution report for the preserved failure and transport evidence; no full comparison completion is claimed.
+Rebuild this comparison offline with `experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py` under Linux/WSL. It makes no provider/model calls and normally requires all 35 completed cloud case/arm runs plus seven retained Nemotron predictions. `--allow-incomplete` explicitly permits declared incomplete Qwen receipts, reports only completed per-case values, and withholds Qwen aggregate scores. It cannot turn missing inference into benchmark completion.
