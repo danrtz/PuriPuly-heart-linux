@@ -44,6 +44,57 @@ def isolated_settings(path):
     path.write_text(json.dumps(to_dict(settings)), encoding="utf-8")
 
 
+@pytest.mark.asyncio
+async def test_cli_model_only_selection_restores_saved_luna_connection(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
+    path = tmp_path / "settings.json"
+    isolated_settings(path)
+    app = compose_headless_application(path)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("luna-history-control")
+        for index, changes in enumerate(
+            (
+                {"translation.model": "gpt_6_luna"},
+                {"translation.connection": "official_byok"},
+                {"translation.model": "gemma4"},
+                {"translation.model": "gpt_6_luna"},
+            )
+        ):
+            submitted = await control.submit(
+                "settings.apply",
+                {"changes": changes},
+                request_id=f"luna-history-{index}",
+            )
+            result = await control.wait(submitted["operation_id"], timeout=10)
+            assert result["status"] in {"applied", "degraded"}
+        translation = (await control.query("settings.current", {}))["settings"]["intent"][
+            "translation"
+        ]
+        assert translation["model"] == "gpt_6_luna"
+        assert translation["connection"] == "official_byok"
+        assert translation["connection_history"]["gpt_6_luna"] == "official_byok"
+        assert translation["openrouter_selection_alias"] is None
+    finally:
+        await app.stop()
+    restarted = compose_headless_application(path)
+    try:
+        await restarted.start()
+        restored = restarted.control()
+        restored.bind_instance("luna-history-restarted")
+        translation = (await restored.query("settings.current", {}))["settings"]["intent"][
+            "translation"
+        ]
+        assert translation["model"] == "gpt_6_luna"
+        assert translation["connection"] == "official_byok"
+        assert translation["connection_history"]["gpt_6_luna"] == "official_byok"
+    finally:
+        await restarted.stop()
+
+
 def test_headless_runtime_error_is_localized_in_dashboard_state(caplog) -> None:
     from puripuly_heart.ui.i18n import t
 

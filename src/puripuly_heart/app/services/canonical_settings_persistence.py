@@ -657,6 +657,7 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
     from puripuly_heart.config.llm_profiles import (
         OPENROUTER_MODEL_DEEPSEEK_V4_FLASH,
         OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41,
+        OPENROUTER_MODEL_GPT_6_LUNA,
         OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK,
         OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_MANAGED,
         OPENROUTER_SELECTION_ALIAS_GEMMA4_31B_BYOK,
@@ -673,6 +674,9 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
         translation = replace(translation, model="qwen38_flash")
         model = "qwen38_flash"
     connection = translation.connection
+    if model == "gpt_6_luna" and connection not in {"openrouter", "official_byok"}:
+        connection = "openrouter"
+        translation = replace(translation, connection=connection)
     if model == "deepseek_v4_flash" and connection == "official_byok":
         translation = replace(translation, model="deepseek_v4_flash_41")
         model = "deepseek_v4_flash_41"
@@ -756,6 +760,23 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
                     model=openrouter_model,
                     source=selected_source,
                 ),
+            }
+    elif model == "gpt_6_luna":
+        if connection == "openrouter":
+            updates = {
+                "openrouter_model": OPENROUTER_MODEL_GPT_6_LUNA,
+                "openrouter_selected_source": "byok",
+                "openrouter_provider_routing": "default",
+                "openrouter_selection_alias": openrouter_alias_for_fields(
+                    model=OPENROUTER_MODEL_GPT_6_LUNA,
+                    source="byok",
+                ),
+            }
+        else:
+            updates = {
+                "openrouter_selected_source": "none",
+                "openrouter_selection_alias": None,
+                "openrouter_provider_routing": "default",
             }
     elif model == "gemini_flash":
         if connection == "openrouter":

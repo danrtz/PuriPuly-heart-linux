@@ -40,6 +40,7 @@ def test_settings_secret_snapshot_projects_named_values_and_legacy_fallbacks() -
         {
             "google_api_key": "google-secret",
             "openrouter_api_key": "openrouter-secret",
+            "openai_api_key": "openai-secret",
             "deepseek_api_key": "deepseek-secret",
             "deepgram_api_key": "deepgram-secret",
             "soniox_api_key": "soniox-secret",
@@ -57,7 +58,9 @@ def test_settings_secret_snapshot_projects_named_values_and_legacy_fallbacks() -
     assert result.snapshot is not None
     assert result.snapshot.google_api_key == "google-secret"
     assert result.snapshot.openrouter_api_key == "openrouter-secret"
+    assert result.snapshot.openai_api_key == "openai-secret"
     assert result.snapshot.deepseek_api_key == "deepseek-secret"
+    assert "openai-secret" not in repr(result)
     assert "openrouter-secret" not in repr(result)
     assert result.snapshot.deepgram_api_key == "deepgram-secret"
     assert result.snapshot.soniox_api_key == "soniox-secret"
@@ -86,6 +89,7 @@ def test_openrouter_pkce_load_reads_only_its_previous_secret_surface() -> None:
     store = RecordingSecretStore(
         {
             "openrouter_api_key": "openrouter-secret",
+            "openai_api_key": "openai-secret",
             "deepseek_api_key": "deepseek-secret",
             "cerebras_api_key": "retired-secret",
             "alibaba_api_key": "legacy-alibaba-secret",
@@ -98,6 +102,7 @@ def test_openrouter_pkce_load_reads_only_its_previous_secret_surface() -> None:
     assert result.snapshot is not None
     assert result.snapshot.openrouter_api_key == "openrouter-secret"
     assert result.snapshot.deepseek_api_key == "deepseek-secret"
+    assert not hasattr(result.snapshot, "openai_api_key")
     assert "openrouter-secret" not in repr(result)
     assert store.get_calls == [
         "openrouter_api_key",
@@ -105,6 +110,7 @@ def test_openrouter_pkce_load_reads_only_its_previous_secret_surface() -> None:
     ]
     assert store.set_calls == []
     assert store.values["cerebras_api_key"] == "retired-secret"
+    assert store.values["openai_api_key"] == "openai-secret"
     assert store.delete_calls == []
 
 

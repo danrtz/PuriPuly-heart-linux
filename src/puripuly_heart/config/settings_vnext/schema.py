@@ -845,6 +845,7 @@ class ProviderVerificationState:
     soniox: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     google: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     openrouter: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
+    openai: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     deepseek: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     alibaba_beijing: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     alibaba_singapore: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)

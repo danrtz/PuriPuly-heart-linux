@@ -30,15 +30,18 @@ from puripuly_heart.config.resolved import (
     ResolvedLLMTarget,
 )
 from puripuly_heart.config.runtime_resolution import (
+    CREDENTIAL_REF_OPENAI_BYOK,
     CREDENTIAL_REF_OPENROUTER_BYOK,
     CREDENTIAL_REF_OPENROUTER_MANAGED,
     CREDENTIAL_REF_OPENROUTER_MANAGED_QQ,
     CREDENTIAL_REF_QWEN_BEIJING,
     CREDENTIAL_REF_QWEN_SINGAPORE,
+    OPENAI_MODEL_GPT_6_LUNA,
     PROVIDER_DEEPSEEK,
     PROVIDER_GEMINI,
     PROVIDER_LOCAL_LLM,
     PROVIDER_MANAGED_GEMMA,
+    PROVIDER_OPENAI,
     PROVIDER_OPENROUTER,
     PROVIDER_QWEN,
     DirectProviderRuntimeIntent,
@@ -74,6 +77,7 @@ from puripuly_heart.providers.llm.deepseek import DeepSeekLLMProvider
 from puripuly_heart.providers.llm.gemini import GeminiLLMProvider
 from puripuly_heart.providers.llm.local_openai import LocalOpenAICompatibleLLMProvider
 from puripuly_heart.providers.llm.managed_gemma import ManagedGemmaLLMProvider
+from puripuly_heart.providers.llm.openai import OpenAILLMProvider
 from puripuly_heart.providers.llm.openrouter import OpenRouterLLMProvider
 from puripuly_heart.providers.llm.qwen_async import AsyncQwenLLMProvider
 
@@ -737,6 +741,25 @@ def _provider_from_resolved_target(
             env_var="DEEPSEEK_API_KEY",
         )
         return DeepSeekLLMProvider(
+            api_key=api_key,
+            model=target.model,
+            runtime_logging=runtime_logging,
+        )
+
+    if target.provider == PROVIDER_OPENAI:
+        if target.model != OPENAI_MODEL_GPT_6_LUNA:
+            raise ValueError("OpenAI supports only GPT 6 Luna")
+        if (
+            target.credential.source != CREDENTIAL_SOURCE_SECRET_STORE
+            or target.credential.reference != CREDENTIAL_REF_OPENAI_BYOK
+        ):
+            raise ValueError("OpenAI requires its official BYOK credential")
+        api_key = require_secret(
+            secrets,
+            key="openai_api_key",
+            env_var="OPENAI_API_KEY",
+        )
+        return OpenAILLMProvider(
             api_key=api_key,
             model=target.model,
             runtime_logging=runtime_logging,

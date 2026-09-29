@@ -657,6 +657,8 @@ def _make_llm_selection_view(
     view._soniox_key = SimpleNamespace(visible=False)
     view._google_key = SimpleNamespace(visible=False)
     view._openrouter_key = SimpleNamespace(visible=False)
+    view._openai_key = SimpleNamespace(visible=False)
+    view._openai_verification_notice = SimpleNamespace(visible=False)
     view._deepseek_key = SimpleNamespace(visible=False)
     view._openrouter_pkce_button_row = SimpleNamespace(visible=False, update=lambda: None)
     view._openrouter_pkce_button = SimpleNamespace(text="", style=None, update=lambda: None)
@@ -3220,6 +3222,41 @@ def test_on_llm_selected_preserves_default_openrouter_managed_selection_during_g
         pending.intent.translation.openrouter_selection_alias
         == OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value
     )
+
+
+def test_luna_ui_selection_switches_applicable_keys_and_restores_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    first = view.build_provider_apply_settings()
+    assert first is not None
+    assert first.intent.translation.connection == TranslationConnection.OPENROUTER.value
+    assert first.intent.translation.openrouter_selection_alias == "gpt_6_luna_byok"
+    assert view._openrouter_key.visible
+    assert view._openrouter_pkce_button_row.visible
+    assert not view._openai_key.visible
+    assert not view._openai_verification_notice.visible
+
+    view._on_translation_connection_selected(TranslationConnection.OFFICIAL_BYOK.value)
+    direct = view.build_provider_apply_settings()
+    assert direct is not None
+    assert direct.intent.translation.connection_history["gpt_6_luna"] == "official_byok"
+    assert direct.intent.translation.openrouter_selection_alias is None
+    assert direct.intent.translation.openrouter_selected_source == "none"
+    assert view._openai_key.visible
+    assert view._openai_verification_notice.visible
+    assert not view._openrouter_key.visible
+    assert not view._openrouter_pkce_button_row.visible
+
+    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    restored = view.build_provider_apply_settings()
+    assert restored is not None
+    assert restored.intent.translation.connection == TranslationConnection.OFFICIAL_BYOK.value
+    assert view._openai_key.visible
 
 
 def test_on_translation_connection_selected_updates_settings_and_flags(

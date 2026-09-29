@@ -13,6 +13,7 @@ import httpx
 from puripuly_heart.config.llm_profiles import (
     OPENROUTER_MODEL_DEEPSEEK_V4_FLASH,
     OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41,
+    OPENROUTER_MODEL_GPT_6_LUNA,
 )
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
 from puripuly_heart.core.observability import ProviderObservationPort
@@ -168,6 +169,21 @@ def _has_length_finish_reason(data: object) -> bool:
         if isinstance(choice, dict) and choice.get("finish_reason") == "length":
             return True
     return False
+
+
+def _reasoning_token_count(data: dict[str, object]) -> int | None:
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    details = usage.get("completion_tokens_details")
+    token_count = (
+        details.get("reasoning_tokens")
+        if isinstance(details, dict)
+        else usage.get("reasoning_tokens")
+    )
+    if isinstance(token_count, int) and not isinstance(token_count, bool) and token_count >= 0:
+        return token_count
+    return None
 
 
 def _build_provider_preferences(
@@ -418,6 +434,11 @@ class HttpxOpenRouterClient:
     runtime_logging: ProviderObservationPort | None = None
     _client: httpx.AsyncClient | None = field(init=False, default=None, repr=False)
     _client_lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock, repr=False)
+    _last_reasoning_tokens: int | None = field(init=False, default=None, repr=False)
+
+    @property
+    def last_reasoning_tokens(self) -> int | None:
+        return self._last_reasoning_tokens
 
     def __post_init__(self) -> None:
         models = tuple(self.models) if self.models else (self.model,)
@@ -462,7 +483,6 @@ class HttpxOpenRouterClient:
                 {"role": "user", "content": user_message},
             ],
             "reasoning": {"effort": "none"},
-            "temperature": 0.6,
             "provider": _build_provider_preferences(
                 self.provider_routing,
                 model=self.model,
@@ -470,6 +490,8 @@ class HttpxOpenRouterClient:
             ),
             "max_tokens": max_output_tokens or self.max_tokens,
         }
+        if self.model != OPENROUTER_MODEL_GPT_6_LUNA:
+            request_body["temperature"] = 0.6
         if len(self.models) == 1:
             request_body["model"] = self.models[0]
         else:
@@ -496,7 +518,7 @@ class HttpxOpenRouterClient:
         scene_participant_count: int | None = None,
         max_output_tokens: int | None = None,
     ) -> str:
-
+        self._last_reasoning_tokens = None
         request_body = self._build_request_body(
             text=text,
             system_prompt=system_prompt,
@@ -530,17 +552,25 @@ class HttpxOpenRouterClient:
             )
             raise error
 
-        data = response.json()
-        choices = data.get("choices", [])
-        if not choices:
+        try:
+            data = response.json()
+        except ValueError:
+            raise RuntimeError("OpenRouter response was not valid JSON") from None
+        if not isinstance(data, dict):
+            raise RuntimeError("OpenRouter response did not contain a valid payload")
+        self._last_reasoning_tokens = _reasoning_token_count(data)
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
             raise RuntimeError("OpenRouter response did not contain choices")
         if _has_length_finish_reason(data):
             raise RuntimeError("OpenRouter response was truncated by max_tokens limit")
-
-        message = choices[0].get("message", {})
-        result = _extract_message_content(message.get("content"))
-
-        return result
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise RuntimeError("OpenRouter response did not contain a valid choice")
+        message = first_choice.get("message")
+        if not isinstance(message, dict):
+            raise RuntimeError("OpenRouter response did not contain message content")
+        return _extract_message_content(message.get("content"))
 
     async def close(self) -> None:
         async with self._client_lock:

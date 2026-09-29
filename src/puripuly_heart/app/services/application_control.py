@@ -303,6 +303,7 @@ def _extension_ids(application: UiApplicationBoundary) -> tuple[str, ...]:
 _VERIFIABLE_SECRET_PROVIDERS = {
     "google_api_key": "google",
     "openrouter_api_key": "openrouter",
+    "openai_api_key": "openai",
     "deepseek_api_key": "deepseek",
     "deepgram_api_key": "deepgram",
     "gemini_transcribe_api_key": "gemini_transcribe",
@@ -2103,15 +2104,17 @@ class ApplicationControlOwner:
                 model = TranslationModel(value) if key == "translation.model" else selection.model
                 if key == "translation.connection":
                     connection = TranslationConnection(value)
-                elif (
-                    key == "translation.model"
-                    and selection.connection not in supported_translation_connections(model)
-                ):
+                elif key == "translation.model" and model != selection.model:
                     from puripuly_heart.config.translation_values import (
                         default_translation_connection,
                     )
 
-                    connection = default_translation_connection(model)
+                    saved = dict(selection.connection_history).get(model)
+                    connection = (
+                        saved
+                        if saved in supported_translation_connections(model)
+                        else default_translation_connection(model)
+                    )
                 else:
                     connection = selection.connection
                 if connection not in supported_translation_connections(model):

@@ -170,7 +170,7 @@ def _active_prompt_key(settings: AppSettingsVNext) -> str:
         settings.intent.translation.model,
         settings.intent.translation.connection,
     )
-    if provider in {"gemini", "openrouter", "deepseek", "local_llm", "managed_gemma"}:
+    if provider in {"gemini", "openrouter", "openai", "deepseek", "local_llm", "managed_gemma"}:
         return provider
     return "qwen"
 
@@ -269,6 +269,12 @@ def settings_view_surface_snapshots(
             soniox=_verified(verification.soniox),
             google=_verified(verification.google),
             openrouter=_verified(verification.openrouter),
+            openai=(
+                _verified(verification.openai)
+                and verification.openai.provider == "openai"
+                and verification.openai.secret_key == "openai_api_key"
+                and verification.openai.verifier_context.get("model") == "gpt-6-luna"
+            ),
             deepseek=_verified(verification.deepseek),
             alibaba_beijing=_verified(verification.alibaba_beijing),
             alibaba_singapore=_verified(verification.alibaba_singapore),

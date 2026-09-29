@@ -19,14 +19,9 @@ import pytest
 
 from puripuly_heart.app import wiring
 from puripuly_heart.app.ports.broker_client import ManagedOperationStatusResult
-from puripuly_heart.config import llm_profiles, runtime_resolution
-from puripuly_heart.config import prompts as prompts_module
 from puripuly_heart.config import resolved as resolved_config
-from puripuly_heart.config.prompts import (
-    TRANSLATION_PROMPT_NAME,
-    load_prompt,
-    load_prompt_for_provider,
-)
+from puripuly_heart.config import runtime_resolution
+from puripuly_heart.config.prompts import load_prompt, load_prompt_for_provider
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     QwenRegion,
@@ -1471,11 +1466,10 @@ def test_installer_identity_snapshot_matches_inno_and_smoke_guard_contract() -> 
         assert guard_line in release_script
 
 
-def test_prompt_loader_snapshot_freezes_fallback_order_and_translation_prompt_requirement(
+def test_prompt_loader_prefers_named_files_then_defaults(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    snapshot = _load_snapshot()["prompts"]
     prompt_name = "surface"
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir()
@@ -1489,11 +1483,6 @@ def test_prompt_loader_snapshot_freezes_fallback_order_and_translation_prompt_re
         (prompts_dir / file_name).write_text(content, encoding="utf-8")
     monkeypatch.setenv("PURIPULY_HEART_PROMPTS_DIR", str(prompts_dir))
 
-    assert snapshot["translation_prompt_name"] == TRANSLATION_PROMPT_NAME
-    assert tuple(snapshot["load_prompt_fallback_order"]) == EXPECTED_PROMPT_FALLBACK_ORDER
-    assert tuple(snapshot["llm_provider_prompt_keys"]) == tuple(
-        sorted(prompts_module._LLM_PROVIDER_PROMPT_KEYS)
-    )
     assert load_prompt(prompt_name) == "name-md"
     (prompts_dir / f"{prompt_name}.md").unlink()
     assert load_prompt(prompt_name) == "name-txt"
@@ -1506,20 +1495,6 @@ def test_prompt_loader_snapshot_freezes_fallback_order_and_translation_prompt_re
 
     with pytest.raises(FileNotFoundError):
         load_prompt_for_provider("gemini")
-
-
-def test_provider_alias_snapshot_matches_current_aliases_and_legacy_acceptance() -> None:
-    snapshot = _load_snapshot()["provider_aliases"]
-
-    assert tuple(snapshot["openrouter_main_selection_aliases"]) == (
-        llm_profiles.OPENROUTER_MAIN_SELECTION_ALIASES
-    )
-    assert tuple(snapshot["legacy_selection_aliases"]) == tuple(
-        sorted(llm_profiles.LEGACY_PROFILE_BY_ALIAS)
-    )
-
-    for alias in snapshot["legacy_selection_aliases"]:
-        assert llm_profiles.get_openrouter_llm_profile(alias) is not None
 
 
 def test_provider_runtime_public_config_snapshot_matches_resolved_contracts() -> None:

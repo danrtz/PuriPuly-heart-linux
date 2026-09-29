@@ -637,6 +637,28 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             None,
         ),
         (
+            "gpt_6_luna",
+            "openrouter",
+            "managed",
+            "openrouter",
+            "openai/gpt-6-luna",
+            "secret_store",
+            "openrouter:byok",
+            None,
+            "default",
+        ),
+        (
+            "gpt_6_luna",
+            "official_byok",
+            "managed",
+            "openai",
+            "gpt-6-luna",
+            "secret_store",
+            "openai:byok",
+            None,
+            None,
+        ),
+        (
             "local_llm",
             "ollama",
             "byok",
@@ -803,6 +825,96 @@ def test_managed_openrouter_primary_gets_identity_hedge_and_emergency_route() ->
     assert config.attempts[2].start_after_ms == 4400
     assert config.attempts[2].start_on_primary_error is False
     assert config.attempts[2].target.provider_routing == "gemma4_31b_modelrun_only"
+
+
+@pytest.mark.parametrize(
+    ("connection", "attempt_count"),
+    [("openrouter", 3), ("official_byok", 2)],
+)
+def test_luna_attempt_plan_retains_same_route_hedge_and_only_router_emergency(
+    connection: str, attempt_count: int
+) -> None:
+    runtime_resolution = _runtime_resolution_module()
+    config = runtime_resolution.resolve_llm_config(
+        _runtime_input(runtime_resolution, model="gpt_6_luna", connection=connection)
+    )
+    assert config.concurrency_limit == 5
+    assert len(config.attempts) == attempt_count
+    assert config.attempts[0].target == config.attempts[1].target
+    assert config.attempts[1].start_after_ms == 1300
+    assert config.attempts[1].start_on_primary_error is True
+    assert config.fallback is not None
+    assert config.fallback.force_managed_wrapper is False
+    if connection == "openrouter":
+        emergency = config.attempts[2]
+        assert emergency.start_after_ms == 4400
+        assert emergency.start_on_primary_error is False
+        assert emergency.target.model == "google/gemma-4-31b-it"
+        assert emergency.target.credential.reference == "openrouter:byok"
+        assert emergency.target.provider_routing == "gemma4_31b_modelrun_only"
+
+
+@pytest.mark.parametrize("requested_connection", [None, "managed", "managed_china", "cpu"])
+def test_luna_invalid_or_missing_connection_selects_openrouter_only(
+    requested_connection: str | None,
+) -> None:
+    runtime_resolution = _runtime_resolution_module()
+    intent = runtime_resolution.normalize_translation_runtime_intent(
+        model="gpt_6_luna", connection=requested_connection
+    )
+    assert intent.model == "gpt_6_luna"
+    assert intent.connection == "openrouter"
+    target = runtime_resolution.resolve_llm_config(
+        runtime_resolution.RuntimeResolutionInput(translation=intent)
+    ).primary
+    assert target.model == "openai/gpt-6-luna"
+    assert target.credential.reference == "openrouter:byok"
+
+
+def test_luna_compatibility_provider_and_profile_resolve_to_same_product() -> None:
+    runtime_resolution = _runtime_resolution_module()
+    direct = runtime_resolution.derive_translation_runtime_intent_from_compatibility(
+        provider_llm="openai",
+    )
+    assert (direct.model, direct.connection) == ("gpt_6_luna", "official_byok")
+    router = runtime_resolution.normalize_openrouter_runtime_intent(
+        provider_llm="openrouter",
+        selection_alias="gpt_6_luna_byok",
+        selected_source="managed",
+    )
+    assert (router.model, router.selected_source) == ("openai/gpt-6-luna", "byok")
+    selected = runtime_resolution.derive_translation_runtime_intent_from_compatibility(
+        provider_llm="openrouter",
+        openrouter_model=router.model,
+        openrouter_selected_source=router.selected_source,
+    )
+    assert (selected.model, selected.connection) == ("gpt_6_luna", "openrouter")
+
+
+@pytest.mark.parametrize("stale_alias", ["gemma4_31b_managed", "unknown", None])
+def test_luna_canonical_product_resolves_independently_of_legacy_alias(
+    stale_alias: str | None,
+) -> None:
+    runtime_resolution = _runtime_resolution_module()
+    normalized = runtime_resolution.normalize_openrouter_runtime_intent(
+        model="google/gemma-4-31b-it",
+        selected_source="managed",
+        selection_alias=stale_alias,
+    )
+    for connection, provider, model in (
+        ("openrouter", "openrouter", "openai/gpt-6-luna"),
+        ("official_byok", "openai", "gpt-6-luna"),
+    ):
+        config = runtime_resolution.resolve_llm_config(
+            _runtime_input(
+                runtime_resolution,
+                model="gpt_6_luna",
+                connection=connection,
+                openrouter=normalized,
+            )
+        )
+        assert (config.provider, config.model) == (provider, model)
+        assert config.credential.source == "secret_store"
 
 
 def test_managed_china_resolves_explicit_qq_managed_credential_reference() -> None:

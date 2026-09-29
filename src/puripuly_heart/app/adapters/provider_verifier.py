@@ -19,6 +19,7 @@ from puripuly_heart.core.openrouter_metadata import OpenRouterKeyMetadata
 from puripuly_heart.core.translation_policy import FIXED_TRANSLATION_POLICY
 from puripuly_heart.providers.llm.deepseek import DeepSeekLLMProvider
 from puripuly_heart.providers.llm.gemini import GeminiLLMProvider
+from puripuly_heart.providers.llm.openai import OpenAILLMProvider
 from puripuly_heart.providers.llm.openrouter import OpenRouterLLMProvider
 from puripuly_heart.providers.llm.qwen_async import AsyncQwenLLMProvider
 from puripuly_heart.providers.stt.deepgram import DeepgramRealtimeSTTBackend
@@ -87,6 +88,13 @@ class ProviderVerifierAdapter(ProviderVerifierPort):
             )
         if normalized_provider == "openrouter":
             return await OpenRouterLLMProvider.verify_api_key(api_key)
+        if normalized_provider == "openai":
+            if model not in (None, "gpt-6-luna"):
+                return False
+            return await OpenAILLMProvider.verify_api_key(
+                api_key,
+                model="gpt-6-luna",
+            )
         if normalized_provider == "deepseek":
             kwargs: dict[str, str] = {}
             if base_url is not None:

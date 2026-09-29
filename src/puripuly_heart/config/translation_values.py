@@ -10,6 +10,7 @@ class TranslationModel(str, Enum):
     DEEPSEEK_V4_FLASH = "deepseek_v4_flash"
     DEEPSEEK_V4_FLASH_41 = "deepseek_v4_flash_41"
     GEMINI_FLASH = "gemini_flash"
+    GPT_6_LUNA = "gpt_6_luna"
     QWEN_38_FLASH = "qwen38_flash"
     MANAGED_GEMMA = "managed_gemma"
     LOCAL_LLM = "local_llm"
@@ -59,6 +60,10 @@ TRANSLATION_CONNECTIONS_BY_MODEL: dict[
         TranslationConnection.OPENROUTER,
     ),
     TranslationModel.QWEN_38_FLASH: (TranslationConnection.OFFICIAL_BYOK,),
+    TranslationModel.GPT_6_LUNA: (
+        TranslationConnection.OPENROUTER,
+        TranslationConnection.OFFICIAL_BYOK,
+    ),
     TranslationModel.MANAGED_GEMMA: (
         TranslationConnection.CPU,
         TranslationConnection.GPU,
@@ -99,6 +104,8 @@ def provider_llm_for_translation(model: str, connection: str) -> str:
         return "local_llm"
     if model == "deepseek_v4_flash_41" and connection == "official_byok":
         return "deepseek"
+    if model == "gpt_6_luna" and connection == "official_byok":
+        return "openai"
     if model == "gemini_flash":
         if connection == "openrouter":
             return "openrouter"

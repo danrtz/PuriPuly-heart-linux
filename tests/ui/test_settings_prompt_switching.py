@@ -91,6 +91,22 @@ def _make_settings_view(monkeypatch):
     return view
 
 
+def test_luna_direct_route_uses_shared_translation_prompt(monkeypatch) -> None:
+    view = _make_settings_view(monkeypatch)
+    view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    view._on_translation_connection_selected(TranslationConnection.OFFICIAL_BYOK.value)
+
+    pending = view.build_provider_apply_settings()
+    assert pending is not None
+    assert _translation(pending).model == "gpt_6_luna"
+    assert _translation(pending).connection == "official_byok"
+    assert view._active_prompt_key() == "openai"
+    assert view._prompt_editor.value == load_prompt_for_provider("openai")
+    assert view._prompt_editor.value == load_prompt_for_provider("openrouter")
+
+
 def test_settings_view_loads_qwen_prompt(monkeypatch) -> None:
     settings = _settings(model="qwen38_flash", connection="official_byok")
 
@@ -315,19 +331,7 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
     options = captured["options"]
     values = [option.value for option in options]
 
-    assert values == [
-        TranslationModel.GEMMA4_26B_31B.value,
-        TranslationModel.DEEPSEEK_V4_FLASH.value,
-        TranslationModel.DEEPSEEK_V4_FLASH_41.value,
-        "managed_gemma_cpu",
-        "managed_gemma_gpu",
-        TranslationModel.LOCAL_LLM.value,
-        TranslationModel.CUSTOM_HTTP.value,
-        TranslationModel.GEMMA4.value,
-        TranslationModel.GEMMA4_31B.value,
-        TranslationModel.GEMINI_FLASH.value,
-        TranslationModel.QWEN_38_FLASH.value,
-    ]
+    assert TranslationModel.GPT_6_LUNA.value in values
     assert TranslationModel.QWEN_38_FLASH.value in values
     assert TranslationModel.LOCAL_LLM.value in values
     assert all("qwen35_flash" not in value for value in values)

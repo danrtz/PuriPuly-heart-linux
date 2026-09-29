@@ -122,6 +122,7 @@ from .wiring_stt_factory import (
 
 _WIRING_SECRET_KEYS_FOR_COMPATIBILITY_GUARD = (
     "google_api_key",
+    "openai_api_key",
     "deepseek_api_key",
     "deepgram_api_key",
     "soniox_api_key",
