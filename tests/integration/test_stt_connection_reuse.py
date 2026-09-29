@@ -563,7 +563,11 @@ async def test_peer_cap_terminal_waits_for_source_seal_and_preserves_event_dispa
         assert admitted[0][0].failure_reason == "provider_session_lifetime_exceeded"
         assert admitted[0][1].identity.segment == start.segment.identity
         start, chunks, end = _owned_deepgram_events(raw_ledger, start_sample=2000)
-        for event in (start, *chunks, end):
+        starting = asyncio.create_task(deliver(start))
+        await _wait(lambda: any(not future.done() for _, future in clock.sleepers))
+        await clock.advance_to(9.0)
+        await starting
+        for event in (*chunks, end):
             await deliver(event)
         await engine.wait_for_event_ingress_drain()
         assert len(sessions) == 2

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -34,7 +36,11 @@ from puripuly_heart.core.observability import (
     RuntimeLogEvent,
 )
 from puripuly_heart.core.output.models import OutputRoutingDecision
-from puripuly_heart.core.runtime.logging import RuntimeLoggingService
+from puripuly_heart.core.runtime.logging import (
+    LIVE_AUDIENCE_BASIC,
+    LIVE_AUDIENCE_RECORD_ATTRIBUTE,
+    RuntimeLoggingService,
+)
 from puripuly_heart.core.runtime_logging import (
     RuntimeLoggingSinks,
     SessionRuntimeLoggingService,
@@ -155,21 +161,6 @@ class _BlockingStream:
         return getattr(self._target, name)
 
 
-def _format_with_handler(handler: logging.Handler) -> str:
-    record = logging.LogRecord(
-        name="test.runtime",
-        level=logging.INFO,
-        pathname=__file__,
-        lineno=1,
-        msg="hello",
-        args=(),
-        exc_info=None,
-    )
-    record.created = 0.0
-    record.msecs = 123.0
-    return handler.format(record)
-
-
 def _wait_for_log_text(log_file, text: str) -> None:
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
@@ -212,59 +203,42 @@ def _make_runtime_logging_capture() -> tuple[SessionRuntimeLoggingService, io.St
     return runtime_logging, stream
 
 
-def test_configure_main_logging_formats_new_handlers_with_millisecond_resolution(tmp_path) -> None:
-    root_logger = logging.getLogger(f"test.runtime_logging.configure.new.{uuid4()}")
-    root_logger.handlers.clear()
-    root_logger.propagate = False
-
-    sinks = configure_main_logging(root_logger=root_logger, log_dir=tmp_path)
-
-    try:
-        formatted_stream = _format_with_handler(sinks.stream_handler)
-        formatted_file = _format_with_handler(sinks.file_handler)
-
-        assert re.fullmatch(
-            r"\d{2}:\d{2}:\d{2}\.123 \[INFO\] test\.runtime: hello", formatted_stream
-        )
-        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}\.123 \[INFO\] test\.runtime: hello", formatted_file)
-    finally:
-        sinks.close()
-
-
-def test_configure_main_logging_reused_handlers_get_millisecond_resolution_formatter(
-    tmp_path,
+@pytest.mark.parametrize("reuse", [False, True])
+def test_persisted_records_identify_date_and_process_without_changing_live_output(
+    tmp_path, reuse: bool
 ) -> None:
-    root_logger = logging.getLogger(f"test.runtime_logging.configure.reused.{uuid4()}")
-    root_logger.handlers.clear()
+    root_logger = logging.getLogger(f"test.runtime_logging.correlation.{uuid4()}")
     root_logger.propagate = False
-
-    existing_stream = logging.StreamHandler(io.StringIO())
-    existing_stream.setFormatter(logging.Formatter("%(message)s"))
-    existing_file = RotatingFileHandler(
-        tmp_path / "puripuly_heart.log",
-        maxBytes=4096,
-        backupCount=0,
-        encoding="utf-8",
-    )
-    existing_file.setFormatter(logging.Formatter("%(message)s"))
-    root_logger.addHandler(existing_stream)
-    root_logger.addHandler(existing_file)
-
     sinks = configure_main_logging(root_logger=root_logger, log_dir=tmp_path)
-
+    reused_sinks = None
+    stream = io.StringIO()
+    sinks.stream_handler.setStream(stream)
+    if reuse:
+        reused_sinks = configure_main_logging(root_logger=root_logger, log_dir=tmp_path)
+    record = root_logger.makeRecord(
+        root_logger.name,
+        logging.INFO,
+        __file__,
+        1,
+        "[Test] correlation",
+        (),
+        None,
+        extra={LIVE_AUDIENCE_RECORD_ATTRIBUTE: LIVE_AUDIENCE_BASIC},
+    )
+    record.created = time.mktime((2026, 9, 29, 12, 34, 56, 0, 0, -1))
+    record.msecs = 123.0
     try:
-        assert sinks.stream_handler is existing_stream
-        assert sinks.file_handler is not existing_file
-        assert re.fullmatch(
-            r"\d{2}:\d{2}:\d{2}\.123 \[INFO\] test\.runtime: hello",
-            _format_with_handler(existing_stream),
-        )
-        assert re.fullmatch(
-            r"\d{2}:\d{2}:\d{2}\.123 \[INFO\] test\.runtime: hello",
-            _format_with_handler(sinks.file_handler),
-        )
+        root_logger.handle(record)
     finally:
+        if reused_sinks is not None:
+            reused_sinks.close()
         sinks.close()
+    persisted = sinks.log_file.read_text(encoding="utf-8")
+    assert "2026-09-29 12:34:56.123" in persisted
+    assert f"pid={os.getpid()}" in persisted
+    assert "12:34:56.123" in stream.getvalue()
+    assert "2026-09-29" not in stream.getvalue()
+    assert "pid=" not in stream.getvalue()
 
 
 def test_configure_main_logging_routes_file_writes_through_queue(tmp_path) -> None:
@@ -1482,3 +1456,104 @@ def test_record_request_context_redacts_secret_shaped_text(tmp_path) -> None:
     finally:
         runtime_logging.close()
         file_handler.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", [503, True, "private-response-body"])
+async def test_soniox_failure_metadata_survives_file_sink_without_external_content(
+    tmp_path, error_code: object
+) -> None:
+    from websockets.asyncio.server import serve
+
+    from puripuly_heart.core.audio.ownership import (
+        AudioSegmentIdentity,
+        AudioSegmentSettingsSnapshot,
+    )
+    from puripuly_heart.core.stt.backend import (
+        STTProviderTurnIdentity,
+        STTProviderTurnRequest,
+        STTProviderTurnTerminal,
+        STTSessionProjection,
+    )
+    from puripuly_heart.providers.stt.soniox import SonioxRealtimeSTTBackend
+
+    private = "private-response-body"
+
+    async def handler(ws) -> None:
+        await ws.recv()
+        await ws.recv()
+        await ws.send(
+            json.dumps(
+                {
+                    "error_code": error_code,
+                    "error": f"{private} fake_key=secret",
+                    "tokens": [{"text": private, "is_final": True}],
+                }
+            )
+        )
+        await ws.wait_closed()
+
+    provider_logger = logging.getLogger("puripuly_heart.providers.stt.soniox")
+    previous_level = provider_logger.level
+    sinks = configure_main_logging(root_logger=provider_logger, log_dir=tmp_path)
+    live = io.StringIO()
+    sinks.stream_handler.setStream(live)
+    epoch = uuid4().hex
+    identity = STTProviderTurnIdentity(
+        segment=AudioSegmentIdentity(1, 1, uuid4(), 1),
+        provider_epoch_id=epoch,
+        provider_turn_id=uuid4().hex,
+    )
+    settings = AudioSegmentSettingsSnapshot(
+        provider_id="soniox",
+        provider_signature=("soniox",),
+        runtime_signature=("soniox",),
+        source_mode="desktop",
+        source_language="en",
+        expected_languages=("en",),
+        target_sample_rate_hz=16000,
+        vad_speech_threshold=0.4,
+        vad_hangover_ms=800,
+        vad_pre_roll_ms=500,
+    )
+    try:
+        async with serve(handler, "127.0.0.1", 0) as server:
+            backend = SonioxRealtimeSTTBackend(
+                api_key="synthetic-key",
+                language_hints=["en"],
+                endpoint=f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}",
+            )
+            session = await backend.open_session(projection=STTSessionProjection("scoped", epoch))
+            try:
+                await session.begin_turn(STTProviderTurnRequest(identity, settings, "self"))
+                await session.send_turn_audio(
+                    identity,
+                    bytes(320),
+                    payload_sequence=1,
+                    source_ranges=(),
+                    context_only=False,
+                )
+                async with asyncio.timeout(2):
+                    async for event in session.turn_events():
+                        if isinstance(event, STTProviderTurnTerminal):
+                            assert event.failure_reason == "soniox_request_failed"
+                            break
+            finally:
+                await session.close()
+    finally:
+        sinks.close()
+        provider_logger.removeHandler(sinks.stream_handler)
+        provider_logger.setLevel(previous_level)
+    persisted = sinks.log_file.read_text(encoding="utf-8")
+    summaries = [line for line in persisted.splitlines() if "[Soniox] turn_end " in line]
+    assert len(summaries) == 1
+    fields = dict(token.split("=", 1) for token in summaries[0].split() if "=" in token)
+    assert fields["epoch"] == epoch
+    assert fields["turn"] == identity.provider_turn_id
+    assert fields["server_error_code"] == ("503" if type(error_code) is int else "unclassified")
+    assert fields["reason"] == "soniox_request_failed"
+    assert fields["trigger"] == "provider_error"
+    assert private not in persisted + live.getvalue()
+    assert "fake_key" not in persisted + live.getvalue()
+    assert "synthetic-key" not in persisted + live.getvalue()
+    assert "untrusted_record_redacted" not in summaries[0]

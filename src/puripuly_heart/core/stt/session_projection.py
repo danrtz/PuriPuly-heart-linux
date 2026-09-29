@@ -207,6 +207,7 @@ class STTSessionEventProjection:
         orderly: bool,
         reason: str,
         provider_turn_id: str | None = None,
+        failure_retryable: bool = False,
     ) -> bool:
         if not self.is_scoped or self._epoch_ended or self._closed:
             return False
@@ -221,6 +222,7 @@ class STTSessionEventProjection:
             orderly=orderly,
             reason=reason,
             provider_turn_id=provider_turn_id,
+            failure_retryable=failure_retryable,
         )
         try:
             return self._scoped_buffer().put(event)

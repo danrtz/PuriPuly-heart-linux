@@ -27,6 +27,7 @@ from puripuly_heart.core.stt.backend import (
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
 )
+from puripuly_heart.core.stt.diagnostics import recognition_cause
 from puripuly_heart.core.stt.scoped_engine import (
     ScopedRecognitionEngine,
     STTRecognitionWatchdogs,
@@ -687,9 +688,82 @@ async def test_peer_recognition_evidence_distinguishes_never_written_failure(
     assert fields["utterance_id"] == str(start.segment.identity.segment_id)
     assert fields["outcome"] == "failed"
     assert fields["cause"] == "provider_begin_failed"
+    assert fields["final_wait_ms"] == "none"
+    assert fields["final_timeout_ms"] == "30"
+    assert fields["activation_generation"] == "1"
     assert fields["successful_payloads"] == "0"
     assert fields["successful_bytes"] == fields["content_bytes"] == fields["context_bytes"] == "0"
     assert "private failure detail" not in messages[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["self", "peer"])
+@pytest.mark.parametrize(
+    "reason",
+    ["soniox_request_failed", "soniox_protocol_ambiguity", "soniox_receive_failed"],
+)
+async def test_terminal_evidence_preserves_owned_failure_for_both_channels(
+    channel: str,
+    reason: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=37, settings=settings("soniox"))
+    start, _chunk, end = segment_events(ledger, start_sample=550, now=2.0)
+    session = ControlledScopedSession()
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        channel=cast(Any, channel),
+        event_sink=lambda event: emitted.append(event),
+        watchdog_resolver=lambda _settings: watchdogs(final_timeout_s=0.2),
+    )
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.core.stt.scoped_engine"):
+        await engine.handle_owned_vad_event(start)
+        identity = session.requests[0].identity
+        ending = asyncio.create_task(engine.handle_owned_vad_event(end))
+        await wait_until(
+            lambda: engine._turn is not None and engine._turn.final_wait_started_at_s is not None
+        )
+        session.emit(
+            STTProviderTurnTerminal(
+                identity=identity,
+                outcome="failed",
+                text_authority="none",
+                failure_reason=f"{reason}:private transcript and response",
+                epoch_disposition="retire",
+            )
+        )
+        await ending
+        session.emit(
+            STTProviderTurnTerminal(
+                identity=identity,
+                outcome="cancelled",
+                text_authority="none",
+                failure_reason="toggle_off",
+            )
+        )
+        await engine.close()
+
+    records = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("[Recognition] terminal ")
+    ]
+    assert len(records) == 1
+    fields = dict(token.split("=", 1) for token in records[0].split()[2:])
+    assert fields["channel"] == channel
+    assert fields["utterance_id"] == str(identity.segment.segment_id)
+    assert fields["epoch"] == identity.provider_epoch_id
+    assert fields["turn"] == identity.provider_turn_id
+    assert fields["activation_generation"] == "37"
+    assert fields["outcome"] == "failed"
+    assert fields["cause"] == reason
+    assert fields["final_timeout_ms"] == "200"
+    assert fields["final_wait_ms"] != "none"
+    assert "private transcript and response" not in records[0]
+    terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert len(terminals) == 1
+    assert terminals[0].failure_reason == f"{reason}:private transcript and response"
 
 
 @pytest.mark.asyncio
@@ -1423,6 +1497,388 @@ async def test_ready_then_failed_epochs_exhaust_one_recovery_episode() -> None:
     assert [terminal.outcome for terminal in terminals] == ["failed"] * 4
     assert [terminal.failure_reason for terminal in terminals[:3]] == ["ready_then_failed"] * 3
     assert terminals[3].failure_reason == "provider_not_ready:RuntimeError"
+    await engine.close()
+
+
+async def finish_soniox_turn(
+    engine: ScopedRecognitionEngine,
+    session: ControlledScopedSession,
+    end: OwnedVadEvent,
+    *,
+    retryable: bool,
+    reason: str = "soniox_receive_failed",
+) -> STTProviderTurnIdentity:
+    identity = session.requests[-1].identity
+    session.emit(
+        STTProviderTurnTerminal(
+            identity=identity,
+            outcome="failed",
+            failure_reason=reason,
+            failure_retryable=retryable,
+            epoch_disposition="retire",
+        )
+    )
+    await engine.handle_owned_vad_event(end)
+    return identity
+
+
+@pytest.mark.asyncio
+async def test_soniox_transient_recovers_next_utterance_without_replaying_failed_audio() -> None:
+    emitted: list[object] = []
+    sessions: list[ControlledScopedSession] = []
+    delays: list[float] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        sessions.append(session)
+        return session
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel="self",
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(
+            connect_retry_base_s=0.8, connect_retry_max_s=1.6
+        ),
+        sleep=sleep,
+        session_lifetime_enabled=False,
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    first_start, _first_chunk, first_end = segment_events(ledger, start_sample=2000, now=20.0)
+    second_start, _second_chunk, second_end = segment_events(ledger, start_sample=2020, now=21.0)
+    await engine.handle_owned_vad_event(first_start)
+    first_identity = await finish_soniox_turn(engine, sessions[0], first_end, retryable=True)
+    await wait_until(lambda: ("close",) in sessions[0].calls)
+    await engine.handle_owned_vad_event(second_start)
+    second_identity = sessions[1].requests[0].identity
+    sessions[1].terminal_on_seal = ("final", "recognized")
+    await engine.handle_owned_vad_event(second_end)
+    terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert [(item.outcome, item.recovery_pending) for item in terminals] == [
+        ("failed", True),
+        ("final", False),
+    ]
+    assert terminals[0].failure_reason == "soniox_receive_failed"
+    assert terminals[0].failure_retryable
+    assert first_identity.provider_epoch_id != second_identity.provider_epoch_id
+    assert [call[0] for call in sessions[1].calls].count("send") == 2
+    assert delays == [0.8]
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_soniox_write_timeout_cancels_write_and_recovers_new_epoch() -> None:
+    emitted: list[object] = []
+    sessions: list[ControlledScopedSession] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        if not sessions:
+            session.send_gate.clear()
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel="self",
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(write_timeout_s=0.01),
+        session_lifetime_enabled=False,
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    start, _chunk, end = segment_events(ledger, start_sample=2100, now=21.0)
+    successor_start, _chunk, successor_end = segment_events(ledger, start_sample=2120, now=22.0)
+    await engine.handle_owned_vad_event(start)
+    await engine.handle_owned_vad_event(end)
+    await wait_until(lambda: ("close",) in sessions[0].calls)
+    sessions[0].send_gate.set()
+    await engine.handle_owned_vad_event(successor_start)
+    sessions[1].terminal_on_seal = ("final", "next")
+    await engine.handle_owned_vad_event(successor_end)
+    terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert terminals[0].failure_reason == "provider_send_timeout"
+    assert terminals[0].failure_retryable
+    assert terminals[0].recovery_pending
+    assert terminals[1].outcome == "final"
+    assert len([call for call in sessions[0].calls if call[0] == "send_done"]) == 0
+    assert len([call for call in sessions[1].calls if call[0] == "send"]) == 2
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_soniox_three_transient_turn_failures_exhaust_episode_and_final_resets_it() -> None:
+    emitted: list[object] = []
+    failures: list[Exception] = []
+    sessions: list[ControlledScopedSession] = []
+    delays: list[float] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        sessions.append(session)
+        return session
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel="self",
+        event_sink=emitted.append,
+        terminal_failure_sink=failures.append,
+        watchdog_resolver=lambda _settings: watchdogs(
+            connect_retry_base_s=0.8, connect_retry_max_s=1.6
+        ),
+        sleep=sleep,
+        session_lifetime_enabled=False,
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    for index in range(4):
+        start, _chunk, end = segment_events(
+            ledger, start_sample=3000 + 20 * index, now=30.0 + index
+        )
+        await engine.handle_owned_vad_event(start)
+        if index < 3:
+            await finish_soniox_turn(engine, sessions[index], end, retryable=True)
+            await wait_until(lambda: ("close",) in sessions[index].calls)
+        else:
+            await engine.handle_owned_vad_event(end)
+    terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert len(sessions) == 3
+    assert [item.recovery_pending for item in terminals] == [True, True, False, False]
+    assert [item.failure_reason for item in terminals[:3]] == ["soniox_receive_failed"] * 3
+    assert delays == [0.8, 1.6]
+    assert len(failures) == 1
+    await engine.close()
+
+    reset_sessions: list[ControlledScopedSession] = []
+    reset_events: list[object] = []
+
+    async def reset_factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        reset_sessions.append(session)
+        return session
+
+    reset = ScopedRecognitionEngine(
+        session_factory=reset_factory,
+        channel="self",
+        event_sink=reset_events.append,
+        watchdog_resolver=lambda _settings: watchdogs(),
+    )
+    fresh = PeerAudioSegmentLedger(activation_generation=2, settings=settings("soniox"))
+    for index in range(3):
+        start, _chunk, end = segment_events(fresh, start_sample=4000 + index * 20, now=40.0 + index)
+        await reset.handle_owned_vad_event(start)
+        if index == 1:
+            reset_sessions[-1].terminal_on_seal = ("final", "recovered")
+            await reset.handle_owned_vad_event(end)
+            reset_sessions[-1].terminal_on_seal = None
+        else:
+            await finish_soniox_turn(reset, reset_sessions[-1], end, retryable=True)
+        if index != 1:
+            await wait_until(lambda: ("close",) in reset_sessions[-1].calls)
+    assert [
+        item.recovery_pending for item in reset_events if isinstance(item, STTProviderTurnTerminal)
+    ] == [True, False, True]
+    await reset.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["self", "peer"])
+async def test_soniox_fatal_provider_terminal_never_opens_another_epoch(channel: str) -> None:
+    emitted: list[object] = []
+    sessions: list[ControlledScopedSession] = []
+    failures: list[Exception] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel=cast(Any, channel),
+        event_sink=emitted.append,
+        terminal_failure_sink=failures.append,
+        watchdog_resolver=lambda _settings: watchdogs(),
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    for index in range(3):
+        start, _chunk, end = segment_events(
+            ledger, start_sample=5000 + 20 * index, now=50.0 + index
+        )
+        await engine.handle_owned_vad_event(start)
+        if index == 0:
+            await finish_soniox_turn(
+                engine, sessions[0], end, retryable=False, reason="soniox_request_failed"
+            )
+            await wait_until(lambda: ("close",) in sessions[0].calls)
+        else:
+            await engine.handle_owned_vad_event(end)
+    terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert len(sessions) == 1
+    assert terminals[0].failure_reason == "soniox_request_failed"
+    assert not any(item.recovery_pending for item in terminals)
+    assert len(failures) == 1
+    await engine.close()
+
+
+def test_normalizer_preserves_provider_retryability_and_engine_recovery_metadata() -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    start, _chunk, _end = segment_events(ledger, start_sample=6000, now=60.0)
+    identity = STTProviderTurnIdentity(start.segment.identity, "epoch", "turn")
+    normalized = STTScopedTurnNormalizer(identity).apply_terminal(
+        STTProviderTurnTerminal(
+            identity=identity,
+            outcome="failed",
+            failure_reason="soniox_request_failed",
+            epoch_disposition="retire",
+            failure_retryable=True,
+            recovery_pending=True,
+        )
+    )
+    assert normalized.failure_reason == "soniox_request_failed"
+    assert normalized.failure_retryable is True
+    assert normalized.recovery_pending is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["backoff", "opening"])
+async def test_soniox_toggle_during_recovery_never_installs_late_epoch(phase: str) -> None:
+    emitted: list[object] = []
+    failures: list[Exception] = []
+    sessions: list[ControlledScopedSession] = []
+    sleep_gate = asyncio.Event()
+    open_gate = asyncio.Event()
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        sessions.append(session)
+        if len(sessions) == 2:
+            await open_gate.wait()
+        return session
+
+    async def sleep(_delay: float) -> None:
+        await sleep_gate.wait()
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel="self",
+        event_sink=emitted.append,
+        terminal_failure_sink=failures.append,
+        watchdog_resolver=lambda _settings: watchdogs(readiness_timeout_s=0.5),
+        sleep=sleep,
+        session_lifetime_enabled=False,
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    first_start, _chunk, first_end = segment_events(ledger, start_sample=7000, now=70.0)
+    next_start, _chunk, _next_end = segment_events(ledger, start_sample=7020, now=71.0)
+    await engine.handle_owned_vad_event(first_start)
+    await finish_soniox_turn(engine, sessions[0], first_end, retryable=True)
+    await wait_until(lambda: ("close",) in sessions[0].calls)
+    pending_start = asyncio.create_task(engine.handle_owned_vad_event(next_start))
+    await asyncio.sleep(0)
+    if phase == "opening":
+        sleep_gate.set()
+        await wait_until(lambda: len(sessions) == 2)
+    await engine.abort_for_toggle_off()
+    sleep_gate.set()
+    open_gate.set()
+    await pending_start
+    if phase == "opening":
+        await wait_until(lambda: ("close",) in sessions[1].calls)
+    assert len(sessions) == (1 if phase == "backoff" else 2)
+    if phase == "opening":
+        assert not any(call[0] == "begin" for call in sessions[1].calls)
+    assert len([event for event in emitted if isinstance(event, STTProviderTurnTerminal)]) == 1
+    assert not failures
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_soniox_idle_auth_failure_blocks_reopening_and_notifies_once() -> None:
+    emitted: list[object] = []
+    sessions: list[ControlledScopedSession] = []
+    failures: list[Exception] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel="self",
+        event_sink=emitted.append,
+        terminal_failure_sink=failures.append,
+        watchdog_resolver=lambda _settings: watchdogs(),
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    first_start, _chunk, first_end = segment_events(ledger, start_sample=8000, now=80.0)
+    next_start, _chunk, next_end = segment_events(ledger, start_sample=8020, now=81.0)
+    await engine.handle_owned_vad_event(first_start)
+    sessions[0].terminal_on_seal = ("final", "healthy")
+    await engine.handle_owned_vad_event(first_end)
+    sessions[0].emit(
+        STTProviderEpochEnded(
+            provider_epoch_id=sessions[0].requests[0].identity.provider_epoch_id,
+            orderly=False,
+            reason="soniox_request_failed",
+            failure_retryable=False,
+        )
+    )
+    await wait_until(lambda: bool(failures))
+    await engine.handle_owned_vad_event(next_start)
+    await engine.handle_owned_vad_event(next_end)
+    assert len(sessions) == 1
+    assert len(failures) == 1
+    await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_soniox_idle_transient_epoch_counts_once_and_recovers_on_next_start() -> None:
+    sessions: list[ControlledScopedSession] = []
+    emitted: list[object] = []
+    delays: list[float] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        session = ControlledScopedSession()
+        sessions.append(session)
+        return session
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        channel="self",
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(),
+        sleep=sleep,
+        session_lifetime_enabled=False,
+    )
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings("soniox"))
+    first_start, _chunk, first_end = segment_events(ledger, start_sample=9000, now=90.0)
+    next_start, _chunk, next_end = segment_events(ledger, start_sample=9020, now=91.0)
+    await engine.handle_owned_vad_event(first_start)
+    sessions[0].terminal_on_seal = ("final", "healthy")
+    await engine.handle_owned_vad_event(first_end)
+    sessions[0].emit(
+        STTProviderEpochEnded(
+            provider_epoch_id=sessions[0].requests[0].identity.provider_epoch_id,
+            orderly=False,
+            reason="soniox_receive_failed",
+            failure_retryable=True,
+        )
+    )
+    await wait_until(lambda: ("close",) in sessions[0].calls)
+    await engine.handle_owned_vad_event(next_start)
+    sessions[1].terminal_on_seal = ("final", "next")
+    await engine.handle_owned_vad_event(next_end)
+    assert len(sessions) == 2
+    assert delays == [0.001]
     await engine.close()
 
 
@@ -2491,3 +2947,129 @@ async def test_session_ceiling_overrides_cached_terminal_before_peer_source_seal
         assert terminals[0].text == ""
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_timeout_diagnostics_keep_original_epoch_and_frozen_watchdog_after_config_change(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    first_start, _first_chunk, first_end = segment_events(
+        PeerAudioSegmentLedger(activation_generation=41, settings=settings("soniox")),
+        start_sample=2000,
+        now=20.0,
+    )
+    second_start, _second_chunk, second_end = segment_events(
+        PeerAudioSegmentLedger(activation_generation=42, settings=settings("soniox")),
+        start_sample=2100,
+        now=21.0,
+    )
+    first = ControlledScopedSession()
+    second = ControlledScopedSession()
+    second.terminal_on_seal = ("final", "next")
+    sessions = [first, second]
+    clock = ControlledMonotonicClock(value=10.0)
+    configured_timeout_s = 0.012
+    emitted: list[object] = []
+
+    async def factory(_settings: AudioSegmentSettingsSnapshot, _epoch: str):
+        return sessions.pop(0)
+
+    engine = ScopedRecognitionEngine(
+        session_factory=factory,
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _settings: watchdogs(final_timeout_s=configured_timeout_s),
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.core.stt.scoped_engine"):
+        await engine.handle_owned_vad_event(first_start)
+        first_identity = first.requests[0].identity
+        configured_timeout_s = 0.2
+        ending = asyncio.create_task(engine.handle_owned_vad_event(first_end))
+        await wait_until(
+            lambda: engine._turn is not None and engine._turn.final_wait_started_at_s is not None
+        )
+        clock.value = 10.015625
+        await ending
+        await wait_until(lambda: ("close",) in first.calls)
+
+        second_start_task = asyncio.create_task(engine.handle_owned_vad_event(second_start))
+        await wait_until(
+            lambda: any(
+                deadline <= clock.value + 0.002 and not future.done()
+                for deadline, future in clock.sleepers
+            )
+        )
+        await clock.advance_to(clock.value + 0.001)
+        await second_start_task
+        second_identity = second.requests[0].identity
+        assert second_identity.provider_epoch_id != first_identity.provider_epoch_id
+        second.emit(
+            STTProviderEpochEnded(
+                provider_epoch_id=first_identity.provider_epoch_id,
+                orderly=False,
+                reason="soniox_receive_failed",
+            )
+        )
+        second.emit(
+            STTProviderTurnTerminal(
+                identity=first_identity,
+                outcome="cancelled",
+                text_authority="none",
+                failure_reason="toggle_off",
+            )
+        )
+        await engine.handle_owned_vad_event(second_end)
+        await engine.close()
+
+    records = [
+        dict(token.split("=", 1) for token in record.getMessage().split()[2:])
+        for record in caplog.records
+        if record.getMessage().startswith("[Recognition] terminal ")
+    ]
+    assert len(records) == 2
+    by_utterance = {record["utterance_id"]: record for record in records}
+    original = by_utterance[str(first_identity.segment.segment_id)]
+    successor = by_utterance[str(second_identity.segment.segment_id)]
+    assert original["epoch"] == first_identity.provider_epoch_id
+    assert original["turn"] == first_identity.provider_turn_id
+    assert original["activation_generation"] == "41"
+    assert original["cause"] == "provider_final_timeout"
+    assert original["final_timeout_ms"] == "12"
+    assert original["failure_retryable"] == "1"
+    assert original["recovery_pending"] == "1"
+    assert int(original["final_wait_ms"]) == 15
+    assert successor["epoch"] == second_identity.provider_epoch_id
+    assert successor["turn"] == second_identity.provider_turn_id
+    assert successor["activation_generation"] == "42"
+    assert successor["outcome"] == "final"
+    assert successor["cause"] == "none"
+    assert successor["final_timeout_ms"] == "200"
+    assert successor["recovery_pending"] == "0"
+    terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+    assert [(event.identity, event.outcome) for event in terminals] == [
+        (first_identity, "failed"),
+        (second_identity, "final"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        ("soniox_write_failed:private exception and transcript", "soniox_write_failed"),
+        ("soniox_keepalive_failed", "soniox_keepalive_failed"),
+        ("soniox_connection_ended", "soniox_connection_ended"),
+        ("soniox_stream_finished", "soniox_stream_finished"),
+        ("soniox_idle_authoritative_text", "soniox_idle_authoritative_text"),
+        ("soniox_token_buffer_overflow", "soniox_token_buffer_overflow"),
+        ("toggle_off", "toggle_off"),
+        ("server_message:soniox_receive_failed", "unclassified"),
+        ("provider_reported", "unclassified"),
+        (None, "none"),
+    ],
+)
+def test_recognition_cause_exposes_only_owned_reason_prefixes(
+    reason: str | None,
+    expected: str,
+) -> None:
+    assert recognition_cause(reason) == expected

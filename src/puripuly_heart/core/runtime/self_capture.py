@@ -33,6 +33,7 @@ from puripuly_heart.core.self_capture import (
     SelfCaptureTerminalFailureHandler,
 )
 from puripuly_heart.core.stt.backend import STTProviderTurnTerminal
+from puripuly_heart.core.stt.diagnostics import recognition_cause
 from puripuly_heart.core.vad.gating import SpeechEnd, SpeechStart
 
 SelfCaptureProviderRequestFactory = Callable[[SelfCaptureSessionConfig, bool], object]
@@ -607,10 +608,17 @@ class SelfCaptureSessionOwner:
             reason
             and not reason.startswith("recognition_admission_")
             and terminal.outcome not in ("final", "empty", "suppressed", "cancelled")
+            and terminal.identity.segment.activation_generation == self._generation
+            and not terminal.recovery_pending
         ):
-            self.note_recognition_failure(reason)
+            self.note_recognition_failure(reason, terminal=terminal)
 
-    def note_recognition_failure(self, reason: str) -> None:
+    def note_recognition_failure(
+        self,
+        reason: str,
+        *,
+        terminal: STTProviderTurnTerminal | None = None,
+    ) -> None:
         if (
             self._closed
             or not self._desired_active
@@ -628,6 +636,8 @@ class SelfCaptureSessionOwner:
                 generation,
                 failure_reason,
                 RuntimeError(reason),
+                terminal=terminal,
+                recognition_reason=recognition_cause(reason),
             ),
             name=f"SelfCaptureSessionOwner:recognition-fault:{generation}",
         )
@@ -1253,6 +1263,13 @@ class SelfCaptureSessionOwner:
         capture_generation = self._capture_generation
         if capture_generation is not None:
             capture_generation.value = generation
+        dispatch = self._vad_dispatch
+        config = self._config
+        if dispatch is not None and config is not None:
+            dispatch.ledger.rebind(
+                activation_generation=generation,
+                settings=self._segment_settings(config),
+            )
 
     def _on_loop_task_done(
         self,
@@ -1330,6 +1347,8 @@ class SelfCaptureSessionOwner:
         exc: Exception | None = None,
         *,
         completed_task: asyncio.Task[None] | None = None,
+        terminal: STTProviderTurnTerminal | None = None,
+        recognition_reason: str | None = None,
     ) -> None:
         async with self._activation_lock:
             await self._fault_generation_locked(
@@ -1337,6 +1356,8 @@ class SelfCaptureSessionOwner:
                 reason,
                 exc,
                 completed_task=completed_task,
+                terminal=terminal,
+                recognition_reason=recognition_reason,
             )
 
     async def _fault_generation_locked(
@@ -1346,10 +1367,14 @@ class SelfCaptureSessionOwner:
         exc: Exception | None = None,
         *,
         completed_task: asyncio.Task[None] | None = None,
+        terminal: STTProviderTurnTerminal | None = None,
+        recognition_reason: str | None = None,
     ) -> None:
         if self._is_stale(generation):
             return
+        desired_active_before = self._desired_active
         self._desired_active = False
+        desired_active_after = self._desired_active
         self._generation += 1
         teardown_generation = self._generation
         self._failure_reason = reason
@@ -1358,6 +1383,12 @@ class SelfCaptureSessionOwner:
             generation=generation,
             reason=reason,
             detail=type(exc).__name__ if exc is not None else None,
+            terminal=terminal,
+            recognition_reason=recognition_reason,
+            desired_active_before=desired_active_before,
+            desired_active_after=desired_active_after,
+            action="deactivate",
+            target_state=SelfCaptureSessionState.FAULTED,
         )
         await self._teardown(
             generation=teardown_generation,
@@ -1377,6 +1408,7 @@ class SelfCaptureSessionOwner:
     ) -> None:
         if self._is_superseded(generation):
             return
+        desired_active_before = self._desired_active
         self._failure_reason = reason
         self._state = SelfCaptureSessionState.FAULTED
         if reason is not SelfCaptureFailureReason.ADMISSION_REJECTED:
@@ -1393,6 +1425,10 @@ class SelfCaptureSessionOwner:
             generation=generation,
             reason=reason,
             detail=type(exc).__name__ if exc is not None else None,
+            desired_active_before=desired_active_before,
+            desired_active_after=self._desired_active,
+            action=("deactivate" if desired_active_before and not self._desired_active else None),
+            target_state=SelfCaptureSessionState.FAULTED,
         )
         self._notify_state_changed()
 
@@ -1585,6 +1621,12 @@ class SelfCaptureSessionOwner:
         generation: int,
         reason: SelfCaptureFailureReason | None = None,
         detail: str | None = None,
+        terminal: STTProviderTurnTerminal | None = None,
+        recognition_reason: str | None = None,
+        desired_active_before: bool | None = None,
+        desired_active_after: bool | None = None,
+        action: str | None = None,
+        target_state: SelfCaptureSessionState | None = None,
     ) -> None:
         if self._diagnostic_sink is None:
             return
@@ -1596,6 +1638,33 @@ class SelfCaptureSessionOwner:
                 provider_id=self._config.provider_id if self._config is not None else None,
                 reason=reason,
                 detail=detail,
+                recognition_reason=recognition_reason,
+                utterance_id=(
+                    terminal.identity.segment.segment_id if terminal is not None else None
+                ),
+                epoch=terminal.identity.provider_epoch_id if terminal is not None else None,
+                turn=terminal.identity.provider_turn_id if terminal is not None else None,
+                activation_generation=(
+                    terminal.identity.segment.activation_generation
+                    if terminal is not None
+                    else None
+                ),
+                desired_active_before=(
+                    self._desired_active
+                    if desired_active_before is None and event is SelfCaptureDiagnosticEvent.FAILURE
+                    else desired_active_before
+                ),
+                desired_active_after=(
+                    self._desired_active
+                    if desired_active_after is None and event is SelfCaptureDiagnosticEvent.FAILURE
+                    else desired_active_after
+                ),
+                action=action,
+                target_state=(
+                    self._state
+                    if target_state is None and event is SelfCaptureDiagnosticEvent.FAILURE
+                    else target_state
+                ),
             )
         )
 

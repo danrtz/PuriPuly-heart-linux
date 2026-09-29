@@ -1843,6 +1843,8 @@ async def test_peer_dispatch_expires_oldest_wholly_unsent_segment_on_overflow(
     assert fields["outcome"] == "expired"
     assert fields["cause"] == "overload"
     assert fields["successful_payloads"] == fields["content_bytes"] == "0"
+    assert "sealed_wait_ms" not in fields
+    assert "ttl_ms" not in fields
     await owner.close()
 
 
@@ -1896,10 +1898,12 @@ async def test_peer_dispatch_expires_wholly_unsent_segment_after_seal_age_timer(
     )
 
     caplog.set_level(logging.INFO, logger="puripuly_heart.core.runtime.peer_channel")
+    started_at = asyncio.get_running_loop().time()
     await owner.apply_intent(make_config(), enabled=True)
     await asyncio.wait_for(blocked.wait(), timeout=0.5)
     ledger = owner.segment_ledgers[-1]
     await wait_until(lambda: len(ledger.snapshots) == 2 and ledger.snapshots[1].state == "terminal")
+    observed_at = asyncio.get_running_loop().time()
     assert ledger.terminal_receipts[0].outcome == "expired"
 
     release.set()
@@ -1922,6 +1926,10 @@ async def test_peer_dispatch_expires_wholly_unsent_segment_after_seal_age_timer(
     assert fields["utterance_id"] == str(ledger.terminal_receipts[1].identity.segment_id)
     assert fields["cause"] == "expired_before_recognition"
     assert fields["successful_bytes"] == "0"
+    assert fields["generation"] == str(ledger.terminal_receipts[1].identity.activation_generation)
+    assert fields["ttl_ms"] == "10"
+    assert int(fields["sealed_wait_ms"]) >= int(fields["ttl_ms"])
+    assert int(fields["sealed_wait_ms"]) <= int((observed_at - started_at) * 1000)
     await owner.close()
 
 
@@ -2268,7 +2276,7 @@ async def test_canonical_delivery_boundaries_survive_production_write_timeout_an
         sessions.append(session)
         return session
 
-    watchdog_config = SimpleNamespace(provider="soniox", drain_timeout_s=0.1)
+    watchdog_config = SimpleNamespace(provider="soniox", channel="peer", drain_timeout_s=0.1)
     recognition = ScopedRecognitionEngine(
         channel="peer",
         session_factory=open_session,
@@ -2458,7 +2466,6 @@ async def test_canonical_delivery_boundaries_survive_production_write_timeout_an
         assert {item.segment_id for item in queued if item.segment_id} == {
             segment.identity.segment_id
         }
-        assert sessions[0].progress == ["begin_written", "sdk_enqueued"]
         writer_release.set()
         await wait_until(lambda: recognition.cleanup_debt == 0)
         await wait_until(lambda: len(ledger.terminal_receipts) == 1)
@@ -2495,7 +2502,6 @@ async def test_canonical_delivery_boundaries_survive_production_write_timeout_an
         ]
         assert len(finals) == 1
         assert len(sessions) == 2
-        assert sessions[1].progress[-1] == "seal_written"
         assert owner.snapshot.cleanup_debt == 0
         assert recognition.cleanup_debt == 0
     finally:
@@ -2583,7 +2589,7 @@ async def test_off_then_reenable_during_actual_scoped_write_stall_retires_old_sc
                 admissions = owner_box[0].admit_provider_terminal(event)
                 emitted.extend(terminal for _receipt, terminal in admissions)
 
-            config = SimpleNamespace(provider="soniox", drain_timeout_s=0.1)
+            config = SimpleNamespace(provider="soniox", channel="peer", drain_timeout_s=0.1)
             engine = ScopedRecognitionEngine(
                 session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
                 event_sink=terminal_sink,

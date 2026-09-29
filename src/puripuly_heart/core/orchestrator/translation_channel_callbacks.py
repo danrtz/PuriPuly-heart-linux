@@ -64,19 +64,36 @@ class TranslationChannelOwnerCallbacks:
         await self._after_self_event(event)
 
     async def _before_self_event(self, event: object) -> None:
-        if isinstance(event, STTProviderTurnUpdate) or (
-            isinstance(event, STTProviderTurnTerminal)
-            and event.outcome in ("final", "empty", "degraded", "suppressed")
+        if isinstance(event, STTProviderTurnUpdate | STTProviderTurnTerminal) and (
+            self._self_scoped_event_is_current(event)
+            and (
+                isinstance(event, STTProviderTurnUpdate)
+                or event.outcome in ("final", "empty", "degraded", "suppressed")
+            )
         ):
             await self._publish_self_session_state(STTSessionState.STREAMING)
         if isinstance(event, STTProviderTurnTerminal) and self._self_capture is not None:
             self._self_capture.note_recognition_terminal(event)
 
     async def _after_self_event(self, event: object) -> None:
-        if isinstance(event, STTProviderTurnTerminal) and (
-            event.outcome in ("failed", "expired", "cancelled") or event.failure_reason is not None
+        if (
+            isinstance(event, STTProviderTurnTerminal)
+            and self._self_scoped_event_is_current(event)
+            and (
+                event.outcome in ("failed", "expired", "cancelled")
+                or event.failure_reason is not None
+            )
         ):
             await self._publish_self_session_state(STTSessionState.DISCONNECTED)
+
+    def _self_scoped_event_is_current(
+        self, event: STTProviderTurnUpdate | STTProviderTurnTerminal
+    ) -> bool:
+        return (
+            self._self_capture is None
+            or event.identity.segment.activation_generation
+            == self._self_capture.snapshot.generation
+        )
 
     async def _publish_self_session_state(self, state: STTSessionState) -> None:
         if self._stt_sessions.state("self") is state:

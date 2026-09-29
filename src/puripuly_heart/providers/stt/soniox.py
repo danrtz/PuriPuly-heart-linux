@@ -13,10 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, ClassVar, Literal, Sequence
 from uuid import uuid4
 
+from websockets.exceptions import ProtocolError
+
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
 from puripuly_heart.core.stt.backend import (
     LEGACY_STT_SESSION_PROJECTION,
+    PermanentSTTScopedSessionError,
     STTBackend,
     STTBackendSession,
     STTBackendTranscriptEvent,
@@ -27,6 +30,7 @@ from puripuly_heart.core.stt.backend import (
     STTProviderTurnUpdate,
     STTSessionProjection,
 )
+from puripuly_heart.core.stt.diagnostics import recognition_cause
 from puripuly_heart.core.stt.session_projection import STTSessionEventProjection
 from puripuly_heart.domain.models import FinalLanguageRun, FinalSpeakerRun
 
@@ -38,12 +42,106 @@ _SELECTIVE_PAUSE_MIN_MS = 4000
 _SELECTIVE_PAUSE_MAX_MS = 7000
 _MAX_TURN_FINAL_TOKENS = 16384
 SONIOX_MAX_SESSION_AGE_S = 299.0 * 60.0
+_RETRYABLE_SERVER_ERRORS = {
+    408: "request_timeout",
+    413: "max_duration_reached",
+    429: "limit_exceeded",
+    500: "internal_error",
+    503: "service_unavailable",
+}
+_RETRYABLE_TRANSPORT_REASONS = frozenset(
+    {
+        "soniox_write_failed",
+        "soniox_receive_failed",
+        "soniox_keepalive_failed",
+        "soniox_connection_ended",
+        "soniox_stream_finished",
+    }
+)
+_RETRYABLE_WS_CLOSE_CODES = frozenset({1000, 1001, 1006, 1011, 1012, 1013})
+
+_SAFE_EXCEPTION_TYPES = frozenset(
+    {
+        "BrokenPipeError",
+        "ConnectionClosed",
+        "ConnectionClosedError",
+        "ConnectionClosedOK",
+        "ConnectionError",
+        "ConnectionResetError",
+        "JSONDecodeError",
+        "OSError",
+        "RuntimeError",
+        "TimeoutError",
+        "TypeError",
+        "UnicodeDecodeError",
+        "ValueError",
+    }
+)
+
+
+def _safe_exception_type(exc: BaseException | None) -> str:
+    if exc is None:
+        return "none"
+    name = type(exc).__name__
+    return name if name in _SAFE_EXCEPTION_TYPES else "unclassified"
+
+
+def _safe_code(value: object, *, maximum: int) -> int | str:
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum:
+        return value
+    if isinstance(value, str) and 0 < len(value) <= 6 and value.isascii() and value.isdecimal():
+        number = int(value)
+        if number <= maximum:
+            return number
+    return "unclassified"
+
+
+def _retryable_server_error(data: dict[str, Any], code: int | str) -> bool:
+    expected_type = _RETRYABLE_SERVER_ERRORS.get(code) if isinstance(code, int) else None
+    if expected_type is None:
+        return False
+    error_type = data.get("error_type")
+    error = data.get("error")
+    return ("error_type" not in data or error_type == expected_type) and (
+        "error" not in data or isinstance(error, str)
+    )
+
+
+def _retryable_transport_failure(reason: str, exception: BaseException | None, ws: Any) -> bool:
+    if reason not in _RETRYABLE_TRANSPORT_REASONS:
+        return False
+    if isinstance(exception, ProtocolError):
+        return False
+    close = getattr(exception, "rcvd", None)
+    code = getattr(close, "code", None)
+    if code is None:
+        code = getattr(exception, "code", None)
+    if code is None and ws is not None:
+        code = getattr(ws, "close_code", None)
+    return code is None or _safe_code(code, maximum=65535) in _RETRYABLE_WS_CLOSE_CODES
+
+
+def _elapsed_ms(now: float, then: float | None) -> int | str:
+    return max(0, int((now - then) * 1000)) if then is not None else "none"
 
 
 @dataclass(frozen=True, slots=True)
 class _FinalizeRequest:
     completion: asyncio.Future[None] | None = None
     padding_pcm16le: bytes = b""
+    identity: STTProviderTurnIdentity | None = None
+    turn: _TurnDiagnostics | None = None
+
+
+@dataclass(slots=True)
+class _TurnDiagnostics:
+    identity: STTProviderTurnIdentity
+    channel: Literal["self", "peer"]
+    finalize_requested_at: float | None = None
+    finalize_written_at: float | None = None
+    fin_received: bool = False
+    fin_accepted: bool = False
+    logged: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,19 +183,19 @@ class SonioxRealtimeSTTBackend(STTBackend):
         projection: STTSessionProjection = LEGACY_STT_SESSION_PROJECTION,
     ) -> STTBackendSession:
         if self.sample_rate_hz not in (8000, 16000):
-            raise ValueError("sample_rate_hz must be 8000 or 16000")
+            raise PermanentSTTScopedSessionError("sample_rate_hz must be 8000 or 16000")
         if not self.api_key:
-            raise ValueError("api_key must be non-empty")
+            raise PermanentSTTScopedSessionError("api_key must be non-empty")
         if not self.endpoint:
-            raise ValueError("endpoint must be non-empty")
+            raise PermanentSTTScopedSessionError("endpoint must be non-empty")
         if self.keepalive_interval_s <= 0:
-            raise ValueError("keepalive_interval_s must be > 0")
+            raise PermanentSTTScopedSessionError("keepalive_interval_s must be > 0")
         if self.trailing_silence_ms < 0:
-            raise ValueError("trailing_silence_ms must be >= 0")
+            raise PermanentSTTScopedSessionError("trailing_silence_ms must be >= 0")
         if self.connect_timeout_s <= 0:
-            raise ValueError("connect_timeout_s must be > 0")
+            raise PermanentSTTScopedSessionError("connect_timeout_s must be > 0")
         if self.language_hints_strict and not self.language_hints:
-            raise ValueError("language_hints_strict requires language_hints")
+            raise PermanentSTTScopedSessionError("language_hints_strict requires language_hints")
 
         session = _SonioxSession(
             api_key=self.api_key,
@@ -197,6 +295,11 @@ class _SonioxSession(STTBackendSession):
     )
     _scoped_tokens: list[_FinalToken] = field(init=False, default_factory=list, repr=False)
     _scoped_channel: Literal["self", "peer"] | None = field(init=False, default=None, repr=False)
+    _turn_diagnostics: _TurnDiagnostics | None = field(init=False, default=None, repr=False)
+    _session_open_at: float | None = field(init=False, default=None, repr=False)
+    _last_rx_at: float | None = field(init=False, default=None, repr=False)
+    _session_fault_logged: bool = field(init=False, default=False, repr=False)
+    _local_cleanup_started: bool = field(init=False, default=False, repr=False)
 
     def __post_init__(self) -> None:
         self._event_projection = STTSessionEventProjection(self.projection)
@@ -222,10 +325,32 @@ class _SonioxSession(STTBackendSession):
         if self.context_terms:
             config["context"] = {"terms": self.context_terms}
 
-        self._ws = await websockets.connect(
-            self.endpoint, ping_interval=None, open_timeout=self.connect_timeout_s
-        )
-        await self._ws.send(json.dumps(config))
+        try:
+            self._ws = await websockets.connect(
+                self.endpoint, ping_interval=None, open_timeout=self.connect_timeout_s
+            )
+        except websockets.exceptions.InvalidStatus as exc:
+            status = _safe_code(exc.response.status_code, maximum=999999)
+            if status in _RETRYABLE_SERVER_ERRORS:
+                raise
+            raise PermanentSTTScopedSessionError("soniox_connection_rejected") from exc
+        except (
+            websockets.exceptions.InvalidHandshake,
+            websockets.exceptions.InvalidURI,
+            ValueError,
+        ) as exc:
+            raise PermanentSTTScopedSessionError("soniox_connection_rejected") from exc
+        self._session_open_at = time.monotonic()
+        try:
+            configuration = json.dumps(config)
+        except (TypeError, ValueError) as exc:
+            raise PermanentSTTScopedSessionError("soniox_configuration_invalid") from exc
+        try:
+            await self._ws.send(configuration)
+        except Exception as exc:
+            if not _retryable_transport_failure("soniox_write_failed", exc, self._ws):
+                raise PermanentSTTScopedSessionError("soniox_connection_rejected") from exc
+            raise
         self._last_send_at = time.monotonic()
 
         self._send_task = asyncio.create_task(self._send_loop())
@@ -245,12 +370,26 @@ class _SonioxSession(STTBackendSession):
                         self._last_send_at = time.monotonic()
                     return
                 if isinstance(data, _FinalizeRequest):
+                    if (
+                        data.turn is not None
+                        and data.turn is self._turn_diagnostics
+                        and data.identity == data.turn.identity
+                    ):
+                        if data.turn.finalize_requested_at is None:
+                            data.turn.finalize_requested_at = time.monotonic()
                     async with self._send_lock:
                         if data.padding_pcm16le:
                             await self._ws.send(data.padding_pcm16le)
                         payload = {"type": "finalize"}
                         await self._ws.send(json.dumps(payload))
-                        self._last_send_at = time.monotonic()
+                        written_at = time.monotonic()
+                        self._last_send_at = written_at
+                    if (
+                        data.turn is not None
+                        and data.turn is self._turn_diagnostics
+                        and data.identity == data.turn.identity
+                    ):
+                        data.turn.finalize_written_at = written_at
                     self._resolve_write(data.completion, None)
                     continue
                 if isinstance(data, _AudioWrite):
@@ -267,9 +406,9 @@ class _SonioxSession(STTBackendSession):
             raise
         except Exception as exc:
             self._resolve_write(getattr(data, "completion", None), exc)
-            logger.exception("Soniox send loop error")
+            logger.error("Soniox send loop error exception_type=%s", _safe_exception_type(exc))
             self._put_event(exc)
-            self._scoped_transport_failure("soniox_write_failed", orderly=False)
+            self._scoped_transport_failure("soniox_write_failed", orderly=False, exception=exc)
         finally:
             self._fail_pending_writes()
 
@@ -292,9 +431,9 @@ class _SonioxSession(STTBackendSession):
                     return
             except Exception:
                 pass
-            logger.exception("Soniox recv loop error")
+            logger.error("Soniox recv loop error exception_type=%s", _safe_exception_type(exc))
             self._put_event(exc)
-            self._scoped_transport_failure("soniox_receive_failed", orderly=False)
+            self._scoped_transport_failure("soniox_receive_failed", orderly=False, exception=exc)
         finally:
             self._stopped = True
             self._put_event(None)
@@ -317,28 +456,45 @@ class _SonioxSession(STTBackendSession):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.debug("Soniox keepalive failed cause=%s", type(exc).__name__)
+            logger.debug("Soniox keepalive failed cause=%s", _safe_exception_type(exc))
             self._put_event(exc)
-            self._scoped_transport_failure("soniox_keepalive_failed", orderly=False)
+            self._scoped_transport_failure("soniox_keepalive_failed", orderly=False, exception=exc)
             self._stopped = True
 
     def _handle_message(self, message: str | bytes) -> None:
+        self._last_rx_at = time.monotonic()
         if isinstance(message, bytes):
             message = message.decode("utf-8", errors="ignore")
         try:
             data = json.loads(message)
         except json.JSONDecodeError, UnicodeDecodeError:
             if self._event_projection.is_scoped:
-                self._scoped_transport_failure("soniox_protocol_ambiguity", orderly=False)
+                self._scoped_transport_failure(
+                    "soniox_protocol_ambiguity", orderly=False, protocol_detail="invalid_json"
+                )
             return
         if not isinstance(data, dict):
             if self._event_projection.is_scoped:
-                self._scoped_transport_failure("soniox_protocol_ambiguity", orderly=False)
+                self._scoped_transport_failure(
+                    "soniox_protocol_ambiguity",
+                    orderly=False,
+                    protocol_detail="invalid_message_shape",
+                )
             return
 
-        if "error" in data or "error_code" in data:
+        if "error" in data or "error_code" in data or "error_type" in data:
             self._put_event(RuntimeError("Soniox request failed"))
-            self._scoped_transport_failure("soniox_request_failed", orderly=False)
+            server_error_code = (
+                _safe_code(data.get("error_code"), maximum=999999)
+                if "error_code" in data
+                else "none"
+            )
+            self._scoped_transport_failure(
+                "soniox_request_failed",
+                orderly=False,
+                server_error_code=server_error_code,
+                failure_retryable=_retryable_server_error(data, server_error_code),
+            )
             return
 
         tokens = data.get("tokens", [])
@@ -346,13 +502,21 @@ class _SonioxSession(STTBackendSession):
             tokens = []
         if not isinstance(tokens, list):
             if self._event_projection.is_scoped:
-                self._scoped_transport_failure("soniox_protocol_ambiguity", orderly=False)
+                self._scoped_transport_failure(
+                    "soniox_protocol_ambiguity",
+                    orderly=False,
+                    protocol_detail="invalid_tokens_shape",
+                )
             return
 
         for token in tokens:
             if not isinstance(token, dict):
                 if self._event_projection.is_scoped:
-                    self._scoped_transport_failure("soniox_protocol_ambiguity", orderly=False)
+                    self._scoped_transport_failure(
+                        "soniox_protocol_ambiguity",
+                        orderly=False,
+                        protocol_detail="invalid_token_shape",
+                    )
                     return
                 continue
             text = str(token.get("text", "") or "")
@@ -469,13 +633,22 @@ class _SonioxSession(STTBackendSession):
         )
 
     def _resolve_scoped_fin(self, message: dict[str, Any]) -> None:
+        diagnostic = self._turn_diagnostics
+        if diagnostic is not None:
+            diagnostic.fin_received = True
         identity = self._event_projection.active_identity
-        if (
-            identity is None
-            or not self._event_projection.sealed
-            or self._pending_finalize_requests != 1
-        ):
-            self._scoped_transport_failure("soniox_protocol_ambiguity", orderly=False)
+        if identity is None:
+            detail = "fin_without_turn"
+        elif not self._event_projection.sealed:
+            detail = "fin_before_seal"
+        elif self._pending_finalize_requests != 1:
+            detail = "fin_pending_count_mismatch"
+        else:
+            detail = None
+        if detail is not None:
+            self._scoped_transport_failure(
+                "soniox_protocol_ambiguity", orderly=False, protocol_detail=detail
+            )
             return
         self._pending_finalize_requests -= 1
         request_id = message.get("request_id")
@@ -499,6 +672,9 @@ class _SonioxSession(STTBackendSession):
                 provenance=tuple(self._scoped_provenance),
             )
         )
+        if diagnostic is not None:
+            diagnostic.fin_accepted = True
+        self._log_scoped_summary(trigger="fin")
         self._clear_scoped_turn()
 
     def _language_runs_for_tokens(
@@ -575,9 +751,111 @@ class _SonioxSession(STTBackendSession):
         self._final_tokens.clear()
         self._pending_last_end_ms = None
         self._pending_finalize_requests = 0
+        self._turn_diagnostics = None
 
-    def _scoped_transport_failure(self, reason: str, *, orderly: bool) -> None:
+    def _log_scoped_summary(
+        self,
+        *,
+        trigger: str,
+        reason: str = "none",
+        protocol_detail: str = "none",
+        server_error_code: int | str = "none",
+        exception: BaseException | None = None,
+        idle_fin_received: bool = False,
+    ) -> None:
+        if not self._event_projection.is_scoped:
+            return
+        turn = self._turn_diagnostics
+        if turn is None:
+            if trigger in ("abort", "local_stop", "local_close"):
+                return
+            if self._session_fault_logged or self._local_cleanup_started:
+                return
+            self._session_fault_logged = True
+        elif turn.logged:
+            return
+        else:
+            turn.logged = True
+        now = time.monotonic()
+        requested_at = turn.finalize_requested_at if turn is not None else None
+        written_at = turn.finalize_written_at if turn is not None else None
+        close = getattr(exception, "rcvd", None)
+        code = getattr(close, "code", None)
+        if code is None:
+            code = getattr(exception, "code", None)
+        if code is None and self._ws is not None:
+            code = getattr(self._ws, "close_code", None)
+        logger.info(
+            "[Soniox] %s channel=%s utterance_id=%s epoch=%s turn=%s "
+            "trigger=%s reason=%s session_age_ms=%s diarization=%s "
+            "finalize_requested=%s finalize_written=%s finalize_queue_ms=%s "
+            "since_finalize_requested_ms=%s since_finalize_written_ms=%s "
+            "fin_received=%s fin_accepted=%s protocol_detail=%s "
+            "last_rx_age_ms=%s server_error_code=%s ws_close_code=%s exception_type=%s",
+            "turn_end" if turn is not None else "session_fault",
+            turn.channel if turn is not None else "none",
+            turn.identity.segment.segment_id if turn is not None else "none",
+            (
+                turn.identity.provider_epoch_id
+                if turn is not None
+                else self._event_projection.provider_epoch_id
+            ),
+            turn.identity.provider_turn_id if turn is not None else "none",
+            trigger,
+            reason,
+            _elapsed_ms(now, self._session_open_at),
+            str(self.enable_speaker_diarization).lower(),
+            str(requested_at is not None).lower(),
+            str(written_at is not None).lower(),
+            _elapsed_ms(written_at, requested_at) if written_at is not None else "none",
+            _elapsed_ms(now, requested_at),
+            _elapsed_ms(now, written_at),
+            str(turn.fin_received if turn is not None else idle_fin_received).lower(),
+            str(turn.fin_accepted if turn is not None else False).lower(),
+            protocol_detail,
+            _elapsed_ms(now, self._last_rx_at),
+            server_error_code,
+            _safe_code(code, maximum=65535) if code is not None else "none",
+            _safe_exception_type(exception),
+        )
+
+    def _scoped_transport_failure(
+        self,
+        reason: str,
+        *,
+        orderly: bool,
+        protocol_detail: str = "none",
+        server_error_code: int | str = "none",
+        exception: BaseException | None = None,
+        failure_retryable: bool | None = None,
+    ) -> None:
+        if failure_retryable is None:
+            failure_retryable = _retryable_transport_failure(reason, exception, self._ws)
         identity = self._event_projection.active_identity
+        if identity is None and self._event_projection.retired:
+            return
+        trigger = (
+            "provider_error"
+            if reason == "soniox_request_failed"
+            else (
+                "protocol_error"
+                if reason
+                in (
+                    "soniox_protocol_ambiguity",
+                    "soniox_idle_authoritative_text",
+                    "soniox_token_buffer_overflow",
+                )
+                else "transport_error"
+            )
+        )
+        self._log_scoped_summary(
+            trigger=trigger,
+            reason=reason,
+            protocol_detail=protocol_detail,
+            server_error_code=server_error_code,
+            exception=exception,
+            idle_fin_received=protocol_detail == "fin_without_turn",
+        )
         provider_turn_id = identity.provider_turn_id if identity is not None else None
         if identity is not None:
             text = "".join(token.text for token in self._scoped_tokens)
@@ -590,6 +868,7 @@ class _SonioxSession(STTBackendSession):
                     final_speaker_runs=self._speaker_runs_for_tokens(self._scoped_tokens),
                     text_authority="degraded" if text else "none",
                     failure_reason=reason,
+                    failure_retryable=failure_retryable,
                     epoch_disposition="retire",
                     provenance=tuple(self._scoped_provenance),
                 )
@@ -599,6 +878,7 @@ class _SonioxSession(STTBackendSession):
             orderly=orderly,
             reason=reason,
             provider_turn_id=provider_turn_id,
+            failure_retryable=failure_retryable,
         )
 
     @staticmethod
@@ -715,6 +995,7 @@ class _SonioxSession(STTBackendSession):
         self._event_projection.begin(request)
         self._clear_scoped_turn()
         self._scoped_channel = request.channel
+        self._turn_diagnostics = _TurnDiagnostics(request.identity, request.channel)
 
     async def send_turn_audio(
         self,
@@ -748,7 +1029,11 @@ class _SonioxSession(STTBackendSession):
         )
         self._pending_finalize_requests += 1
         completion = asyncio.get_running_loop().create_future()
-        await self._audio_q.put(_FinalizeRequest(completion, padding_pcm16le))
+        turn = self._turn_diagnostics
+        await self._audio_q.put(_FinalizeRequest(completion, padding_pcm16le, identity, turn))
+        if turn is not None and turn is self._turn_diagnostics:
+            if turn.finalize_requested_at is None:
+                turn.finalize_requested_at = time.monotonic()
         await completion
 
     def _selective_padding_pcm16le(
@@ -774,6 +1059,7 @@ class _SonioxSession(STTBackendSession):
 
     async def abort_turn(self, identity: STTProviderTurnIdentity, *, reason: str) -> None:
         self._event_projection.require_open(identity)
+        self._log_scoped_summary(trigger="abort", reason=recognition_cause(reason))
         self._event_projection.terminal(
             STTProviderTurnTerminal(
                 identity=identity,
@@ -816,10 +1102,14 @@ class _SonioxSession(STTBackendSession):
     async def stop(self) -> None:
         if self._stopped:
             return
+        self._log_scoped_summary(trigger="local_stop")
+        self._local_cleanup_started = True
         self._stopped = True
         await self._audio_q.put(_STOP)
 
     async def close(self) -> None:
+        self._log_scoped_summary(trigger="local_close")
+        self._local_cleanup_started = True
         await self.stop()
         tasks = [self._send_task, self._recv_task, self._keepalive_task]
         for task in tasks:

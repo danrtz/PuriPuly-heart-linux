@@ -4,18 +4,23 @@ import asyncio
 import json
 import logging
 import sys
+from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from websockets.asyncio.server import serve
+from websockets.exceptions import InvalidStatus, ProtocolError
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 from puripuly_heart.core.audio.ownership import AudioSegmentIdentity, AudioSegmentSettingsSnapshot
 from puripuly_heart.core.stt.backend import (
+    PermanentSTTScopedSessionError,
     STTBackendTranscriptEvent,
+    STTProviderEpochEnded,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
+    STTProviderTurnTerminal,
     STTSessionProjection,
 )
 from puripuly_heart.providers.stt import soniox as soniox_module
@@ -141,11 +146,11 @@ async def _request_finalize(
 @pytest.mark.asyncio
 async def test_soniox_backend_validates_params() -> None:
     backend = SonioxRealtimeSTTBackend(api_key="", language_hints=["en"])
-    with pytest.raises(ValueError, match="api_key"):
+    with pytest.raises(PermanentSTTScopedSessionError, match="api_key"):
         await backend.open_session()
 
     backend = SonioxRealtimeSTTBackend(api_key="k", language_hints=["en"], endpoint="")
-    with pytest.raises(ValueError, match="endpoint"):
+    with pytest.raises(PermanentSTTScopedSessionError, match="endpoint"):
         await backend.open_session()
 
     backend = SonioxRealtimeSTTBackend(
@@ -153,7 +158,7 @@ async def test_soniox_backend_validates_params() -> None:
         language_hints=["en"],
         keepalive_interval_s=0.0,
     )
-    with pytest.raises(ValueError, match="keepalive_interval_s"):
+    with pytest.raises(PermanentSTTScopedSessionError, match="keepalive_interval_s"):
         await backend.open_session()
 
     backend = SonioxRealtimeSTTBackend(
@@ -161,7 +166,63 @@ async def test_soniox_backend_validates_params() -> None:
         language_hints=[],
         language_hints_strict=True,
     )
-    with pytest.raises(ValueError, match="language_hints_strict"):
+    with pytest.raises(PermanentSTTScopedSessionError, match="language_hints_strict"):
+        await backend.open_session()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "permanent"),
+    [
+        (400, True),
+        (401, True),
+        (403, True),
+        (418, True),
+        (True, True),
+        (408, False),
+        (413, False),
+        (429, False),
+        (500, False),
+        (503, False),
+    ],
+)
+async def test_soniox_rejected_open_only_retries_known_server_statuses(
+    monkeypatch, status: int, permanent: bool
+) -> None:
+    async def rejected_connect(*_args, **_kwargs):
+        raise InvalidStatus(SimpleNamespace(status_code=status))
+
+    monkeypatch.setattr("websockets.connect", rejected_connect)
+    backend = SonioxRealtimeSTTBackend(api_key="k", language_hints=["en"])
+    error_type = PermanentSTTScopedSessionError if permanent else InvalidStatus
+    with pytest.raises(error_type):
+        await backend.open_session(
+            projection=STTSessionProjection(mode="scoped", provider_epoch_id="e")
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "permanent"),
+    [(ProtocolError("invalid protocol"), True), (ConnectionResetError("reset"), False)],
+)
+async def test_soniox_open_config_send_distinguishes_protocol_from_transport(
+    monkeypatch, failure: Exception, permanent: bool
+) -> None:
+    class WebSocket:
+        async def send(self, _payload: object) -> None:
+            raise failure
+
+        async def close(self) -> None:
+            pass
+
+    async def connect(*_args, **_kwargs):
+        return WebSocket()
+
+    monkeypatch.setattr("websockets.connect", connect)
+    backend = SonioxRealtimeSTTBackend(api_key="k", language_hints=["en"])
+    error_type = PermanentSTTScopedSessionError if permanent else ConnectionResetError
+    with pytest.raises(error_type):
         await backend.open_session()
 
 
@@ -1214,3 +1275,344 @@ async def test_soniox_session_start_omits_context_when_no_terms(monkeypatch) -> 
     config = json.loads(ws.sent[0])
     assert "context" not in config
     assert "language_hints_strict" not in config
+
+
+def _soniox_events(caplog) -> list[dict[str, str]]:
+    events = []
+    for record in caplog.records:
+        if not record.getMessage().startswith("[Soniox] "):
+            continue
+        parts = record.getMessage().split()
+        events.append({"event": parts[1], **dict(part.split("=", 1) for part in parts[2:])})
+    return events
+
+
+@pytest.mark.asyncio
+async def test_soniox_scoped_success_logs_one_written_and_accepted_summary(caplog) -> None:
+    class WebSocket:
+        async def send(self, payload: object) -> None:
+            pass
+
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = WebSocket()
+    request = _scoped_request(channel="self")
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        writer = asyncio.create_task(session._send_loop())
+        await session.seal_turn(
+            request.identity,
+            sealed_content_ranges=(),
+            seal_reason="silence",
+            observed_trailing_silence_ms=None,
+        )
+        session._handle_message(json.dumps({"tokens": [{"text": "<fin>", "is_final": True}]}))
+        await session.stop()
+        await writer
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["event"] == "turn_end"
+    assert events[0]["channel"] == "self"
+    assert events[0]["utterance_id"] == str(request.identity.segment.segment_id)
+    assert events[0]["trigger"] == "fin"
+    assert events[0]["reason"] == "none"
+    assert events[0]["finalize_requested"] == "true"
+    assert events[0]["finalize_written"] == "true"
+    assert events[0]["finalize_queue_ms"] != "none"
+    assert events[0]["since_finalize_requested_ms"] != "none"
+    assert events[0]["since_finalize_written_ms"] != "none"
+    assert events[0]["fin_received"] == "true"
+    assert events[0]["fin_accepted"] == "true"
+    assert events[0]["last_rx_age_ms"] != "none"
+
+
+@pytest.mark.asyncio
+async def test_soniox_stop_logs_queued_finalize_before_writer_can_send(caplog) -> None:
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = SimpleNamespace(send=None)
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        seal = asyncio.create_task(
+            session.seal_turn(
+                request.identity,
+                sealed_content_ranges=(),
+                seal_reason="silence",
+                observed_trailing_silence_ms=None,
+            )
+        )
+        while session._audio_q.empty():
+            await asyncio.sleep(0)
+        await session.stop()
+        seal.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await seal
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "local_stop"
+    assert events[0]["finalize_requested"] == "true"
+    assert events[0]["finalize_written"] == "false"
+    assert events[0]["finalize_queue_ms"] == "none"
+    assert events[0]["fin_received"] == "false"
+    assert events[0]["since_finalize_requested_ms"] != "none"
+    assert events[0]["since_finalize_written_ms"] == "none"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "detail", "fin_received"),
+    [
+        ('{"tokens": [}', "invalid_json", "false"),
+        ('["not", "a message"]', "invalid_message_shape", "false"),
+        ('{"tokens": "malformed"}', "invalid_tokens_shape", "false"),
+        ('{"tokens": [17]}', "invalid_token_shape", "false"),
+        ('{"tokens": [{"text": "<fin>", "is_final": true}]}', "fin_before_seal", "true"),
+    ],
+)
+async def test_soniox_protocol_rejection_logs_safe_detail_once(
+    caplog, message: str, detail: str, fin_received: str
+) -> None:
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = SimpleNamespace(close_code=None)
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        session._handle_message(message)
+        session._scoped_transport_failure("soniox_connection_ended", orderly=True)
+        await session.close()
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "protocol_error"
+    assert events[0]["reason"] == "soniox_protocol_ambiguity"
+    assert events[0]["protocol_detail"] == detail
+    assert events[0]["fin_received"] == fin_received
+    assert events[0]["fin_accepted"] == "false"
+    assert events[0]["finalize_requested"] == "false"
+    assert events[0]["last_rx_age_ms"] != "none"
+
+
+@pytest.mark.asyncio
+async def test_soniox_idle_fin_is_epoch_fault_not_previous_turn(caplog) -> None:
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = SimpleNamespace(close_code=None)
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        session._event_projection.seal(request.identity)
+        session._pending_finalize_requests = 1
+        session._handle_message('{"tokens": [{"text": "<fin>", "is_final": true}]}')
+        session._handle_message('{"tokens": [{"text": "<fin>", "is_final": true}]}')
+        session._handle_message('{"tokens": [{"text": "<fin>", "is_final": true}]}')
+    events = _soniox_events(caplog)
+    assert [event["event"] for event in events] == ["turn_end", "session_fault"]
+    assert events[0]["trigger"] == "fin"
+    assert events[1]["turn"] == "none"
+    assert events[1]["utterance_id"] == "none"
+    assert events[1]["epoch"] == "epoch-1"
+    assert events[1]["protocol_detail"] == "fin_without_turn"
+    assert events[1]["fin_received"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_soniox_fin_with_wrong_pending_count_logs_rejection(caplog) -> None:
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = SimpleNamespace(close_code=None)
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        session._event_projection.seal(request.identity)
+        session._handle_message('{"tokens": [{"text": "<fin>", "is_final": true}]}')
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "protocol_error"
+    assert events[0]["protocol_detail"] == "fin_pending_count_mismatch"
+    assert events[0]["fin_received"] == "true"
+    assert events[0]["fin_accepted"] == "false"
+    assert events[0]["finalize_requested"] == "false"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (403, "403"),
+        ("481", "481"),
+        (True, "unclassified"),
+        ("secret-token", "unclassified"),
+        ({"secret": "value"}, "unclassified"),
+    ],
+)
+async def test_soniox_server_error_code_never_logs_arbitrary_content(
+    caplog, code: object, expected: str
+) -> None:
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = SimpleNamespace(close_code="private-close-reason")
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        session._handle_message(json.dumps({"error": "secret-error-content", "error_code": code}))
+        await session.close()
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "provider_error"
+    assert events[0]["reason"] == "soniox_request_failed"
+    assert events[0]["server_error_code"] == expected
+    assert events[0]["ws_close_code"] == "unclassified"
+    assert events[0]["exception_type"] == "none"
+    assert "secret" not in caplog.text
+    assert "private-close-reason" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_soniox_delayed_finalize_write_never_claims_next_turn(caplog) -> None:
+    class WebSocket:
+        async def send(self, payload: object) -> None:
+            pass
+
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = WebSocket()
+    first = _scoped_request()
+    second = replace(
+        first,
+        identity=replace(
+            first.identity,
+            segment=replace(first.identity.segment, segment_id=uuid4()),
+            provider_turn_id="turn-2",
+        ),
+    )
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(first)
+        seal = asyncio.create_task(
+            session.seal_turn(
+                first.identity,
+                sealed_content_ranges=(),
+                seal_reason="silence",
+                observed_trailing_silence_ms=None,
+            )
+        )
+        while session._audio_q.empty():
+            await asyncio.sleep(0)
+        session._handle_message('{"tokens": [{"text": "<fin>", "is_final": true}]}')
+        seal.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await seal
+        await session.begin_turn(second)
+        writer = asyncio.create_task(session._send_loop())
+        while not session._audio_q.empty():
+            await asyncio.sleep(0)
+        await session.stop()
+        await writer
+    first_log, second_log = _soniox_events(caplog)
+    assert first_log["turn"] == "turn-1"
+    assert first_log["finalize_requested"] == "true"
+    assert first_log["finalize_written"] == "false"
+    assert second_log["turn"] == "turn-2"
+    assert second_log["trigger"] == "local_stop"
+    assert second_log["finalize_requested"] == "false"
+    assert second_log["finalize_written"] == "false"
+
+
+@pytest.mark.asyncio
+async def test_soniox_write_failure_preserves_original_error_before_close(caplog) -> None:
+    class FailingWebSocket:
+        close_code = 1006
+
+        async def send(self, payload: object) -> None:
+            if payload != "":
+                raise ConnectionResetError("private-websocket-message")
+
+        async def close(self) -> None:
+            pass
+
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = FailingWebSocket()
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        writer = asyncio.create_task(session._send_loop())
+        with pytest.raises(ConnectionResetError):
+            await session.seal_turn(
+                request.identity,
+                sealed_content_ranges=(),
+                seal_reason="silence",
+                observed_trailing_silence_ms=None,
+            )
+        await writer
+        terminal = await asyncio.wait_for(anext(session.turn_events()), timeout=1)
+        ended = await asyncio.wait_for(anext(session.turn_events()), timeout=1)
+        assert isinstance(terminal, STTProviderTurnTerminal)
+        assert terminal.failure_retryable is True
+        assert isinstance(ended, STTProviderEpochEnded)
+        assert ended.failure_retryable is True
+        await session.close()
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "transport_error"
+    assert events[0]["reason"] == "soniox_write_failed"
+    assert events[0]["finalize_requested"] == "true"
+    assert events[0]["finalize_written"] == "false"
+    assert events[0]["ws_close_code"] == "1006"
+    assert events[0]["exception_type"] == "ConnectionResetError"
+    assert "private-websocket-message" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_soniox_close_snapshots_unresolved_turn_before_await(caplog) -> None:
+    closing = asyncio.Event()
+    resume = asyncio.Event()
+
+    class WebSocket:
+        async def close(self) -> None:
+            closing.set()
+            await resume.wait()
+
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = WebSocket()
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        closing_task = asyncio.create_task(session.close())
+        await asyncio.wait_for(closing.wait(), timeout=1)
+        events = _soniox_events(caplog)
+        assert len(events) == 1
+        assert events[0]["trigger"] == "local_close"
+        assert events[0]["turn"] == "turn-1"
+        assert events[0]["finalize_requested"] == "false"
+        resume.set()
+        await closing_task
+    assert len(_soniox_events(caplog)) == 1
+
+
+@pytest.mark.asyncio
+async def test_soniox_abort_logs_safe_reason_before_turn_cleanup(caplog) -> None:
+    session = _make_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="epoch-1")
+    )
+    session._ws = SimpleNamespace(close_code=None)
+    request = _scoped_request()
+    with caplog.at_level(logging.INFO):
+        await session.begin_turn(request)
+        await session.abort_turn(request.identity, reason="toggle_off:private arbitrary detail")
+        await session.close()
+    events = _soniox_events(caplog)
+    assert len(events) == 1
+    assert events[0]["trigger"] == "abort"
+    assert events[0]["reason"] == "toggle_off"
+    assert "private arbitrary detail" not in caplog.text

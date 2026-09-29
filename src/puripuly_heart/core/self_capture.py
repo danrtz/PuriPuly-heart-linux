@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal, Protocol
+from uuid import UUID
 
 
 class SelfCaptureSessionState(str, Enum):
@@ -97,6 +98,15 @@ class SelfCaptureDiagnostic:
     provider_id: str | None
     reason: SelfCaptureFailureReason | None = None
     detail: str | None = None
+    recognition_reason: str | None = None
+    utterance_id: UUID | None = None
+    epoch: str | None = None
+    turn: str | None = None
+    activation_generation: int | None = None
+    desired_active_before: bool | None = None
+    desired_active_after: bool | None = None
+    action: str | None = None
+    target_state: SelfCaptureSessionState | None = None
 
 
 @dataclass(frozen=True, slots=True)
