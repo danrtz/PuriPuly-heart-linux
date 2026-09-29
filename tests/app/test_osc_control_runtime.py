@@ -409,6 +409,7 @@ async def test_in_process_complete_control_matrix_projects_final_canonical_state
     assert sender.messages == []
     await integration.close()
 
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_id", [0, 1, 2])
 async def test_gemma_osc_inputs_restore_connection_and_publish_canonical_after_restart(

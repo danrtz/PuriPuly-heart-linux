@@ -301,7 +301,9 @@ def selection_locale(request):
     i18n_module.set_locale(previous)
 
 
-def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypatch, selection_locale) -> None:
+def test_settings_view_llm_modal_lists_logical_translation_models_once(
+    monkeypatch, selection_locale
+) -> None:
     settings = AppSettingsVNext()
     view = _make_settings_view(monkeypatch)
     view.load_from_settings(settings, config_path=Path("settings.json"))
@@ -352,9 +354,7 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
     assert deepseek_v4_flash.section == t("settings.translation_model.section.others")
     assert deepseek_v4_flash.description == ""
     deepseek_v4_flash_41 = managed[TranslationModel.DEEPSEEK_V4_FLASH_41.value]
-    assert deepseek_v4_flash_41.section == t(
-        "settings.translation_model.section.recommended_cloud"
-    )
+    assert deepseek_v4_flash_41.section == t("settings.translation_model.section.recommended_cloud")
     assert deepseek_v4_flash_41.description == t(
         "settings.translation_model.deepseek_v4_flash_41.description"
     )

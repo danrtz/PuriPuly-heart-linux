@@ -3305,7 +3305,9 @@ def test_on_translation_connection_selected_auto_applies_managed_connection(
         settings,
         model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.OPENROUTER,
-        connection_history={TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER},
+        connection_history={
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER
+        },
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
