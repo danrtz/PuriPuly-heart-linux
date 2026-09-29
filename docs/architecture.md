@@ -344,14 +344,6 @@ The managed local Gemma adapter remains behind `LLMProvider`; its application/ru
 
 Cloud translation may use bounded hedged attempts according to resolved runtime policy, not persisted fallback selections (`config/runtime_resolution.py`, `core/llm/fallback_racing.py`).
 
-GPT 6 Luna routing and adapter map:
-
-- `config/runtime_resolution.py` resolves the OpenRouter BYOK or direct OpenAI connection, API model ID, and credential source; `app/wiring/wiring_llm_factory.py` constructs the resolved provider.
-- The direct cloud adapter is `providers/llm/openai.py`; the OpenRouter adapter is `providers/llm/openrouter.py`.
-- The local OpenAI-compatible adapter remains separate at `providers/llm/local_openai.py`.
-- Direct OpenAI stays on its provider route; shared OpenRouter hedging and emergency fallback remain resolved runtime policy, not adapter logic.
-
-
 Translation owners retain:
 
 - turn lifecycle,
