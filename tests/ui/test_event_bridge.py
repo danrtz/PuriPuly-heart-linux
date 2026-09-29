@@ -43,7 +43,6 @@ class DummyDashboard:
         self.display_debug_prefixes: list[str | None] = []
         self.translation_calls: list[tuple[str, str | None]] = []
         self.notice_calls: list[str | None] = []
-        self.translation_issues: dict[tuple[str, str | None], str] = {}
 
     def set_status(self, status: str) -> None:
         self.statuses.append(status)
@@ -70,19 +69,6 @@ class DummyDashboard:
 
     def set_local_stt_notice(self, status: str | None) -> None:
         self.notice_calls.append(status)
-
-    def set_translation_issue(
-        self, key: str, *, channel: str, source: str | None
-    ) -> None:
-        self.translation_issues[(channel, source)] = key
-
-    def clear_translation_issue(
-        self, *, channel: str | None = None, source: str | None = None
-    ) -> None:
-        if channel is None:
-            self.translation_issues.clear()
-        else:
-            self.translation_issues.pop((channel, source), None)
 
 
 class FailingTranslationDashboard(DummyDashboard):
@@ -225,7 +211,6 @@ def make_bridge(app: object, **kwargs: object) -> UIEventBridge:
         clear_managed_auth_pending=kwargs.pop(
             "clear_managed_auth_pending", getattr(app, "clear_managed_auth_pending_state", None)
         ),
-        show_snackbar=kwargs.pop("show_snackbar", getattr(app, "show_snackbar", None)),
         on_github_star_translation_success=kwargs.pop(
             "on_github_star_translation_success",
             getattr(app, "on_github_star_translation_success", None),
@@ -388,16 +373,6 @@ class RecordingDashboardDestination:
 
     def publish_error(self, text: str) -> None:
         self.errors.append(text)
-
-    def publish_translation_issue(
-        self, key: str, *, channel: str, source: str | None
-    ) -> None:
-        self.errors.append(f"issue:{key}:{channel}:{source}")
-
-    def clear_translation_issue(
-        self, *, channel: str, source: str | None
-    ) -> None:
-        self.errors.append(f"clear:{channel}:{source}")
 
 
 class RecordingHistoryDestination:
@@ -753,12 +728,20 @@ async def test_event_bridge_preserves_typed_error_payload_identity_for_error_des
             fields={"provider": "soniox"},
         ),
     )
+    openrouter_report = messages.UserErrorReport(
+        message=messages.UserMessageRef(
+            key="provider.openrouter.key_limit",
+            params={},
+            severity=messages.SEVERITY_ERROR,
+        ),
+        diagnostics=report.diagnostics,
+    )
     managed_error = ManagedOpenRouterUserFacingError(
         message_key="managed_release.openrouter_not_ready",
         message_kwargs={},
         diagnostics=ManagedOpenRouterReleaseDiagnostics(operation="issue"),
     )
-    payloads = [message, report, managed_error]
+    payloads = [message, report, openrouter_report, managed_error]
     events = [
         UIEvent(type=UIEventType.ERROR, payload=payload, runtime_log_handled=True)
         for payload in payloads
@@ -777,63 +760,57 @@ async def test_event_bridge_preserves_typed_error_payload_identity_for_error_des
 
 
 @pytest.mark.asyncio
-async def test_openrouter_report_keeps_transcript_visible_until_matching_translation_succeeds() -> None:
-    app = DummyApp()
-    bridge = make_bridge(app)
-    dashboard = app.view_dashboard
-    key = "provider.openrouter.key_limit"
-    report = messages.UserErrorReport(
-        message=messages.UserMessageRef(
-            key=key, params={}, severity=messages.SEVERITY_ERROR
-        ),
-        diagnostics=messages.ErrorDiagnostics(
-            component="provider.llm",
-            operation="translate",
-            code="provider.payment_required",
-            category=messages.DIAGNOSTIC_CATEGORY_QUOTA,
-            visibility=messages.DIAGNOSTIC_VISIBILITY_BASIC,
-            content_policy=messages.CONTENT_POLICY_METADATA_ONLY,
-            status_code=402,
-            retry_after_ms=None,
-            fields={},
-        ),
-    )
-    for utterance_id in (uuid4(), uuid4()):
+async def test_openrouter_report_appears_in_primary_text_then_speech_replaces_it() -> None:
+    previous_locale = get_locale()
+    set_locale("en")
+    try:
+        app = DummyApp()
+        runtime_logging = RuntimeLoggingCapture()
+        bridge = make_bridge(app, runtime_logging=runtime_logging)
+        key = "provider.openrouter.key_limit"
+        report = messages.UserErrorReport(
+            message=messages.UserMessageRef(
+                key=key, params={}, severity=messages.SEVERITY_ERROR
+            ),
+            diagnostics=messages.ErrorDiagnostics(
+                component="provider.llm",
+                operation="translate",
+                code="provider.payment_required",
+                category=messages.DIAGNOSTIC_CATEGORY_QUOTA,
+                visibility=messages.DIAGNOSTIC_VISIBILITY_BASIC,
+                content_policy=messages.CONTENT_POLICY_METADATA_ONLY,
+                status_code=402,
+                retry_after_ms=None,
+                fields={"raw_exception": "provider-secret-123"},
+            ),
+        )
         await bridge._handle_event(
             UIEvent(
-                type=UIEventType.ERROR, payload=report,
-                source="Mic", channel="self", utterance_id=utterance_id,
-                runtime_log_handled=True,
+                type=UIEventType.ERROR,
+                payload=report,
+                source="Mic",
+                channel="self",
+                utterance_id=uuid4(),
             )
         )
-    assert dashboard.translation_issues == {("self", "Mic"): key}
-    assert dashboard.display_calls == []
 
-    await bridge._handle_event(
-        UIEvent(
-            type=UIEventType.TRANSCRIPT_PARTIAL,
-            payload=Transcript(uuid4(), text="new speech", is_final=False),
-            source="Mic",
+        expected = t(key)
+        assert app.view_dashboard.display_calls == [(expected, None, True)]
+        assert runtime_logging.basic_messages == [(logging.ERROR, expected)]
+        assert "provider-secret-123" not in repr(
+            (app.view_dashboard.display_calls, runtime_logging.basic_messages)
         )
-    )
-    await bridge._handle_event(
-        UIEvent(
-            type=UIEventType.TRANSLATION_DONE,
-            payload=Translation(uuid4(), text="peer result", channel="peer"),
-            source="Peer Mic",
-        )
-    )
-    assert dashboard.display_calls[-1][0] == "new speech"
-    assert dashboard.translation_issues == {("self", "Mic"): key}
 
-    await bridge._handle_event(
-        UIEvent(
-            type=UIEventType.TRANSLATION_DONE,
-            payload=Translation(uuid4(), text="self result"),
-            source="Mic",
+        await bridge._handle_event(
+            UIEvent(
+                type=UIEventType.TRANSCRIPT_PARTIAL,
+                payload=Transcript(uuid4(), text="new speech", is_final=False),
+                source="Mic",
+            )
         )
-    )
-    assert dashboard.translation_issues == {}
+        assert app.view_dashboard.display_calls[-1] == ("new speech", "ko", False)
+    finally:
+        set_locale(previous_locale)
 
 
 @pytest.mark.asyncio
@@ -1322,9 +1299,7 @@ async def test_event_bridge_error_with_broken_runtime_logging_uses_safe_standard
 
 
 @pytest.mark.asyncio
-async def test_event_bridge_routes_managed_message_report_to_snackbar_without_dashboard_clobber() -> (
-    None
-):
+async def test_event_bridge_managed_report_clears_auth_pending_and_displays_dashboard_error() -> None:
     previous_locale = get_locale()
     set_locale("en")
     try:
@@ -1361,17 +1336,15 @@ async def test_event_bridge_routes_managed_message_report_to_snackbar_without_da
         )
 
         expected = t("managed_release.retry_after_ms", retry_after_ms=9000)
-        assert app.snackbar_calls == [(expected, event_dispatch_module.COLOR_WARNING)]
+        assert app.snackbar_calls == []
         assert app.clear_managed_auth_pending_calls == 1
-        assert app.view_dashboard.display_calls == []
+        assert app.view_dashboard.display_calls == [(expected, None, True)]
     finally:
         set_locale(previous_locale)
 
 
 @pytest.mark.asyncio
-async def test_event_bridge_routes_managed_auth_error_to_snackbar_without_dashboard_clobber() -> (
-    None
-):
+async def test_event_bridge_managed_auth_error_clears_pending_and_displays_dashboard_error() -> None:
     previous_locale = get_locale()
     set_locale("en")
     try:
@@ -1396,9 +1369,9 @@ async def test_event_bridge_routes_managed_auth_error_to_snackbar_without_dashbo
         )
 
         expected = t("managed_release.retry_after_ms", retry_after_ms=9000)
-        assert app.snackbar_calls == [(expected, event_dispatch_module.COLOR_WARNING)]
+        assert app.snackbar_calls == []
         assert app.clear_managed_auth_pending_calls == 1
-        assert app.view_dashboard.display_calls == []
+        assert app.view_dashboard.display_calls == [(expected, None, True)]
     finally:
         set_locale(previous_locale)
 

@@ -13,7 +13,6 @@ from puripuly_heart.core.managed_openrouter_release import ManagedOpenRouterUser
 from puripuly_heart.core.diagnostic_validation import (
     DIAGNOSTIC_REDACTION_MARKER,
     DIAGNOSTIC_SINK_DASHBOARD,
-    DIAGNOSTIC_SINK_SNACKBAR,
     DIAGNOSTIC_VALIDATION_STATUS_ACCEPTED,
     redact_diagnostics_for_sink,
     redact_message_params_for_sink,
@@ -31,7 +30,6 @@ from puripuly_heart.ui.event_projection import (
     TranslationAppliedDiagnostic,
 )
 from puripuly_heart.ui.i18n import localize_user_message_ref, t
-from puripuly_heart.ui.theme import COLOR_WARNING
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +58,6 @@ class DashboardEventDestination(Protocol):
     ) -> bool | None: ...
 
     def publish_error(self, text: str) -> None: ...
-
-    def publish_translation_issue(
-        self, key: str, *, channel: str, source: str | None
-    ) -> None: ...
-
-    def clear_translation_issue(
-        self, *, channel: str, source: str | None
-    ) -> None: ...
 
 
 class HistoryEventDestination(Protocol):
@@ -146,22 +136,6 @@ class AppDashboardEventDestination:
         if dashboard is not None:
             dashboard.set_display_text(text, is_error=True)
 
-    def publish_translation_issue(
-        self, key: str, *, channel: str, source: str | None
-    ) -> None:
-        dashboard = self._dashboard
-        setter = getattr(dashboard, "set_translation_issue", None)
-        if callable(setter):
-            setter(key, channel=channel, source=source)
-
-    def clear_translation_issue(
-        self, *, channel: str, source: str | None
-    ) -> None:
-        dashboard = self._dashboard
-        clearer = getattr(dashboard, "clear_translation_issue", None)
-        if callable(clearer):
-            clearer(channel=channel, source=source)
-
 
 class AppHistoryEventDestination:
     def __init__(self, append_history_entry: object | None) -> None:
@@ -187,12 +161,10 @@ class AppErrorEventDestination:
         *,
         runtime_logging: RuntimeLoggingPort | None,
         clear_managed_auth_pending: object | None = None,
-        show_snackbar: object | None = None,
         get_stt_state: object | None = None,
     ) -> None:
         self._runtime_logging = runtime_logging
         self._clear_managed_auth_pending = clear_managed_auth_pending
-        self._show_snackbar_callback = show_snackbar
         self._get_stt_state = get_stt_state
 
     def publish_error(
@@ -207,8 +179,6 @@ class AppErrorEventDestination:
             self._emit_legacy_raw_payload_deprecation_diagnostic()
         if _is_managed_openrouter_error_payload(payload):
             self._clear_managed_auth_pending_state()
-            if self._show_managed_auth_snackbar(text):
-                return False
         return self._should_display_dashboard_error(text)
 
     def _emit_runtime_error_log(self, text: str, *, runtime_log_handled: bool) -> None:
@@ -233,14 +203,6 @@ class AppErrorEventDestination:
             with contextlib.suppress(Exception):
                 self._clear_managed_auth_pending()
 
-    def _show_managed_auth_snackbar(self, text: str) -> bool:
-        if not callable(self._show_snackbar_callback):
-            return False
-        with contextlib.suppress(Exception):
-            self._show_snackbar_callback(text, COLOR_WARNING)
-            return True
-        return False
-
     def _should_display_dashboard_error(self, text: str) -> bool:
         stt_state = self._get_stt_state() if callable(self._get_stt_state) else None
         msg_lower = text.lower()
@@ -252,11 +214,7 @@ class AppErrorEventDestination:
 
 
 def _localized_error_event_text(payload: object | None) -> str:
-    sink = (
-        DIAGNOSTIC_SINK_SNACKBAR
-        if _is_managed_openrouter_error_payload(payload)
-        else DIAGNOSTIC_SINK_DASHBOARD
-    )
+    sink = DIAGNOSTIC_SINK_DASHBOARD
     if isinstance(payload, ManagedOpenRouterUserFacingError):
         return t(
             payload.message_key,
@@ -322,7 +280,6 @@ class UIEventBridge:
         is_translation_enabled: object | None = None,
         get_stt_state: object | None = None,
         clear_managed_auth_pending: object | None = None,
-        show_snackbar: object | None = None,
         on_github_star_translation_success: object | None = None,
         on_overlay_state_changed: object | None = None,
     ):
@@ -338,7 +295,6 @@ class UIEventBridge:
         self.error_destination = error_destination or AppErrorEventDestination(
             runtime_logging=runtime_logging,
             clear_managed_auth_pending=clear_managed_auth_pending,
-            show_snackbar=show_snackbar,
             get_stt_state=self._get_stt_state_callback,
         )
         self.projection_service = EventProjectionService()
@@ -478,15 +434,6 @@ class UIEventBridge:
                 language_code=translation_projection.language_code,
                 debug_prefix=translation_projection.debug_prefix,
             )
-            if (
-                dashboard_published is not False
-                and isinstance(mapped.payload, Translation)
-                and mapped.payload.text.strip()
-            ):
-                self.dashboard_destination.clear_translation_issue(
-                    channel=event.channel or mapped.payload.channel,
-                    source=event.source,
-                )
             if dashboard_published is not False and projection.translation_diagnostic is not None:
                 self._emit_dashboard_translation_applied_diagnostic(
                     diagnostic=projection.translation_diagnostic,
@@ -516,21 +463,6 @@ class UIEventBridge:
 
     def _handle_error_event(self, event: UIEvent) -> None:
         payload = event.payload
-        if (
-            isinstance(payload, UserErrorReport)
-            and payload.message.key.startswith("provider.openrouter.")
-        ):
-            self.dashboard_destination.publish_translation_issue(
-                payload.message.key,
-                channel=event.channel or "self",
-                source=event.source,
-            )
-            self.error_destination.publish_error(
-                _localized_error_event_text(payload),
-                payload=payload,
-                event=event,
-            )
-            return
         text = _localized_error_event_text(payload)
         destination_payload = payload
         destination_event = event

@@ -40,12 +40,6 @@ class _HeadlessDashboard:
     def publish_error(self, text: str) -> None:
         self.issue = text
 
-    def publish_translation_issue(self, key: str, *, channel: str, source: str | None) -> None:
-        self.issue = key
-
-    def clear_translation_issue(self, *, channel: str, source: str | None) -> None:
-        self.issue = None
-
 
 class _HeadlessHistory:
     def append_entry(self, source: str, text: str, *, translated: bool = False, language_code: str | None = None) -> None:
@@ -81,7 +75,13 @@ class HeadlessApplicationPresentation:
     def localize(self, message_key: str, **kwargs: object) -> str:
         return t(message_key, **kwargs)
 
-    def show_message(self, message_key: str, **kwargs: object) -> None:
+    def show_message(
+        self, message_key: str, *, is_error: bool = False, **message_kwargs: object
+    ) -> None:
+        if is_error:
+            self.dashboard.publish_error(self.localize(message_key, **message_kwargs))
+            logger.error("Application message: %s", message_key)
+            return
         logger.warning("Application message: %s", message_key)
 
     def attach_runtime_log_sink(self, runtime_logging: object) -> None:

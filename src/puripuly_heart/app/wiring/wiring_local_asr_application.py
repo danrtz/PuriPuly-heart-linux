@@ -103,6 +103,7 @@ def compose_local_asr_application(
     dashboard_enabled_sink: Callable[[bool], None],
     dashboard_needs_key_sink: Callable[[bool], None],
     message_sink: Callable[[str], None],
+    error_sink: Callable[[str], None],
     notice_sink: LocalASRNoticeSink,
     rebuild_self_provider: Callable[[], Awaitable[None]],
     resume_self: Callable[[], Awaitable[bool]],
@@ -161,6 +162,7 @@ def compose_local_asr_application(
         dashboard_enabled_sink=dashboard_enabled_sink,
         dashboard_needs_key_sink=dashboard_needs_key_sink,
         message_sink=message_sink,
+        error_sink=error_sink,
         sync_notice=notice.sync,
     )
     repair_owner = create_local_asr_cpu_repair_owner(

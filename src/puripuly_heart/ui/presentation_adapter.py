@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,9 +34,6 @@ from puripuly_heart.ui.theme import COLOR_WARNING
 @dataclass(slots=True)
 class FletUiPresentationAdapter:
     _app: UiPresentationPort
-    _committed_translation_config: tuple[object, ...] | None = field(
-        default=None, init=False
-    )
 
     @property
     def debug_ui_preview(self) -> bool:
@@ -70,15 +67,16 @@ class FletUiPresentationAdapter:
     def localize(self, message_key: str, **message_kwargs: object) -> str:
         return t(message_key, **message_kwargs)
 
-    def show_message(self, message_key: str, **message_kwargs: object) -> None:
-        show_snackbar = getattr(self._app, "show_snackbar", None)
-        if not callable(show_snackbar):
-            show_snackbar = getattr(self._app, "_show_snackbar", None)
-        if callable(show_snackbar):
-            show_snackbar(
-                self.localize(message_key, **message_kwargs),
-                COLOR_WARNING,
+    def show_message(
+        self, message_key: str, *, is_error: bool = False, **message_kwargs: object
+    ) -> None:
+        text = self.localize(message_key, **message_kwargs)
+        if is_error:
+            AppDashboardEventDestination(getattr(self._app, "view_dashboard", None)).publish_error(
+                text
             )
+            return
+        self.show_snackbar(text, COLOR_WARNING)
 
     def attach_runtime_log_sink(self, runtime_logging: object) -> None:
         sink = getattr(self._app, "view_logs", None)
@@ -121,7 +119,6 @@ class FletUiPresentationAdapter:
                 "clear_managed_auth_pending_state",
                 None,
             ),
-            show_snackbar=getattr(self._app, "show_snackbar", None),
             on_github_star_translation_success=getattr(
                 self._app,
                 "on_github_star_translation_success",
@@ -379,20 +376,6 @@ class FletUiPresentationAdapter:
             config_path=config_path,
             preserve_custom_vocab_draft=preserve_custom_vocab_draft,
         )
-        translation_config = (
-            provider.llm_provider,
-            provider.translation,
-            provider.openrouter_llm_model,
-            provider.openrouter_selected_source,
-            provider.openrouter_selection_alias,
-        )
-        previous_config = self._committed_translation_config
-        self._committed_translation_config = translation_config
-        if previous_config is not None and previous_config != translation_config:
-            dashboard = getattr(self._app, "view_dashboard", None)
-            clear_issue = getattr(dashboard, "clear_translation_issue", None)
-            if callable(clear_issue):
-                clear_issue()
         return True
 
     def refresh_settings_after_openrouter_pkce_success(

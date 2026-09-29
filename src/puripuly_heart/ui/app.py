@@ -229,7 +229,6 @@ class TranslatorApp:
                 toggle_translation=self._on_translation_toggle,
                 change_language=self._on_language_change,
                 report_input_activity=self._on_message_input_activity,
-                open_settings=self._open_settings_tab,
             ),
             capture=DashboardCaptureIntents(
                 toggle_self_capture=self._on_stt_toggle,
@@ -827,10 +826,10 @@ class TranslatorApp:
         self.page.show_dialog(snackbar)
 
     def _preview_brake_notice(self) -> None:
-        self._show_snackbar(t("managed_release.brake"), COLOR_WARNING)
+        self.view_dashboard.set_display_text(t("managed_release.brake"), is_error=True)
 
     def _preview_revoked_notice(self) -> None:
-        self._show_snackbar(t("managed_release.revoked_contact"), COLOR_WARNING)
+        self.view_dashboard.set_display_text(t("managed_release.revoked_contact"), is_error=True)
 
     def _debug_preview_noop(self) -> None:
         return None
@@ -841,7 +840,7 @@ class TranslatorApp:
         dialog.open()
 
     def _preview_pkce_failure(self) -> None:
-        self._show_snackbar(t("openrouter.pkce.failed"), COLOR_WARNING)
+        self.view_dashboard.set_display_text(t("openrouter.pkce.failed"), is_error=True)
 
     def _preview_pkce_button_cycle(self) -> None:
         preview = getattr(self.view_settings, "preview_openrouter_pkce_button_state", None)

@@ -377,6 +377,8 @@ Delivery boundaries:
 
 Caption and overlay settings control destinations, not peer capture. Conversation errors share publication identity; runtime session status uses a separate path.
 
+Runtime error messages use plain text in the dashboard's upper-right `DisplayCard`, through `UIEventBridge` / `AppDashboardEventDestination` or explicitly error-marked application messages. Provider-specific errors, including OpenRouter and managed-account failures, do not add separate banners, settings actions, or error snackbars. Overlay failures use the existing reason-specific dashboard notice, which yields to conversation content and clears on recovery. Local-ASR feedback distinguishes failures from progress and compatibility notices. Interactive settings/authentication validation and non-error notifications remain local to their owning surfaces.
+
 
 | Publication       | UI               | Chatbox             | Overlay          |
 | ----------------- | ---------------- | ------------------- | ---------------- |

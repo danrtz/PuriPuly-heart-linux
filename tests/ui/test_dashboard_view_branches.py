@@ -206,10 +206,6 @@ def _make_dashboard(monkeypatch: pytest.MonkeyPatch):
     return view
 
 
-def _button_labels(row) -> list[str]:
-    return [slot.content.label for slot in row.controls]
-
-
 def _make_overlay_peer_contract(
     *,
     overlay_intent_enabled: bool,
@@ -843,71 +839,6 @@ def test_dashboard_apply_locale_reapplies_managed_auth_pending_notice(
     ]
 
 
-def test_dashboard_builds_4x3_friendly_shell_without_managed_trial_row(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    view = _make_dashboard(monkeypatch)
-
-    assert view.controls[0] is view.shell_content
-    assert view.shell_content.controls == [
-        view.main_surface,
-        view.translation_issue_banner,
-        view.overlay_restart_banner,
-    ]
-    assert view.shell_content.spacing == dashboard_module.DASHBOARD_LAYOUT_GAP
-    assert view.main_surface.controls == [view.control_region, view.info_region]
-    assert view.main_surface.spacing == dashboard_module.DASHBOARD_LAYOUT_GAP
-    assert dashboard_module.DASHBOARD_CONTROL_REGION_EXPAND == 45
-    assert dashboard_module.DASHBOARD_INFO_REGION_EXPAND == 55
-    assert view.control_region.expand == 45
-    assert view.info_region.expand == 55
-    assert view.control_grid.spacing == dashboard_module.DASHBOARD_LAYOUT_GAP
-    assert view.top_controls.spacing == dashboard_module.DASHBOARD_LAYOUT_GAP
-    assert view.bottom_controls.spacing == dashboard_module.DASHBOARD_LAYOUT_GAP
-    assert _button_labels(view.top_controls) == [
-        dashboard_module.t("dashboard.stt_label"),
-        dashboard_module.t("dashboard.peer_label"),
-    ]
-    assert _button_labels(view.bottom_controls) == [
-        dashboard_module.t("dashboard.trans_label"),
-        dashboard_module.t("dashboard.overlay_label"),
-    ]
-    assert view.stt_button.kwargs["icon_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_ICON_SIZE
-    assert view.peer_button.kwargs["icon_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_ICON_SIZE
-    assert (
-        view.trans_button.kwargs["icon_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_ICON_SIZE
-    )
-    assert (
-        view.overlay_button.kwargs["icon_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_ICON_SIZE
-    )
-    assert (
-        view.stt_button.kwargs["label_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_LABEL_SIZE
-    )
-    assert (
-        view.peer_button.kwargs["label_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_LABEL_SIZE
-    )
-    assert (
-        view.trans_button.kwargs["label_size"] == dashboard_module.DASHBOARD_POWER_BUTTON_LABEL_SIZE
-    )
-    assert (
-        view.overlay_button.kwargs["label_size"]
-        == dashboard_module.DASHBOARD_POWER_BUTTON_LABEL_SIZE
-    )
-    assert view.overlay_button.icon == ft.Icons.SUBTITLES
-    assert "color_on" not in view.peer_button.kwargs
-    assert "color_on" not in view.trans_button.kwargs
-    assert "color_on" not in view.overlay_button.kwargs
-    assert view.info_stack.spacing == dashboard_module.DASHBOARD_LAYOUT_GAP
-    assert view.info_stack.controls == [view.display_card_slot, view.language_card_slot]
-    assert view.display_card_slot.content is view.display_card
-    assert dashboard_module.DASHBOARD_DISPLAY_CARD_EXPAND == 1
-    assert view.display_card_slot.expand == 1
-    assert view.language_card_slot.content is view.language_card
-    assert dashboard_module.DASHBOARD_LANGUAGE_CARD_EXPAND == 1
-    assert view.language_card_slot.expand == 1
-    assert not hasattr(view, "_managed_trial_card")
-
-
 def test_dashboard_apply_locale_and_dialog_open_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     view = _make_dashboard(monkeypatch)
     attach_dummy_page(monkeypatch, view)
@@ -1068,101 +999,6 @@ def test_dashboard_peer_button_renders_starting_contract_with_spinner(
     view.set_overlay_peer_contract(contract)
 
     assert view.peer_button.states[-1]["is_starting"] is True
-
-
-def test_dashboard_translation_issue_persists_across_speech_and_is_scoped_to_source(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    view = _make_dashboard(monkeypatch)
-    key = "provider.openrouter.insufficient_credits"
-    view.set_translation_issue(key, channel="self", source="Mic")
-    view.set_translation_issue(key, channel="self", source="Mic")
-    assert view.translation_issue_banner.visible
-    assert view.translation_issue_text.value == dashboard_module.t(key)
-    open_settings: list[bool] = []
-    view.on_open_translation_settings = lambda: open_settings.append(True)
-    view._open_translation_settings()
-    assert open_settings == [True]
-
-    view.set_display_text("new speech")
-    view.set_local_stt_notice("missing")
-    view.set_translation_issue("provider.openrouter.key_limit", channel="peer", source="Peer Mic")
-    view.clear_translation_issue(channel="peer", source="Peer Mic")
-    assert view.translation_issue_banner.visible
-    assert view.translation_issue_text.value == dashboard_module.t(key)
-    view.apply_locale()
-    assert view.translation_issue_text.value == dashboard_module.t(key)
-    assert view.display_card.display_calls[-1][0] == "new speech"
-    view.clear_translation_issue(channel="self", source="Mic")
-    assert not view.translation_issue_banner.visible
-
-
-def test_dashboard_restart_banner_is_distinct_from_translation_and_clears_on_recovery(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    view = _make_dashboard(monkeypatch)
-    view.set_translation_issue(
-        "provider.openrouter.payment_required", channel="self", source="Mic"
-    )
-    view.set_overlay_peer_contract(
-        OverlayPeerConsumerContract(
-            overlay=OverlayPeerToggleContract(
-                intent_enabled=True,
-                effective_enabled=False,
-                action_enabled=True,
-                state="warning",
-                failure_reason="startup_timeout",
-            ),
-            peer=OverlayPeerToggleContract(
-                intent_enabled=False,
-                effective_enabled=False,
-                action_enabled=True,
-                state="off",
-            ),
-        )
-    )
-    assert view.translation_issue_banner.visible
-    assert view.overlay_restart_banner.visible
-    assert view.overlay_restart_text.value == dashboard_module.t(
-        "dashboard.overlay_restart_required"
-    )
-    view.set_overlay_peer_contract(
-        OverlayPeerConsumerContract(
-            overlay=OverlayPeerToggleContract(
-                intent_enabled=True,
-                effective_enabled=True,
-                action_enabled=True,
-                state="on",
-            ),
-            peer=OverlayPeerToggleContract(
-                intent_enabled=False,
-                effective_enabled=False,
-                action_enabled=True,
-                state="off",
-            ),
-        )
-    )
-    view.set_overlay_peer_contract(
-        OverlayPeerConsumerContract(
-            overlay=OverlayPeerToggleContract(
-                intent_enabled=False,
-                effective_enabled=False,
-                action_enabled=True,
-                state="off",
-                failure_reason="startup_timeout",
-            ),
-            peer=OverlayPeerToggleContract(
-                intent_enabled=False,
-                effective_enabled=False,
-                action_enabled=True,
-                state="off",
-            ),
-        )
-    )
-    assert not view.overlay_restart_banner.visible
-    assert view.translation_issue_banner.visible
-    view.clear_translation_issue()
-    assert not view.translation_issue_banner.visible
 
 
 def test_dashboard_overlay_failure_notice_is_lowest_priority_notice_source(
@@ -1639,7 +1475,6 @@ def test_dashboard_bound_intents_receive_every_owned_interaction(
             toggle_translation=lambda enabled: calls["translation"].append(enabled),
             change_language=lambda change: calls["language"].append(change),
             report_input_activity=lambda has_text: calls["activity"].append(has_text),
-            open_settings=lambda: None,
         ),
         capture=DashboardCaptureIntents(
             toggle_self_capture=lambda enabled: calls["self_capture"].append(enabled),

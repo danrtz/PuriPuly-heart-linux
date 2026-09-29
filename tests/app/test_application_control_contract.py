@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import replace
 
 import numpy as np
@@ -14,7 +15,10 @@ from puripuly_heart.app.services.capture.peer_capture_target_application import 
 from puripuly_heart.app.services.overlay.overlay_application import OverlayApplicationOwner
 from puripuly_heart.app.wiring import wiring_microphone_test
 from puripuly_heart.composition import application_runtime
-from puripuly_heart.composition.headless_application import compose_headless_application
+from puripuly_heart.composition.headless_application import (
+    HeadlessApplicationPresentation,
+    compose_headless_application,
+)
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext, SecretsIntent
 from puripuly_heart.config.settings_vnext.serialization import to_dict
 from puripuly_heart.core.audio.format import AudioFrameF32
@@ -35,6 +39,20 @@ def isolated_settings(path):
         osc=replace(settings.intent.osc, connection_mode="off"),
     ))
     path.write_text(json.dumps(to_dict(settings)), encoding="utf-8")
+
+
+def test_headless_runtime_error_is_localized_in_dashboard_state(caplog) -> None:
+    from puripuly_heart.ui.i18n import t
+
+    presentation = HeadlessApplicationPresentation()
+    presentation.set_locale("en")
+    with caplog.at_level(logging.ERROR):
+        presentation.show_message("local_stt.download_failed", is_error=True)
+
+    assert presentation.dashboard.issue == t("local_stt.download_failed")
+    assert [(record.levelno, record.getMessage()) for record in caplog.records] == [
+        (logging.ERROR, "Application message: local_stt.download_failed")
+    ]
 
 
 @pytest.mark.asyncio
