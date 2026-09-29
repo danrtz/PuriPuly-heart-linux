@@ -10,6 +10,7 @@ from puripuly_heart.app.services.local_asr_selection import (
     LOCAL_CPU_PROVIDERS,
     resolve_local_asr_selection,
 )
+from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
 from puripuly_heart.config.capture_target_resolution import (
     resolve_desktop_audio_capture_target,
 )
@@ -262,6 +263,14 @@ def self_stt_runtime_intent_from_vnext(settings: AppSettingsVNext) -> STTRuntime
         elevenlabs_scribe_language_code=elevenlabs_scribe_language,
         elevenlabs_scribe_auto_language=False,
         qwen_region=intent.translation.qwen.region,
+        qwen_connection=(
+            resolve_alibaba_connection(
+                intent.translation.qwen.region,
+                getattr(intent.translation.qwen, intent.translation.qwen.region),
+            )
+            if is_qwen_cloud_stt_provider(provider)
+            else None
+        ),
         soniox_model=intent.stt.soniox.model,
         soniox_endpoint=intent.stt.soniox.endpoint,
         soniox_keepalive_interval_s=intent.stt.soniox.keepalive_interval_s,
@@ -378,6 +387,14 @@ def peer_stt_runtime_intent_from_vnext(settings: AppSettingsVNext) -> STTRuntime
         elevenlabs_scribe_language_code=elevenlabs_scribe_language,
         elevenlabs_scribe_auto_language=automatic_scribe,
         qwen_region=intent.translation.qwen.region,
+        qwen_connection=(
+            resolve_alibaba_connection(
+                intent.translation.qwen.region,
+                getattr(intent.translation.qwen, intent.translation.qwen.region),
+            )
+            if is_qwen_cloud_stt_provider(provider)
+            else None
+        ),
         soniox_model=intent.stt.soniox.model,
         soniox_endpoint=intent.stt.soniox.endpoint,
         soniox_keepalive_interval_s=intent.stt.soniox.keepalive_interval_s,
@@ -403,12 +420,6 @@ def peer_stt_runtime_intent_from_vnext(settings: AppSettingsVNext) -> STTRuntime
 
 def resolve_self_stt_runtime_config(settings: AppSettingsVNext) -> ResolvedSTTConfig:
     return resolve_self_stt_runtime_config_from_vnext(settings)
-
-
-def _qwen_audio_endpoint_for_region(region: object) -> str:
-    if region == QwenRegion.SINGAPORE or region == QwenRegion.SINGAPORE.value:
-        return "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
-    return "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 
 
 def _self_stt_custom_vocabulary_signature_for_provider(
@@ -630,7 +641,10 @@ def build_self_stt_runtime_signature_from_vnext(settings: AppSettingsVNext) -> t
         intent.translation.qwen.region if is_qwen_cloud_stt_provider(provider) else None,
         QWEN_AUDIO_STT_MODEL if is_qwen_cloud_stt_provider(provider) else None,
         (
-            _qwen_audio_endpoint_for_region(intent.translation.qwen.region)
+            resolve_alibaba_connection(
+                intent.translation.qwen.region,
+                getattr(intent.translation.qwen, intent.translation.qwen.region),
+            )
             if is_qwen_cloud_stt_provider(provider)
             else None
         ),
@@ -707,6 +721,14 @@ def build_self_stt_provider_signature_from_vnext(settings: AppSettingsVNext) -> 
         _rolling_member_models_signature(intent) if provider == STT_PROVIDER_ROLLING_FREE else None,
         intent.translation.qwen.region if is_qwen_cloud_stt_provider(provider) else None,
         QWEN_AUDIO_STT_MODEL if is_qwen_cloud_stt_provider(provider) else None,
+        (
+            resolve_alibaba_connection(
+                intent.translation.qwen.region,
+                getattr(intent.translation.qwen, intent.translation.qwen.region),
+            )
+            if is_qwen_cloud_stt_provider(provider)
+            else None
+        ),
         intent.stt.soniox.model if provider == STTProviderName.SONIOX.value else None,
         intent.stt.soniox.endpoint if provider == STTProviderName.SONIOX.value else None,
         (
@@ -844,9 +866,9 @@ def _elevenlabs_scribe_api_key_for_resolved_credential(
 
 
 def _qwen_audio_endpoint_for_resolved_config(config: ResolvedSTTConfig) -> str:
-    if config.endpoint:
-        return config.endpoint
-    return _qwen_audio_endpoint_for_region(config.region)
+    if not config.endpoint:
+        raise ValueError("Qwen Audio requires a resolved WebSocket endpoint")
+    return config.endpoint
 
 
 _ROLLING_MEMBER_SECRET_KEYS = {
@@ -1369,6 +1391,14 @@ def build_peer_stt_provider_signature_from_vnext(settings: AppSettingsVNext) -> 
         resolved.model,
         resolved.endpoint,
         resolved.region,
+        (
+            resolve_alibaba_connection(
+                settings.intent.translation.qwen.region,
+                getattr(settings.intent.translation.qwen, settings.intent.translation.qwen.region),
+            )
+            if resolved.provider == STT_PROVIDER_QWEN_AUDIO
+            else None
+        ),
         resolved.provider_options.get("keepalive_interval_s"),
         resolved.provider_options.get("trailing_silence_ms"),
         resolved.provider_options.get("enable_language_identification", False),

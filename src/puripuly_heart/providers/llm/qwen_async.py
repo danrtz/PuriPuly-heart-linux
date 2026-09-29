@@ -187,8 +187,9 @@ class AsyncQwenLLMProvider:
             self._internal_client = None
 
     async def warmup(self) -> None:
-        # Warmup probes the default model.
-        await self.verify_api_key(self.api_key, base_url=self.base_url, model=_QWEN_PROBE_MODEL)
+        client = self._get_client()
+        if isinstance(client, HttpxQwenClient):
+            await client._get_http_client()
 
     @staticmethod
     async def verify_api_key(
@@ -198,25 +199,36 @@ class AsyncQwenLLMProvider:
     ) -> bool:
         if not api_key:
             return False
-        model = _normalize_qwen_model(model)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": "ping"}],
-                        "enable_thinking": False,
-                        "max_tokens": 1,
-                    },
-                )
-                return response.status_code == 200
+            return await AsyncQwenLLMProvider.probe_api_key(api_key, base_url=base_url, model=model)
         except Exception:
             return False
+
+    @staticmethod
+    async def probe_api_key(
+        api_key: str,
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model: str = _QWEN_PROBE_MODEL,
+    ) -> bool:
+        if not api_key:
+            return False
+        model = _normalize_qwen_model(model)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "enable_thinking": False,
+                    "max_tokens": 1,
+                },
+            )
+            response.raise_for_status()
+            return True
 
 
 @dataclass(slots=True)

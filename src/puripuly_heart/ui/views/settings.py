@@ -12,7 +12,7 @@ import math
 import re
 from dataclasses import fields, replace
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Awaitable, Callable, Mapping
 
 import flet as ft
 from puripuly_heart.app.services.local_asr_selection import resolve_local_asr_selection
@@ -64,7 +64,9 @@ from puripuly_heart.app.ports.settings_view import (
     ProviderApplyIntent,
     ProviderSettingsEdit,
     ProviderSettingsSnapshot,
+    QwenBeijingApiHostEdit,
     QwenRegionEdit,
+    QwenSingaporeApiHostEdit,
     SelfSttProviderEdit,
     SelfVadSettingsIntent,
     SonioxSpeakerDiarizationEdit,
@@ -79,6 +81,7 @@ from puripuly_heart.app.ports.ui_models import OscControlPresentationState
 from puripuly_heart.app.services.http_extension_registry import (
     HttpExtensionRegistryService,
 )
+from puripuly_heart.config.alibaba_connection import workspace_api_host_region
 from puripuly_heart.config.desktop_overlay_values import (
     DESKTOP_FLET_DEFAULT_BACKGROUND_ALPHA,
     DESKTOP_FLET_SIZE_PRESET_DISPLAY_ORDER,
@@ -185,6 +188,7 @@ from puripuly_heart.ui.theme import (
     COLOR_PRIMARY,
     COLOR_SECONDARY,
     COLOR_WARNING,
+    text_field_outline_border,
 )
 
 logger = logging.getLogger(__name__)
@@ -195,6 +199,8 @@ _DRAFT_PROVIDER_FIELDS: dict[type, str] = {
     SonioxSpeakerDiarizationEdit: "soniox_speaker_diarization_enabled",
     SttGpuDeviceEdit: "stt_gpu_device_id",
     QwenRegionEdit: "qwen_region",
+    QwenBeijingApiHostEdit: "qwen_api_host_beijing",
+    QwenSingaporeApiHostEdit: "qwen_api_host_singapore",
     LocalLlmBaseUrlEdit: "local_llm_base_url",
     LocalLlmModelEdit: "local_llm_model",
     LocalLlmExtraBodyEdit: "local_llm_extra_body_json",
@@ -478,6 +484,7 @@ class SettingsView(ft.Column):
         self._http_extension_selected_id: str | None = None
         self._http_extension_snapshot = self._http_extensions.snapshot
         self._http_extension_runtime_reload_pending = False
+        self._pending_alibaba_key_verification: QwenRegion | None = None
 
         # State
         self._provider_snapshot: ProviderSettingsSnapshot | None = None
@@ -1364,6 +1371,26 @@ class SettingsView(ft.Column):
                 self.show_snackbar(msg, bg) if self.show_snackbar else None
             ),
         )
+        self._qwen_api_host = ft.TextField(
+            label=t("settings.qwen_api_host"),
+            border=text_field_outline_border(border_radius=12),
+            expand=True,
+            text_size=24,
+            color=COLOR_NEUTRAL_DARK,
+            label_style=ft.TextStyle(size=20, weight=ft.FontWeight.BOLD, color=COLOR_NEUTRAL_DARK),
+            on_change=self._on_qwen_api_host_change,
+            on_blur=self._on_qwen_api_host_change_end,
+            on_submit=self._on_qwen_api_host_change_end,
+        )
+        self._qwen_api_host_status = "idle"
+        self._qwen_api_host_rejected_value: str | None = None
+        self._qwen_api_host_status_icon = ft.Icon(ft.Icons.HELP_OUTLINE_ROUNDED, size=36)
+        self._set_qwen_api_host_status("idle")
+        self._qwen_api_host_row = ft.Row(
+            controls=[self._qwen_api_host, self._qwen_api_host_status_icon],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            visible=False,
+        )
 
         self._api_keys_column = ft.Column(
             [
@@ -1375,6 +1402,7 @@ class SettingsView(ft.Column):
                 self._google_key,
                 self._deepseek_key,
                 self._openai_key,
+                self._qwen_api_host_row,
                 self._alibaba_key_beijing,
                 self._alibaba_key_singapore,
                 self._openrouter_key,
@@ -3768,8 +3796,7 @@ class SettingsView(ft.Column):
         self._clear_local_llm_extra_body_error()
         self._sync_custom_stt_card(display_provider)
 
-        region_label = t(f"region.{display_provider.qwen_region.value}")
-        _set_text_button_label(self._qwen_region_btn, f"{t('settings.qwen_region')} {region_label}")
+        self._sync_qwen_connection_controls(display_provider)
 
         # Audio Settings
         self._audio_settings.host_api = general.input_host_api
@@ -4293,6 +4320,9 @@ class SettingsView(ft.Column):
         )
         self._alibaba_key_beijing.visible = QwenRegion.BEIJING in qwen_regions
         self._alibaba_key_singapore.visible = QwenRegion.SINGAPORE in qwen_regions
+        qwen_api_host_row = getattr(self, "_qwen_api_host_row", None)
+        if qwen_api_host_row is not None:
+            qwen_api_host_row.visible = self._qwen_region_btn.visible
         api_keys_card = getattr(self, "_api_keys_card", None)
         if api_keys_card is not None:
             api_keys_card.visible = any(
@@ -4309,6 +4339,7 @@ class SettingsView(ft.Column):
                     self._alibaba_key_singapore,
                     self._openrouter_pkce_button_row,
                     self._qwen_region_btn,
+                    qwen_api_host_row,
                     getattr(self, "_http_extension_credentials", None),
                 )
                 if control is not None
@@ -5062,17 +5093,138 @@ class SettingsView(ft.Column):
         self._record_provider_edit(QwenRegionEdit(self._provider_draft.qwen_region))
         self.has_provider_changes = True
 
-        # Update text
-        _set_text_button_label(
-            self._qwen_region_btn,
-            f"{t('settings.qwen_region')} {t(f'region.{value}')}",
-        )
+        self._sync_qwen_connection_controls(self._provider_draft)
         if is_control_mounted(self):
             self._qwen_region_btn.update()
+            self._qwen_api_host.update()
 
         self._update_api_visibility()
         if is_control_mounted(self):
             self._api_keys_column.update()
+
+    def _qwen_api_host_for(self, settings: ProviderSettingsSnapshot, region: QwenRegion) -> str:
+        return getattr(settings, f"qwen_api_host_{region.value}", "")
+
+    def _sync_qwen_connection_controls(
+        self,
+        settings: ProviderSettingsSnapshot,
+        *,
+        reset_host: bool = True,
+    ) -> None:
+        region = settings.qwen_region
+        host = self._qwen_api_host_for(settings, region)
+        _set_text_button_label(
+            self._qwen_region_btn,
+            f"{t('settings.qwen_region')} {t(f'region.{region.value}')}",
+        )
+        self._qwen_region_btn.disabled = bool(host)
+        host_field = getattr(self, "_qwen_api_host", None)
+        if host_field is not None and reset_host:
+            host_field.value = host
+            self._qwen_api_host_rejected_value = None
+            self._set_qwen_api_host_status("success" if host else "idle")
+
+    def _set_qwen_api_host_status(self, status: str) -> None:
+        self._qwen_api_host_status = status
+        icon, color, tooltip_key = {
+            "idle": (
+                ft.Icons.HELP_OUTLINE_ROUNDED,
+                COLOR_SECONDARY,
+                "settings.qwen_api_host.status.idle",
+            ),
+            "success": (
+                ft.Icons.CHECK_CIRCLE_ROUNDED,
+                COLOR_PRIMARY,
+                "settings.qwen_api_host.status.success",
+            ),
+            "error": (
+                ft.Icons.WARNING_ROUNDED,
+                COLOR_WARNING,
+                "settings.qwen_api_host.status.error",
+            ),
+        }[status]
+        self._qwen_api_host_status_icon.icon = icon
+        self._qwen_api_host_status_icon.color = color
+        self._qwen_api_host_status_icon.tooltip = t(tooltip_key)
+        _update_control_if_mounted(self._qwen_api_host_status_icon)
+
+    def _on_qwen_api_host_change(self, e) -> None:
+        _ = e
+        self._qwen_api_host_rejected_value = None
+
+    def _on_qwen_api_host_change_end(self, e) -> None:
+        _ = e
+        if self._provider_snapshot is None:
+            return
+        current = self._build_settings_with_provider_draft()
+        assert current is not None
+        raw_value = (self._qwen_api_host.value or "").strip()
+        if raw_value:
+            parsed = workspace_api_host_region(raw_value)
+            if parsed is None:
+                self._set_qwen_api_host_status("error")
+                if self._qwen_api_host_rejected_value != raw_value:
+                    self._qwen_api_host_rejected_value = raw_value
+                    if self.show_snackbar is not None:
+                        self.show_snackbar(t("settings.qwen_api_host.invalid"), ft.Colors.RED_400)
+                return
+            region, host = QwenRegion(parsed[0]), parsed[1]
+        else:
+            region, host = current.qwen_region, ""
+        self._qwen_api_host_rejected_value = None
+        self._qwen_api_host.value = host
+        self._set_qwen_api_host_status("success" if host else "idle")
+        if region == current.qwen_region and self._qwen_api_host_for(current, region) == host:
+            _update_control_if_mounted(self._qwen_api_host)
+            return
+
+        draft = self._ensure_provider_settings_draft()
+        self._provider_draft = replace(
+            draft,
+            qwen_region=region,
+            **{f"qwen_api_host_{region.value}": host},
+        )
+        if region != current.qwen_region:
+            self._record_provider_edit(QwenRegionEdit(region))
+        host_edit = (
+            QwenBeijingApiHostEdit if region == QwenRegion.BEIJING else QwenSingaporeApiHostEdit
+        )
+        self._record_provider_edit(host_edit(host))
+        self.has_provider_changes = True
+
+        key_field = self._alibaba_key_field(region)
+        key_field.controller.last_verified_hash = ""
+        key_field.controller.force_status("idle")
+        self._pending_alibaba_key_verification = region
+
+        self._sync_qwen_connection_controls(self._provider_draft)
+        self._update_api_visibility()
+        if is_control_mounted(self):
+            self._qwen_region_btn.update()
+            self._qwen_api_host.update()
+            self._api_keys_column.update()
+        if self.on_providers_changed is not None:
+            self.on_providers_changed()
+
+    def _alibaba_key_field(self, region: QwenRegion) -> ApiKeyField:
+        if region == QwenRegion.BEIJING:
+            return self._alibaba_key_beijing
+        return self._alibaba_key_singapore
+
+    def consume_alibaba_key_verification(self) -> Callable[[], Awaitable[None]] | None:
+        region = self._pending_alibaba_key_verification
+        self._pending_alibaba_key_verification = None
+        if region is None:
+            return None
+        key_field = self._alibaba_key_field(region)
+        key = key_field.value
+        if not key:
+            return None
+
+        async def verify_alibaba_key() -> None:
+            await key_field.controller.verify_direct(key)
+
+        return verify_alibaba_key
 
     def _on_openrouter_pkce_click(self, _e) -> None:
         settings = self._build_settings_with_provider_draft()
@@ -6652,11 +6804,9 @@ class SettingsView(ft.Column):
 
         # Qwen Region label
         if display_settings:
-            region_val = display_settings.qwen_region.value
-            _set_text_button_label(
-                self._qwen_region_btn,
-                f"{t('settings.qwen_region')} {t(f'region.{region_val}')}",
-            )
+            self._sync_qwen_connection_controls(display_settings, reset_host=False)
+        self._qwen_api_host.label = t("settings.qwen_api_host")
+        self._set_qwen_api_host_status(self._qwen_api_host_status)
 
         # Components
         self._deepgram_key.apply_locale()

@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Final, Literal, TypeAlias, cast
 
+from puripuly_heart.config.alibaba_connection import (
+    AlibabaConnection,
+    AlibabaRegionalSettings,
+    resolve_alibaba_connection,
+)
 from puripuly_heart.config.llm_profiles import (
     OPENROUTER_CREDENTIAL_SOURCE_BYOK,
     OPENROUTER_CREDENTIAL_SOURCE_MANAGED,
@@ -566,7 +571,9 @@ def _required_credential(source: str, reference: str) -> ResolvedCredentialRequi
 def _openrouter_credential(
     source: OpenRouterSource,
     *,
-    managed_credential_kind: OpenRouterManagedCredentialKind = OPENROUTER_MANAGED_CREDENTIAL_STANDARD,
+    managed_credential_kind: OpenRouterManagedCredentialKind = (
+        OPENROUTER_MANAGED_CREDENTIAL_STANDARD
+    ),
 ) -> ResolvedCredentialRequirement:
     if source == OPENROUTER_SOURCE_MANAGED:
         reference = (
@@ -583,22 +590,14 @@ def _openrouter_credential(
     return _no_credential()
 
 
-def _qwen_credential_reference(region: str) -> str:
-    if region == QWEN_REGION_SINGAPORE:
-        return CREDENTIAL_REF_QWEN_SINGAPORE
-    return CREDENTIAL_REF_QWEN_BEIJING
-
-
-def _qwen_service_endpoint(region: str) -> str:
-    if region == QWEN_REGION_SINGAPORE:
-        return "https://dashscope-intl.aliyuncs.com/api/v1"
-    return "https://dashscope.aliyuncs.com/api/v1"
-
-
-def _qwen_audio_endpoint(region: str) -> str:
-    if region == QWEN_REGION_SINGAPORE:
-        return "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
-    return "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+def _qwen_connection(region: str, connection: AlibabaConnection | None) -> AlibabaConnection:
+    if connection is not None:
+        if connection.region != region:
+            raise ValueError("Alibaba connection region mismatch")
+        return connection
+    return resolve_alibaba_connection(
+        cast(Literal["beijing", "singapore"], region), AlibabaRegionalSettings()
+    )
 
 
 def _translation_connection_from_openrouter_source(
@@ -693,6 +692,7 @@ class DirectProviderRuntimeIntent:
     deepseek_v4_flash_model: str = DEEPSEEK_MODEL_V4_FLASH
     qwen_38_flash_model: str = QWEN_MODEL_38_FLASH
     qwen_region: str = QWEN_REGION_BEIJING
+    qwen_connection: AlibabaConnection | None = None
     local_llm_backend: str = LOCAL_LLM_BACKEND_OLLAMA
     local_llm_base_url: str = LOCAL_LLM_DEFAULT_BASE_URL
     local_llm_model: str = LOCAL_LLM_DEFAULT_MODEL
@@ -760,6 +760,7 @@ class STTRuntimeIntent:
     elevenlabs_scribe_language_code: str | None = None
     elevenlabs_scribe_auto_language: bool = False
     qwen_region: str = QWEN_REGION_BEIJING
+    qwen_connection: AlibabaConnection | None = None
     soniox_model: str = SONIOX_STT_MODEL_RT_V5
     soniox_endpoint: str = SONIOX_STT_DEFAULT_ENDPOINT
     soniox_keepalive_interval_s: float = SONIOX_STT_DEFAULT_KEEPALIVE_INTERVAL_S
@@ -1352,11 +1353,11 @@ def resolve_stt_config(intent: STTRuntimeIntent) -> ResolvedSTTConfig:
             }
     elif provider == STT_PROVIDER_QWEN_AUDIO:
         model = QWEN_AUDIO_STT_MODEL
-        region = intent.qwen_region
-        endpoint = _qwen_audio_endpoint(intent.qwen_region)
+        connection = _qwen_connection(intent.qwen_region, intent.qwen_connection)
+        region = connection.region
+        endpoint = connection.websocket_url
         credential = _required_credential(
-            CREDENTIAL_SOURCE_SECRET_STORE,
-            _qwen_credential_reference(intent.qwen_region),
+            CREDENTIAL_SOURCE_SECRET_STORE, connection.credential_reference
         )
         if intent.source_mode == "auto":
             hints = intent.qwen_audio_language_hints
@@ -1564,15 +1565,15 @@ def _resolve_translation_target(
         )
 
     if translation.model == TRANSLATION_MODEL_QWEN_38_FLASH:
+        connection = _qwen_connection(direct.qwen_region, direct.qwen_connection)
         return _resolved_direct_provider_target(
             provider=PROVIDER_QWEN,
             model=direct.qwen_38_flash_model,
             credential=_required_credential(
-                CREDENTIAL_SOURCE_SECRET_STORE,
-                _qwen_credential_reference(direct.qwen_region),
+                CREDENTIAL_SOURCE_SECRET_STORE, connection.credential_reference
             ),
-            service_endpoint=_qwen_service_endpoint(direct.qwen_region),
-            region=direct.qwen_region,
+            service_endpoint=connection.native_url,
+            region=connection.region,
         )
 
     if translation.model == TRANSLATION_MODEL_OPENROUTER_QWEN_35_FLASH:

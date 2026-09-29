@@ -1296,7 +1296,7 @@ def test_create_stt_backend_from_resolved_qwen_audio_uses_endpoint_region_and_se
     assert backend.language_hints == ("ja",)
 
 
-def test_create_stt_backend_from_resolved_qwen_audio_uses_region_when_endpoint_missing() -> None:
+def test_create_stt_backend_from_resolved_qwen_audio_requires_resolved_endpoint() -> None:
     resolved = _resolved_stt_config(
         provider="qwen_audio",
         source_language="ja",
@@ -1307,11 +1307,8 @@ def test_create_stt_backend_from_resolved_qwen_audio_uses_region_when_endpoint_m
     )
     secrets = InMemorySecretStore()
     secrets.set("alibaba_api_key_singapore", "dto-qwen-key")
-
-    backend = wiring_module.create_stt_backend_from_resolved_config(resolved, secrets=secrets)
-
-    assert isinstance(backend, QwenAudioStreamingSTTBackend)
-    assert backend.endpoint == "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
+    with pytest.raises(ValueError, match="resolved WebSocket endpoint"):
+        wiring_module.create_stt_backend_from_resolved_config(resolved, secrets=secrets)
 
 
 def test_create_stt_backend_from_resolved_soniox_uses_options_and_custom_terms() -> None:

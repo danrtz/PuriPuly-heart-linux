@@ -8,7 +8,10 @@ import pytest
 from puripuly_heart.app.wiring.wiring_llm_factory import runtime_resolution_input_from_vnext
 from puripuly_heart.config.runtime_resolution import resolve_llm_config
 from puripuly_heart.config.settings_vnext import compat, migration, serialization
-from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.config.settings_vnext.schema import (
+    VNEXT_SETTINGS_SCHEMA_VERSION,
+    AppSettingsVNext,
+)
 
 
 @pytest.mark.parametrize("model", ["gemma4", "gemma4_31b", "gemma4_26b_31b", "deepseek_v4_flash"])
@@ -33,7 +36,7 @@ def test_v48_consolidates_active_pair_without_trusting_stale_alias(
     migrated = migration.from_dict(raw)
     result = serialization.to_dict(migrated)
     translation = result["intent"]["translation"]
-    assert result["settings_version"] == 49
+    assert result["settings_version"] == VNEXT_SETTINGS_SCHEMA_VERSION
     assert result["intent"]["ui"]["locale"] == "ja"
     assert result["state"]["managed_connection"]["referral_id"] == "kept-referral"
     assert translation["connection"] == connection
@@ -175,7 +178,7 @@ def test_v48_loader_keeps_original_then_reloads_without_new_backup(tmp_path: Pat
     assert first.ok and first.migrated and first.settings is not None
     assert first.backup_path is not None and first.backup_path.read_bytes() == original
     persisted = path.read_bytes()
-    assert b'"settings_version": 49' in persisted
+    assert f'"settings_version": {VNEXT_SETTINGS_SCHEMA_VERSION}'.encode() in persisted
     assert first.settings.intent.translation.connection == "openrouter"
     assert first.settings.intent.translation.openrouter_selected_source == "byok"
     assert first.settings.state.provider_verification.openrouter.status == "unknown"

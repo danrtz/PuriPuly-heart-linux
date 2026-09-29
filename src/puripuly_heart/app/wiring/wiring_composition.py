@@ -84,6 +84,7 @@ from puripuly_heart.app.services.provider_credential_verification import (
     ProviderCredentialVerificationInteractionOwner,
     ProviderCredentialVerificationOwner,
 )
+from puripuly_heart.config.alibaba_connection import AlibabaConnection
 from puripuly_heart.core.local_asr_provider_runtime import ProviderRuntimeRecoveryQuiesce
 from puripuly_heart.core.peer_capture import (
     PeerCaptureAdmissionPort,
@@ -155,7 +156,7 @@ def create_provider_credential_verification_interaction_owner(
     *,
     verifier: ProviderVerifierPort,
     selected_model_provider: ProviderCredentialSelectedModelProvider,
-    fallback_models: tuple[str, ...],
+    connection_provider: Callable[[str], AlibabaConnection] | None = None,
     low_latency: bool,
     diagnostics_sink: ProviderCredentialVerificationDiagnosticsSink | None = None,
     error_sink: ProviderCredentialVerificationErrorSink | None = None,
@@ -166,7 +167,7 @@ def create_provider_credential_verification_interaction_owner(
             diagnostics_sink=diagnostics_sink,
         ),
         selected_model_provider=selected_model_provider,
-        fallback_models=fallback_models,
+        connection_provider=connection_provider,
         low_latency=low_latency,
         error_sink=error_sink,
     )

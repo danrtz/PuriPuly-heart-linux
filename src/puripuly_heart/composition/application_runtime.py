@@ -214,12 +214,12 @@ from puripuly_heart.composition.application_startup import (
     compose_application_startup,
 )
 from puripuly_heart.composition.application_state import ApplicationUiStateAdapter
+from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
 from puripuly_heart.config.paths import default_http_extensions_dir, user_config_dir
 from puripuly_heart.config.provider_values import (
     STT_INTERNAL_SAMPLE_RATE_HZ,
     LLMProviderName,
     OpenRouterCredentialSource,
-    QwenLLMModel,
     QwenRegion,
     STTProviderName,
 )
@@ -1554,7 +1554,13 @@ def compose_application_runtime(
                 selected_model_provider=lambda provider: (
                     require_provider_settings().binding.selected_model(provider)
                 ),
-                fallback_models=tuple(model.value for model in QwenLLMModel),
+                connection_provider=lambda provider: resolve_alibaba_connection(
+                    "beijing" if provider == "alibaba_beijing" else "singapore",
+                    getattr(
+                        require_provider_settings().settings.canonical.intent.translation.qwen,
+                        "beijing" if provider == "alibaba_beijing" else "singapore",
+                    ),
+                ),
                 low_latency=(FIXED_TRANSLATION_POLICY.fast_translation_enabled),
                 diagnostics_sink=lambda event, metadata, exception: log_diagnostic(
                     "[ProviderVerification] Credential verification "

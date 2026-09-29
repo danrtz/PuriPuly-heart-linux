@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
 from puripuly_heart.config.prompts import resolve_system_prompt
 from puripuly_heart.config.provider_values import STTProviderName
 from puripuly_heart.config.runtime_resolution import (
@@ -74,6 +75,13 @@ def build_llm_provider_signature(
         _managed_openrouter_identity_signature(settings) if uses_managed_openrouter else None,
         translation.qwen.llm_model if provider_llm == "qwen" else None,
         translation.qwen.region if provider_llm == "qwen" else None,
+        (
+            resolve_alibaba_connection(
+                translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
+            )
+            if provider_llm == "qwen"
+            else None
+        ),
         translation.deepseek.llm_model if provider_llm == "deepseek" else None,
         (
             (

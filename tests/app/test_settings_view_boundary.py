@@ -30,7 +30,9 @@ from puripuly_heart.app.ports.settings_view import (
     PeerVadSpeechThresholdIntent,
     PromptApplyIntent,
     ProviderApplyIntent,
+    QwenBeijingApiHostEdit,
     QwenRegionEdit,
+    QwenSingaporeApiHostEdit,
     SelfSttProviderEdit,
     SelfVadSettingsIntent,
     SonioxSpeakerDiarizationEdit,
@@ -46,12 +48,16 @@ from puripuly_heart.app.services.canonical_settings_persistence import (
 from puripuly_heart.app.wiring.wiring_provider_runtime_policy import (
     provider_llm_for_translation,
 )
+from puripuly_heart.config.alibaba_connection import AlibabaRegionalSettings
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     QwenRegion,
     STTProviderName,
 )
-from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.config.settings_vnext.schema import (
+    AppSettingsVNext,
+    ProviderVerificationEntry,
+)
 from puripuly_heart.config.translation_values import (
     TranslationConnection,
     TranslationModel,
@@ -326,6 +332,111 @@ def test_provider_edit_journal_replays_only_owned_fields_onto_latest_settings() 
     assert updated.intent.prompts.system_prompt_override == "focused prompt"
     assert updated.intent.languages.source_language == "ja"
     assert updated.intent.audio.input_device == "latest microphone"
+
+
+def _with_qwen(settings: AppSettingsVNext, **qwen_fields: object) -> AppSettingsVNext:
+    translation = settings.intent.translation
+    return _vnext(
+        settings,
+        translation=replace(translation, qwen=replace(translation.qwen, **qwen_fields)),
+    )
+
+
+def _apply_qwen_host_edits(current: AppSettingsVNext, *edits: object) -> AppSettingsVNext:
+    return materialize_provider_apply_intent(
+        current,
+        ProviderApplyIntent(edits),
+        materialize_translation=materialize_canonical_translation_settings,
+    )
+
+
+def test_qwen_api_host_edit_selects_dedicated_mode_and_preserves_other_region() -> None:
+    beijing = AlibabaRegionalSettings(
+        "workspace_dedicated", "work-1.cn-beijing.maas.aliyuncs.com", 4
+    )
+    current = _with_qwen(AppSettingsVNext(), beijing=beijing)
+    current = replace(
+        current,
+        state=replace(
+            current.state,
+            provider_verification=replace(
+                current.state.provider_verification,
+                alibaba_singapore=ProviderVerificationEntry(
+                    status="verified",
+                    provider="alibaba_singapore",
+                    secret_key="alibaba_api_key_singapore",
+                    secret_fingerprint="sha256:previous",
+                    verifier_context={"host": "dashscope-intl.aliyuncs.com"},
+                ),
+            ),
+        ),
+    )
+
+    updated = _apply_qwen_host_edits(
+        current,
+        QwenRegionEdit(QwenRegion.SINGAPORE),
+        QwenSingaporeApiHostEdit("https://Work-2.ap-southeast-1.maas.aliyuncs.com/api/v1"),
+    )
+
+    qwen = updated.intent.translation.qwen
+    assert qwen.region == QwenRegion.SINGAPORE.value
+    assert qwen.singapore.endpoint_mode == "workspace_dedicated"
+    assert qwen.singapore.api_host == "work-2.ap-southeast-1.maas.aliyuncs.com"
+    assert qwen.singapore.revision == current.intent.translation.qwen.singapore.revision + 1
+    assert qwen.beijing == beijing
+    assert updated.state.provider_verification.alibaba_singapore.status == "unknown"
+    provider, _general, _prompt, _overlay = settings_view_surface_snapshots(updated)
+    assert provider.qwen_api_host_singapore == "work-2.ap-southeast-1.maas.aliyuncs.com"
+    assert provider.qwen_api_host_beijing == "work-1.cn-beijing.maas.aliyuncs.com"
+
+
+def test_clearing_qwen_api_host_returns_region_to_shared_mode() -> None:
+    current = _with_qwen(
+        AppSettingsVNext(),
+        beijing=AlibabaRegionalSettings(
+            "workspace_dedicated", "work-1.cn-beijing.maas.aliyuncs.com", 4
+        ),
+    )
+
+    updated = _apply_qwen_host_edits(current, QwenBeijingApiHostEdit(""))
+
+    beijing = updated.intent.translation.qwen.beijing
+    assert (beijing.endpoint_mode, beijing.api_host, beijing.revision) == ("legacy_shared", "", 5)
+    provider, _general, _prompt, _overlay = settings_view_surface_snapshots(updated)
+    assert provider.qwen_api_host_beijing == ""
+
+
+def test_unchanged_qwen_api_host_keeps_connection_revision_and_verification() -> None:
+    dedicated = AlibabaRegionalSettings(
+        "workspace_dedicated", "work-1.cn-beijing.maas.aliyuncs.com", 4
+    )
+    current = _with_qwen(
+        AppSettingsVNext(),
+        beijing=dedicated,
+        singapore=AlibabaRegionalSettings(
+            "legacy_shared", "work-2.ap-southeast-1.maas.aliyuncs.com"
+        ),
+    )
+
+    updated = _apply_qwen_host_edits(
+        current,
+        QwenBeijingApiHostEdit("work-1.cn-beijing.maas.aliyuncs.com"),
+        QwenSingaporeApiHostEdit(""),
+    )
+
+    assert updated == current
+    provider, _general, _prompt, _overlay = settings_view_surface_snapshots(current)
+    assert provider.qwen_api_host_singapore == ""
+
+
+def test_qwen_api_host_edit_rejects_host_from_another_region() -> None:
+    with pytest.raises(ValueError) as failure:
+        _apply_qwen_host_edits(
+            AppSettingsVNext(),
+            QwenBeijingApiHostEdit("work-2.ap-southeast-1.maas.aliyuncs.com"),
+        )
+
+    assert "work-2" not in str(failure.value)
 
 
 def test_prompt_intent_preserves_latest_languages_and_provider_selection() -> None:

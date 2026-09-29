@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
+from puripuly_heart.config.alibaba_connection import (
+    AlibabaConnection,
+    AlibabaEndpointMode,
+    AlibabaRegion,
+)
 from puripuly_heart.config.provider_values import (
     LLMProviderName,
     OpenRouterCredentialSource,
@@ -12,6 +17,44 @@ from puripuly_heart.config.provider_values import (
     STTProviderName,
 )
 from puripuly_heart.config.translation_values import TranslationConnection, TranslationModel
+from puripuly_heart.core.messages import TransactionResult
+
+
+@dataclass(frozen=True, slots=True)
+class AlibabaCapabilityEvidence:
+    capability: Literal["asr", "translation"]
+    model: str
+    state: Literal["incomplete", "unverified", "checking", "verified", "failed", "invalidated"]
+    failure_kind: str | None = None
+    credential_revision: str | None = None
+    credential_saved: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AlibabaConnectionDraftSnapshot:
+    token: str
+    scope: Literal["draft", "active"]
+    active_region: AlibabaRegion
+    region: AlibabaRegion
+    endpoint_mode: AlibabaEndpointMode
+    api_host: str
+    key_present: bool
+    connection: AlibabaConnection | None
+    asr: AlibabaCapabilityEvidence
+    translation: AlibabaCapabilityEvidence
+    affected_consumers: tuple[str, ...]
+    recommended_endpoint_mode: AlibabaEndpointMode = "workspace_dedicated"
+    shared_domain_maintenance_not_shutdown: bool = True
+    api_host_source: Literal["workspace_management"] = "workspace_management"
+    workspace_region_key_match_required: bool = True
+    verification_may_consume_usage: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class AlibabaConnectionApplyResult:
+    committed: bool
+    affected_consumers: tuple[str, ...]
+    transaction: TransactionResult | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +104,8 @@ class ProviderSettingsSnapshot:
     openrouter_selection_alias: OpenRouterSelectionAlias | None
     verified: ProviderVerificationSnapshot
     managed_referral_id: str | None
+    qwen_api_host_beijing: str = ""
+    qwen_api_host_singapore: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +348,16 @@ class QwenRegionEdit:
 
 
 @dataclass(frozen=True, slots=True)
+class QwenBeijingApiHostEdit:
+    api_host: str
+
+
+@dataclass(frozen=True, slots=True)
+class QwenSingaporeApiHostEdit:
+    api_host: str
+
+
+@dataclass(frozen=True, slots=True)
 class LocalLlmBaseUrlEdit:
     base_url: str
 
@@ -352,6 +407,8 @@ ProviderSettingsEdit: TypeAlias = (
     | TranslationSelectionEdit
     | TranslationHttpExtensionEdit
     | QwenRegionEdit
+    | QwenBeijingApiHostEdit
+    | QwenSingaporeApiHostEdit
     | LocalLlmBaseUrlEdit
     | LocalLlmModelEdit
     | LocalLlmExtraBodyEdit
@@ -381,6 +438,9 @@ class OpenRouterPkceTarget:
 
 
 __all__ = [
+    "AlibabaCapabilityEvidence",
+    "AlibabaConnectionApplyResult",
+    "AlibabaConnectionDraftSnapshot",
     "AudioInputSettingsIntent",
     "AudioSettingsChange",
     "AudioSettingsIntent",
@@ -424,7 +484,9 @@ __all__ = [
     "ProviderSettingsEdit",
     "ProviderSettingsSnapshot",
     "ProviderVerificationSnapshot",
+    "QwenBeijingApiHostEdit",
     "QwenRegionEdit",
+    "QwenSingaporeApiHostEdit",
     "SelfSttProviderEdit",
     "SelfVadSettingsIntent",
     "SttGpuDeviceEdit",

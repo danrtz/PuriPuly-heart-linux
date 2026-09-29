@@ -33,6 +33,7 @@ from puripuly_heart.app.services.settings_mutation_legacy import (
 from puripuly_heart.app.services.settings_transaction_result import (
     SettingsTransactionResultOwner,
 )
+from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
 from puripuly_heart.config.settings_vnext.schema import ProviderVerificationEntry
 from puripuly_heart.core.messages import (
     RUNTIME_APPLY_STATUS_APPLIED,
@@ -664,12 +665,15 @@ def provider_verification_context(
     if provider == "openai":
         return {"model": "gpt-6-luna"}
     if provider in {"alibaba_beijing", "alibaba_singapore"}:
+        region = "beijing" if provider == "alibaba_beijing" else "singapore"
+        connection = resolve_alibaba_connection(region, getattr(translation.qwen, region))
         return {
-            "base_url": (
-                "https://dashscope.aliyuncs.com/api/v1"
-                if provider == "alibaba_beijing"
-                else "https://dashscope-intl.aliyuncs.com/api/v1"
-            ),
+            "base_url": connection.native_url,
+            "region": connection.region,
+            "endpoint_mode": connection.endpoint_mode,
+            "host": connection.host,
+            "capability": "translation",
+            "revision": connection.revision,
             "model": translation.qwen.llm_model,
             "low_latency": low_latency,
         }
@@ -775,6 +779,23 @@ class ProviderSettingsOwner:
                 ),
             ),
         )
+        if provider in {"alibaba_beijing", "alibaba_singapore"}:
+            region = "beijing" if provider == "alibaba_beijing" else "singapore"
+            translation = updated.intent.translation
+            qwen = translation.qwen
+            regional = getattr(qwen, region)
+            updated = replace(
+                updated,
+                intent=replace(
+                    updated.intent,
+                    translation=replace(
+                        translation,
+                        qwen=replace(
+                            qwen, **{region: replace(regional, revision=regional.revision + 1)}
+                        ),
+                    ),
+                ),
+            )
         repository = self.settings.create_canonical_patch_repository(
             base_settings=current,
             committed_settings=updated,

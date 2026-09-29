@@ -33,6 +33,7 @@ from puripuly_heart.app.services.settings_secrets import SettingsSecretsOwner
 from puripuly_heart.app.wiring.wiring_provider_runtime_policy import (
     provider_llm_for_translation,
 )
+from puripuly_heart.config.alibaba_connection import AlibabaRegionalSettings
 from puripuly_heart.config.audio_host_api import WINDOWS_WASAPI_COMPATIBILITY_HOST_API
 from puripuly_heart.config.provider_values import (
     LOCAL_LLM_RESERVED_EXTRA_BODY_KEYS,
@@ -7030,3 +7031,156 @@ async def test_prompt_apply_uses_local_draft_over_external_prompt_edit(
     assert backend.settings.intent.prompts.system_prompt_override == "LOCAL PROMPT"
     assert backend.settings.intent.ui.locale == "ja"
     assert view.has_pending_prompt_changes is False
+
+
+def _qwen_view_settings(
+    *,
+    region: str = QwenRegion.BEIJING.value,
+    beijing_host: str = "",
+) -> AppSettingsVNext:
+    settings = _vnext(llm="qwen", stt_provider="qwen_audio", qwen_region=region)
+    if not beijing_host:
+        return settings
+    translation = settings.intent.translation
+    return replace(
+        settings,
+        intent=replace(
+            settings.intent,
+            translation=replace(
+                translation,
+                qwen=replace(
+                    translation.qwen,
+                    beijing=AlibabaRegionalSettings("workspace_dedicated", beijing_host, 1),
+                ),
+            ),
+        ),
+    )
+
+
+def test_qwen_api_host_selects_its_region_and_disables_region_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(_qwen_view_settings(), config_path=Path("settings.json"))
+    applied: list[None] = []
+    view.on_providers_changed = lambda: applied.append(None)
+
+    assert view._qwen_region_btn.disabled is False
+    assert view._qwen_api_host_row.visible is True
+    assert view._qwen_api_host.label == t("settings.qwen_api_host")
+    assert view._qwen_api_host_status == "idle"
+
+    view._qwen_api_host.value = "https://Work-9.AP-Southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    view._on_qwen_api_host_change_end(None)
+
+    assert view._qwen_api_host.value == "work-9.ap-southeast-1.maas.aliyuncs.com"
+    assert view._qwen_api_host_status == "success"
+    assert view._qwen_region_btn.disabled is True
+    assert view._qwen_region_btn.content == (f"{t('settings.qwen_region')} {t('region.singapore')}")
+    assert view._alibaba_key_singapore.visible is True
+    assert view._alibaba_key_beijing.visible is False
+    assert len(applied) == 1
+    pending = view.build_provider_apply_settings()
+    qwen = pending.intent.translation.qwen
+    assert qwen.region == QwenRegion.SINGAPORE.value
+    assert qwen.singapore.endpoint_mode == "workspace_dedicated"
+    assert qwen.singapore.api_host == "work-9.ap-southeast-1.maas.aliyuncs.com"
+    assert qwen.beijing.endpoint_mode == "legacy_shared"
+
+
+def test_invalid_qwen_api_host_is_rejected_without_staging_or_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(_qwen_view_settings(), config_path=Path("settings.json"))
+    applied: list[None] = []
+    view.on_providers_changed = lambda: applied.append(None)
+    toasts: list[str] = []
+    view.show_snackbar = lambda message, _bgcolor: toasts.append(message)
+
+    view._qwen_api_host.value = "https://user:sk-secret@dashscope.aliyuncs.com"
+    view._on_qwen_api_host_change_end(None)
+    view._on_qwen_api_host_change_end(None)
+
+    assert toasts == [t("settings.qwen_api_host.invalid")]
+    assert view._qwen_api_host_status == "error"
+    assert view._qwen_region_btn.disabled is False
+    assert view.has_provider_changes is False
+    assert applied == []
+
+
+def test_clearing_qwen_api_host_returns_to_shared_and_enables_region_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = "work-1.cn-beijing.maas.aliyuncs.com"
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(
+        _qwen_view_settings(beijing_host=host),
+        config_path=Path("settings.json"),
+    )
+    view.on_providers_changed = lambda: None
+
+    assert view._qwen_api_host.value == host
+    assert view._qwen_region_btn.disabled is True
+
+    view._qwen_api_host.value = ""
+    view._on_qwen_api_host_change_end(None)
+
+    assert view._qwen_region_btn.disabled is False
+    pending = view.build_provider_apply_settings()
+    beijing = pending.intent.translation.qwen.beijing
+    assert (beijing.endpoint_mode, beijing.api_host) == ("legacy_shared", "")
+    assert pending.intent.translation.qwen.region == QwenRegion.BEIJING.value
+
+
+def test_region_button_shows_each_region_host_and_keeps_other_region(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = "work-1.cn-beijing.maas.aliyuncs.com"
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(
+        _qwen_view_settings(region=QwenRegion.SINGAPORE.value, beijing_host=host),
+        config_path=Path("settings.json"),
+    )
+
+    assert view._qwen_api_host.value == ""
+    assert view._qwen_region_btn.disabled is False
+
+    view._on_qwen_region_selected(QwenRegion.BEIJING.value)
+
+    assert view._qwen_api_host.value == host
+    assert view._qwen_region_btn.disabled is True
+    pending = view.build_provider_apply_settings()
+    assert pending.intent.translation.qwen.beijing.api_host == host
+
+
+def test_qwen_api_host_change_reverifies_region_key_after_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = DummySecretStore({"alibaba_api_key_singapore": "sk-singapore"})
+    view, _ = _make_settings_view(monkeypatch, store)
+    view.load_from_settings(
+        _qwen_view_settings(region=QwenRegion.SINGAPORE.value),
+        config_path=Path("settings.json"),
+    )
+    view.on_providers_changed = lambda: None
+    verified: list[tuple[str, str]] = []
+
+    async def verify(provider: str, key: str) -> tuple[bool, str]:
+        verified.append((provider, key))
+        return True, "ok"
+
+    view.on_verify_api_key = verify
+    view._alibaba_key_singapore._set_status("success")
+    assert view.consume_alibaba_key_verification() is None
+
+    view._qwen_api_host.value = "work-9.ap-southeast-1.maas.aliyuncs.com"
+    view._on_qwen_api_host_change_end(None)
+
+    assert view._alibaba_key_singapore._current_status == "idle"
+    verification = view.consume_alibaba_key_verification()
+    assert verification is not None
+    assert view.consume_alibaba_key_verification() is None
+    asyncio.run(verification())
+    assert verified == [("alibaba_singapore", "sk-singapore")]
+    assert view._alibaba_key_singapore._current_status == "success"

@@ -653,7 +653,10 @@ def test_vnext_dict_migrates_qwen_35_plus_nested_fields() -> None:
 
     assert result["model"] == "qwen38_flash"
     assert result["previous_llm_model"] == "qwen38_flash"
-    assert result["qwen"] == {"region": "singapore", "llm_model": "qwen3.8-flash"}
+    assert result["qwen"]["region"] == "singapore"
+    assert result["qwen"]["llm_model"] == "qwen3.8-flash"
+    assert result["qwen"]["beijing"]["endpoint_mode"] == "legacy_shared"
+    assert result["qwen"]["singapore"]["endpoint_mode"] == "legacy_shared"
     assert result["connection_history"] == {"qwen38_flash": "official_byok"}
 
 
