@@ -1,0 +1,2775 @@
+{
+  "arm": "continuous",
+  "model": "stt-rt-v5",
+  "config": {
+    "model": "stt-rt-v5",
+    "audio_format": "pcm_s16le",
+    "sample_rate": 16000,
+    "num_channels": 1,
+    "enable_endpoint_detection": false,
+    "enable_language_identification": false,
+    "enable_speaker_diarization": true,
+    "language_hints": [
+      "en"
+    ]
+  },
+  "duration_s": 51.73,
+  "sent_seconds": 51.73,
+  "websocket_requests": 1,
+  "fin_count": 1,
+  "timeline": [
+    {
+      "provider_start_s": 0.0,
+      "provider_end_s": 51.73,
+      "source_start_s": 0,
+      "source_end_s": 51.73,
+      "boundary": false
+    }
+  ],
+  "tokens": [
+    {
+      "text": "St",
+      "speaker": "1",
+      "start_ms": 540,
+      "end_ms": 600,
+      "request_id": null
+    },
+    {
+      "text": "u",
+      "speaker": "1",
+      "start_ms": 660,
+      "end_ms": 720,
+      "request_id": null
+    },
+    {
+      "text": "ff",
+      "speaker": "1",
+      "start_ms": 720,
+      "end_ms": 780,
+      "request_id": null
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 900,
+      "end_ms": 960,
+      "request_id": null
+    },
+    {
+      "text": " into",
+      "speaker": "1",
+      "start_ms": 1020,
+      "end_ms": 1080,
+      "request_id": null
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 1200,
+      "end_ms": 1260,
+      "request_id": null
+    },
+    {
+      "text": "ou,",
+      "speaker": "1",
+      "start_ms": 1380,
+      "end_ms": 1440,
+      "request_id": null
+    },
+    {
+      "text": " his",
+      "speaker": "1",
+      "start_ms": 1620,
+      "end_ms": 1680,
+      "request_id": null
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 1800,
+      "end_ms": 1860,
+      "request_id": null
+    },
+    {
+      "text": "elly",
+      "speaker": "1",
+      "start_ms": 2040,
+      "end_ms": 2100,
+      "request_id": null
+    },
+    {
+      "text": " co",
+      "speaker": "1",
+      "start_ms": 2280,
+      "end_ms": 2340,
+      "request_id": null
+    },
+    {
+      "text": "un",
+      "speaker": "1",
+      "start_ms": 2400,
+      "end_ms": 2460,
+      "request_id": null
+    },
+    {
+      "text": "sel",
+      "speaker": "1",
+      "start_ms": 2460,
+      "end_ms": 2520,
+      "request_id": null
+    },
+    {
+      "text": "ed",
+      "speaker": "1",
+      "start_ms": 2520,
+      "end_ms": 2580,
+      "request_id": null
+    },
+    {
+      "text": " him",
+      "speaker": "1",
+      "start_ms": 2640,
+      "end_ms": 2700,
+      "request_id": null
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 2940,
+      "end_ms": 3000,
+      "request_id": null
+    },
+    {
+      "text": " \"B",
+      "speaker": "2",
+      "start_ms": 4140,
+      "end_ms": 4200,
+      "request_id": null
+    },
+    {
+      "text": "et",
+      "speaker": "2",
+      "start_ms": 4200,
+      "end_ms": 4260,
+      "request_id": null
+    },
+    {
+      "text": "ter",
+      "speaker": "2",
+      "start_ms": 4320,
+      "end_ms": 4380,
+      "request_id": null
+    },
+    {
+      "text": " g",
+      "speaker": "2",
+      "start_ms": 4620,
+      "end_ms": 4680,
+      "request_id": null
+    },
+    {
+      "text": "o,",
+      "speaker": "2",
+      "start_ms": 4800,
+      "end_ms": 4860,
+      "request_id": null
+    },
+    {
+      "text": "\"",
+      "speaker": "2",
+      "start_ms": 4980,
+      "end_ms": 5040,
+      "request_id": null
+    },
+    {
+      "text": " he",
+      "speaker": "2",
+      "start_ms": 5040,
+      "end_ms": 5100,
+      "request_id": null
+    },
+    {
+      "text": " had",
+      "speaker": "2",
+      "start_ms": 5160,
+      "end_ms": 5220,
+      "request_id": null
+    },
+    {
+      "text": " co",
+      "speaker": "2",
+      "start_ms": 5340,
+      "end_ms": 5400,
+      "request_id": null
+    },
+    {
+      "text": "un",
+      "speaker": "2",
+      "start_ms": 5460,
+      "end_ms": 5520,
+      "request_id": null
+    },
+    {
+      "text": "sel",
+      "speaker": "2",
+      "start_ms": 5580,
+      "end_ms": 5640,
+      "request_id": null
+    },
+    {
+      "text": "ed",
+      "speaker": "2",
+      "start_ms": 5640,
+      "end_ms": 5700,
+      "request_id": null
+    },
+    {
+      "text": " sent",
+      "speaker": "2",
+      "start_ms": 5880,
+      "end_ms": 5940,
+      "request_id": null
+    },
+    {
+      "text": "ent",
+      "speaker": "2",
+      "start_ms": 6060,
+      "end_ms": 6120,
+      "request_id": null
+    },
+    {
+      "text": "ious",
+      "speaker": "2",
+      "start_ms": 6240,
+      "end_ms": 6300,
+      "request_id": null
+    },
+    {
+      "text": "ly",
+      "speaker": "2",
+      "start_ms": 6420,
+      "end_ms": 6480,
+      "request_id": null
+    },
+    {
+      "text": ".",
+      "speaker": "2",
+      "start_ms": 6600,
+      "end_ms": 6660,
+      "request_id": null
+    },
+    {
+      "text": " They",
+      "speaker": "1",
+      "start_ms": 7860,
+      "end_ms": 7920,
+      "request_id": null
+    },
+    {
+      "text": " un",
+      "speaker": "1",
+      "start_ms": 8100,
+      "end_ms": 8160,
+      "request_id": null
+    },
+    {
+      "text": "ite",
+      "speaker": "1",
+      "start_ms": 8280,
+      "end_ms": 8340,
+      "request_id": null
+    },
+    {
+      "text": " ever",
+      "speaker": "1",
+      "start_ms": 8400,
+      "end_ms": 8460,
+      "request_id": null
+    },
+    {
+      "text": "y",
+      "speaker": "1",
+      "start_ms": 8460,
+      "end_ms": 8520,
+      "request_id": null
+    },
+    {
+      "text": " qu",
+      "speaker": "1",
+      "start_ms": 8820,
+      "end_ms": 8880,
+      "request_id": null
+    },
+    {
+      "text": "alit",
+      "speaker": "1",
+      "start_ms": 9000,
+      "end_ms": 9060,
+      "request_id": null
+    },
+    {
+      "text": "y,",
+      "speaker": "1",
+      "start_ms": 9240,
+      "end_ms": 9300,
+      "request_id": null
+    },
+    {
+      "text": " and",
+      "speaker": "1",
+      "start_ms": 10320,
+      "end_ms": 10380,
+      "request_id": null
+    },
+    {
+      "text": " som",
+      "speaker": "1",
+      "start_ms": 10440,
+      "end_ms": 10500,
+      "request_id": null
+    },
+    {
+      "text": "etim",
+      "speaker": "1",
+      "start_ms": 10560,
+      "end_ms": 10620,
+      "request_id": null
+    },
+    {
+      "text": "es",
+      "speaker": "1",
+      "start_ms": 10680,
+      "end_ms": 10740,
+      "request_id": null
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 10800,
+      "end_ms": 10860,
+      "request_id": null
+    },
+    {
+      "text": "ou",
+      "speaker": "1",
+      "start_ms": 10860,
+      "end_ms": 10920,
+      "request_id": null
+    },
+    {
+      "text": " will",
+      "speaker": "1",
+      "start_ms": 10980,
+      "end_ms": 11040,
+      "request_id": null
+    },
+    {
+      "text": " find",
+      "speaker": "1",
+      "start_ms": 11100,
+      "end_ms": 11160,
+      "request_id": null
+    },
+    {
+      "text": " me",
+      "speaker": "1",
+      "start_ms": 11340,
+      "end_ms": 11400,
+      "request_id": null
+    },
+    {
+      "text": " refer",
+      "speaker": "1",
+      "start_ms": 11520,
+      "end_ms": 11580,
+      "request_id": null
+    },
+    {
+      "text": "ring",
+      "speaker": "1",
+      "start_ms": 11760,
+      "end_ms": 11820,
+      "request_id": null
+    },
+    {
+      "text": " to",
+      "speaker": "1",
+      "start_ms": 11820,
+      "end_ms": 11880,
+      "request_id": null
+    },
+    {
+      "text": " them",
+      "speaker": "1",
+      "start_ms": 12000,
+      "end_ms": 12060,
+      "request_id": null
+    },
+    {
+      "text": " as",
+      "speaker": "1",
+      "start_ms": 12120,
+      "end_ms": 12180,
+      "request_id": null
+    },
+    {
+      "text": " color",
+      "speaker": "1",
+      "start_ms": 12420,
+      "end_ms": 12480,
+      "request_id": null
+    },
+    {
+      "text": "ist",
+      "speaker": "1",
+      "start_ms": 12840,
+      "end_ms": 12900,
+      "request_id": null
+    },
+    {
+      "text": "s,",
+      "speaker": "1",
+      "start_ms": 13020,
+      "end_ms": 13080,
+      "request_id": null
+    },
+    {
+      "text": " som",
+      "speaker": "1",
+      "start_ms": 13860,
+      "end_ms": 13920,
+      "request_id": null
+    },
+    {
+      "text": "etim",
+      "speaker": "1",
+      "start_ms": 14040,
+      "end_ms": 14100,
+      "request_id": null
+    },
+    {
+      "text": "es",
+      "speaker": "1",
+      "start_ms": 14160,
+      "end_ms": 14220,
+      "request_id": null
+    },
+    {
+      "text": " as",
+      "speaker": "1",
+      "start_ms": 14340,
+      "end_ms": 14400,
+      "request_id": null
+    },
+    {
+      "text": " chi",
+      "speaker": "1",
+      "start_ms": 14640,
+      "end_ms": 14700,
+      "request_id": null
+    },
+    {
+      "text": "ar",
+      "speaker": "1",
+      "start_ms": 14880,
+      "end_ms": 14940,
+      "request_id": null
+    },
+    {
+      "text": "osc",
+      "speaker": "1",
+      "start_ms": 15120,
+      "end_ms": 15180,
+      "request_id": null
+    },
+    {
+      "text": "ur",
+      "speaker": "1",
+      "start_ms": 15240,
+      "end_ms": 15300,
+      "request_id": null
+    },
+    {
+      "text": "ist",
+      "speaker": "1",
+      "start_ms": 15480,
+      "end_ms": 15540,
+      "request_id": null
+    },
+    {
+      "text": "s.",
+      "speaker": "1",
+      "start_ms": 15660,
+      "end_ms": 15720,
+      "request_id": null
+    },
+    {
+      "text": " And",
+      "speaker": "2",
+      "start_ms": 17460,
+      "end_ms": 17520,
+      "request_id": null
+    },
+    {
+      "text": " wh",
+      "speaker": "2",
+      "start_ms": 17580,
+      "end_ms": 17640,
+      "request_id": null
+    },
+    {
+      "text": "at",
+      "speaker": "2",
+      "start_ms": 17700,
+      "end_ms": 17760,
+      "request_id": null
+    },
+    {
+      "text": " through",
+      "speaker": "2",
+      "start_ms": 17820,
+      "end_ms": 17880,
+      "request_id": null
+    },
+    {
+      "text": " the",
+      "speaker": "2",
+      "start_ms": 18000,
+      "end_ms": 18060,
+      "request_id": null
+    },
+    {
+      "text": " left",
+      "speaker": "2",
+      "start_ms": 18180,
+      "end_ms": 18240,
+      "request_id": null
+    },
+    {
+      "text": "-h",
+      "speaker": "2",
+      "start_ms": 18360,
+      "end_ms": 18420,
+      "request_id": null
+    },
+    {
+      "text": "and",
+      "speaker": "2",
+      "start_ms": 18420,
+      "end_ms": 18480,
+      "request_id": null
+    },
+    {
+      "text": " w",
+      "speaker": "2",
+      "start_ms": 18540,
+      "end_ms": 18600,
+      "request_id": null
+    },
+    {
+      "text": "ind",
+      "speaker": "2",
+      "start_ms": 18660,
+      "end_ms": 18720,
+      "request_id": null
+    },
+    {
+      "text": "ow",
+      "speaker": "2",
+      "start_ms": 18840,
+      "end_ms": 18900,
+      "request_id": null
+    },
+    {
+      "text": "?",
+      "speaker": "2",
+      "start_ms": 18960,
+      "end_ms": 19020,
+      "request_id": null
+    },
+    {
+      "text": " Har",
+      "speaker": "3",
+      "start_ms": 21060,
+      "end_ms": 21120,
+      "request_id": null
+    },
+    {
+      "text": "ang.",
+      "speaker": "3",
+      "start_ms": 21360,
+      "end_ms": 21420,
+      "request_id": null
+    },
+    {
+      "text": " The",
+      "speaker": "4",
+      "start_ms": 22980,
+      "end_ms": 23040,
+      "request_id": null
+    },
+    {
+      "text": " t",
+      "speaker": "4",
+      "start_ms": 23340,
+      "end_ms": 23400,
+      "request_id": null
+    },
+    {
+      "text": "ires",
+      "speaker": "4",
+      "start_ms": 23460,
+      "end_ms": 23520,
+      "request_id": null
+    },
+    {
+      "text": "ome",
+      "speaker": "4",
+      "start_ms": 23700,
+      "end_ms": 23760,
+      "request_id": null
+    },
+    {
+      "text": " produc",
+      "speaker": "4",
+      "start_ms": 23940,
+      "end_ms": 24000,
+      "request_id": null
+    },
+    {
+      "text": "t",
+      "speaker": "4",
+      "start_ms": 24120,
+      "end_ms": 24180,
+      "request_id": null
+    },
+    {
+      "text": " of",
+      "speaker": "4",
+      "start_ms": 24180,
+      "end_ms": 24240,
+      "request_id": null
+    },
+    {
+      "text": " a",
+      "speaker": "4",
+      "start_ms": 24480,
+      "end_ms": 24540,
+      "request_id": null
+    },
+    {
+      "text": " t",
+      "speaker": "4",
+      "start_ms": 24660,
+      "end_ms": 24720,
+      "request_id": null
+    },
+    {
+      "text": "ir",
+      "speaker": "4",
+      "start_ms": 24780,
+      "end_ms": 24840,
+      "request_id": null
+    },
+    {
+      "text": "el",
+      "speaker": "4",
+      "start_ms": 24900,
+      "end_ms": 24960,
+      "request_id": null
+    },
+    {
+      "text": "ess",
+      "speaker": "4",
+      "start_ms": 25020,
+      "end_ms": 25080,
+      "request_id": null
+    },
+    {
+      "text": " t",
+      "speaker": "4",
+      "start_ms": 25320,
+      "end_ms": 25380,
+      "request_id": null
+    },
+    {
+      "text": "ong",
+      "speaker": "4",
+      "start_ms": 25440,
+      "end_ms": 25500,
+      "request_id": null
+    },
+    {
+      "text": "u",
+      "speaker": "4",
+      "start_ms": 25500,
+      "end_ms": 25560,
+      "request_id": null
+    },
+    {
+      "text": "e.",
+      "speaker": "4",
+      "start_ms": 25620,
+      "end_ms": 25680,
+      "request_id": null
+    },
+    {
+      "text": " The",
+      "speaker": "1",
+      "start_ms": 26700,
+      "end_ms": 26760,
+      "request_id": null
+    },
+    {
+      "text": " hor",
+      "speaker": "1",
+      "start_ms": 27000,
+      "end_ms": 27060,
+      "request_id": null
+    },
+    {
+      "text": "izon",
+      "speaker": "1",
+      "start_ms": 27360,
+      "end_ms": 27420,
+      "request_id": null
+    },
+    {
+      "text": " se",
+      "speaker": "1",
+      "start_ms": 27480,
+      "end_ms": 27540,
+      "request_id": null
+    },
+    {
+      "text": "ems",
+      "speaker": "1",
+      "start_ms": 27600,
+      "end_ms": 27660,
+      "request_id": null
+    },
+    {
+      "text": " ext",
+      "speaker": "1",
+      "start_ms": 27900,
+      "end_ms": 27960,
+      "request_id": null
+    },
+    {
+      "text": "rem",
+      "speaker": "1",
+      "start_ms": 28020,
+      "end_ms": 28080,
+      "request_id": null
+    },
+    {
+      "text": "ely",
+      "speaker": "1",
+      "start_ms": 28140,
+      "end_ms": 28200,
+      "request_id": null
+    },
+    {
+      "text": " dist",
+      "speaker": "1",
+      "start_ms": 28500,
+      "end_ms": 28560,
+      "request_id": null
+    },
+    {
+      "text": "ant.",
+      "speaker": "1",
+      "start_ms": 28800,
+      "end_ms": 28860,
+      "request_id": null
+    },
+    {
+      "text": " Hell",
+      "speaker": "5",
+      "start_ms": 30540,
+      "end_ms": 30600,
+      "request_id": null
+    },
+    {
+      "text": "o,",
+      "speaker": "5",
+      "start_ms": 30720,
+      "end_ms": 30780,
+      "request_id": null
+    },
+    {
+      "text": " B",
+      "speaker": "5",
+      "start_ms": 30900,
+      "end_ms": 30960,
+      "request_id": null
+    },
+    {
+      "text": "ert",
+      "speaker": "5",
+      "start_ms": 31080,
+      "end_ms": 31140,
+      "request_id": null
+    },
+    {
+      "text": "ie.",
+      "speaker": "5",
+      "start_ms": 31200,
+      "end_ms": 31260,
+      "request_id": null
+    },
+    {
+      "text": " A",
+      "speaker": "5",
+      "start_ms": 31380,
+      "end_ms": 31440,
+      "request_id": null
+    },
+    {
+      "text": "ny",
+      "speaker": "5",
+      "start_ms": 31500,
+      "end_ms": 31560,
+      "request_id": null
+    },
+    {
+      "text": " go",
+      "speaker": "5",
+      "start_ms": 31620,
+      "end_ms": 31680,
+      "request_id": null
+    },
+    {
+      "text": "od",
+      "speaker": "5",
+      "start_ms": 31680,
+      "end_ms": 31740,
+      "request_id": null
+    },
+    {
+      "text": " in",
+      "speaker": "5",
+      "start_ms": 31800,
+      "end_ms": 31860,
+      "request_id": null
+    },
+    {
+      "text": " y",
+      "speaker": "5",
+      "start_ms": 31920,
+      "end_ms": 31980,
+      "request_id": null
+    },
+    {
+      "text": "our",
+      "speaker": "5",
+      "start_ms": 31980,
+      "end_ms": 32040,
+      "request_id": null
+    },
+    {
+      "text": " mind",
+      "speaker": "5",
+      "start_ms": 32100,
+      "end_ms": 32160,
+      "request_id": null
+    },
+    {
+      "text": "?",
+      "speaker": "5",
+      "start_ms": 32460,
+      "end_ms": 32520,
+      "request_id": null
+    },
+    {
+      "text": " M",
+      "speaker": "2",
+      "start_ms": 33600,
+      "end_ms": 33660,
+      "request_id": null
+    },
+    {
+      "text": "ight",
+      "speaker": "2",
+      "start_ms": 33720,
+      "end_ms": 33780,
+      "request_id": null
+    },
+    {
+      "text": " le",
+      "speaker": "2",
+      "start_ms": 33840,
+      "end_ms": 33900,
+      "request_id": null
+    },
+    {
+      "text": "arn",
+      "speaker": "2",
+      "start_ms": 33960,
+      "end_ms": 34020,
+      "request_id": null
+    },
+    {
+      "text": " som",
+      "speaker": "2",
+      "start_ms": 34080,
+      "end_ms": 34140,
+      "request_id": null
+    },
+    {
+      "text": "eth",
+      "speaker": "2",
+      "start_ms": 34200,
+      "end_ms": 34260,
+      "request_id": null
+    },
+    {
+      "text": "ing",
+      "speaker": "2",
+      "start_ms": 34320,
+      "end_ms": 34380,
+      "request_id": null
+    },
+    {
+      "text": " us",
+      "speaker": "2",
+      "start_ms": 34560,
+      "end_ms": 34620,
+      "request_id": null
+    },
+    {
+      "text": "ef",
+      "speaker": "2",
+      "start_ms": 34680,
+      "end_ms": 34740,
+      "request_id": null
+    },
+    {
+      "text": "ul",
+      "speaker": "2",
+      "start_ms": 34800,
+      "end_ms": 34860,
+      "request_id": null
+    },
+    {
+      "text": " down",
+      "speaker": "2",
+      "start_ms": 35040,
+      "end_ms": 35100,
+      "request_id": null
+    },
+    {
+      "text": " th",
+      "speaker": "2",
+      "start_ms": 35460,
+      "end_ms": 35520,
+      "request_id": null
+    },
+    {
+      "text": "er",
+      "speaker": "2",
+      "start_ms": 35580,
+      "end_ms": 35640,
+      "request_id": null
+    },
+    {
+      "text": "e.",
+      "speaker": "2",
+      "start_ms": 35640,
+      "end_ms": 35700,
+      "request_id": null
+    },
+    {
+      "text": " Th",
+      "speaker": "1",
+      "start_ms": 37380,
+      "end_ms": 37440,
+      "request_id": null
+    },
+    {
+      "text": "en",
+      "speaker": "1",
+      "start_ms": 37440,
+      "end_ms": 37500,
+      "request_id": null
+    },
+    {
+      "text": " he",
+      "speaker": "1",
+      "start_ms": 37560,
+      "end_ms": 37620,
+      "request_id": null
+    },
+    {
+      "text": " com",
+      "speaker": "1",
+      "start_ms": 37680,
+      "end_ms": 37740,
+      "request_id": null
+    },
+    {
+      "text": "es",
+      "speaker": "1",
+      "start_ms": 37740,
+      "end_ms": 37800,
+      "request_id": null
+    },
+    {
+      "text": " to",
+      "speaker": "1",
+      "start_ms": 37860,
+      "end_ms": 37920,
+      "request_id": null
+    },
+    {
+      "text": " the",
+      "speaker": "1",
+      "start_ms": 37920,
+      "end_ms": 37980,
+      "request_id": null
+    },
+    {
+      "text": " be",
+      "speaker": "1",
+      "start_ms": 38160,
+      "end_ms": 38220,
+      "request_id": null
+    },
+    {
+      "text": "ak",
+      "speaker": "1",
+      "start_ms": 38280,
+      "end_ms": 38340,
+      "request_id": null
+    },
+    {
+      "text": " of",
+      "speaker": "1",
+      "start_ms": 38340,
+      "end_ms": 38400,
+      "request_id": null
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 38580,
+      "end_ms": 38640,
+      "request_id": null
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 38760,
+      "end_ms": 38820,
+      "request_id": null
+    },
+    {
+      "text": " The",
+      "speaker": "2",
+      "start_ms": 40140,
+      "end_ms": 40200,
+      "request_id": null
+    },
+    {
+      "text": " history",
+      "speaker": "2",
+      "start_ms": 40380,
+      "end_ms": 40440,
+      "request_id": null
+    },
+    {
+      "text": " of",
+      "speaker": "2",
+      "start_ms": 40500,
+      "end_ms": 40560,
+      "request_id": null
+    },
+    {
+      "text": " the",
+      "speaker": "2",
+      "start_ms": 40620,
+      "end_ms": 40680,
+      "request_id": null
+    },
+    {
+      "text": " ho",
+      "speaker": "2",
+      "start_ms": 40860,
+      "end_ms": 40920,
+      "request_id": null
+    },
+    {
+      "text": "use",
+      "speaker": "2",
+      "start_ms": 40980,
+      "end_ms": 41040,
+      "request_id": null
+    },
+    {
+      "text": " is",
+      "speaker": "2",
+      "start_ms": 41100,
+      "end_ms": 41160,
+      "request_id": null
+    },
+    {
+      "text": " pla",
+      "speaker": "2",
+      "start_ms": 41340,
+      "end_ms": 41400,
+      "request_id": null
+    },
+    {
+      "text": "in",
+      "speaker": "2",
+      "start_ms": 41520,
+      "end_ms": 41580,
+      "request_id": null
+    },
+    {
+      "text": " now",
+      "speaker": "2",
+      "start_ms": 41640,
+      "end_ms": 41700,
+      "request_id": null
+    },
+    {
+      "text": ".",
+      "speaker": "2",
+      "start_ms": 41880,
+      "end_ms": 41940,
+      "request_id": null
+    },
+    {
+      "text": " Ang",
+      "speaker": "4",
+      "start_ms": 43260,
+      "end_ms": 43320,
+      "request_id": null
+    },
+    {
+      "text": "or.",
+      "speaker": "4",
+      "start_ms": 43620,
+      "end_ms": 43680,
+      "request_id": null
+    },
+    {
+      "text": " Pa",
+      "speaker": "3",
+      "start_ms": 44580,
+      "end_ms": 44640,
+      "request_id": null
+    },
+    {
+      "text": "in.",
+      "speaker": "3",
+      "start_ms": 44760,
+      "end_ms": 44820,
+      "request_id": null
+    },
+    {
+      "text": " Pa",
+      "speaker": "4",
+      "start_ms": 45600,
+      "end_ms": 45660,
+      "request_id": null
+    },
+    {
+      "text": "inf",
+      "speaker": "4",
+      "start_ms": 45720,
+      "end_ms": 45780,
+      "request_id": null
+    },
+    {
+      "text": "ul",
+      "speaker": "4",
+      "start_ms": 45900,
+      "end_ms": 45960,
+      "request_id": null
+    },
+    {
+      "text": " to",
+      "speaker": "4",
+      "start_ms": 46020,
+      "end_ms": 46080,
+      "request_id": null
+    },
+    {
+      "text": " he",
+      "speaker": "4",
+      "start_ms": 46380,
+      "end_ms": 46440,
+      "request_id": null
+    },
+    {
+      "text": "ar.",
+      "speaker": "4",
+      "start_ms": 46560,
+      "end_ms": 46620,
+      "request_id": null
+    },
+    {
+      "text": " One",
+      "speaker": "5",
+      "start_ms": 48300,
+      "end_ms": 48360,
+      "request_id": null
+    },
+    {
+      "text": " m",
+      "speaker": "5",
+      "start_ms": 48480,
+      "end_ms": 48540,
+      "request_id": null
+    },
+    {
+      "text": "ight",
+      "speaker": "5",
+      "start_ms": 48540,
+      "end_ms": 48600,
+      "request_id": null
+    },
+    {
+      "text": " be",
+      "speaker": "5",
+      "start_ms": 48780,
+      "end_ms": 48840,
+      "request_id": null
+    },
+    {
+      "text": " with",
+      "speaker": "5",
+      "start_ms": 49380,
+      "end_ms": 49440,
+      "request_id": null
+    },
+    {
+      "text": " l",
+      "speaker": "5",
+      "start_ms": 49560,
+      "end_ms": 49620,
+      "request_id": null
+    },
+    {
+      "text": "ess",
+      "speaker": "5",
+      "start_ms": 49620,
+      "end_ms": 49680,
+      "request_id": null
+    },
+    {
+      "text": " re",
+      "speaker": "5",
+      "start_ms": 49740,
+      "end_ms": 49800,
+      "request_id": null
+    },
+    {
+      "text": "ason",
+      "speaker": "5",
+      "start_ms": 49920,
+      "end_ms": 49980,
+      "request_id": null
+    },
+    {
+      "text": " than",
+      "speaker": "5",
+      "start_ms": 50160,
+      "end_ms": 50220,
+      "request_id": null
+    },
+    {
+      "text": " now",
+      "speaker": "5",
+      "start_ms": 50340,
+      "end_ms": 50400,
+      "request_id": null
+    },
+    {
+      "text": ".",
+      "speaker": "5",
+      "start_ms": 50640,
+      "end_ms": 50700,
+      "request_id": null
+    }
+  ],
+  "messages": [
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 7,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 9,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 11,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 6,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 8,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 10,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 7,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 10,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 4,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 8,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 2,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 5,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 11,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 7,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 3,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 13,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 6,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 9,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 8,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 5,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 10,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 2,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 7,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 0,
+      "fin": false
+    },
+    {
+      "request_id": null,
+      "finished": null,
+      "final_count": 14,
+      "fin": true
+    },
+    {
+      "request_id": null,
+      "finished": true,
+      "final_count": 0,
+      "fin": false
+    }
+  ],
+  "metrics": {
+    "identified_labeled_lexical_tokens": 173,
+    "labels_observed": [
+      "1089",
+      "1188",
+      "121",
+      "1995",
+      "2094",
+      "260"
+    ],
+    "speaker_ids": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ],
+    "confusion": {
+      "1089": {
+        "1": 15,
+        "5": 13
+      },
+      "1188": {
+        "1": 46
+      },
+      "121": {
+        "3": 4,
+        "4": 24
+      },
+      "1995": {
+        "2": 29
+      },
+      "2094": {
+        "2": 21
+      },
+      "260": {
+        "1": 10,
+        "5": 11
+      }
+    },
+    "same_speaker_split_pairs": 401,
+    "same_speaker_pairs": 2617,
+    "different_speaker_merge_pairs": 2052,
+    "different_speaker_pairs": 12261,
+    "excluded_tokens": {
+      "nonlexical": 8
+    },
+    "examples": {
+      "1089": [
+        "St:1@0.57",
+        "u:1@0.69",
+        "ff:1@0.75",
+        "it:1@0.93",
+        "into:1@1.05",
+        "y:1@1.23",
+        "ou,:1@1.41",
+        "his:1@1.65",
+        "b:1@1.83",
+        "elly:1@2.07",
+        "co:1@2.31",
+        "un:1@2.43"
+      ],
+      "1995": [
+        "\"B:2@4.17",
+        "et:2@4.23",
+        "ter:2@4.35",
+        "g:2@4.65",
+        "o,:2@4.83",
+        "he:2@5.07",
+        "had:2@5.19",
+        "co:2@5.37",
+        "un:2@5.49",
+        "sel:2@5.61",
+        "ed:2@5.67",
+        "sent:2@5.91"
+      ],
+      "1188": [
+        "They:1@7.89",
+        "un:1@8.13",
+        "ite:1@8.31",
+        "ever:1@8.43",
+        "y:1@8.49",
+        "qu:1@8.85",
+        "alit:1@9.03",
+        "y,:1@9.27",
+        "and:1@10.35",
+        "som:1@10.47",
+        "etim:1@10.59",
+        "es:1@10.71"
+      ],
+      "2094": [
+        "And:2@17.49",
+        "wh:2@17.61",
+        "at:2@17.73",
+        "through:2@17.85",
+        "the:2@18.03",
+        "left:2@18.21",
+        "-h:2@18.39",
+        "and:2@18.45",
+        "w:2@18.57",
+        "ind:2@18.69",
+        "ow:2@18.87",
+        "The:2@40.17"
+      ],
+      "121": [
+        "Har:3@21.09",
+        "ang.:3@21.39",
+        "The:4@23.01",
+        "t:4@23.37",
+        "ires:4@23.49",
+        "ome:4@23.73",
+        "produc:4@23.97",
+        "t:4@24.15",
+        "of:4@24.21",
+        "a:4@24.51",
+        "t:4@24.69",
+        "ir:4@24.81"
+      ],
+      "260": [
+        "The:1@26.73",
+        "hor:1@27.03",
+        "izon:1@27.39",
+        "se:1@27.51",
+        "ems:1@27.63",
+        "ext:1@27.93",
+        "rem:1@28.05",
+        "ely:1@28.17",
+        "dist:1@28.53",
+        "ant.:1@28.83",
+        "One:5@48.33",
+        "m:5@48.51"
+      ]
+    }
+  },
+  "fixture": {
+    "dataset": "LibriSpeech test-clean (LibriVox audiobook recordings)",
+    "license": "CC BY 4.0",
+    "source_sha256": "2eb1ab143c2a7dbaa7448c31b44dd8c517b85042e769f2da5d2ddaec14028762",
+    "turns": [
+      {
+        "speaker": "1089",
+        "start_s": 0.0,
+        "end_s": 3.275,
+        "utt_id": "1089-134686-0001"
+      },
+      {
+        "speaker": "1995",
+        "start_s": 3.775,
+        "end_s": 6.865,
+        "utt_id": "1995-1826-0003"
+      },
+      {
+        "speaker": "1188",
+        "start_s": 7.365,
+        "end_s": 16.405,
+        "utt_id": "1188-133604-0001"
+      },
+      {
+        "speaker": "2094",
+        "start_s": 16.905,
+        "end_s": 19.545,
+        "utt_id": "2094-142345-0004"
+      },
+      {
+        "speaker": "121",
+        "start_s": 20.045,
+        "end_s": 25.97,
+        "utt_id": "121-121726-0001"
+      },
+      {
+        "speaker": "260",
+        "start_s": 26.47,
+        "end_s": 29.54,
+        "utt_id": "260-123286-0001"
+      },
+      {
+        "speaker": "1089",
+        "start_s": 30.04,
+        "end_s": 32.72,
+        "utt_id": "1089-134686-0003"
+      },
+      {
+        "speaker": "1995",
+        "start_s": 33.22,
+        "end_s": 36.255,
+        "utt_id": "1995-1826-0004"
+      },
+      {
+        "speaker": "1188",
+        "start_s": 36.755,
+        "end_s": 39.155,
+        "utt_id": "1188-133604-0006"
+      },
+      {
+        "speaker": "2094",
+        "start_s": 39.655,
+        "end_s": 42.355,
+        "utt_id": "2094-142345-0007"
+      },
+      {
+        "speaker": "121",
+        "start_s": 42.855,
+        "end_s": 47.265,
+        "utt_id": "121-121726-0002"
+      },
+      {
+        "speaker": "260",
+        "start_s": 47.765,
+        "end_s": 51.23,
+        "utt_id": "260-123286-0004"
+      }
+    ],
+    "clips": [
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1089/134686/1089-134686-0001.flac",
+        "sha256": "3fc09ec6d4cc496c530b2019b17bd8fc8ef8a43d6697090971dd1d52cc3d4d89",
+        "bytes": 58350
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1995/1826/1995-1826-0003.flac",
+        "sha256": "dcdd947d0f230e0e2a96fbb0501c185d6c262739c140c7f600939f58e606c8fb",
+        "bytes": 61686
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1188/133604/1188-133604-0001.flac",
+        "sha256": "3022b442af790536b60f18abe88b5376418a208f2774547b8d9700d4ef00bb03",
+        "bytes": 145808
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/2094/142345/2094-142345-0004.flac",
+        "sha256": "de2ffb60c2b2a5d1c9c3cce598322ded7b9870252387df184019124d57137b33",
+        "bytes": 55259
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/121/121726/121-121726-0001.flac",
+        "sha256": "4d4459266056fcd052ced71563e093ecf74a420abfa3a402283fb6b8eb848441",
+        "bytes": 92104
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/260/123286/260-123286-0001.flac",
+        "sha256": "482a025752a99bedf0d539c055c80c1f0396f3f0b0094fd1d3ff89b3d26beb9e",
+        "bytes": 56185
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1089/134686/1089-134686-0003.flac",
+        "sha256": "d8692f61518fe07b45d4dad54e026c1d04f3fc016b0d39923d05fcbcff684563",
+        "bytes": 51750
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1995/1826/1995-1826-0004.flac",
+        "sha256": "20daf9f52570d9bbefb8fab39eaa0dcd3e666aeac5231b3cbe13c68f815bfff9",
+        "bytes": 57935
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1188/133604/1188-133604-0006.flac",
+        "sha256": "1f3cd38fcd11de325482d3f67037ede0abadd9b5cf4a0734182017951f26c63b",
+        "bytes": 40221
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/2094/142345/2094-142345-0007.flac",
+        "sha256": "63914c3e6873769f06fe6e14fdaf6114616f9a50335aea1e0b7284d6c6a9abdd",
+        "bytes": 60652
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/121/121726/121-121726-0002.flac",
+        "sha256": "5d461a2020d7c302d607d3b5a6a8f81a01d29e2b29041faccc7925ee098d6dc7",
+        "bytes": 69678
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/260/123286/260-123286-0004.flac",
+        "sha256": "46cbbaccc19339e94c7a02871260ffc66981c80d97ee2ff0d8c1cc0652253d99",
+        "bytes": 58236
+      }
+    ]
+  }
+}

@@ -1,0 +1,1387 @@
+{
+  "arm": "async_full_file",
+  "model": "stt-async-v5",
+  "config": {
+    "model": "stt-async-v5",
+    "enable_speaker_diarization": true,
+    "enable_language_identification": false,
+    "language_hints": [
+      "en"
+    ]
+  },
+  "duration_s": 51.73,
+  "timeline": [
+    {
+      "provider_start_s": 0,
+      "provider_end_s": 51.73,
+      "source_start_s": 0,
+      "source_end_s": 51.73
+    }
+  ],
+  "tokens": [
+    {
+      "text": "\"S",
+      "speaker": "1",
+      "start_ms": 570,
+      "end_ms": 630
+    },
+    {
+      "text": "tu",
+      "speaker": "1",
+      "start_ms": 690,
+      "end_ms": 750
+    },
+    {
+      "text": "ff",
+      "speaker": "1",
+      "start_ms": 750,
+      "end_ms": 810
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 930,
+      "end_ms": 990
+    },
+    {
+      "text": " into",
+      "speaker": "1",
+      "start_ms": 1050,
+      "end_ms": 1110
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 1230,
+      "end_ms": 1290
+    },
+    {
+      "text": "ou,",
+      "speaker": "1",
+      "start_ms": 1410,
+      "end_ms": 1470
+    },
+    {
+      "text": "\"",
+      "speaker": "1",
+      "start_ms": 1530,
+      "end_ms": 1590
+    },
+    {
+      "text": " his",
+      "speaker": "1",
+      "start_ms": 1650,
+      "end_ms": 1710
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 1830,
+      "end_ms": 1890
+    },
+    {
+      "text": "elly",
+      "speaker": "1",
+      "start_ms": 2070,
+      "end_ms": 2130
+    },
+    {
+      "text": " co",
+      "speaker": "1",
+      "start_ms": 2310,
+      "end_ms": 2370
+    },
+    {
+      "text": "un",
+      "speaker": "1",
+      "start_ms": 2430,
+      "end_ms": 2490
+    },
+    {
+      "text": "sel",
+      "speaker": "1",
+      "start_ms": 2490,
+      "end_ms": 2550
+    },
+    {
+      "text": "ed",
+      "speaker": "1",
+      "start_ms": 2550,
+      "end_ms": 2610
+    },
+    {
+      "text": " him",
+      "speaker": "1",
+      "start_ms": 2670,
+      "end_ms": 2730
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 2910,
+      "end_ms": 2970
+    },
+    {
+      "text": " \"B",
+      "speaker": "2",
+      "start_ms": 4170,
+      "end_ms": 4230
+    },
+    {
+      "text": "et",
+      "speaker": "2",
+      "start_ms": 4230,
+      "end_ms": 4290
+    },
+    {
+      "text": "ter",
+      "speaker": "2",
+      "start_ms": 4350,
+      "end_ms": 4410
+    },
+    {
+      "text": " g",
+      "speaker": "2",
+      "start_ms": 4650,
+      "end_ms": 4710
+    },
+    {
+      "text": "o,",
+      "speaker": "2",
+      "start_ms": 4830,
+      "end_ms": 4890
+    },
+    {
+      "text": "\"",
+      "speaker": "2",
+      "start_ms": 4950,
+      "end_ms": 5010
+    },
+    {
+      "text": " he",
+      "speaker": "2",
+      "start_ms": 5070,
+      "end_ms": 5130
+    },
+    {
+      "text": " had",
+      "speaker": "2",
+      "start_ms": 5190,
+      "end_ms": 5250
+    },
+    {
+      "text": " co",
+      "speaker": "2",
+      "start_ms": 5370,
+      "end_ms": 5430
+    },
+    {
+      "text": "uns",
+      "speaker": "2",
+      "start_ms": 5430,
+      "end_ms": 5490
+    },
+    {
+      "text": "els",
+      "speaker": "2",
+      "start_ms": 5610,
+      "end_ms": 5670
+    },
+    {
+      "text": " sent",
+      "speaker": "2",
+      "start_ms": 5910,
+      "end_ms": 5970
+    },
+    {
+      "text": "ent",
+      "speaker": "2",
+      "start_ms": 6090,
+      "end_ms": 6150
+    },
+    {
+      "text": "ious",
+      "speaker": "2",
+      "start_ms": 6210,
+      "end_ms": 6270
+    },
+    {
+      "text": "ly",
+      "speaker": "2",
+      "start_ms": 6450,
+      "end_ms": 6510
+    },
+    {
+      "text": ".",
+      "speaker": "2",
+      "start_ms": 6630,
+      "end_ms": 6690
+    },
+    {
+      "text": " They",
+      "speaker": "1",
+      "start_ms": 7890,
+      "end_ms": 7950
+    },
+    {
+      "text": " un",
+      "speaker": "1",
+      "start_ms": 8130,
+      "end_ms": 8190
+    },
+    {
+      "text": "ite",
+      "speaker": "1",
+      "start_ms": 8310,
+      "end_ms": 8370
+    },
+    {
+      "text": " ever",
+      "speaker": "1",
+      "start_ms": 8430,
+      "end_ms": 8490
+    },
+    {
+      "text": "y",
+      "speaker": "1",
+      "start_ms": 8550,
+      "end_ms": 8610
+    },
+    {
+      "text": " qu",
+      "speaker": "1",
+      "start_ms": 8850,
+      "end_ms": 8910
+    },
+    {
+      "text": "alit",
+      "speaker": "1",
+      "start_ms": 9030,
+      "end_ms": 9090
+    },
+    {
+      "text": "y,",
+      "speaker": "1",
+      "start_ms": 9270,
+      "end_ms": 9330
+    },
+    {
+      "text": " and",
+      "speaker": "1",
+      "start_ms": 10350,
+      "end_ms": 10410
+    },
+    {
+      "text": " som",
+      "speaker": "1",
+      "start_ms": 10470,
+      "end_ms": 10530
+    },
+    {
+      "text": "etim",
+      "speaker": "1",
+      "start_ms": 10590,
+      "end_ms": 10650
+    },
+    {
+      "text": "es",
+      "speaker": "1",
+      "start_ms": 10710,
+      "end_ms": 10770
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 10770,
+      "end_ms": 10830
+    },
+    {
+      "text": "ou",
+      "speaker": "1",
+      "start_ms": 10890,
+      "end_ms": 10950
+    },
+    {
+      "text": " will",
+      "speaker": "1",
+      "start_ms": 10950,
+      "end_ms": 11010
+    },
+    {
+      "text": " find",
+      "speaker": "1",
+      "start_ms": 11130,
+      "end_ms": 11190
+    },
+    {
+      "text": " me",
+      "speaker": "1",
+      "start_ms": 11370,
+      "end_ms": 11430
+    },
+    {
+      "text": " refer",
+      "speaker": "1",
+      "start_ms": 11550,
+      "end_ms": 11610
+    },
+    {
+      "text": "ring",
+      "speaker": "1",
+      "start_ms": 11790,
+      "end_ms": 11850
+    },
+    {
+      "text": " to",
+      "speaker": "1",
+      "start_ms": 11850,
+      "end_ms": 11910
+    },
+    {
+      "text": " them",
+      "speaker": "1",
+      "start_ms": 12030,
+      "end_ms": 12090
+    },
+    {
+      "text": " as",
+      "speaker": "1",
+      "start_ms": 12150,
+      "end_ms": 12210
+    },
+    {
+      "text": " color",
+      "speaker": "1",
+      "start_ms": 12450,
+      "end_ms": 12510
+    },
+    {
+      "text": "ist",
+      "speaker": "1",
+      "start_ms": 12810,
+      "end_ms": 12870
+    },
+    {
+      "text": "s,",
+      "speaker": "1",
+      "start_ms": 13050,
+      "end_ms": 13110
+    },
+    {
+      "text": " som",
+      "speaker": "1",
+      "start_ms": 13830,
+      "end_ms": 13890
+    },
+    {
+      "text": "etim",
+      "speaker": "1",
+      "start_ms": 14070,
+      "end_ms": 14130
+    },
+    {
+      "text": "es",
+      "speaker": "1",
+      "start_ms": 14190,
+      "end_ms": 14250
+    },
+    {
+      "text": " as",
+      "speaker": "1",
+      "start_ms": 14430,
+      "end_ms": 14490
+    },
+    {
+      "text": " chi",
+      "speaker": "1",
+      "start_ms": 14670,
+      "end_ms": 14730
+    },
+    {
+      "text": "ar",
+      "speaker": "1",
+      "start_ms": 14910,
+      "end_ms": 14970
+    },
+    {
+      "text": "osc",
+      "speaker": "1",
+      "start_ms": 15150,
+      "end_ms": 15210
+    },
+    {
+      "text": "ur",
+      "speaker": "1",
+      "start_ms": 15270,
+      "end_ms": 15330
+    },
+    {
+      "text": "ist",
+      "speaker": "1",
+      "start_ms": 15510,
+      "end_ms": 15570
+    },
+    {
+      "text": "s.",
+      "speaker": "1",
+      "start_ms": 15690,
+      "end_ms": 15750
+    },
+    {
+      "text": " And",
+      "speaker": "2",
+      "start_ms": 17490,
+      "end_ms": 17550
+    },
+    {
+      "text": " wh",
+      "speaker": "2",
+      "start_ms": 17610,
+      "end_ms": 17670
+    },
+    {
+      "text": "at",
+      "speaker": "2",
+      "start_ms": 17730,
+      "end_ms": 17790
+    },
+    {
+      "text": " through",
+      "speaker": "2",
+      "start_ms": 17850,
+      "end_ms": 17910
+    },
+    {
+      "text": " the",
+      "speaker": "2",
+      "start_ms": 18030,
+      "end_ms": 18090
+    },
+    {
+      "text": " left",
+      "speaker": "2",
+      "start_ms": 18210,
+      "end_ms": 18270
+    },
+    {
+      "text": "-h",
+      "speaker": "2",
+      "start_ms": 18390,
+      "end_ms": 18450
+    },
+    {
+      "text": "and",
+      "speaker": "2",
+      "start_ms": 18450,
+      "end_ms": 18510
+    },
+    {
+      "text": " w",
+      "speaker": "2",
+      "start_ms": 18570,
+      "end_ms": 18630
+    },
+    {
+      "text": "ind",
+      "speaker": "2",
+      "start_ms": 18690,
+      "end_ms": 18750
+    },
+    {
+      "text": "ow",
+      "speaker": "2",
+      "start_ms": 18870,
+      "end_ms": 18930
+    },
+    {
+      "text": "?",
+      "speaker": "2",
+      "start_ms": 19050,
+      "end_ms": 19110
+    },
+    {
+      "text": " Har",
+      "speaker": "3",
+      "start_ms": 21090,
+      "end_ms": 21150
+    },
+    {
+      "text": "ang.",
+      "speaker": "3",
+      "start_ms": 21450,
+      "end_ms": 21510
+    },
+    {
+      "text": " The",
+      "speaker": "3",
+      "start_ms": 23010,
+      "end_ms": 23070
+    },
+    {
+      "text": " t",
+      "speaker": "3",
+      "start_ms": 23370,
+      "end_ms": 23430
+    },
+    {
+      "text": "ires",
+      "speaker": "3",
+      "start_ms": 23550,
+      "end_ms": 23610
+    },
+    {
+      "text": "ome",
+      "speaker": "3",
+      "start_ms": 23790,
+      "end_ms": 23850
+    },
+    {
+      "text": " produc",
+      "speaker": "3",
+      "start_ms": 24030,
+      "end_ms": 24090
+    },
+    {
+      "text": "t",
+      "speaker": "3",
+      "start_ms": 24150,
+      "end_ms": 24210
+    },
+    {
+      "text": " of",
+      "speaker": "3",
+      "start_ms": 24270,
+      "end_ms": 24330
+    },
+    {
+      "text": " a",
+      "speaker": "3",
+      "start_ms": 24570,
+      "end_ms": 24630
+    },
+    {
+      "text": " t",
+      "speaker": "3",
+      "start_ms": 24690,
+      "end_ms": 24750
+    },
+    {
+      "text": "ir",
+      "speaker": "3",
+      "start_ms": 24870,
+      "end_ms": 24930
+    },
+    {
+      "text": "el",
+      "speaker": "3",
+      "start_ms": 24930,
+      "end_ms": 24990
+    },
+    {
+      "text": "ess",
+      "speaker": "3",
+      "start_ms": 25050,
+      "end_ms": 25110
+    },
+    {
+      "text": " t",
+      "speaker": "3",
+      "start_ms": 25350,
+      "end_ms": 25410
+    },
+    {
+      "text": "ong",
+      "speaker": "3",
+      "start_ms": 25470,
+      "end_ms": 25530
+    },
+    {
+      "text": "u",
+      "speaker": "3",
+      "start_ms": 25530,
+      "end_ms": 25590
+    },
+    {
+      "text": "e.",
+      "speaker": "3",
+      "start_ms": 25650,
+      "end_ms": 25710
+    },
+    {
+      "text": " The",
+      "speaker": "1",
+      "start_ms": 26790,
+      "end_ms": 26850
+    },
+    {
+      "text": " hor",
+      "speaker": "1",
+      "start_ms": 27030,
+      "end_ms": 27090
+    },
+    {
+      "text": "izon",
+      "speaker": "1",
+      "start_ms": 27390,
+      "end_ms": 27450
+    },
+    {
+      "text": " se",
+      "speaker": "1",
+      "start_ms": 27510,
+      "end_ms": 27570
+    },
+    {
+      "text": "ems",
+      "speaker": "1",
+      "start_ms": 27630,
+      "end_ms": 27690
+    },
+    {
+      "text": " ext",
+      "speaker": "1",
+      "start_ms": 27930,
+      "end_ms": 27990
+    },
+    {
+      "text": "rem",
+      "speaker": "1",
+      "start_ms": 28050,
+      "end_ms": 28110
+    },
+    {
+      "text": "ely",
+      "speaker": "1",
+      "start_ms": 28170,
+      "end_ms": 28230
+    },
+    {
+      "text": " dist",
+      "speaker": "1",
+      "start_ms": 28470,
+      "end_ms": 28530
+    },
+    {
+      "text": "ant.",
+      "speaker": "1",
+      "start_ms": 28830,
+      "end_ms": 28890
+    },
+    {
+      "text": " Hell",
+      "speaker": "4",
+      "start_ms": 30570,
+      "end_ms": 30630
+    },
+    {
+      "text": "o,",
+      "speaker": "4",
+      "start_ms": 30750,
+      "end_ms": 30810
+    },
+    {
+      "text": " B",
+      "speaker": "4",
+      "start_ms": 30930,
+      "end_ms": 30990
+    },
+    {
+      "text": "ert",
+      "speaker": "4",
+      "start_ms": 31110,
+      "end_ms": 31170
+    },
+    {
+      "text": "ie.",
+      "speaker": "4",
+      "start_ms": 31230,
+      "end_ms": 31290
+    },
+    {
+      "text": " A",
+      "speaker": "4",
+      "start_ms": 31410,
+      "end_ms": 31470
+    },
+    {
+      "text": "ny",
+      "speaker": "4",
+      "start_ms": 31530,
+      "end_ms": 31590
+    },
+    {
+      "text": " go",
+      "speaker": "4",
+      "start_ms": 31650,
+      "end_ms": 31710
+    },
+    {
+      "text": "od",
+      "speaker": "4",
+      "start_ms": 31770,
+      "end_ms": 31830
+    },
+    {
+      "text": " in",
+      "speaker": "4",
+      "start_ms": 31830,
+      "end_ms": 31890
+    },
+    {
+      "text": " y",
+      "speaker": "4",
+      "start_ms": 31950,
+      "end_ms": 32010
+    },
+    {
+      "text": "our",
+      "speaker": "4",
+      "start_ms": 32010,
+      "end_ms": 32070
+    },
+    {
+      "text": " mind",
+      "speaker": "4",
+      "start_ms": 32130,
+      "end_ms": 32190
+    },
+    {
+      "text": "?",
+      "speaker": "4",
+      "start_ms": 32490,
+      "end_ms": 32550
+    },
+    {
+      "text": " M",
+      "speaker": "2",
+      "start_ms": 33630,
+      "end_ms": 33690
+    },
+    {
+      "text": "ight",
+      "speaker": "2",
+      "start_ms": 33750,
+      "end_ms": 33810
+    },
+    {
+      "text": " le",
+      "speaker": "2",
+      "start_ms": 33870,
+      "end_ms": 33930
+    },
+    {
+      "text": "arn",
+      "speaker": "2",
+      "start_ms": 33990,
+      "end_ms": 34050
+    },
+    {
+      "text": " som",
+      "speaker": "2",
+      "start_ms": 34110,
+      "end_ms": 34170
+    },
+    {
+      "text": "eth",
+      "speaker": "2",
+      "start_ms": 34230,
+      "end_ms": 34290
+    },
+    {
+      "text": "ing",
+      "speaker": "2",
+      "start_ms": 34350,
+      "end_ms": 34410
+    },
+    {
+      "text": " us",
+      "speaker": "2",
+      "start_ms": 34590,
+      "end_ms": 34650
+    },
+    {
+      "text": "ef",
+      "speaker": "2",
+      "start_ms": 34710,
+      "end_ms": 34770
+    },
+    {
+      "text": "ul",
+      "speaker": "2",
+      "start_ms": 34830,
+      "end_ms": 34890
+    },
+    {
+      "text": " down",
+      "speaker": "2",
+      "start_ms": 35070,
+      "end_ms": 35130
+    },
+    {
+      "text": " th",
+      "speaker": "2",
+      "start_ms": 35490,
+      "end_ms": 35550
+    },
+    {
+      "text": "er",
+      "speaker": "2",
+      "start_ms": 35610,
+      "end_ms": 35670
+    },
+    {
+      "text": "e.",
+      "speaker": "2",
+      "start_ms": 35670,
+      "end_ms": 35730
+    },
+    {
+      "text": " Th",
+      "speaker": "1",
+      "start_ms": 37410,
+      "end_ms": 37470
+    },
+    {
+      "text": "en",
+      "speaker": "1",
+      "start_ms": 37470,
+      "end_ms": 37530
+    },
+    {
+      "text": " he",
+      "speaker": "1",
+      "start_ms": 37590,
+      "end_ms": 37650
+    },
+    {
+      "text": " com",
+      "speaker": "1",
+      "start_ms": 37710,
+      "end_ms": 37770
+    },
+    {
+      "text": "es",
+      "speaker": "1",
+      "start_ms": 37770,
+      "end_ms": 37830
+    },
+    {
+      "text": " to",
+      "speaker": "1",
+      "start_ms": 37830,
+      "end_ms": 37890
+    },
+    {
+      "text": " the",
+      "speaker": "1",
+      "start_ms": 37950,
+      "end_ms": 38010
+    },
+    {
+      "text": " be",
+      "speaker": "1",
+      "start_ms": 38190,
+      "end_ms": 38250
+    },
+    {
+      "text": "ak",
+      "speaker": "1",
+      "start_ms": 38310,
+      "end_ms": 38370
+    },
+    {
+      "text": " of",
+      "speaker": "1",
+      "start_ms": 38430,
+      "end_ms": 38490
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 38610,
+      "end_ms": 38670
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 38790,
+      "end_ms": 38850
+    },
+    {
+      "text": " The",
+      "speaker": "2",
+      "start_ms": 40170,
+      "end_ms": 40230
+    },
+    {
+      "text": " history",
+      "speaker": "2",
+      "start_ms": 40410,
+      "end_ms": 40470
+    },
+    {
+      "text": " of",
+      "speaker": "2",
+      "start_ms": 40530,
+      "end_ms": 40590
+    },
+    {
+      "text": " the",
+      "speaker": "2",
+      "start_ms": 40650,
+      "end_ms": 40710
+    },
+    {
+      "text": " ho",
+      "speaker": "2",
+      "start_ms": 40890,
+      "end_ms": 40950
+    },
+    {
+      "text": "use",
+      "speaker": "2",
+      "start_ms": 41010,
+      "end_ms": 41070
+    },
+    {
+      "text": " is",
+      "speaker": "2",
+      "start_ms": 41190,
+      "end_ms": 41250
+    },
+    {
+      "text": " pla",
+      "speaker": "2",
+      "start_ms": 41370,
+      "end_ms": 41430
+    },
+    {
+      "text": "in",
+      "speaker": "2",
+      "start_ms": 41550,
+      "end_ms": 41610
+    },
+    {
+      "text": " now",
+      "speaker": "2",
+      "start_ms": 41670,
+      "end_ms": 41730
+    },
+    {
+      "text": ".",
+      "speaker": "2",
+      "start_ms": 41910,
+      "end_ms": 41970
+    },
+    {
+      "text": " Ang",
+      "speaker": "3",
+      "start_ms": 43350,
+      "end_ms": 43410
+    },
+    {
+      "text": "or.",
+      "speaker": "3",
+      "start_ms": 43650,
+      "end_ms": 43710
+    },
+    {
+      "text": " Ha",
+      "speaker": "3",
+      "start_ms": 44610,
+      "end_ms": 44670
+    },
+    {
+      "text": "in.",
+      "speaker": "3",
+      "start_ms": 44850,
+      "end_ms": 44910
+    },
+    {
+      "text": " Pa",
+      "speaker": "3",
+      "start_ms": 45630,
+      "end_ms": 45690
+    },
+    {
+      "text": "inf",
+      "speaker": "3",
+      "start_ms": 45750,
+      "end_ms": 45810
+    },
+    {
+      "text": "ul",
+      "speaker": "3",
+      "start_ms": 45870,
+      "end_ms": 45930
+    },
+    {
+      "text": " to",
+      "speaker": "3",
+      "start_ms": 46050,
+      "end_ms": 46110
+    },
+    {
+      "text": " he",
+      "speaker": "3",
+      "start_ms": 46410,
+      "end_ms": 46470
+    },
+    {
+      "text": "ar.",
+      "speaker": "3",
+      "start_ms": 46590,
+      "end_ms": 46650
+    },
+    {
+      "text": " One",
+      "speaker": "1",
+      "start_ms": 48330,
+      "end_ms": 48390
+    },
+    {
+      "text": " m",
+      "speaker": "1",
+      "start_ms": 48510,
+      "end_ms": 48570
+    },
+    {
+      "text": "ight",
+      "speaker": "1",
+      "start_ms": 48570,
+      "end_ms": 48630
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 48870,
+      "end_ms": 48930
+    },
+    {
+      "text": "e,",
+      "speaker": "1",
+      "start_ms": 49110,
+      "end_ms": 49170
+    },
+    {
+      "text": " with",
+      "speaker": "1",
+      "start_ms": 49410,
+      "end_ms": 49470
+    },
+    {
+      "text": " l",
+      "speaker": "1",
+      "start_ms": 49590,
+      "end_ms": 49650
+    },
+    {
+      "text": "ess",
+      "speaker": "1",
+      "start_ms": 49650,
+      "end_ms": 49710
+    },
+    {
+      "text": " re",
+      "speaker": "1",
+      "start_ms": 49770,
+      "end_ms": 49830
+    },
+    {
+      "text": "ason",
+      "speaker": "1",
+      "start_ms": 49950,
+      "end_ms": 50010
+    },
+    {
+      "text": " than",
+      "speaker": "1",
+      "start_ms": 50190,
+      "end_ms": 50250
+    },
+    {
+      "text": " now",
+      "speaker": "1",
+      "start_ms": 50370,
+      "end_ms": 50430
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 50670,
+      "end_ms": 50730
+    }
+  ],
+  "metrics": {
+    "identified_labeled_lexical_tokens": 173,
+    "labels_observed": [
+      "1089",
+      "1188",
+      "121",
+      "1995",
+      "2094",
+      "260"
+    ],
+    "speaker_ids": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "confusion": {
+      "1089": {
+        "1": 15,
+        "4": 13
+      },
+      "1188": {
+        "1": 46
+      },
+      "121": {
+        "3": 28
+      },
+      "1995": {
+        "2": 28
+      },
+      "2094": {
+        "2": 21
+      },
+      "260": {
+        "1": 22
+      }
+    },
+    "same_speaker_split_pairs": 195,
+    "same_speaker_pairs": 2610,
+    "different_speaker_merge_pairs": 2620,
+    "different_speaker_pairs": 12268,
+    "excluded_tokens": {
+      "nonlexical": 9
+    },
+    "examples": {
+      "1089": [
+        "\"S:1@0.60",
+        "tu:1@0.72",
+        "ff:1@0.78",
+        "it:1@0.96",
+        "into:1@1.08",
+        "y:1@1.26",
+        "ou,:1@1.44",
+        "his:1@1.68",
+        "b:1@1.86",
+        "elly:1@2.10",
+        "co:1@2.34",
+        "un:1@2.46"
+      ],
+      "1995": [
+        "\"B:2@4.20",
+        "et:2@4.26",
+        "ter:2@4.38",
+        "g:2@4.68",
+        "o,:2@4.86",
+        "he:2@5.10",
+        "had:2@5.22",
+        "co:2@5.40",
+        "uns:2@5.46",
+        "els:2@5.64",
+        "sent:2@5.94",
+        "ent:2@6.12"
+      ],
+      "1188": [
+        "They:1@7.92",
+        "un:1@8.16",
+        "ite:1@8.34",
+        "ever:1@8.46",
+        "y:1@8.58",
+        "qu:1@8.88",
+        "alit:1@9.06",
+        "y,:1@9.30",
+        "and:1@10.38",
+        "som:1@10.50",
+        "etim:1@10.62",
+        "es:1@10.74"
+      ],
+      "2094": [
+        "And:2@17.52",
+        "wh:2@17.64",
+        "at:2@17.76",
+        "through:2@17.88",
+        "the:2@18.06",
+        "left:2@18.24",
+        "-h:2@18.42",
+        "and:2@18.48",
+        "w:2@18.60",
+        "ind:2@18.72",
+        "ow:2@18.90",
+        "The:2@40.20"
+      ],
+      "121": [
+        "Har:3@21.12",
+        "ang.:3@21.48",
+        "The:3@23.04",
+        "t:3@23.40",
+        "ires:3@23.58",
+        "ome:3@23.82",
+        "produc:3@24.06",
+        "t:3@24.18",
+        "of:3@24.30",
+        "a:3@24.60",
+        "t:3@24.72",
+        "ir:3@24.90"
+      ],
+      "260": [
+        "The:1@26.82",
+        "hor:1@27.06",
+        "izon:1@27.42",
+        "se:1@27.54",
+        "ems:1@27.66",
+        "ext:1@27.96",
+        "rem:1@28.08",
+        "ely:1@28.20",
+        "dist:1@28.50",
+        "ant.:1@28.86",
+        "One:1@48.36",
+        "m:1@48.54"
+      ]
+    }
+  },
+  "fixture": {
+    "dataset": "LibriSpeech test-clean (LibriVox audiobook recordings)",
+    "license": "CC BY 4.0",
+    "source_sha256": "2eb1ab143c2a7dbaa7448c31b44dd8c517b85042e769f2da5d2ddaec14028762",
+    "turns": [
+      {
+        "speaker": "1089",
+        "start_s": 0.0,
+        "end_s": 3.275,
+        "utt_id": "1089-134686-0001"
+      },
+      {
+        "speaker": "1995",
+        "start_s": 3.775,
+        "end_s": 6.865,
+        "utt_id": "1995-1826-0003"
+      },
+      {
+        "speaker": "1188",
+        "start_s": 7.365,
+        "end_s": 16.405,
+        "utt_id": "1188-133604-0001"
+      },
+      {
+        "speaker": "2094",
+        "start_s": 16.905,
+        "end_s": 19.545,
+        "utt_id": "2094-142345-0004"
+      },
+      {
+        "speaker": "121",
+        "start_s": 20.045,
+        "end_s": 25.97,
+        "utt_id": "121-121726-0001"
+      },
+      {
+        "speaker": "260",
+        "start_s": 26.47,
+        "end_s": 29.54,
+        "utt_id": "260-123286-0001"
+      },
+      {
+        "speaker": "1089",
+        "start_s": 30.04,
+        "end_s": 32.72,
+        "utt_id": "1089-134686-0003"
+      },
+      {
+        "speaker": "1995",
+        "start_s": 33.22,
+        "end_s": 36.255,
+        "utt_id": "1995-1826-0004"
+      },
+      {
+        "speaker": "1188",
+        "start_s": 36.755,
+        "end_s": 39.155,
+        "utt_id": "1188-133604-0006"
+      },
+      {
+        "speaker": "2094",
+        "start_s": 39.655,
+        "end_s": 42.355,
+        "utt_id": "2094-142345-0007"
+      },
+      {
+        "speaker": "121",
+        "start_s": 42.855,
+        "end_s": 47.265,
+        "utt_id": "121-121726-0002"
+      },
+      {
+        "speaker": "260",
+        "start_s": 47.765,
+        "end_s": 51.23,
+        "utt_id": "260-123286-0004"
+      }
+    ],
+    "clips": [
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1089/134686/1089-134686-0001.flac",
+        "sha256": "3fc09ec6d4cc496c530b2019b17bd8fc8ef8a43d6697090971dd1d52cc3d4d89",
+        "bytes": 58350
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1995/1826/1995-1826-0003.flac",
+        "sha256": "dcdd947d0f230e0e2a96fbb0501c185d6c262739c140c7f600939f58e606c8fb",
+        "bytes": 61686
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1188/133604/1188-133604-0001.flac",
+        "sha256": "3022b442af790536b60f18abe88b5376418a208f2774547b8d9700d4ef00bb03",
+        "bytes": 145808
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/2094/142345/2094-142345-0004.flac",
+        "sha256": "de2ffb60c2b2a5d1c9c3cce598322ded7b9870252387df184019124d57137b33",
+        "bytes": 55259
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/121/121726/121-121726-0001.flac",
+        "sha256": "4d4459266056fcd052ced71563e093ecf74a420abfa3a402283fb6b8eb848441",
+        "bytes": 92104
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/260/123286/260-123286-0001.flac",
+        "sha256": "482a025752a99bedf0d539c055c80c1f0396f3f0b0094fd1d3ff89b3d26beb9e",
+        "bytes": 56185
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1089/134686/1089-134686-0003.flac",
+        "sha256": "d8692f61518fe07b45d4dad54e026c1d04f3fc016b0d39923d05fcbcff684563",
+        "bytes": 51750
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1995/1826/1995-1826-0004.flac",
+        "sha256": "20daf9f52570d9bbefb8fab39eaa0dcd3e666aeac5231b3cbe13c68f815bfff9",
+        "bytes": 57935
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/1188/133604/1188-133604-0006.flac",
+        "sha256": "1f3cd38fcd11de325482d3f67037ede0abadd9b5cf4a0734182017951f26c63b",
+        "bytes": 40221
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/2094/142345/2094-142345-0007.flac",
+        "sha256": "63914c3e6873769f06fe6e14fdaf6114616f9a50335aea1e0b7284d6c6a9abdd",
+        "bytes": 60652
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/121/121726/121-121726-0002.flac",
+        "sha256": "5d461a2020d7c302d607d3b5a6a8f81a01d29e2b29041faccc7925ee098d6dc7",
+        "bytes": 69678
+      },
+      {
+        "url": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/audio/260/123286/260-123286-0004.flac",
+        "sha256": "46cbbaccc19339e94c7a02871260ffc66981c80d97ee2ff0d8c1cc0652253d99",
+        "bytes": 58236
+      }
+    ]
+  }
+}

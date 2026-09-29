@@ -1,0 +1,23 @@
+{
+  "dataset": "LibriSpeech test-clean (LibriVox audiobook recordings)",
+  "license": "CC BY 4.0",
+  "source": "https://www.openslr.org/12/",
+  "mirror": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts",
+  "annotation": "https://huggingface.co/datasets/JinchuanTian/librispeech-test-clean-plain-tts/resolve/main/dialogues.jsonl",
+  "silence_between_clips_s": 0.5,
+  "language_hints": ["en"],
+  "clips": [
+    {"speaker": "1089", "utt_id": "1089-134686-0001", "path": "1089/134686/1089-134686-0001.flac"},
+    {"speaker": "1995", "utt_id": "1995-1826-0003", "path": "1995/1826/1995-1826-0003.flac"},
+    {"speaker": "1188", "utt_id": "1188-133604-0001", "path": "1188/133604/1188-133604-0001.flac"},
+    {"speaker": "2094", "utt_id": "2094-142345-0004", "path": "2094/142345/2094-142345-0004.flac"},
+    {"speaker": "121", "utt_id": "121-121726-0001", "path": "121/121726/121-121726-0001.flac"},
+    {"speaker": "260", "utt_id": "260-123286-0001", "path": "260/123286/260-123286-0001.flac"},
+    {"speaker": "1089", "utt_id": "1089-134686-0003", "path": "1089/134686/1089-134686-0003.flac"},
+    {"speaker": "1995", "utt_id": "1995-1826-0004", "path": "1995/1826/1995-1826-0004.flac"},
+    {"speaker": "1188", "utt_id": "1188-133604-0006", "path": "1188/133604/1188-133604-0006.flac"},
+    {"speaker": "2094", "utt_id": "2094-142345-0007", "path": "2094/142345/2094-142345-0007.flac"},
+    {"speaker": "121", "utt_id": "121-121726-0002", "path": "121/121726/121-121726-0002.flac"},
+    {"speaker": "260", "utt_id": "260-123286-0004", "path": "260/123286/260-123286-0004.flac"}
+  ]
+}
