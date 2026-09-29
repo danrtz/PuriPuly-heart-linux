@@ -381,7 +381,13 @@ class _QwenAudioSession(STTBackendSession):
         self._keepalive_task = asyncio.create_task(
             self._keepalive_loop(), name="qwen-audio-keepalive"
         )
-        await self._begin_task(initial=True)
+        try:
+            await self._begin_task(initial=True)
+        except BaseException:
+            abandoned = self._start_future
+            if abandoned is not None and abandoned.done() and not abandoned.cancelled():
+                abandoned.exception()
+            raise
         future = self._start_future
         if future is None:
             self._log_failure("start_future_missing")
@@ -451,6 +457,9 @@ class _QwenAudioSession(STTBackendSession):
                 )
                 if self._state is QwenAudioSessionState.CONNECTING:
                     self._startup_stage = "task_start_wait"
+                    self._stage_at = sent_at
+                elif self._state is QwenAudioSessionState.TASK_ACTIVE:
+                    self._startup_stage = "active"
                     self._stage_at = sent_at
         except Exception as exc:
             await self._fail(
@@ -601,12 +610,17 @@ class _QwenAudioSession(STTBackendSession):
         self._cancel_start_timeout()
         if self._state is QwenAudioSessionState.CONNECTING:
             now = time.monotonic()
+            ack_during_send = self._startup_stage == "run_task_send"
             logger.info(
-                "[QwenAudio] startup stage=task_started startup_ms=%d wait_ms=%d",
+                "[QwenAudio] startup stage=task_started startup_ms=%d wait_ms=%d "
+                "ack_during_send=%s",
                 int((now - self._startup_at) * 1000),
-                int((now - self._stage_at) * 1000),
+                0 if ack_during_send else int((now - self._stage_at) * 1000),
+                str(ack_during_send).lower(),
             )
-            self._startup_stage = "active"
+            if not ack_during_send:
+                self._startup_stage = "active"
+                self._stage_at = now
         self._state = QwenAudioSessionState.TASK_ACTIVE
         self._last_audio_send_at = time.monotonic()
         if self._post_boundary_audio_queue:
