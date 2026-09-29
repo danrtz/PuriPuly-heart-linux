@@ -200,9 +200,7 @@ class AsyncQwenLLMProvider:
         if not api_key:
             return False
         try:
-            return await AsyncQwenLLMProvider.probe_api_key(
-                api_key, base_url=base_url, model=model
-            )
+            return await AsyncQwenLLMProvider.probe_api_key(api_key, base_url=base_url, model=model)
         except Exception:
             return False
 

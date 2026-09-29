@@ -11,9 +11,7 @@ from typing import Any
 
 import pytest
 
-
 MODULE_NAME = "puripuly_heart.config.runtime_resolution"
-
 
 
 def _runtime_resolution_module() -> ModuleType:
@@ -67,7 +65,6 @@ def _credential_assertion(resolved: ModuleType, source: str, reference: str | No
         required=source != resolved.CREDENTIAL_SOURCE_NONE,
         reference=reference,
     )
-
 
 
 def test_runtime_resolution_layer_is_covered_by_dependency_boundary_guard() -> None:

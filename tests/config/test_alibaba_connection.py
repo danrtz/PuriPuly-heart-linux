@@ -45,7 +45,12 @@ def test_region_mode_protocols_and_execution_agree(region, host, shared, mode) -
         initial,
         intent=replace(
             initial.intent,
-            translation=replace(initial.intent.translation, model="qwen38_flash", connection="official_byok", qwen=qwen),
+            translation=replace(
+                initial.intent.translation,
+                model="qwen38_flash",
+                connection="official_byok",
+                qwen=qwen,
+            ),
             stt=replace(initial.intent.stt, provider="qwen_audio"),
             peer_stt=replace(initial.intent.peer_stt, provider="qwen_audio"),
         ),
@@ -113,17 +118,40 @@ def test_dedicated_roundtrip_and_region_switch_preserve_other_region(tmp_path) -
     initial = AppSettingsVNext()
     qwen = replace(
         initial.intent.translation.qwen,
-        beijing=AlibabaRegionalSettings("workspace_dedicated", "work-123.cn-beijing.maas.aliyuncs.com", 2),
-        singapore=AlibabaRegionalSettings("workspace_dedicated", "work-456.ap-southeast-1.maas.aliyuncs.com", 3),
+        beijing=AlibabaRegionalSettings(
+            "workspace_dedicated", "work-123.cn-beijing.maas.aliyuncs.com", 2
+        ),
+        singapore=AlibabaRegionalSettings(
+            "workspace_dedicated", "work-456.ap-southeast-1.maas.aliyuncs.com", 3
+        ),
     )
-    settings = replace(initial, intent=replace(initial.intent, translation=replace(initial.intent.translation, qwen=qwen)))
+    settings = replace(
+        initial,
+        intent=replace(initial.intent, translation=replace(initial.intent.translation, qwen=qwen)),
+    )
     path = tmp_path / "settings.json"
     assert compat.save_vnext_settings(path, settings).ok
     loaded = compat.load_vnext_settings(path)
     assert loaded.ok and not loaded.migrated
     assert loaded.settings.intent.translation.qwen == qwen
-    switched = replace(loaded.settings, intent=replace(loaded.settings.intent, translation=replace(loaded.settings.intent.translation, qwen=replace(qwen, region="singapore"))))
+    switched = replace(
+        loaded.settings,
+        intent=replace(
+            loaded.settings.intent,
+            translation=replace(
+                loaded.settings.intent.translation, qwen=replace(qwen, region="singapore")
+            ),
+        ),
+    )
     assert compat.save_vnext_settings(path, switched).ok
     restarted = compat.load_vnext_settings(path)
-    assert restarted.ok and restarted.settings.intent.translation.qwen == switched.intent.translation.qwen
-    assert resolve_alibaba_connection("beijing", restarted.settings.intent.translation.qwen.beijing).host == "work-123.cn-beijing.maas.aliyuncs.com"
+    assert (
+        restarted.ok
+        and restarted.settings.intent.translation.qwen == switched.intent.translation.qwen
+    )
+    assert (
+        resolve_alibaba_connection(
+            "beijing", restarted.settings.intent.translation.qwen.beijing
+        ).host
+        == "work-123.cn-beijing.maas.aliyuncs.com"
+    )

@@ -238,11 +238,18 @@ class UiApplicationPort(Protocol):
     async def alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot: ...
     async def alibaba_active_connection(self) -> AlibabaConnectionDraftSnapshot: ...
     async def edit_alibaba_connection_draft(
-        self, *, token: str, region: AlibabaRegion | None = None,
-        endpoint_mode: AlibabaEndpointMode | None = None, api_host: str | None = None,
+        self,
+        *,
+        token: str,
+        region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None,
+        api_host: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot: ...
     async def verify_alibaba_connection_draft(
-        self, *, token: str, capability: Literal["asr", "translation", "both"],
+        self,
+        *,
+        token: str,
+        capability: Literal["asr", "translation", "both"],
         api_key: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot: ...
     async def apply_alibaba_connection_draft(

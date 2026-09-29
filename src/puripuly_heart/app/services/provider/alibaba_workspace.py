@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, field, replace
 from typing import Literal
 from uuid import uuid4
@@ -16,16 +17,14 @@ from puripuly_heart.config.alibaba_connection import (
     AlibabaEndpointMode,
     AlibabaRegion,
     AlibabaRegionalSettings,
+    alibaba_credential_sources,
     normalize_api_host,
     resolve_alibaba_connection,
 )
 from puripuly_heart.config.runtime_resolution import QWEN_AUDIO_STT_MODEL
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 
-_SECRET_KEYS = {
-    "beijing": "alibaba_api_key_beijing",
-    "singapore": "alibaba_api_key_singapore",
-}
+_REGIONS = frozenset(("beijing", "singapore"))
 
 
 def _fingerprint(value: str | None) -> str | None:
@@ -35,21 +34,27 @@ def _fingerprint(value: str | None) -> str | None:
 def _failure_kind(exc: Exception) -> str:
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None)
-    provider_code = getattr(exc, "error_code", "")
+    codes = [getattr(exc, "error_code", "")]
     if response is not None:
         try:
             payload = response.json()
-            error = payload.get("error", {}) if isinstance(payload, dict) else {}
-            if isinstance(error, dict):
-                provider_code = error.get("code", "")
-        except (ValueError, AttributeError):
+            if isinstance(payload, dict):
+                codes.append(payload.get("code", ""))
+                error = payload.get("error", {})
+                if isinstance(error, dict):
+                    codes.append(error.get("code", ""))
+        except ValueError, AttributeError, TypeError:
             pass
-    code = provider_code.lower() if isinstance(provider_code, str) else ""
-    if status in (401, 403) or code in {"unauthorized", "accessdenied", "invalidapikey"}:
+    normalized = {code.lower() for code in codes if isinstance(code, str)}
+    if status in (401, 403) or normalized.intersection(
+        {"unauthorized", "accessdenied", "invalidapikey"}
+    ):
         return "authentication_or_access"
-    if status == 404 or code in {"model_not_found", "modelnotfound", "modelnotavailable"}:
+    if status == 404 or normalized.intersection(
+        {"model_not_found", "modelnotfound", "modelnotavailable"}
+    ):
         return "model_unavailable"
-    if status == 429 or code in {"ratelimit", "throttling"}:
+    if status == 429 or normalized.intersection({"ratelimit", "throttling"}):
         return "rate_limited"
     if isinstance(exc, (OSError, TimeoutError, ConnectionError)) or isinstance(
         exc.__cause__, OSError
@@ -67,6 +72,7 @@ class AlibabaWorkspaceOwner:
     _base: AppSettingsVNext | None = field(default=None, init=False)
     _credential_fingerprint: str | None = field(default=None, init=False)
     _regions: dict[str, tuple[AlibabaEndpointMode, str]] = field(default_factory=dict, init=False)
+    _edited_regions: set[str] = field(default_factory=set, init=False)
     _active_evidence: dict[
         tuple[str, str], tuple[object, str | None, AlibabaCapabilityEvidence]
     ] = field(default_factory=dict, init=False)
@@ -77,28 +83,43 @@ class AlibabaWorkspaceOwner:
             raise RuntimeError("Canonical settings unavailable")
         return current
 
-    async def _key(self, region: AlibabaRegion) -> str | None:
+    async def _key(self, region: AlibabaRegion) -> tuple[str | None, bool]:
         current = self._current()
         store = self.provider_settings.secret_store_factory(current)
-        secret = await store.snapshot_secret(_SECRET_KEYS[region])
-        return secret.value
+        regional_key, legacy_keys, env_vars = alibaba_credential_sources(region)
+        for name in (regional_key, *legacy_keys):
+            secret = await store.snapshot_secret(name)
+            if secret.value:
+                return secret.value, True
+        for name in env_vars:
+            value = os.getenv(name)
+            if value:
+                return value, False
+        return None, False
 
     async def begin(self) -> AlibabaConnectionDraftSnapshot:
         current = self._current()
         self._base = current
+        self._edited_regions.clear()
         region = current.intent.translation.qwen.region
         regional = getattr(current.intent.translation.qwen, region)
         self._regions = {
-            name: (getattr(current.intent.translation.qwen, name).endpoint_mode,
-                   getattr(current.intent.translation.qwen, name).api_host)
-            for name in _SECRET_KEYS
+            name: (
+                getattr(current.intent.translation.qwen, name).endpoint_mode,
+                getattr(current.intent.translation.qwen, name).api_host,
+            )
+            for name in _REGIONS
         }
-        key = await self._key(region)
+        key, _ = await self._key(region)
         self._credential_fingerprint = _fingerprint(key)
         self._draft = self._snapshot(
-            token=uuid4().hex, scope="draft", region=region,
-            mode=regional.endpoint_mode, host=regional.api_host,
-            key_present=bool(key), current=current,
+            token=uuid4().hex,
+            scope="draft",
+            region=region,
+            mode=regional.endpoint_mode,
+            host=regional.api_host,
+            key_present=bool(key),
+            current=current,
         )
         return self._draft
 
@@ -106,11 +127,15 @@ class AlibabaWorkspaceOwner:
         current = self._current()
         region = current.intent.translation.qwen.region
         regional = getattr(current.intent.translation.qwen, region)
-        key = await self._key(region)
+        key, _ = await self._key(region)
         snapshot = self._snapshot(
-            token="", scope="active", region=region,
-            mode=regional.endpoint_mode, host=regional.api_host,
-            key_present=bool(key), current=current,
+            token="",
+            scope="active",
+            region=region,
+            mode=regional.endpoint_mode,
+            host=regional.api_host,
+            key_present=bool(key),
+            current=current,
         )
         evidence = {}
         for name in ("asr", "translation"):
@@ -129,9 +154,15 @@ class AlibabaWorkspaceOwner:
         return replace(snapshot, **evidence)
 
     def _snapshot(
-        self, *, token: str, scope: Literal["draft", "active"],
-        region: AlibabaRegion, mode: AlibabaEndpointMode, host: str,
-        key_present: bool, current: AppSettingsVNext,
+        self,
+        *,
+        token: str,
+        scope: Literal["draft", "active"],
+        region: AlibabaRegion,
+        mode: AlibabaEndpointMode,
+        host: str,
+        key_present: bool,
+        current: AppSettingsVNext,
     ) -> AlibabaConnectionDraftSnapshot:
         regional = getattr(current.intent.translation.qwen, region)
         connection = None
@@ -146,7 +177,8 @@ class AlibabaWorkspaceOwner:
             "asr", QWEN_AUDIO_STT_MODEL, "incomplete" if incomplete else "unverified"
         )
         translation = AlibabaCapabilityEvidence(
-            "translation", current.intent.translation.qwen.llm_model,
+            "translation",
+            current.intent.translation.qwen.llm_model,
             "incomplete" if incomplete else "unverified",
         )
         affected = []
@@ -157,14 +189,23 @@ class AlibabaWorkspaceOwner:
         if current.intent.translation.model == "qwen38_flash":
             affected.append("qwen_translation")
         return AlibabaConnectionDraftSnapshot(
-            token, scope, current.intent.translation.qwen.region, region, mode, host,
-            key_present, connection, asr, translation, tuple(affected),
+            token,
+            scope,
+            current.intent.translation.qwen.region,
+            region,
+            mode,
+            host,
+            key_present,
+            connection,
+            asr,
+            translation,
+            tuple(affected),
         )
 
     async def read(self) -> AlibabaConnectionDraftSnapshot:
         draft = self._require_draft()
         current = self._current()
-        key = await self._key(draft.region)
+        key, _ = await self._key(draft.region)
         base = self._base
         qwen = current.intent.translation.qwen
         if (
@@ -174,7 +215,8 @@ class AlibabaWorkspaceOwner:
             or _fingerprint(key) != self._credential_fingerprint
         ):
             return replace(
-                draft, key_present=bool(key),
+                draft,
+                key_present=bool(key),
                 asr=replace(draft.asr, state="invalidated"),
                 translation=replace(draft.translation, state="invalidated"),
             )
@@ -188,17 +230,22 @@ class AlibabaWorkspaceOwner:
         return self._draft
 
     async def edit(
-        self, *, token: str, region: AlibabaRegion | None = None,
-        endpoint_mode: AlibabaEndpointMode | None = None, api_host: str | None = None,
+        self,
+        *,
+        token: str,
+        region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None,
+        api_host: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot:
         old = self._require_draft()
         if token != old.token:
             raise ValueError("Alibaba draft changed")
         current = self._current()
-        if region is not None and region not in _SECRET_KEYS:
+        if region is not None and region not in _REGIONS:
             raise ValueError("Invalid Alibaba region")
         if endpoint_mode is not None and endpoint_mode not in (
-            "legacy_shared", "workspace_dedicated"
+            "legacy_shared",
+            "workspace_dedicated",
         ):
             raise ValueError("Invalid Alibaba endpoint mode")
         target = region or old.region
@@ -213,18 +260,29 @@ class AlibabaWorkspaceOwner:
         try:
             host = normalize_api_host(host, target)
         except ValueError:
-            pass
+            if mode == "legacy_shared":
+                host = ""
+        if (mode, host) != self._regions[target]:
+            self._edited_regions.add(target)
         self._regions[target] = (mode, host)
-        key = await self._key(target)
+        key, _ = await self._key(target)
         self._credential_fingerprint = _fingerprint(key)
         self._draft = self._snapshot(
-            token=uuid4().hex, scope="draft", region=target, mode=mode,
-            host=host, key_present=bool(key), current=current,
+            token=uuid4().hex,
+            scope="draft",
+            region=target,
+            mode=mode,
+            host=host,
+            key_present=bool(key),
+            current=current,
         )
         return self._draft
 
     async def verify(
-        self, *, token: str, capability: Literal["asr", "translation", "both"],
+        self,
+        *,
+        token: str,
+        capability: Literal["asr", "translation", "both"],
         api_key: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot:
         draft = await self.read()
@@ -234,7 +292,8 @@ class AlibabaWorkspaceOwner:
             raise ValueError("Invalid Alibaba verification capability")
         if draft.connection is None:
             return draft
-        key = api_key if api_key is not None else await self._key(draft.region)
+        effective_key, persisted = await self._key(draft.region)
+        key = api_key if api_key is not None else effective_key
         if not key:
             return draft
         selected = ("asr", "translation") if capability == "both" else (capability,)
@@ -243,9 +302,10 @@ class AlibabaWorkspaceOwner:
         key_revision = _fingerprint(key)
         checking = {
             name: replace(
-                getattr(draft, name), state="checking",
+                getattr(draft, name),
+                state="checking",
                 credential_revision=key_revision,
-                credential_saved=key_revision == self._credential_fingerprint,
+                credential_saved=persisted and key_revision == self._credential_fingerprint,
             )
             for name in selected
         }
@@ -258,7 +318,8 @@ class AlibabaWorkspaceOwner:
                     )
                 else:
                     success = await self.verifier.probe_qwen_llm_api_key(
-                        key, base_url=draft.connection.native_url,
+                        key,
+                        base_url=draft.connection.native_url,
                         model=draft.translation.model,
                     )
                 state = "verified" if success else "failed"
@@ -285,13 +346,18 @@ class AlibabaWorkspaceOwner:
         current = self._current()
         qwen = current.intent.translation.qwen
         changes = {}
-        for region, (mode, host) in self._regions.items():
+        base = self._base
+        if base is None:
+            raise ValueError("Alibaba draft changed")
+        for region in self._edited_regions:
             regional = getattr(qwen, region)
-            if (regional.endpoint_mode, regional.api_host) == (mode, host):
-                continue
-            changes[region] = replace(
-                regional, endpoint_mode=mode, api_host=host, revision=regional.revision + 1
-            )
+            if getattr(base.intent.translation.qwen, region) != regional:
+                raise ValueError("Alibaba draft changed")
+            mode, host = self._regions[region]
+            if (regional.endpoint_mode, regional.api_host) != (mode, host):
+                changes[region] = replace(
+                    regional, endpoint_mode=mode, api_host=host, revision=regional.revision + 1
+                )
         updated = replace(
             current,
             intent=replace(
@@ -313,11 +379,14 @@ class AlibabaWorkspaceOwner:
                 evidence = getattr(draft, name)
                 if evidence.state == "verified" and evidence.credential_saved:
                     self._active_evidence[(active_region, name)] = (
-                        active_connection, evidence.credential_revision, evidence
+                        active_connection,
+                        evidence.credential_revision,
+                        evidence,
                     )
             self._draft = None
             self._base = None
             self._regions.clear()
+            self._edited_regions.clear()
         return result
 
     def cancel(self, *, token: str) -> None:
@@ -325,4 +394,5 @@ class AlibabaWorkspaceOwner:
             raise ValueError("Alibaba draft changed")
         self._draft = None
         self._regions.clear()
+        self._edited_regions.clear()
         self._base = None

@@ -79,7 +79,8 @@ def build_llm_provider_signature(
             resolve_alibaba_connection(
                 translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
             )
-            if provider_llm == "qwen" else None
+            if provider_llm == "qwen"
+            else None
         ),
         translation.deepseek.llm_model if provider_llm == "deepseek" else None,
         (

@@ -177,7 +177,6 @@ async def test_owner_contains_verifier_failure_and_emits_safe_diagnostics() -> N
     assert "private provider detail" not in str(diagnostics[0][1])
 
 
-
 @pytest.mark.asyncio
 async def test_interaction_owner_maps_empty_unknown_failed_and_error_results() -> None:
     error_calls: list[tuple[str, str]] = []

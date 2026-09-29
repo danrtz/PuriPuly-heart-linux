@@ -268,7 +268,8 @@ def self_stt_runtime_intent_from_vnext(settings: AppSettingsVNext) -> STTRuntime
                 intent.translation.qwen.region,
                 getattr(intent.translation.qwen, intent.translation.qwen.region),
             )
-            if is_qwen_cloud_stt_provider(provider) else None
+            if is_qwen_cloud_stt_provider(provider)
+            else None
         ),
         soniox_model=intent.stt.soniox.model,
         soniox_endpoint=intent.stt.soniox.endpoint,
@@ -391,7 +392,8 @@ def peer_stt_runtime_intent_from_vnext(settings: AppSettingsVNext) -> STTRuntime
                 intent.translation.qwen.region,
                 getattr(intent.translation.qwen, intent.translation.qwen.region),
             )
-            if is_qwen_cloud_stt_provider(provider) else None
+            if is_qwen_cloud_stt_provider(provider)
+            else None
         ),
         soniox_model=intent.stt.soniox.model,
         soniox_endpoint=intent.stt.soniox.endpoint,
@@ -418,8 +420,6 @@ def peer_stt_runtime_intent_from_vnext(settings: AppSettingsVNext) -> STTRuntime
 
 def resolve_self_stt_runtime_config(settings: AppSettingsVNext) -> ResolvedSTTConfig:
     return resolve_self_stt_runtime_config_from_vnext(settings)
-
-
 
 
 def _self_stt_custom_vocabulary_signature_for_provider(
@@ -726,7 +726,8 @@ def build_self_stt_provider_signature_from_vnext(settings: AppSettingsVNext) -> 
                 intent.translation.qwen.region,
                 getattr(intent.translation.qwen, intent.translation.qwen.region),
             )
-            if is_qwen_cloud_stt_provider(provider) else None
+            if is_qwen_cloud_stt_provider(provider)
+            else None
         ),
         intent.stt.soniox.model if provider == STTProviderName.SONIOX.value else None,
         intent.stt.soniox.endpoint if provider == STTProviderName.SONIOX.value else None,
@@ -1395,7 +1396,8 @@ def build_peer_stt_provider_signature_from_vnext(settings: AppSettingsVNext) -> 
                 settings.intent.translation.qwen.region,
                 getattr(settings.intent.translation.qwen, settings.intent.translation.qwen.region),
             )
-            if resolved.provider == STT_PROVIDER_QWEN_AUDIO else None
+            if resolved.provider == STT_PROVIDER_QWEN_AUDIO
+            else None
         ),
         resolved.provider_options.get("keepalive_interval_s"),
         resolved.provider_options.get("trailing_silence_ms"),

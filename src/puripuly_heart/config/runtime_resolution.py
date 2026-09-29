@@ -598,9 +598,7 @@ def _openrouter_credential(
     return _no_credential()
 
 
-def _qwen_connection(
-    region: str, connection: AlibabaConnection | None
-) -> AlibabaConnection:
+def _qwen_connection(region: str, connection: AlibabaConnection | None) -> AlibabaConnection:
     if connection is not None:
         if connection.region != region:
             raise ValueError("Alibaba connection region mismatch")

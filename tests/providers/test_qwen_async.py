@@ -119,6 +119,7 @@ async def test_async_qwen_verify_api_key_uses_model_and_base_url(monkeypatch):
 
     class FakeResponse:
         status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -150,8 +151,6 @@ async def test_async_qwen_verify_api_key_uses_model_and_base_url(monkeypatch):
     body = seen["json"]
     assert body["model"] == "qwen3.8-flash"
     assert body["enable_thinking"] is False
-
-
 
 
 @pytest.mark.asyncio

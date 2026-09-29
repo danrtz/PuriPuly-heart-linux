@@ -285,10 +285,10 @@ class _QwenAudioSession(STTBackendSession):
     @property
     def task_id(self) -> str | None:
         return self._task_id
+
     @property
     def task_finished_count(self) -> int:
         return self._task_finished_count
-
 
     def update_hotwords(self, hotwords: HotwordInput) -> None:
         self.hotwords = hotwords

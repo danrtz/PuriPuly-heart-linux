@@ -23,6 +23,18 @@ _CREDENTIAL_REFS = {
 _WORKSPACE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", re.ASCII)
 
 
+def alibaba_credential_sources(
+    region: AlibabaRegion,
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    if region not in _CREDENTIAL_REFS:
+        raise ValueError("Invalid Alibaba region")
+    return (
+        f"alibaba_api_key_{region}",
+        ("alibaba_api_key",),
+        (f"ALIBABA_API_KEY_{region.upper()}", "ALIBABA_API_KEY", "DASHSCOPE_API_KEY"),
+    )
+
+
 def normalize_api_host(value: str, region: AlibabaRegion) -> str:
     if not isinstance(value, str) or region not in _WORKSPACE_SUFFIXES:
         raise ValueError("Invalid Alibaba API Host for selected region")
@@ -48,6 +60,7 @@ def normalize_api_host(value: str, region: AlibabaRegion) -> str:
         raise ValueError("Invalid Alibaba API Host for selected region")
     return host
 
+
 def validated_native_url(value: str, region: AlibabaRegion) -> str:
     try:
         parsed = urlsplit(value)
@@ -57,8 +70,9 @@ def validated_native_url(value: str, region: AlibabaRegion) -> str:
             return f"https://{_SHARED_HOSTS[region]}/api/v1"
         host = normalize_api_host(parsed.netloc, region)
         return f"https://{host}/api/v1"
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         raise ValueError("Invalid Alibaba native endpoint") from None
+
 
 def validated_websocket_url(value: str, region: AlibabaRegion) -> str:
     try:
@@ -74,7 +88,7 @@ def validated_websocket_url(value: str, region: AlibabaRegion) -> str:
             return f"wss://{_SHARED_HOSTS[region]}/api-ws/v1/inference"
         host = normalize_api_host(parsed.netloc, region)
         return f"wss://{host}/api-ws/v1/inference"
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         raise ValueError("Invalid Alibaba WebSocket endpoint") from None
 
 

@@ -21,8 +21,6 @@ from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core import messages
 
 
-
-
 def test_order21_patch_carries_custom_http_identity_fields() -> None:
     previous = AppSettingsVNext()
     next_settings = replace(

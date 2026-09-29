@@ -381,7 +381,8 @@ class UiProviderRuntimeAdapter:
     def alibaba_workspace(self) -> AlibabaWorkspaceOwner:
         if self._alibaba_workspace is None:
             self._alibaba_workspace = AlibabaWorkspaceOwner(
-                self.settings, self.provider_settings,
+                self.settings,
+                self.provider_settings,
                 self.credential_verification.verification_owner.verifier,
             )
         return self._alibaba_workspace
@@ -396,19 +397,31 @@ class UiProviderRuntimeAdapter:
         return await self.alibaba_workspace().active()
 
     async def edit_alibaba_connection_draft(
-        self, *, token: str, region: AlibabaRegion | None = None,
-        endpoint_mode: AlibabaEndpointMode | None = None, api_host: str | None = None,
+        self,
+        *,
+        token: str,
+        region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None,
+        api_host: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot:
         return await self.alibaba_workspace().edit(
-            token=token, region=region, endpoint_mode=endpoint_mode, api_host=api_host,
+            token=token,
+            region=region,
+            endpoint_mode=endpoint_mode,
+            api_host=api_host,
         )
 
     async def verify_alibaba_connection_draft(
-        self, *, token: str, capability: Literal["asr", "translation", "both"],
+        self,
+        *,
+        token: str,
+        capability: Literal["asr", "translation", "both"],
         api_key: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot:
         return await self.alibaba_workspace().verify(
-            token=token, capability=capability, api_key=api_key,
+            token=token,
+            capability=capability,
+            api_key=api_key,
         )
 
     async def apply_alibaba_connection_draft(self, *, token: str) -> AlibabaConnectionApplyResult:

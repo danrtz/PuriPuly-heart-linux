@@ -700,19 +700,31 @@ class UiApplicationBoundary:
         return await self._provider.alibaba_active_connection()
 
     async def edit_alibaba_connection_draft(
-        self, *, token: str, region: AlibabaRegion | None = None,
-        endpoint_mode: AlibabaEndpointMode | None = None, api_host: str | None = None,
+        self,
+        *,
+        token: str,
+        region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None,
+        api_host: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot:
         return await self._provider.edit_alibaba_connection_draft(
-            token=token, region=region, endpoint_mode=endpoint_mode, api_host=api_host,
+            token=token,
+            region=region,
+            endpoint_mode=endpoint_mode,
+            api_host=api_host,
         )
 
     async def verify_alibaba_connection_draft(
-        self, *, token: str, capability: Literal["asr", "translation", "both"],
+        self,
+        *,
+        token: str,
+        capability: Literal["asr", "translation", "both"],
         api_key: str | None = None,
     ) -> AlibabaConnectionDraftSnapshot:
         return await self._provider.verify_alibaba_connection_draft(
-            token=token, capability=capability, api_key=api_key,
+            token=token,
+            capability=capability,
+            api_key=api_key,
         )
 
     async def apply_alibaba_connection_draft(self, *, token: str) -> AlibabaConnectionApplyResult:

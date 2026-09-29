@@ -13,7 +13,10 @@ from puripuly_heart.app.services.managed_auth_claims import (
     ManagedAuthClaimGuard,
     local_managed_auth_blocking_source,
 )
-from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
+from puripuly_heart.config.alibaba_connection import (
+    alibaba_credential_sources,
+    resolve_alibaba_connection,
+)
 from puripuly_heart.config.llm_profiles import openrouter_alias_for_fields
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
@@ -144,9 +147,13 @@ def runtime_resolution_input_from_vnext(settings: AppSettingsVNext) -> RuntimeRe
             deepseek_v4_flash_model=translation.deepseek.llm_model,
             qwen_38_flash_model=translation.qwen.llm_model,
             qwen_region=translation.qwen.region,
-            qwen_connection=resolve_alibaba_connection(
-                translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
-            ) if translation.model == "qwen38_flash" else None,
+            qwen_connection=(
+                resolve_alibaba_connection(
+                    translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
+                )
+                if translation.model == "qwen38_flash"
+                else None
+            ),
             local_llm_backend=local_llm.backend,
             local_llm_base_url=local_llm.base_url,
             local_llm_model=local_llm.model,
@@ -497,20 +504,13 @@ def _qwen_api_key_for_resolved_credential(
     secrets: SecretStore,
 ) -> str:
     if credential.reference == CREDENTIAL_REF_QWEN_SINGAPORE:
-        return require_secret_any(
-            secrets,
-            key="alibaba_api_key_singapore",
-            env_vars=("ALIBABA_API_KEY_SINGAPORE", "ALIBABA_API_KEY", "DASHSCOPE_API_KEY"),
-            legacy_keys=("alibaba_api_key",),
-        )
-    if credential.reference in (CREDENTIAL_REF_QWEN_BEIJING, None):
-        return require_secret_any(
-            secrets,
-            key="alibaba_api_key_beijing",
-            env_vars=("ALIBABA_API_KEY_BEIJING", "ALIBABA_API_KEY", "DASHSCOPE_API_KEY"),
-            legacy_keys=("alibaba_api_key",),
-        )
-    raise ValueError("Unsupported Qwen resolved credential reference")
+        region = "singapore"
+    elif credential.reference in (CREDENTIAL_REF_QWEN_BEIJING, None):
+        region = "beijing"
+    else:
+        raise ValueError("Unsupported Qwen resolved credential reference")
+    key, legacy_keys, env_vars = alibaba_credential_sources(region)
+    return require_secret_any(secrets, key=key, legacy_keys=legacy_keys, env_vars=env_vars)
 
 
 def _qwen_async_base_url(target: ResolvedLLMTarget) -> str:
@@ -854,8 +854,7 @@ def create_llm_provider_from_resolved_config(
             attempt_providers.append(
                 LLMProviderAttempt(
                     provider=_LazyFactoryLLMProvider(
-                        factory=lambda attempt_plan=attempt_plan,
-                        force_managed_wrapper=force_managed_wrapper: (
+                        factory=lambda attempt_plan=attempt_plan, force_managed_wrapper=force_managed_wrapper: (
                             _provider_from_resolved_target(
                                 attempt_plan.target,
                                 secrets=secrets,

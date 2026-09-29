@@ -152,18 +152,14 @@ class ProviderVerifierAdapter(ProviderVerifierPort):
             raise RuntimeError("Fast Translation policy is disabled")
         return await AsyncQwenLLMProvider.verify_api_key(api_key, **kwargs)
 
-    async def probe_qwen_llm_api_key(
-        self, api_key: str, *, base_url: str, model: str
-    ) -> bool:
+    async def probe_qwen_llm_api_key(self, api_key: str, *, base_url: str, model: str) -> bool:
         if not FIXED_TRANSLATION_POLICY.fast_translation_enabled:
             raise RuntimeError("Fast Translation policy is disabled")
         return await AsyncQwenLLMProvider.probe_api_key(
             api_key, base_url=_validated_compatible_url(base_url), model=model
         )
 
-    async def verify_qwen_audio_api_key(
-        self, api_key: str, *, endpoint: str, model: str
-    ) -> bool:
+    async def verify_qwen_audio_api_key(self, api_key: str, *, endpoint: str, model: str) -> bool:
         for region in ("beijing", "singapore"):
             try:
                 endpoint = validated_websocket_url(endpoint, region)
