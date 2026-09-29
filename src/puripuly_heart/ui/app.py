@@ -1063,9 +1063,6 @@ class TranslatorApp:
                 if pending_settings is not None:
 
                     async def _task():
-                        if self.view_settings.external_settings_conflict:
-                            self.view_settings._show_external_conflict()
-                            return
                         result = await self.application.apply_provider_intent(pending_settings)
                         if result:
                             self.view_settings.acknowledge_provider_apply_settings(pending_settings)
@@ -1076,9 +1073,6 @@ class TranslatorApp:
                 pending = PromptApplyIntent(self.view_settings._prompt_editor.value)
 
                 async def _task():
-                    if self.view_settings.external_settings_conflict:
-                        self.view_settings._show_external_conflict()
-                        return
                     result = await self.application.apply_prompt_intent(pending)
                     if result:
                         self.view_settings.acknowledge_prompt_apply_settings(pending)
@@ -1476,9 +1470,6 @@ class TranslatorApp:
 
     def _on_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
         async def _task():
-            if self.view_settings.external_settings_conflict:
-                self.view_settings._show_external_conflict()
-                return
             result = await self.application.apply_prompt_intent(intent)
             if result:
                 self.view_settings.acknowledge_prompt_apply_settings(intent)
@@ -1520,9 +1511,6 @@ class TranslatorApp:
         async def _task():
             if pending_intent is None:
                 await self.application.apply_providers()
-                return
-            if view_settings.external_settings_conflict:
-                view_settings._show_external_conflict()
                 return
             result = await self.application.apply_provider_intent(pending_intent)
             if result:

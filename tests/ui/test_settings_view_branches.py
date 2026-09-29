@@ -2834,6 +2834,7 @@ def test_translation_selection_preserves_all_staged_history_and_unrelated_latest
             TranslationModel.GEMINI_FLASH.value: TranslationConnection.OPENROUTER,
         },
     )
+    view.load_from_settings(settings, config_path=Path("settings.json"))
 
     pending = view.build_provider_apply_settings()
 
@@ -2845,7 +2846,7 @@ def test_translation_selection_preserves_all_staged_history_and_unrelated_latest
         TranslationModel.DEEPSEEK_V4_FLASH_41.value
     ] == (TranslationConnection.OFFICIAL_BYOK.value)
     assert pending.intent.translation.connection_history[TranslationModel.GEMINI_FLASH.value] == (
-        TranslationConnection.OFFICIAL_BYOK.value
+        TranslationConnection.OPENROUTER.value
     )
 
 
@@ -6604,6 +6605,7 @@ class ProviderApplyBackend:
         self.applied_settings: list[AppSettingsVNext] = []
         self.apply_started: asyncio.Event | None = None
         self.release_apply: asyncio.Event | None = None
+        self.view: settings_view.SettingsView | None = None
 
     async def apply_providers(self, settings: AppSettingsVNext) -> bool:
         self.applied_settings.append(settings)
@@ -6613,7 +6615,22 @@ class ProviderApplyBackend:
             await self.release_apply.wait()
         if self.result:
             self.settings = settings
+        self.refresh_settings_projection()
         return self.result
+
+    def refresh_settings_projection(self, *, preserve_custom_vocab_draft: bool = False) -> bool:
+        if self.view is None:
+            return False
+        provider, general, prompt, overlay = settings_view_surface_snapshots(self.settings)
+        self.view.load_from_settings(
+            provider=provider,
+            general=general,
+            prompt=prompt,
+            overlay=overlay,
+            config_path=Path("settings.json"),
+            preserve_custom_vocab_draft=preserve_custom_vocab_draft,
+        )
+        return True
 
 
 def _make_provider_apply_app(
@@ -6621,6 +6638,7 @@ def _make_provider_apply_app(
     backend: ProviderApplyBackend,
 ) -> tuple[TranslatorApp, list[Callable[[], Awaitable[None]]]]:
     view.build_provider_apply_settings = view._build_provider_apply_intent
+    backend.view = view
     app = TranslatorApp.__new__(TranslatorApp)
     app._current_tab = 1
     app.view_settings = view
@@ -6685,7 +6703,6 @@ async def test_provider_apply_preserves_unrelated_external_settings_edits(
     view.load_from_settings(latest, config_path=Path("settings.json"))
     app, scheduled = _make_provider_apply_app(view, backend)
 
-    assert view.external_settings_conflict is False
     app._on_nav_change(0)
     await scheduled[0]()
 
@@ -6695,30 +6712,64 @@ async def test_provider_apply_preserves_unrelated_external_settings_edits(
 
 
 @pytest.mark.asyncio
-async def test_provider_apply_conflict_does_not_commit_the_draft(
+async def test_provider_apply_uses_local_draft_over_same_field_external_edit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     baseline = _provider_baseline()
     view = _stage_peer_provider(monkeypatch, baseline)
-    latest = _vnext(baseline, peer_stt_provider=STTProviderName.DEEPGRAM.value)
+    latest = _vnext(
+        baseline,
+        peer_stt_provider=STTProviderName.DEEPGRAM.value,
+        locale="ja",
+    )
     backend = ProviderApplyBackend(latest)
     view.load_from_settings(latest, config_path=Path("settings.json"))
+    dialogs: list[object] = []
     attach_dummy_page(
         monkeypatch,
         view,
-        page=SimpleNamespace(show_dialog=lambda _dialog: None, pop_dialog=lambda: None),
+        page=SimpleNamespace(show_dialog=dialogs.append),
     )
     app, scheduled = _make_provider_apply_app(view, backend)
 
-    assert view.external_settings_conflict is True
     app._on_nav_change(0)
     await scheduled[0]()
 
-    pending = view._build_provider_apply_intent()
-    assert backend.settings is latest
-    assert backend.applied_settings == []
-    assert pending is not None
-    assert view.has_provider_changes is True
+    assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
+    assert backend.settings.intent.ui.locale == "ja"
+    assert view.has_provider_changes is False
+    assert dialogs == []
+
+
+@pytest.mark.asyncio
+async def test_translation_apply_clears_draft_after_history_order_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _vnext(
+        model=TranslationModel.GEMINI_FLASH,
+        connection=TranslationConnection.OFFICIAL_BYOK,
+        connection_history={
+            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK,
+        },
+    )
+    view, _store = _make_settings_view(monkeypatch)
+    view.load_from_settings(baseline, config_path=Path("settings.json"))
+    view._on_llm_selected(TranslationModel.DEEPSEEK_V4_FLASH_41.value)
+    backend = ProviderApplyBackend(baseline)
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    await scheduled[0]()
+
+    assert backend.settings.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH_41.value
+    assert backend.settings.intent.translation.connection_history == {
+        TranslationModel.GEMMA4.value: TranslationConnection.MANAGED.value,
+        TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK.value,
+        TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED.value,
+    }
+    assert view.has_provider_changes is False
+    assert view._build_provider_apply_intent().edits == ()
 
 
 @pytest.mark.asyncio
@@ -6785,7 +6836,6 @@ async def test_provider_apply_acknowledgement_preserves_a_newer_edit_to_the_same
     await apply_task
 
     assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
-    assert view.external_settings_conflict is False
     assert view.has_provider_changes is True
     assert view._build_settings_with_provider_draft().peer_stt_provider == STTProviderName.DEEPGRAM
     pending = view.build_provider_apply_settings()
@@ -6841,7 +6891,6 @@ async def test_provider_apply_acknowledgement_preserves_a_newer_prompt_edit(
     await apply_task
 
     assert backend.settings.intent.prompts.system_prompt_override == "FIRST PROMPT"
-    assert view.external_settings_conflict is False
     assert view.has_provider_changes is False
     assert view.has_pending_prompt_changes is True
     assert view._prompt_editor.value == "SECOND PROMPT"
@@ -6863,6 +6912,7 @@ class PromptApplyBackend:
         await self.release_apply.wait()
         if self.succeed:
             self.settings = settings
+        self.refresh_settings_projection()
         return self.succeed
 
     def refresh_settings_projection(self, *, preserve_custom_vocab_draft: bool = False) -> bool:
@@ -6919,7 +6969,6 @@ async def test_prompt_apply_preserves_newer_uncommitted_edit_and_can_apply_it_la
     await apply_a
 
     assert backend.settings.intent.prompts.system_prompt_override == "FIRST PROMPT"
-    assert view.external_settings_conflict is False
     assert view._prompt_editor.value == "SECOND PROMPT"
     assert view.has_pending_prompt_changes is True
     assert SystemPromptEdit("SECOND PROMPT") in view._build_provider_apply_intent().edits
@@ -6954,4 +7003,28 @@ async def test_failed_prompt_apply_keeps_submitted_edit_for_retry(
     await scheduled.pop(0)()
 
     assert backend.settings.intent.prompts.system_prompt_override == "RETRY PROMPT"
+    assert view.has_pending_prompt_changes is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply_on_navigation", [False, True])
+async def test_prompt_apply_uses_local_draft_over_external_prompt_edit(
+    monkeypatch: pytest.MonkeyPatch,
+    apply_on_navigation: bool,
+) -> None:
+    app, view, backend, scheduled = _make_prompt_apply_app(monkeypatch)
+    view._on_prompt_change("LOCAL PROMPT")
+    backend.settings = _vnext(backend.settings, system_prompt="EXTERNAL PROMPT", locale="ja")
+    backend.refresh_settings_projection()
+    backend.release_apply.set()
+
+    assert view._prompt_editor.value == "LOCAL PROMPT"
+    if apply_on_navigation:
+        app._on_nav_change(0)
+    else:
+        view._on_prompt_commit("LOCAL PROMPT")
+    await scheduled.pop(0)()
+
+    assert backend.settings.intent.prompts.system_prompt_override == "LOCAL PROMPT"
+    assert backend.settings.intent.ui.locale == "ja"
     assert view.has_pending_prompt_changes is False

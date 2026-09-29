@@ -2946,7 +2946,7 @@ async def test_navigation_to_logs_scrolls_after_rendering() -> None:
 async def test_prompt_apply_keeps_dashboard_target_for_next_request() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
-    app.view_settings = SimpleNamespace(external_settings_conflict=False)
+    app.view_settings = SimpleNamespace()
     pending_settings = PromptApplyIntent("new prompt")
     current_settings = _vnext(target_language="ja")
     applied_targets: list[str] = []

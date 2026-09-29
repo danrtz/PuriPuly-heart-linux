@@ -263,7 +263,6 @@ Do not retain references across replacement unless the API explicitly allows it.
 
 `SettingsView` consumes only frozen surface snapshots and emits focused typed intents. The settings application owner replays those intents onto the latest canonical settings before persistence and runtime application.
 
-Provider and prompt drafts retain a base snapshot and focused edits. External changes rebase or surface conflicts. Only successful apply acknowledges matching submitted edits; newer edits remain staged.
 
 Contains user selections, not active runtime resources.
 

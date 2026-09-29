@@ -489,8 +489,6 @@ class SettingsView(ft.Column):
         self._provider_snapshot: ProviderSettingsSnapshot | None = None
         self._provider_draft: ProviderSettingsSnapshot | None = None
         self._provider_edits: dict[type, ProviderSettingsEdit] = {}
-        self.external_settings_conflict: bool = False
-        self._external_conflict_dialog: ft.AlertDialog | None = None
         self._general_snapshot: GeneralSettingsSnapshot | None = None
         self._prompt_snapshot: PromptSettingsSnapshot | None = None
         self._overlay_snapshot: OverlaySettingsSnapshot | None = None
@@ -3627,9 +3625,6 @@ class SettingsView(ft.Column):
         return self._build_provider_apply_intent()
 
     def acknowledge_provider_apply_settings(self, intent: ProviderApplyIntent) -> None:
-        if self.external_settings_conflict:
-            self._show_external_conflict()
-            return
         snapshot = self._provider_snapshot
         if snapshot is None:
             return
@@ -3674,91 +3669,33 @@ class SettingsView(ft.Column):
             self._provider_draft = None
 
     def acknowledge_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
-        if self.external_settings_conflict:
-            self._show_external_conflict()
-            return
         if self._prompt_snapshot is None:
             return
         self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=intent.value)
         self._stage_prompt_draft(self._prompt_editor.value)
 
-    def _show_external_conflict(self) -> None:
-        if not self.external_settings_conflict or self.page is None:
+    def _rebase_provider_draft(self, provider: ProviderSettingsSnapshot) -> None:
+        if self._provider_draft is None:
             return
-        if self._external_conflict_dialog is not None:
-            return
-
-        def resolve(keep_draft: bool) -> None:
-            dialog = self._external_conflict_dialog
-            if dialog is not None:
-                self.page.pop_dialog()
-            self._external_conflict_dialog = None
-            self.external_settings_conflict = False
-            if not keep_draft:
-                self._provider_draft = None
-                self._provider_edits.clear()
-                self.has_provider_changes = False
-                self.has_pending_prompt_changes = False
-                if all(
-                    (
-                        self._provider_snapshot,
-                        self._general_snapshot,
-                        self._prompt_snapshot,
-                        self._overlay_snapshot,
-                        self._config_path,
-                    )
-                ):
-                    self.load_from_settings(
-                        provider=self._provider_snapshot,
-                        general=self._general_snapshot,
-                        prompt=self._prompt_snapshot,
-                        overlay=self._overlay_snapshot,
-                        config_path=self._config_path,
-                    )
-
-        self._external_conflict_dialog = ft.AlertDialog(
-            title=ft.Text("Settings changed externally"),
-            content=ft.Text(
-                "Your staged changes are preserved. Choose whether to keep your draft and overwrite conflicting fields on the next apply, or discard your draft and use the latest settings."
-            ),
-            actions=[
-                ft.TextButton("Use latest", on_click=lambda _: resolve(False)),
-                ft.TextButton("Keep my draft", on_click=lambda _: resolve(True)),
-            ],
-        )
-        self.page.show_dialog(self._external_conflict_dialog)
-
-    def _rebase_provider_draft(self, provider: ProviderSettingsSnapshot) -> bool:
-        old = self._provider_snapshot
-        draft = self._provider_draft
-        if old is None or draft is None:
-            return False
         updates: dict[str, object] = {}
         translation_updates: dict[str, object] = {}
-        conflict = False
-        for edit_type in self._provider_edits:
+        for edit_type, edit in self._provider_edits.items():
             field_name = _DRAFT_PROVIDER_FIELDS.get(edit_type)
-            if field_name == "translation":
-                for name in ("model", "connection", "connection_history", "previous_llm_model"):
-                    previous = getattr(old.translation, name)
-                    staged = getattr(draft.translation, name)
-                    incoming = getattr(provider.translation, name)
-                    if previous != staged:
-                        conflict |= previous != incoming and staged != incoming
-                        translation_updates[name] = staged
+            if edit_type is TranslationSelectionEdit:
+                selection = edit.selection
+                history = dict(provider.translation.connection_history)
+                history.update(edit.history_updates)
+                translation_updates.update(
+                    model=selection.model,
+                    connection=selection.connection,
+                    connection_history=tuple(history.items()),
+                    previous_llm_model=selection.previous_llm_model,
+                )
             elif field_name is not None:
-                previous = getattr(old, field_name)
-                staged = getattr(draft, field_name)
-                incoming = getattr(provider, field_name)
-                conflict |= previous != incoming and staged != incoming
-                updates[field_name] = staged
+                updates[field_name] = getattr(edit, fields(edit)[0].name)
             translation_field = _DRAFT_TRANSLATION_FIELDS.get(edit_type)
             if translation_field is not None:
-                previous = getattr(old.translation, translation_field)
-                staged = getattr(draft.translation, translation_field)
-                incoming = getattr(provider.translation, translation_field)
-                conflict |= previous != incoming and staged != incoming
-                translation_updates[translation_field] = staged
+                translation_updates[translation_field] = getattr(edit, fields(edit)[0].name)
         if translation_updates:
             updates["translation"] = replace(provider.translation, **translation_updates)
         self._provider_draft = replace(provider, **updates)
@@ -3766,10 +3703,6 @@ class SettingsView(ft.Column):
             self._provider_draft = self._provider_snapshot_with_translation(
                 self._provider_draft, self._provider_draft.translation
             )
-            self._provider_edits[TranslationSelectionEdit] = self._translation_selection_edit(
-                self._provider_draft.translation
-            )
-        return conflict
 
     # --- Load Settings ---
     def load_from_settings(
@@ -3783,16 +3716,9 @@ class SettingsView(ft.Column):
         preserve_custom_vocab_draft: bool = False,
     ) -> None:
         """Load current settings into the UI."""
-        conflict = self._rebase_provider_draft(provider)
+        self._rebase_provider_draft(provider)
         draft = self._provider_draft
         prompt_draft = self._prompt_editor.value if self.has_pending_prompt_changes else None
-        previous_prompt = self._prompt_snapshot
-        if prompt_draft is not None and previous_prompt is not None:
-            conflict |= (
-                previous_prompt.system_prompt != prompt.system_prompt
-                and prompt_draft != prompt.system_prompt
-            )
-        self.external_settings_conflict |= conflict
         self._provider_snapshot = provider
         self._general_snapshot = general
         self._prompt_snapshot = prompt
@@ -6466,9 +6392,6 @@ class SettingsView(ft.Column):
             return
         self._stage_prompt_draft(value)
         if self.has_provider_changes:
-            return
-        if self.external_settings_conflict:
-            self._show_external_conflict()
             return
         if self.has_pending_prompt_changes:
             self._emit_prompt_apply_settings(PromptApplyIntent(value))
