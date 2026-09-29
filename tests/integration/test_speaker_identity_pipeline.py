@@ -284,9 +284,7 @@ async def test_provider_speaker_availability_is_visible_on_peer_output(
         event_type = "translation_final" if translate else "peer_transcript_final"
         matching = [event for event in overlay.events if getattr(event, "type", None) == event_type]
         assert len(matching) == 1
-        assert (
-            matching[0].source_text if translate else matching[0].text
-        ) == "Alice"
+        assert (matching[0].source_text if translate else matching[0].text) == "Alice"
         blocks = presenter.snapshot().blocks
         assert len(blocks) == 1
         assert blocks[0].speaker_style == style

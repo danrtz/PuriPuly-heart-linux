@@ -81,7 +81,12 @@ class ControlEvents:
             while True:
                 oldest = self.history[0]["sequence"] if self.history else self.sequence + 1
                 if cursor < oldest - 1:
-                    yield {"sequence": oldest - 1, "topic": "gap", "after": cursor, "snapshot_required": True}
+                    yield {
+                        "sequence": oldest - 1,
+                        "topic": "gap",
+                        "after": cursor,
+                        "snapshot_required": True,
+                    }
                     cursor = oldest - 1
                     continue
                 if cursor < self.sequence:
@@ -99,7 +104,10 @@ class ControlEvents:
                         if channel is not None and entry.get("channel") not in (None, channel):
                             continue
                         projected = dict(entry)
-                        if not ((entry.get("topic") == "transcript" and include_transcripts) or (entry.get("topic") == "translation" and include_translations)):
+                        if not (
+                            (entry.get("topic") == "transcript" and include_transcripts)
+                            or (entry.get("topic") == "translation" and include_translations)
+                        ):
                             projected.pop("text", None)
                         yield projected
                 await queue.get()

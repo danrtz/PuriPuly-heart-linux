@@ -29,11 +29,15 @@ class _HeadlessDashboard:
     def publish_status(self, status: str) -> None:
         self.status = status
 
-    def publish_transcript(self, text: str, *, language_code: str | None = None, debug_prefix: str | None = None) -> bool:
+    def publish_transcript(
+        self, text: str, *, language_code: str | None = None, debug_prefix: str | None = None
+    ) -> bool:
         self.transcript = text
         return True
 
-    def publish_translation(self, text: str, *, language_code: str | None = None, debug_prefix: str | None = None) -> bool:
+    def publish_translation(
+        self, text: str, *, language_code: str | None = None, debug_prefix: str | None = None
+    ) -> bool:
         self.translation = text
         return True
 
@@ -42,7 +46,9 @@ class _HeadlessDashboard:
 
 
 class _HeadlessHistory:
-    def append_entry(self, source: str, text: str, *, translated: bool = False, language_code: str | None = None) -> None:
+    def append_entry(
+        self, source: str, text: str, *, translated: bool = False, language_code: str | None = None
+    ) -> None:
         pass
 
 
@@ -103,7 +109,9 @@ class HeadlessApplicationPresentation:
             except Exception:
                 logger.exception("Headless application scheduled task failed")
 
-    def create_ui_event_bridge(self, *, event_queue: object, runtime_logging: object) -> UIEventBridge:
+    def create_ui_event_bridge(
+        self, *, event_queue: object, runtime_logging: object
+    ) -> UIEventBridge:
         app = self.application
         if app is None:
             raise RuntimeError("headless application is not attached")
@@ -141,14 +149,35 @@ class HeadlessApplicationPresentation:
     def set_dashboard_managed_auth_pending(self, pending: bool) -> None:
         self._remember("managed_auth_pending", pending)
 
-    def set_dashboard_gpu_state(self, *, devices: tuple, state: str, progress_percent: int | None, notice: object | None, publish_notice: bool) -> None:
-        self._remember("gpu", {"devices": devices, "state": state, "progress_percent": progress_percent, "notice": notice})
+    def set_dashboard_gpu_state(
+        self,
+        *,
+        devices: tuple,
+        state: str,
+        progress_percent: int | None,
+        notice: object | None,
+        publish_notice: bool,
+    ) -> None:
+        self._remember(
+            "gpu",
+            {
+                "devices": devices,
+                "state": state,
+                "progress_percent": progress_percent,
+                "notice": notice,
+            },
+        )
 
     def set_dashboard_llm_gpu_devices(self, *, devices: tuple) -> None:
         self._remember("llm_gpu_devices", devices)
 
-    def set_dashboard_local_stt_notice(self, *, status: str | None, model_id: str | None, percent: int | None, starting: bool) -> None:
-        self._remember("local_stt", {"status": status, "model_id": model_id, "percent": percent, "starting": starting})
+    def set_dashboard_local_stt_notice(
+        self, *, status: str | None, model_id: str | None, percent: int | None, starting: bool
+    ) -> None:
+        self._remember(
+            "local_stt",
+            {"status": status, "model_id": model_id, "percent": percent, "starting": starting},
+        )
 
     def set_dashboard_managed_gemma_notice(self, notice: object | None) -> None:
         self._remember("managed_gemma", notice)
@@ -168,11 +197,22 @@ class HeadlessApplicationPresentation:
     def project_osc_control_state(self, state: object) -> None:
         self._remember("osc_state", state)
 
-    def render_settings(self, *, provider: object, general: object, prompt: object, overlay: object, config_path: Path, preserve_custom_vocab_draft: bool = False) -> bool:
+    def render_settings(
+        self,
+        *,
+        provider: object,
+        general: object,
+        prompt: object,
+        overlay: object,
+        config_path: Path,
+        preserve_custom_vocab_draft: bool = False,
+    ) -> bool:
         self._remember("settings", (provider, general, prompt, overlay))
         return True
 
-    def refresh_settings_after_openrouter_pkce_success(self, *, provider: object, prompt: object, config_path: Path) -> bool:
+    def refresh_settings_after_openrouter_pkce_success(
+        self, *, provider: object, prompt: object, config_path: Path
+    ) -> bool:
         self._remember("provider", provider)
         self._remember("prompt", prompt)
         return True
@@ -186,8 +226,22 @@ class HeadlessApplicationPresentation:
     def set_settings_local_cpu_auto_available(self, available: bool) -> None:
         self._remember("local_cpu_auto", available)
 
-    def set_settings_managed_key_state(self, *, visible: bool, remaining_percent: int | None, referral_id: str | None, pass_status: object | None) -> None:
-        self._remember("managed_key", {"visible": visible, "remaining_percent": remaining_percent, "pass_status": pass_status})
+    def set_settings_managed_key_state(
+        self,
+        *,
+        visible: bool,
+        remaining_percent: int | None,
+        referral_id: str | None,
+        pass_status: object | None,
+    ) -> None:
+        self._remember(
+            "managed_key",
+            {
+                "visible": visible,
+                "remaining_percent": remaining_percent,
+                "pass_status": pass_status,
+            },
+        )
 
     def add_history_entry(self, *args: Any, **kwargs: Any) -> None:
         pass
@@ -250,20 +304,28 @@ class HeadlessApplicationPresentation:
             await app.close_managed_auth_tasks()
 
 
-def compose_headless_application(config_path: Path, *, runtime_logging_sinks: RuntimeLoggingSinks | None = None) -> UiApplicationPort:
+def compose_headless_application(
+    config_path: Path, *, runtime_logging_sinks: RuntimeLoggingSinks | None = None
+) -> UiApplicationPort:
     detach_privacy_filter = install_headless_console_privacy_filter(runtime_logging_sinks)
     try:
         presentation = HeadlessApplicationPresentation()
-        application = compose_application_runtime(presentation=presentation, config_path=config_path, runtime_logging_sinks=runtime_logging_sinks)
+        application = compose_application_runtime(
+            presentation=presentation,
+            config_path=config_path,
+            runtime_logging_sinks=runtime_logging_sinks,
+        )
         presentation.application = application
-        application.register_application_shutdown_callbacks((
-            application_shutdown_callback(
-                phase=SHUTDOWN_PHASE_CLOSE_LOGGING_DIAGNOSTICS,
-                owner_name="HeadlessConsolePrivacy",
-                callback_name="detach_console_filter",
-                callback=detach_privacy_filter,
-            ),
-        ))
+        application.register_application_shutdown_callbacks(
+            (
+                application_shutdown_callback(
+                    phase=SHUTDOWN_PHASE_CLOSE_LOGGING_DIAGNOSTICS,
+                    owner_name="HeadlessConsolePrivacy",
+                    callback_name="detach_console_filter",
+                    callback=detach_privacy_filter,
+                ),
+            )
+        )
         return application
     except BaseException:
         detach_privacy_filter()

@@ -247,7 +247,9 @@ class ControlServer:
             await self._send_error(writer, request_id, exc.code, str(exc))
         except self._unknown_operation_error:
             await self._send_error(
-                writer, request_id, "unknown_or_expired_operation",
+                writer,
+                request_id,
+                "unknown_or_expired_operation",
                 "Operation identity is unknown or expired in this application instance",
             )
         except Exception:

@@ -160,6 +160,7 @@ async def test_adapter_reports_route_miss_without_opening_source() -> None:
     assert meter == [0.0, 0.0]
     assert logs == ["[MicTest] failed cause=unavailable"]
 
+
 @pytest.mark.asyncio
 async def test_missing_route_does_not_report_ready_or_successful_capture() -> None:
     adapter = MicrophoneTestCaptureAdapter(

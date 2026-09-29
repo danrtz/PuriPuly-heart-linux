@@ -533,7 +533,11 @@ class ManagedOpenRouterReleaseService:
         referral_id: str | None = None,
         allow_authorization: bool = True,
     ) -> ManagedOpenRouterReleaseResult:
-        if not allow_authorization and self._prepare_task is not None and not self._prepare_task.done():
+        if (
+            not allow_authorization
+            and self._prepare_task is not None
+            and not self._prepare_task.done()
+        ):
             return ManagedOpenRouterReleaseResult(
                 behavior=ManagedOpenRouterReleaseBehavior.RESTART,
                 message_key="discord_auth.error.action_required",
@@ -899,7 +903,10 @@ class ManagedOpenRouterReleaseService:
         if pending_operation_result is not None:
             return pending_operation_result
 
-        if not allow_authorization and _normalize_optional_text(self.managed_state.release_token) is None:
+        if (
+            not allow_authorization
+            and _normalize_optional_text(self.managed_state.release_token) is None
+        ):
             return ManagedOpenRouterReleaseResult(
                 behavior=ManagedOpenRouterReleaseBehavior.RESTART,
                 message_key="discord_auth.error.action_required",

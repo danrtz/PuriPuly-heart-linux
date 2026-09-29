@@ -57,7 +57,9 @@ class ApplicationRuntimeLoggingOwner:
 
     def emit_basic(self, message: str, *, level: int = logging.INFO) -> None:
         if self.control_event_sink is not None:
-            self.control_event_sink({"topic": "logs", "level": logging.getLevelName(level).lower(), "kind": "basic"})
+            self.control_event_sink(
+                {"topic": "logs", "level": logging.getLevelName(level).lower(), "kind": "basic"}
+            )
         try:
             self.service.emit_basic(message, level=level)
         except Exception:
@@ -77,7 +79,13 @@ class ApplicationRuntimeLoggingOwner:
     ) -> bool:
         rendered_message = message
         if self.control_event_sink is not None:
-            self.control_event_sink({"topic": "logs", "level": logging.getLevelName(level).lower(), "kind": "diagnostic"})
+            self.control_event_sink(
+                {
+                    "topic": "logs",
+                    "level": logging.getLevelName(level).lower(),
+                    "kind": "diagnostic",
+                }
+            )
         if exception is not None:
             rendered_message = f"{message} exception_type={type(exception).__name__}"
         try:

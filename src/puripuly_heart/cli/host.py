@@ -77,11 +77,11 @@ class HostedApplication:
 async def run_headless(config_path: Path, *, ready_file: Path | None = None) -> int:
     from puripuly_heart.composition.headless_application import compose_headless_application
     from puripuly_heart.core.control_instance import acquire
+
     if os.name == "nt":
         from puripuly_heart.core.windows_process_ownership import retain_current_process_job
 
         retain_current_process_job()
-
 
     lease = acquire(config_path)
     host: HostedApplication | None = None

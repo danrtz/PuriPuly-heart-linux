@@ -175,7 +175,8 @@ class OscControlIntegrationOwner:
             "configured_receive_port": configured[3] if configured is not None else None,
             "effective_mode": self._mode if configured is not None and not self._closed else "off",
             "effective_send_port": (
-                sender.port if sender_available and isinstance(getattr(sender, "port", None), int)
+                sender.port
+                if sender_available and isinstance(getattr(sender, "port", None), int)
                 else self.effective_send_port if sender_available else None
             ),
             "effective_receive_port": (
@@ -187,13 +188,13 @@ class OscControlIntegrationOwner:
             "query_advertised_port": query.advertised_port,
             "discovered_remote": (
                 {"host": query.service_info.host, "send_port": query.service_info.osc_send_port}
-                if query.service_info is not None else None
+                if query.service_info is not None
+                else None
             ),
             "query_failure": self._query_failure,
             "local_availability": availability,
             "remote_delivery": "unacknowledged",
         }
-
 
     def lifecycle_owner_snapshot(self) -> dict[str, object]:
         return {

@@ -408,7 +408,6 @@ def main(argv: list[str] | None = None) -> int:
         settings_config_path, _ = _settings_config_path(args)
         return _run_installer_telemetry_preference(settings_config_path, args.action)
 
-
     settings_config_path, explicit_settings_config = _settings_config_path(args)
     debug_ui_preview = bool(getattr(args, "debug_ui_preview", False))
     logging_sinks = configure_main_logging(

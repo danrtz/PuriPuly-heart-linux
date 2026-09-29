@@ -68,7 +68,11 @@ async def isolated_composed_logging(tmp_path, monkeypatch):
 
 def _application(path: Path, *, desktop: bool = False, positioned: bool = False):
     settings = AppSettingsVNext()
-    position = DesktopFletOverlayPositionIntent(x=140, y=85) if positioned else settings.intent.overlay.desktop_flet.position
+    position = (
+        DesktopFletOverlayPositionIntent(x=140, y=85)
+        if positioned
+        else settings.intent.overlay.desktop_flet.position
+    )
     settings = replace(
         settings,
         intent=replace(
@@ -117,9 +121,13 @@ def _connect(application, bridge: ControlledBridge | None) -> None:
 @pytest.mark.asyncio
 async def test_lock_reports_unavailable_and_failed_bridge_without_changing_mode(tmp_path: Path):
     application, _owner = _application(tmp_path / "settings.json", desktop=True)
-    assert (await application.set_desktop_overlay_captions_locked(True))["status"] == "action_required"
+    assert (await application.set_desktop_overlay_captions_locked(True))[
+        "status"
+    ] == "action_required"
     _connect(application, None)
-    assert (await application.set_desktop_overlay_captions_locked(True))["reason"] == "desktop_bridge_unavailable"
+    assert (await application.set_desktop_overlay_captions_locked(True))[
+        "reason"
+    ] == "desktop_bridge_unavailable"
     failing = ControlledBridge(fails_at=1)
     _connect(application, failing)
     assert (await application.set_desktop_overlay_captions_locked(True))["status"] == "failed"
@@ -132,11 +140,17 @@ async def test_lock_reports_unavailable_and_failed_bridge_without_changing_mode(
 
 
 @pytest.mark.asyncio
-async def test_size_reports_failed_save_and_idempotent_persisted_configuration(tmp_path: Path, monkeypatch):
+async def test_size_reports_failed_save_and_idempotent_persisted_configuration(
+    tmp_path: Path, monkeypatch
+):
     path = tmp_path / "settings.json"
     application, owner = _application(path)
     baseline = _persisted_desktop(path)
-    next_preset = next(preset for preset in application._overlay.desktop.policy.size_presets if preset != baseline["size_preset"])
+    next_preset = next(
+        preset
+        for preset in application._overlay.desktop.policy.size_presets
+        if preset != baseline["size_preset"]
+    )
     persist = owner.persistence.persist
 
     def locked_file(_path, _settings):
@@ -155,14 +169,19 @@ async def test_size_reports_failed_save_and_idempotent_persisted_configuration(t
 
 
 @pytest.mark.asyncio
-async def test_reset_requires_desktop_and_preserves_position_when_save_fails(tmp_path: Path, monkeypatch):
+async def test_reset_requires_desktop_and_preserves_position_when_save_fails(
+    tmp_path: Path, monkeypatch
+):
     path = tmp_path / "settings.json"
     application, owner = _application(path, positioned=True)
     assert (await application.reset_desktop_overlay_position())["status"] == "action_required"
     assert _persisted_desktop(path)["position"] == {"x": 140, "y": 85}
     owner.canonical = replace(
         owner.canonical,
-        intent=replace(owner.canonical.intent, overlay=replace(owner.canonical.intent.overlay, target=OVERLAY_TARGET_DESKTOP)),
+        intent=replace(
+            owner.canonical.intent,
+            overlay=replace(owner.canonical.intent.overlay, target=OVERLAY_TARGET_DESKTOP),
+        ),
     )
     owner.persistence.persist(path, owner.canonical)
     application._settings.projection.remember_all(owner.canonical)

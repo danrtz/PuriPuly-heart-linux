@@ -406,12 +406,12 @@ class TranslatorApp:
 
     async def _on_page_lifecycle_end(self, _event=None) -> None:
         await self.shutdown()
+
     async def close_presentation(self) -> None:
         self._window_close_requested = True
         result = self.page.window.destroy()
         if inspect.isawaitable(result):
             await result
-
 
     def _on_window_event(self, event) -> None:
         event_type = getattr(event, "type", getattr(event, "data", None))
@@ -1061,6 +1061,7 @@ class TranslatorApp:
             if self.view_settings.has_provider_changes:
                 pending_settings = self.view_settings.build_provider_apply_settings()
                 if pending_settings is not None:
+
                     async def _task():
                         if self.view_settings.external_settings_conflict:
                             self.view_settings._show_external_conflict()
@@ -1506,7 +1507,9 @@ class TranslatorApp:
             return
 
         pending_intent = None
-        build_provider_apply_settings = getattr(view_settings, "build_provider_apply_settings", None)
+        build_provider_apply_settings = getattr(
+            view_settings, "build_provider_apply_settings", None
+        )
         if callable(build_provider_apply_settings) and getattr(
             view_settings, "has_provider_changes", False
         ):

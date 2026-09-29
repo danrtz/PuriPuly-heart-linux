@@ -88,13 +88,17 @@ class _OpenRouterPKCECallbackListener:
 
 class OpenRouterPKCEClient:
     def __init__(
-        self, *, callback_origin: str, open_browser: bool = True,
+        self,
+        *,
+        callback_origin: str,
+        open_browser: bool = True,
         authorization_url_sink: Callable[[str], None] | None = None,
     ):
         self.callback_origin = callback_origin.rstrip("/")
         self.current_authorization_url: str | None = None
         self.open_browser = open_browser
         self.authorization_url_sink = authorization_url_sink
+
     def build_session(self) -> OpenRouterPKCESession:
         code_verifier = secrets.token_urlsafe(64)
         code_challenge = _code_challenge(code_verifier)

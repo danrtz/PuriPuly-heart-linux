@@ -1826,8 +1826,6 @@ def test_translator_app_keeps_debug_ui_preview_out_of_controller(
     assert not hasattr(app._presentation_adapter, "app")
 
 
-
-
 def test_translator_app_4x3_window_keeps_shell_navigation_usable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2415,8 +2413,6 @@ async def test_qq_managed_auth_success_enables_translation_and_closes_dialog() -
     assert dashboard_translation_calls == [True]
 
 
-
-
 def test_managed_china_dashboard_prompt_opens_qq_auth_not_discord() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
@@ -2510,9 +2506,7 @@ async def test_start_qq_managed_auth_key_unavailable_stays_recoverable_and_trans
     async def fake_start_qq_managed_auth_from_dialog(**_kwargs):
         return "qq_auth.error.key_unavailable", {}
 
-    async def fake_set_translation_enabled(
-        _enabled: bool, *, allow_authorization: bool = True
-    ):
+    async def fake_set_translation_enabled(_enabled: bool, *, allow_authorization: bool = True):
         pytest.fail("key unavailable must not enable translation")
 
     controller = SimpleNamespace(
@@ -2655,7 +2649,6 @@ async def test_close_oauth_runtime_blocks_late_discord_auth_ui_mutation() -> Non
     assert snackbar_calls == []
     assert dashboard_translation_calls == []
     assert dialog.close_calls == 0
-
 
 
 @pytest.mark.asyncio
@@ -2896,8 +2889,6 @@ def test_peer_translation_disable_does_not_open_eula() -> None:
     assert enabled == [False]
 
 
-
-
 def test_gpu_provider_selection_alone_does_not_start_install() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
@@ -2951,8 +2942,6 @@ async def test_navigation_to_logs_scrolls_after_rendering() -> None:
     assert scrolled["count"] == 1
 
 
-
-
 @pytest.mark.asyncio
 async def test_prompt_apply_keeps_dashboard_target_for_next_request() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
@@ -2976,8 +2965,6 @@ async def test_prompt_apply_keeps_dashboard_target_for_next_request() -> None:
     assert len(app.page.tasks) == 1
     await app.page.tasks[0]()
     assert applied_targets == ["ja"]
-
-
 
 
 @pytest.mark.asyncio
@@ -3004,7 +2991,6 @@ async def test_start_microphone_test_success_shows_measured_level() -> None:
     assert "37%" in _dialog_text_values(app.page.opened[0])
 
 
-
 @pytest.mark.asyncio
 async def test_microphone_test_meter_callback_updates_modal_percentage() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
@@ -3028,7 +3014,6 @@ async def test_microphone_test_meter_callback_updates_modal_percentage() -> None
     callbacks[0](0.82)
 
     assert "82%" in _dialog_text_values(app.page.opened[0])
-
 
 
 @pytest.mark.asyncio
@@ -3129,9 +3114,6 @@ async def test_settings_apply_closes_microphone_test_modal_after_audio_cleanup()
     assert app.page.closed == [app.page.opened[0]]
 
 
-
-
-
 def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
@@ -3159,6 +3141,7 @@ def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active(
     app._on_request_openrouter_pkce(target, launch_source="settings")
 
     assert reopen_calls == ["reopen"]
+
 
 @pytest.mark.asyncio
 async def test_on_request_openrouter_pkce_coalesces_while_active_and_allows_retry() -> None:
@@ -3197,8 +3180,6 @@ async def test_on_request_openrouter_pkce_coalesces_while_active_and_allows_retr
     for task in tuple(tasks[len(first_batch) :]):
         await task()
     assert pkce_calls == ["settings", "settings"]
-
-
 
 
 def test_on_nav_change_closes_open_dialog_before_switching_tabs() -> None:
@@ -3334,8 +3315,6 @@ def test_on_overlay_state_changed_updates_settings_view_runtime_state() -> None:
     ]
 
 
-
-
 @pytest.mark.asyncio
 async def test_local_llm_secret_changed_forces_local_llm_rebuild() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
@@ -3393,9 +3372,7 @@ def test_toggle_handlers_do_not_log_click_requests() -> None:
 
     controller = RuntimeLoggingController()
 
-    async def fake_translation(
-        enabled: bool, *, allow_authorization: bool = True
-    ) -> None:
+    async def fake_translation(enabled: bool, *, allow_authorization: bool = True) -> None:
         _ = enabled
 
     async def fake_stt(enabled: bool) -> None:

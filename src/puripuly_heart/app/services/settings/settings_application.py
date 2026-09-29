@@ -780,6 +780,7 @@ def materialize_language_selection(
         ),
     )
 
+
 @dataclass(slots=True)
 class SettingsApplicationOwner:
     settings: SettingsOwner
@@ -1023,11 +1024,13 @@ class SettingsApplicationOwner:
                 )
             else:
                 if persist:
-                    self._set_result(TransactionResult(
-                        status=TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
-                        message=None,
-                        diagnostics=None,
-                    ))
+                    self._set_result(
+                        TransactionResult(
+                            status=TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
+                            message=None,
+                            diagnostics=None,
+                        )
+                    )
             self.projection.remember_all(self.settings.canonical)
             return True
         finally:

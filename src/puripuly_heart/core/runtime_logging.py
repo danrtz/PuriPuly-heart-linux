@@ -285,8 +285,10 @@ class _HeadlessConsolePrivacyFilter(logging.Filter):
 def install_headless_console_privacy_filter(
     sinks: RuntimeLoggingSinks | None = None,
 ) -> Callable[[], None]:
-    stream_handler = sinks.stream_handler if sinks is not None else _find_main_stream_handler(
-        logging.getLogger()
+    stream_handler = (
+        sinks.stream_handler
+        if sinks is not None
+        else _find_main_stream_handler(logging.getLogger())
     )
     if stream_handler is None:
         return lambda: None
@@ -298,6 +300,7 @@ def install_headless_console_privacy_filter(
             stream_handler.removeFilter(privacy_filter)
 
     return detach
+
 
 class _BatchingRotatingFileHandler(RotatingFileHandler):
     def __init__(self, *args: object, **kwargs: object) -> None:

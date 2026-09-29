@@ -260,7 +260,9 @@ async def test_managed_ready_sequences_pending_and_runtime_rebuild() -> None:
 
 
 @pytest.mark.asyncio
-async def test_noninteractive_enable_preserves_action_required_without_gui_or_usage_refresh() -> None:
+async def test_noninteractive_enable_preserves_action_required_without_gui_or_usage_refresh() -> (
+    None
+):
     state_box = [_state(managed_selected=True, managed_release_service_available=True)]
     policies: list[bool] = []
     usage_refreshes: list[str] = []

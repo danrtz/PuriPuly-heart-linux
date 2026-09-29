@@ -275,8 +275,12 @@ async def test_stopped_generation_rejects_late_meter_readiness_and_failure() -> 
     owner.mark_failure(generation, "input_route_unavailable", "DeviceUnavailable")
     owner.mark_ready(generation)
     assert owner.snapshot == {
-        "state": "off", "desired_active": False, "effective_active": False,
-        "meter_level": 0.0, "failure_reason": None, "failure_type": None,
+        "state": "off",
+        "desired_active": False,
+        "effective_active": False,
+        "meter_level": 0.0,
+        "failure_reason": None,
+        "failure_type": None,
     }
 
 

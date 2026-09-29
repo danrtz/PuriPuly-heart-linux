@@ -540,9 +540,11 @@ class ProviderRuntimeApplyAdapter:
                 logger,
                 "[Settings] provider_apply_failed operation=%s cause=%s",
                 self.operation,
-                unavailable_result.diagnostics.code
-                if unavailable_result.diagnostics is not None
-                else "provider_runtime_apply_unavailable",
+                (
+                    unavailable_result.diagnostics.code
+                    if unavailable_result.diagnostics is not None
+                    else "provider_runtime_apply_unavailable"
+                ),
                 level=logging.WARNING,
             )
             return unavailable_result

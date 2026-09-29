@@ -3669,7 +3669,15 @@ class SettingsView(ft.Column):
                 self._provider_edits.clear()
                 self.has_provider_changes = False
                 self.has_pending_prompt_changes = False
-                if all((self._provider_snapshot, self._general_snapshot, self._prompt_snapshot, self._overlay_snapshot, self._config_path)):
+                if all(
+                    (
+                        self._provider_snapshot,
+                        self._general_snapshot,
+                        self._prompt_snapshot,
+                        self._overlay_snapshot,
+                        self._config_path,
+                    )
+                ):
                     self.load_from_settings(
                         provider=self._provider_snapshot,
                         general=self._general_snapshot,
@@ -3680,7 +3688,9 @@ class SettingsView(ft.Column):
 
         self._external_conflict_dialog = ft.AlertDialog(
             title=ft.Text("Settings changed externally"),
-            content=ft.Text("Your staged changes are preserved. Choose whether to keep your draft and overwrite conflicting fields on the next apply, or discard your draft and use the latest settings."),
+            content=ft.Text(
+                "Your staged changes are preserved. Choose whether to keep your draft and overwrite conflicting fields on the next apply, or discard your draft and use the latest settings."
+            ),
             actions=[
                 ft.TextButton("Use latest", on_click=lambda _: resolve(False)),
                 ft.TextButton("Keep my draft", on_click=lambda _: resolve(True)),

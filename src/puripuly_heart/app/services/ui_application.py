@@ -127,13 +127,24 @@ UI_APPLICATION_USER_INTENT_METHODS = frozenset(
 )
 
 
-_ORDERED_INTENTS = frozenset({
-    "apply_loopback_capture_option", "apply_providers", "apply_settings",
-    "apply_settings_intent", "apply_prompt_intent", "apply_provider_intent",
-    "apply_telemetry_enabled", "on_dashboard_language_change",
-    "set_stt_enabled", "set_peer_translation_enabled", "set_translation_enabled",
-    "set_overlay_enabled", "persist_provider_secret_change",
-})
+_ORDERED_INTENTS = frozenset(
+    {
+        "apply_loopback_capture_option",
+        "apply_providers",
+        "apply_settings",
+        "apply_settings_intent",
+        "apply_prompt_intent",
+        "apply_provider_intent",
+        "apply_telemetry_enabled",
+        "on_dashboard_language_change",
+        "set_stt_enabled",
+        "set_peer_translation_enabled",
+        "set_translation_enabled",
+        "set_overlay_enabled",
+        "persist_provider_secret_change",
+    }
+)
+
 
 def _guard_application_intent(method: Callable[..., Any]) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(method):
@@ -142,7 +153,11 @@ def _guard_application_intent(method: Callable[..., Any]) -> Callable[..., Any]:
         async def invoke_async(self, *args: Any, **kwargs: Any) -> Any:
             self._admit_application_intent(method.__name__)
             control = self._control
-            if method.__name__ not in _ORDERED_INTENTS or control is None or control.lock_owned_by_current_task():
+            if (
+                method.__name__ not in _ORDERED_INTENTS
+                or control is None
+                or control.lock_owned_by_current_task()
+            ):
                 return await method(self, *args, **kwargs)
             capture_off = (
                 method.__name__ in {"set_stt_enabled", "set_peer_translation_enabled"}
@@ -248,6 +263,7 @@ class UiApplicationBoundary:
 
     def attach_control(self, control: ApplicationControl) -> None:
         self._control = control
+
     def bind_presentation_close(self, callback: Callable[[], Awaitable[None]]) -> None:
         if self._presentation_close is not None:
             raise RuntimeError("presentation close is already bound")
@@ -258,7 +274,6 @@ class UiApplicationBoundary:
         if callback is None:
             raise RuntimeError("GUI presentation close is unavailable")
         await callback()
-
 
     def http_extension_registry(self) -> object | None:
         return self._http_extension_registry
@@ -279,7 +294,6 @@ class UiApplicationBoundary:
 
     async def wait_overlay_transition(self) -> dict[str, object]:
         return await self._overlay.wait_overlay_transition()
-
 
     def compatibility_settings(self) -> AppSettingsVNext | None:
         return self._state_owner.compatibility_settings()
@@ -396,9 +410,12 @@ class UiApplicationBoundary:
     def set_manual_input_activity(self, has_text: bool) -> None:
         self._input_runtime.set_manual_input_activity(has_text)
 
-    async def set_translation_enabled(self, enabled: bool, *, allow_authorization: bool = True) -> object:
+    async def set_translation_enabled(
+        self, enabled: bool, *, allow_authorization: bool = True
+    ) -> object:
         result = await self._input_runtime.set_translation_enabled(
-            enabled, allow_authorization=allow_authorization,
+            enabled,
+            allow_authorization=allow_authorization,
         )
         await self._publish_osc_state()
         return result
@@ -641,7 +658,10 @@ class UiApplicationBoundary:
         return self.state().provider_name == "local_llm"
 
     async def connect_openrouter_via_pkce(
-        self, *, target: OpenRouterPkceTarget, launch_source: str,
+        self,
+        *,
+        target: OpenRouterPkceTarget,
+        launch_source: str,
         open_browser: bool = True,
         authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:

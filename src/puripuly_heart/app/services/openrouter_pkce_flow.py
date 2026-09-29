@@ -76,7 +76,9 @@ class OpenRouterPkceFlowOwner:
         return self._runtime
 
     async def run_flow(
-        self, *, open_browser: bool = True,
+        self,
+        *,
+        open_browser: bool = True,
         authorization_url_sink: Callable[[str], None] | None = None,
     ) -> OpenRouterPKCEExchangeResult:
         client = self.client_factory()
@@ -144,7 +146,8 @@ class OpenRouterPkceApplicationOwner:
                 result = await self.flow.run_flow()
             else:
                 result = await self.flow.run_flow(
-                    open_browser=open_browser, authorization_url_sink=authorization_url_sink,
+                    open_browser=open_browser,
+                    authorization_url_sink=authorization_url_sink,
                 )
         except Exception:
             self._fail(

@@ -335,7 +335,6 @@ class OverlayApplicationOwner:
             "ingress_stopped": self._ingress_stopped,
         }
 
-
     @property
     def startup_recovery(self) -> dict[str, object] | None:
         recovery = self._startup_recovery
@@ -456,8 +455,10 @@ class OverlayApplicationOwner:
                     raise
                 if self._ingress_stopped:
                     break
-            if self._state == "connected" or self._state in {"failed", "off"} and not (
-                self._fallback_owner.active and self._fallback_owner.task is not None
+            if (
+                self._state == "connected"
+                or self._state in {"failed", "off"}
+                and not (self._fallback_owner.active and self._fallback_owner.task is not None)
             ):
                 break
         return self.output_snapshot()

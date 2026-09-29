@@ -101,7 +101,9 @@ class UiInputRuntimeAdapter:
     def set_manual_input_activity(self, has_text: bool) -> None:
         self.manual_typing.set_input_activity(has_text)
 
-    async def set_translation_enabled(self, enabled: bool, *, allow_authorization: bool = True) -> object:
+    async def set_translation_enabled(
+        self, enabled: bool, *, allow_authorization: bool = True
+    ) -> object:
         return await self.translation.set_enabled(enabled, allow_authorization=allow_authorization)
 
     async def set_stt_enabled(self, enabled: bool) -> object:
@@ -174,12 +176,12 @@ class UiOverlayRuntimeAdapter:
 
     async def set_overlay_enabled(self, enabled: bool) -> object:
         return await self.overlay.set_enabled(enabled)
+
     async def wait_overlay_transition(self) -> dict[str, object]:
         return {
             **await self.overlay.wait_start_outcome(),
             "calibration_draft_active": self.calibration.draft is not None,
         }
-
 
     async def set_desktop_overlay_captions_locked(self, locked: bool) -> dict[str, str]:
         return await self.desktop.set_captions_locked(locked)

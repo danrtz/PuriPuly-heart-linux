@@ -234,10 +234,14 @@ class ProviderRuntimeEffects:
         )
         if not owner.snapshot.desired_active:
             channel = runtime.snapshot.channel_for("self") if runtime is not None else None
-            return False if (
-                owner.snapshot.failure_reason is not None
-                and (channel is None or channel.provider_id != expected.provider_id)
-            ) else None
+            return (
+                False
+                if (
+                    owner.snapshot.failure_reason is not None
+                    and (channel is None or channel.provider_id != expected.provider_id)
+                )
+                else None
+            )
         if runtime is None:
             return False
         capture = owner.snapshot

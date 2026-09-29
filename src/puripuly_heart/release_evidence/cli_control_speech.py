@@ -4,6 +4,7 @@ Run with --report in a private directory outside the checkout. This tool uses th
 actual CLI, captured devices, cloud providers, and the existing credential store;
 it never supplies secrets or creates peer consent.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +52,9 @@ def _wav(path: Path) -> dict:
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-        capture_output=True, timeout=30, check=False,
+        capture_output=True,
+        timeout=30,
+        check=False,
     )
     if result.returncode:
         raise EvidenceFailure("offline_sapi_fixture_unavailable")
@@ -62,10 +65,15 @@ def _wav(path: Path) -> dict:
     if channels not in (1, 2) or width != 2 or rate <= 0 or count / rate < 1:
         raise EvidenceFailure("offline_sapi_fixture_invalid_pcm")
     return {
-        "path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "phrase": PHRASE, "sample_rate_hz": rate, "channels": channels,
-        "sample_width_bytes": width, "duration_seconds": count / rate,
-        "samples": np.frombuffer(frames, dtype="<i2").reshape((-1, channels)).astype(np.float32) / 32768,
+        "path": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "phrase": PHRASE,
+        "sample_rate_hz": rate,
+        "channels": channels,
+        "sample_width_bytes": width,
+        "duration_seconds": count / rate,
+        "samples": np.frombuffer(frames, dtype="<i2").reshape((-1, channels)).astype(np.float32)
+        / 32768,
     }
 
 
@@ -73,13 +81,15 @@ def _cable_devices() -> tuple[int, str, str]:
     apis = sd.query_hostapis()
     all_devices = sd.query_devices()
     outputs = [
-        (index, device) for index, device in enumerate(all_devices)
+        (index, device)
+        for index, device in enumerate(all_devices)
         if apis[device["hostapi"]]["name"] == "Windows DirectSound"
         and device["max_output_channels"] > 0
         and "CABLE Input(VB-Audio Virtual Cable)" in device["name"]
     ]
     inputs = [
-        device for device in all_devices
+        device
+        for device in all_devices
         if apis[device["hostapi"]]["name"] == "Windows WASAPI"
         and device["max_input_channels"] > 0
         and "CABLE Output(VB-Audio Virtual Cable)" in device["name"]
@@ -91,7 +101,8 @@ def _cable_devices() -> tuple[int, str, str]:
     manager = pyaudio.PyAudio()
     try:
         loopbacks = [
-            info for info in manager.get_loopback_device_info_generator()
+            info
+            for info in manager.get_loopback_device_info_generator()
             if "CABLE Input(VB-Audio Virtual Cable)" in info["name"]
         ]
     finally:
@@ -102,10 +113,21 @@ def _cable_devices() -> tuple[int, str, str]:
 
 
 async def _cli(config: Path, *arguments: str, timeout: float = 90) -> dict:
-    command = [sys.executable, "-m", "puripuly_heart.main", "cli", "--config", str(config),
-               "--timeout", str(int(timeout)), *arguments]
+    command = [
+        sys.executable,
+        "-m",
+        "puripuly_heart.main",
+        "cli",
+        "--config",
+        str(config),
+        "--timeout",
+        str(int(timeout)),
+        *arguments,
+    ]
     process = await asyncio.create_subprocess_exec(
-        *command, stdin=subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+        *command,
+        stdin=subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     try:
@@ -119,11 +141,15 @@ async def _cli(config: Path, *arguments: str, timeout: float = 90) -> dict:
     except ValueError as exc:
         raise EvidenceFailure(f"cli_invalid_json_exit_{process.returncode}") from exc
     if process.returncode != 0 or not isinstance(result, dict):
-        raise EvidenceFailure(f"cli_{'.'.join(arguments[:2])}_exit_{process.returncode}_status_{result.get('status', 'unknown')}")
+        raise EvidenceFailure(
+            f"cli_{'.'.join(arguments[:2])}_exit_{process.returncode}_status_{result.get('status', 'unknown')}"
+        )
     return result
 
 
-async def _command(config: Path, name: str, values: dict, workdir: Path, *, timeout: float = 90) -> dict:
+async def _command(
+    config: Path, name: str, values: dict, workdir: Path, *, timeout: float = 90
+) -> dict:
     args_file = workdir / "control-arguments.json"
     args_file.write_text(json.dumps(values), encoding="utf-8")
     try:
@@ -141,10 +167,22 @@ async def _settings(config: Path, changes: dict, workdir: Path) -> None:
 
 async def _events(config: Path, channel: str, matches: list[dict]) -> None:
     process = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "puripuly_heart.main", "cli", "--config", str(config),
-        "events", "follow", "--topic", "transcript", "--channel", channel,
-        "--include-transcripts", stdin=subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        sys.executable,
+        "-m",
+        "puripuly_heart.main",
+        "cli",
+        "--config",
+        str(config),
+        "events",
+        "follow",
+        "--topic",
+        "transcript",
+        "--channel",
+        channel,
+        "--include-transcripts",
+        stdin=subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
     )
     try:
         while True:
@@ -162,8 +200,14 @@ async def _events(config: Path, channel: str, matches: list[dict]) -> None:
                 continue
             tokens = set(re.findall(r"[a-z]+", text.casefold()))
             if WORDS <= tokens:
-                matches.append({"sequence": item.get("sequence"), "utterance_id": item.get("utterance_id"),
-                                "source": item.get("source"), "matched_fixed_phrase_tokens": True})
+                matches.append(
+                    {
+                        "sequence": item.get("sequence"),
+                        "utterance_id": item.get("utterance_id"),
+                        "source": item.get("source"),
+                        "matched_fixed_phrase_tokens": True,
+                    }
+                )
     finally:
         if process.returncode is None:
             process.terminate()
@@ -176,14 +220,21 @@ async def _events(config: Path, channel: str, matches: list[dict]) -> None:
 
 async def _recognize(config: Path, channels: tuple[str, ...], device: int, wav: dict) -> dict:
     matches = {channel: [] for channel in channels}
-    tasks = [asyncio.create_task(_events(config, channel, matches[channel])) for channel in channels]
+    tasks = [
+        asyncio.create_task(_events(config, channel, matches[channel])) for channel in channels
+    ]
     try:
         await asyncio.sleep(1.5)
         if any(task.done() for task in tasks):
             raise EvidenceFailure("transcript_subscriber_disconnected_before_playback")
         for _ in range(3):
-            await asyncio.to_thread(sd.play, wav["playback_samples"], wav["playback_rate_hz"],
-                                    device=device, blocking=True)
+            await asyncio.to_thread(
+                sd.play,
+                wav["playback_samples"],
+                wav["playback_rate_hz"],
+                device=device,
+                blocking=True,
+            )
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline and not all(matches.values()):
                 await asyncio.sleep(0.25)
@@ -191,7 +242,10 @@ async def _recognize(config: Path, channels: tuple[str, ...], device: int, wav: 
                 break
             await asyncio.sleep(1)
         if not all(matches.values()):
-            raise EvidenceFailure("fixed_speech_recognition_missing_" + "_".join(channel for channel in channels if not matches[channel]))
+            raise EvidenceFailure(
+                "fixed_speech_recognition_missing_"
+                + "_".join(channel for channel in channels if not matches[channel])
+            )
         return {channel: matches[channel][0] for channel in channels}
     finally:
         for task in tasks:
@@ -208,10 +262,18 @@ def _verify_channels(snapshot: dict, target: str, active: tuple[str, ...]) -> di
         state = channels.get(channel)
         if not isinstance(state, dict):
             raise EvidenceFailure("provider_snapshot_missing_" + channel)
-        result[channel] = {key: state.get(key) for key in (
-            "selected_provider", "runtime_provider", "capture_attached_provider",
-            "desired_active", "effective_active", "pending_handoff", "failure_reason",
-        )}
+        result[channel] = {
+            key: state.get(key)
+            for key in (
+                "selected_provider",
+                "runtime_provider",
+                "capture_attached_provider",
+                "desired_active",
+                "effective_active",
+                "pending_handoff",
+                "failure_reason",
+            )
+        }
         if channel in active and (
             result[channel]["selected_provider"] != target
             or result[channel]["runtime_provider"] != target
@@ -239,25 +301,37 @@ async def run(report_path: Path) -> int:
 
     playback_rate = int(sd.query_devices(device)["default_samplerate"])
     if playback_rate != audio["sample_rate_hz"]:
-        audio["playback_samples"] = soxr.resample(audio["samples"], audio["sample_rate_hz"], playback_rate)
+        audio["playback_samples"] = soxr.resample(
+            audio["samples"], audio["sample_rate_hz"], playback_rate
+        )
     else:
         audio["playback_samples"] = audio["samples"]
     audio["playback_rate_hz"] = playback_rate
     report = {
-        "schema": SCHEMA, "status": "failed", "started_unix_seconds": time.time(),
+        "schema": SCHEMA,
+        "status": "failed",
+        "started_unix_seconds": time.time(),
         "application": {
             "executable": str(Path(sys.executable).resolve()),
             "executable_sha256": hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
             "frozen": bool(getattr(sys, "frozen", False)),
             "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         },
-        "fixture": {key: value for key, value in audio.items() if key not in ("samples", "playback_samples")},
-        "route": {"render": render, "self_microphone": microphone,
-                  "peer_loopback_render": render, "capture_host_api": "Windows WASAPI",
-                  "render_host_api": "Windows DirectSound"},
+        "fixture": {
+            key: value for key, value in audio.items() if key not in ("samples", "playback_samples")
+        },
+        "route": {
+            "render": render,
+            "self_microphone": microphone,
+            "peer_loopback_render": render,
+            "capture_host_api": "Windows WASAPI",
+            "render_host_api": "Windows DirectSound",
+        },
         "scenarios": [],
     }
-    with tempfile.TemporaryDirectory(prefix="puripuly-cli-control-", dir=report_path.parent) as directory:
+    with tempfile.TemporaryDirectory(
+        prefix="puripuly-cli-control-", dir=report_path.parent
+    ) as directory:
         workdir = Path(directory)
         config = workdir / "settings.json"
         shutil.copyfile(canonical, config)
@@ -276,21 +350,44 @@ async def run(report_path: Path) -> int:
             devices = await _cli(config, "audio", "devices", "list")
             microphones = devices.get("microphones", [])
             outputs = devices.get("loopback_outputs", [])
-            if not any(item.get("name") == microphone and item.get("host_api") == "Windows WASAPI" for item in microphones):
+            if not any(
+                item.get("name") == microphone and item.get("host_api") == "Windows WASAPI"
+                for item in microphones
+            ):
                 raise EvidenceFailure("app_cable_microphone_unavailable")
             if not any(render in item for item in outputs):
                 raise EvidenceFailure("app_cable_loopback_unavailable")
             osc = profile["intent"]["osc"]
-            await _settings(config, {"osc.connection": {"mode": "off", "send_port": osc["send_port"],
-                                                        "receive_port": osc["receive_port"]}}, workdir)
-            await _settings(config, {"audio.input_host_api": "Windows WASAPI",
-                                     "audio.input_device": microphone,
-                                     "audio.output_device": render,
-                                     "languages": {"source": "en", "peer_source": "en", "peer_source_mode": "manual"},
-                                     "clipboard.enabled": False}, workdir)
+            await _settings(
+                config,
+                {
+                    "osc.connection": {
+                        "mode": "off",
+                        "send_port": osc["send_port"],
+                        "receive_port": osc["receive_port"],
+                    }
+                },
+                workdir,
+            )
+            await _settings(
+                config,
+                {
+                    "audio.input_host_api": "Windows WASAPI",
+                    "audio.input_device": microphone,
+                    "audio.output_device": render,
+                    "languages": {
+                        "source": "en",
+                        "peer_source": "en",
+                        "peer_source_mode": "manual",
+                    },
+                    "clipboard.enabled": False,
+                },
+                workdir,
+            )
             targets = await _cli(config, "audio", "target", "status")
             selected = [
-                item["value"] for item in targets.get("options", [])
+                item["value"]
+                for item in targets.get("options", [])
                 if isinstance(item, dict) and item.get("value") == f"device:{render} [Loopback]"
             ]
             if len(selected) != 1:
@@ -302,29 +399,56 @@ async def run(report_path: Path) -> int:
             report["route"]["peer_capture_target"] = target["selected"]
             await _command(config, "translation.set", {"enabled": False}, workdir)
             await _command(config, "overlay.set", {"enabled": False}, workdir)
-            for mode, active in (("both", ("self", "peer")), ("self_only", ("self",)),
-                                 ("peer_only", ("peer",))):
+            for mode, active in (
+                ("both", ("self", "peer")),
+                ("self_only", ("self",)),
+                ("peer_only", ("peer",)),
+            ):
                 for channel in ("self", "peer"):
-                    await _command(config, "capture.set", {"channel": channel,
-                                                            "enabled": channel in active}, workdir)
+                    await _command(
+                        config,
+                        "capture.set",
+                        {"channel": channel, "enabled": channel in active},
+                        workdir,
+                    )
                 for before, after in (("soniox", "qwen_audio"), ("qwen_audio", "soniox")):
-                    await _command(config, "provider.apply", {"channel": "both", "provider": before}, workdir,
-                                   timeout=120)
-                    before_state = _verify_channels(await _cli(config, "asr", "status"), before, active)
-                    receipt = await _command(config, "provider.apply", {"channel": "both", "provider": after},
-                                             workdir, timeout=120)
+                    await _command(
+                        config,
+                        "provider.apply",
+                        {"channel": "both", "provider": before},
+                        workdir,
+                        timeout=120,
+                    )
+                    before_state = _verify_channels(
+                        await _cli(config, "asr", "status"), before, active
+                    )
+                    receipt = await _command(
+                        config,
+                        "provider.apply",
+                        {"channel": "both", "provider": after},
+                        workdir,
+                        timeout=120,
+                    )
                     state = _verify_channels(await _cli(config, "asr", "status"), after, active)
                     scenario = {
-                        "activity": mode, "from": before, "to": after,
-                        "status": receipt["status"], "operation_id": receipt.get("operation_id"),
-                        "before_channels": before_state, "after_channels": state,
+                        "activity": mode,
+                        "from": before,
+                        "to": after,
+                        "status": receipt["status"],
+                        "operation_id": receipt.get("operation_id"),
+                        "before_channels": before_state,
+                        "after_channels": state,
                         "recognition": None,
                     }
                     report["scenarios"].append(scenario)
                     scenario["recognition"] = await _recognize(config, active, device, audio)
             report["status"] = "passed"
         except Exception as exc:
-            report["failure"] = str(exc) if isinstance(exc, (EvidenceFailure, sd.PortAudioError)) else type(exc).__name__
+            report["failure"] = (
+                str(exc)
+                if isinstance(exc, (EvidenceFailure, sd.PortAudioError))
+                else type(exc).__name__
+            )
         finally:
             if instance_id is not None:
                 try:
@@ -332,16 +456,23 @@ async def run(report_path: Path) -> int:
                     if current.get("instance_id") == instance_id:
                         await _cli(config, "app", "stop", timeout=30)
                         report["own_host_stopped"] = True
-                except (EvidenceFailure, OSError, TimeoutError):
+                except EvidenceFailure, OSError, TimeoutError:
                     report["own_host_stopped"] = False
     report["completed_unix_seconds"] = time.time()
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     return 0 if report["status"] == "passed" else 1
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--report", type=Path, required=True, help="Report JSON outside the checkout; WAV saved alongside")
+    parser.add_argument(
+        "--report",
+        type=Path,
+        required=True,
+        help="Report JSON outside the checkout; WAV saved alongside",
+    )
     args = parser.parse_args()
     if args.report.resolve().is_relative_to(Path(__file__).resolve().parents[3]):
         parser.error("report must be outside the checkout")

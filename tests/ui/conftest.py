@@ -158,7 +158,6 @@ def settings_view_typed_boundary_adapter(monkeypatch: pytest.MonkeyPatch):
             materialize_translation=materialize_canonical_translation_settings,
         )
 
-
     def emit_settings_adapter(view, intent):
         current = get_compatibility_settings(view)
         if current is None:

@@ -698,11 +698,34 @@ async def test_httpx_openrouter_client_runtime_logging_logs_basic_translate_fail
 @pytest.mark.parametrize(
     ("metadata", "expected_key", "expected_fields"),
     [
-        ({"limit_source": "openrouter_credits"}, "provider.openrouter.insufficient_credits", {"limit_source": "openrouter_credits"}),
-        ({"limit_source": "openrouter_key_limit"}, "provider.openrouter.key_limit", {"limit_source": "openrouter_key_limit"}),
-        ({"limit_source": "openrouter_in_flight_budget", "reason": "in_flight_budget_exhausted"}, "provider.openrouter.temporary_limit", {"limit_source": "openrouter_in_flight_budget", "limit_reason": "in_flight_budget_exhausted"}),
-        ({"limit_source": "openrouter_credits", "reason": "weight_exceeds_budget"}, "provider.openrouter.payment_required", {"limit_source": "openrouter_credits", "limit_reason": "weight_exceeds_budget"}),
-        ({"limit_source": "unknown", "reason": "in_flight_budget_exhausted"}, "provider.openrouter.payment_required", {}),
+        (
+            {"limit_source": "openrouter_credits"},
+            "provider.openrouter.insufficient_credits",
+            {"limit_source": "openrouter_credits"},
+        ),
+        (
+            {"limit_source": "openrouter_key_limit"},
+            "provider.openrouter.key_limit",
+            {"limit_source": "openrouter_key_limit"},
+        ),
+        (
+            {"limit_source": "openrouter_in_flight_budget", "reason": "in_flight_budget_exhausted"},
+            "provider.openrouter.temporary_limit",
+            {
+                "limit_source": "openrouter_in_flight_budget",
+                "limit_reason": "in_flight_budget_exhausted",
+            },
+        ),
+        (
+            {"limit_source": "openrouter_credits", "reason": "weight_exceeds_budget"},
+            "provider.openrouter.payment_required",
+            {"limit_source": "openrouter_credits", "limit_reason": "weight_exceeds_budget"},
+        ),
+        (
+            {"limit_source": "unknown", "reason": "in_flight_budget_exhausted"},
+            "provider.openrouter.payment_required",
+            {},
+        ),
         ({"limit_source": ["openrouter_credits"]}, "provider.openrouter.payment_required", {}),
         (None, "provider.openrouter.payment_required", {}),
     ],
@@ -729,7 +752,9 @@ async def test_openrouter_402_subcause_reaches_safe_report(
     monkeypatch.setattr("httpx.AsyncClient", lambda **_kwargs: ErrorClient())
     client = HttpxOpenRouterClient(api_key=secret, model="m", base_url="https://example")
     with pytest.raises(OpenRouterResponseError) as failure:
-        await client.translate(text="hi", system_prompt="prompt", source_language="ko", target_language="en")
+        await client.translate(
+            text="hi", system_prompt="prompt", source_language="ko", target_language="en"
+        )
     report = provider_failure_report(failure.value, provider="llm", operation="translate")
 
     assert report.message.key == expected_key

@@ -422,10 +422,14 @@ class SettingsRuntimeEffectsAdapter:
         if not capture.snapshot.desired_active:
             runtime = getattr(self._pipeline, "local_asr_runtime", None)
             channel = runtime.snapshot.channel_for("self") if runtime is not None else None
-            return False if (
-                capture.snapshot.failure_reason is not None
-                and (channel is None or channel.provider_id != expected.provider_id)
-            ) else None
+            return (
+                False
+                if (
+                    capture.snapshot.failure_reason is not None
+                    and (channel is None or channel.provider_id != expected.provider_id)
+                )
+                else None
+            )
         local_asr_runtime = getattr(self._pipeline, "local_asr_runtime", None)
         if local_asr_runtime is None:
             return False

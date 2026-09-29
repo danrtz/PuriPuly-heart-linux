@@ -1099,12 +1099,16 @@ def compose_application_runtime(
             last_self_capture_lifecycle = lifecycle
         require_local_asr().adapters.notice.sync()
         publish_osc_state_from_runtime()
-        control_events.publish({"topic": "capture", "channel": "self", "generation": snapshot.generation})
+        control_events.publish(
+            {"topic": "capture", "channel": "self", "generation": snapshot.generation}
+        )
 
     def on_peer_capture_state(snapshot: PeerCaptureSessionSnapshot) -> None:
         require_peer().owner.on_runtime_state_changed(snapshot)
         publish_osc_state_from_runtime()
-        control_events.publish({"topic": "capture", "channel": "peer", "generation": snapshot.generation})
+        control_events.publish(
+            {"topic": "capture", "channel": "peer", "generation": snapshot.generation}
+        )
 
     def require_self_application() -> SelfCaptureApplicationOwner:
         nonlocal self_application
@@ -2217,26 +2221,28 @@ def compose_application_runtime(
     )
     application.attach_control(control)
     settings.observe_commits(control._publish_committed)
-    application.register_application_shutdown_callbacks((
-        application_shutdown_callback(
-            phase=SHUTDOWN_PHASE_FREEZE_INGRESS,
-            owner_name="ApplicationControlOwner",
-            callback_name="freeze_ingress",
-            callback=control.freeze_ingress,
-        ),
-        application_shutdown_callback(
-            phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
-            owner_name="ApplicationControlOwner",
-            callback_name="drain_operations",
-            callback=control.drain_operations,
-        ),
-        application_shutdown_callback(
-            phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
-            owner_name="OverlayCalibrationApplicationOwner",
-            callback_name="wait_pending",
-            callback=calibration_owner.wait_pending,
-        ),
-    ))
+    application.register_application_shutdown_callbacks(
+        (
+            application_shutdown_callback(
+                phase=SHUTDOWN_PHASE_FREEZE_INGRESS,
+                owner_name="ApplicationControlOwner",
+                callback_name="freeze_ingress",
+                callback=control.freeze_ingress,
+            ),
+            application_shutdown_callback(
+                phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+                owner_name="ApplicationControlOwner",
+                callback_name="drain_operations",
+                callback=control.drain_operations,
+            ),
+            application_shutdown_callback(
+                phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+                owner_name="OverlayCalibrationApplicationOwner",
+                callback_name="wait_pending",
+                callback=calibration_owner.wait_pending,
+            ),
+        )
+    )
 
     async def initialize_local_asr_evidence(value: AppSettingsVNext) -> None:
         settings.canonical = value

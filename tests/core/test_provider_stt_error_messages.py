@@ -115,9 +115,7 @@ def test_wrapped_openrouter_payment_error_preserves_structured_cause() -> None:
     wrapper = RuntimeError("translation failed")
     wrapper.__cause__ = failure
 
-    report = error_messages.provider_failure_report(
-        wrapper, provider="llm", operation="translate"
-    )
+    report = error_messages.provider_failure_report(wrapper, provider="llm", operation="translate")
     assert report.message.key == "provider.openrouter.temporary_limit"
     assert report.message.params["provider"] == "openrouter"
     assert report.diagnostics.status_code == 402

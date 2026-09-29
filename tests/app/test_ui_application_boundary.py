@@ -270,7 +270,6 @@ def test_compatibility_settings_is_detached_and_missing_ui_state_stays_unknown()
     assert boundary.state().peer_translation_eula_accepted is None
 
 
-
 @pytest.mark.asyncio
 async def test_start_failure_runs_owned_shutdown_and_preserves_original_error() -> None:
     class FailingBackend(RecordingBackend):
@@ -310,10 +309,6 @@ async def test_eula_acceptance_is_owned_at_the_boundary_before_peer_enable() -> 
     assert backend.events[0][0] == "settings"
     assert backend.settings.state.peer_translation.eula_accepted is True
     assert backend.events[1] == ("peer", True)
-
-
-
-
 
 
 @pytest.mark.asyncio
@@ -387,7 +382,6 @@ async def test_frozen_boundary_rejects_mutating_intents_but_keeps_stall_diagnost
     assert backend.events == []
 
 
-
 @pytest.mark.asyncio
 async def test_boundary_preserves_settings_failure_and_restart_projection() -> None:
     class FailingBackend(RecordingBackend):
@@ -414,10 +408,6 @@ async def test_boundary_preserves_settings_failure_and_restart_projection() -> N
 
     assert restored.state().peer_translation_eula_accepted is True
     assert failing_backend.events[0][0] == "settings-failed"
-
-
-
-
 
 
 @pytest.mark.asyncio

@@ -33,11 +33,14 @@ from puripuly_heart.core.messages import TransactionResult
 
 def isolated_settings(path):
     settings = AppSettingsVNext()
-    settings = replace(settings, intent=replace(
-        settings.intent,
-        secrets=SecretsIntent(backend="encrypted_file", encrypted_file_path="secrets.json"),
-        osc=replace(settings.intent.osc, connection_mode="off"),
-    ))
+    settings = replace(
+        settings,
+        intent=replace(
+            settings.intent,
+            secrets=SecretsIntent(backend="encrypted_file", encrypted_file_path="secrets.json"),
+            osc=replace(settings.intent.osc, connection_mode="off"),
+        ),
+    )
     path.write_text(json.dumps(to_dict(settings)), encoding="utf-8")
 
 
@@ -56,19 +59,26 @@ def test_headless_runtime_error_is_localized_in_dashboard_state(caplog) -> None:
 
 
 @pytest.mark.asyncio
-async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(tmp_path, monkeypatch):
+async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
+    tmp_path, monkeypatch
+):
     extensions = tmp_path / "extensions"
     extensions.mkdir()
-    (extensions / "sample.json").write_text(json.dumps({
-        "schema_version": 1,
-        "id": "sample",
-        "name": "Sample",
-        "url": "https://example.test/translate",
-        "headers": {"Authorization": "Bearer {{secret:key}}"},
-        "request": {"query": {}, "body": {"type": "json", "value": {"text": "{{text}}"}}},
-        "response": {"type": "text"},
-        "secrets": [{"id": "key", "label": "API Key"}],
-    }), encoding="utf-8")
+    (extensions / "sample.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "id": "sample",
+                "name": "Sample",
+                "url": "https://example.test/translate",
+                "headers": {"Authorization": "Bearer {{secret:key}}"},
+                "request": {"query": {}, "body": {"type": "json", "value": {"text": "{{text}}"}}},
+                "response": {"type": "text"},
+                "secrets": [{"id": "key", "label": "API Key"}],
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: extensions)
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
     path = tmp_path / "settings.json"
@@ -89,23 +99,19 @@ async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
         current = await control.query("settings.current", {})
         current_locale = current["settings"]["intent"]["ui"]["locale"]
         valid_locale = next(
-            (
-                locale for locale in catalog["choices"]["locale"]
-                if locale != current_locale
-            ),
+            (locale for locale in catalog["choices"]["locale"] if locale != current_locale),
             current_locale,
         )
         accepted = await control.submit(
-            "settings.apply", {"changes": {"locale": valid_locale}},
+            "settings.apply",
+            {"changes": {"locale": valid_locale}},
             request_id="catalog-valid-locale",
         )
         applied = await control.wait(accepted["operation_id"], timeout=5)
         assert applied["status"] == "applied"
-        assert (
-            (await control.query("settings.current", {}))["settings"]["intent"][
-                "ui"
-            ]["locale"] == valid_locale
-        )
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["ui"][
+            "locale"
+        ] == valid_locale
         unchanged = await control.query("settings.current", {})
         malformed = await control.submit(
             "settings.apply",
@@ -128,9 +134,18 @@ async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
                 "capture.set",
                 {"channel": "self", "enabled": True, "accept_terms": True},
             ),
-            ("settings.apply", {"changes": {"locale": valid_locale, "languages": {"source": "not-a-language"}}}),
-            ("settings.apply", {"changes": {"osc.connection": {"mode": "off", "receive_port": True}}}),
-            ("settings.apply", {"changes": {"translation.connection_history": {"not-a-model": "direct"}}}),
+            (
+                "settings.apply",
+                {"changes": {"locale": valid_locale, "languages": {"source": "not-a-language"}}},
+            ),
+            (
+                "settings.apply",
+                {"changes": {"osc.connection": {"mode": "off", "receive_port": True}}},
+            ),
+            (
+                "settings.apply",
+                {"changes": {"translation.connection_history": {"not-a-model": "direct"}}},
+            ),
             ("settings.apply", {"changes": {"stt.cloud_free_tier_providers": []}}),
             ("provider.apply", {"channel": "self", "provider": "not-a-provider"}),
             ("models.install", {"model_ids": "not-a-list"}),
@@ -149,11 +164,21 @@ async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
                     "open_browser": False,
                 },
             ),
-            ("auth.login", {"provider": "qq", "qq_identity": "offline", "credential": "offline", "open_browser": True}),
+            (
+                "auth.login",
+                {
+                    "provider": "qq",
+                    "qq_identity": "offline",
+                    "credential": "offline",
+                    "open_browser": True,
+                },
+            ),
         )
         for index, (command, arguments) in enumerate(bad_operations):
             pending = await control.submit(
-                command, arguments, request_id=f"invalid-{index}",
+                command,
+                arguments,
+                request_id=f"invalid-{index}",
             )
             invalid = await control.wait(pending["operation_id"], timeout=5)
             assert invalid["status"] == "rejected"
@@ -164,7 +189,9 @@ async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
         before = await control.query("secrets.presence", {})
         assert before["presence"][key] is False
         secret = "sensitive-control-test-value"
-        accepted = await control.submit("secrets.set", {"name": key, "value": secret}, request_id="set-once")
+        accepted = await control.submit(
+            "secrets.set", {"name": key, "value": secret}, request_id="set-once"
+        )
         assert accepted["terminal"] is False
         stored = await control.wait(accepted["operation_id"])
         assert stored["status"] == "applied" and stored["terminal"] is True
@@ -172,13 +199,21 @@ async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
         assert secret not in json.dumps(stored)
         assert secret not in json.dumps(await control.query("settings.current", {}))
         assert (await control.query("secrets.presence", {}))["presence"][key] is True
-        duplicate = await control.submit("secrets.set", {"name": key, "value": secret}, request_id="set-once")
+        duplicate = await control.submit(
+            "secrets.set", {"name": key, "value": secret}, request_id="set-once"
+        )
         assert duplicate == stored
-        unknown = await control.submit("secrets.set", {"name": "http_extension.sample.undeclared", "value": secret}, request_id="undeclared")
+        unknown = await control.submit(
+            "secrets.set",
+            {"name": "http_extension.sample.undeclared", "value": secret},
+            request_id="undeclared",
+        )
         rejected = await control.wait(unknown["operation_id"])
         assert rejected["status"] == "rejected" and rejected["terminal"] is True
         assert (await control.query("secrets.presence", {}))["presence"][key] is True
-        unverified = await control.submit("secrets.verify", {"name": key, "value": secret}, request_id="verify")
+        unverified = await control.submit(
+            "secrets.verify", {"name": key, "value": secret}, request_id="verify"
+        )
         verdict = await control.wait(unverified["operation_id"])
         assert verdict["status"] == "action_required" and verdict["verification"] == "unavailable"
         assert verdict["terminal"] is True
@@ -191,9 +226,13 @@ async def test_declared_extension_secret_roundtrip_is_private_and_revision_safe(
 
 
 @pytest.mark.asyncio
-async def test_control_microphone_reports_route_failure_pending_frame_meter_and_released_stop(tmp_path, monkeypatch):
+async def test_control_microphone_reports_route_failure_pending_frame_meter_and_released_stop(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    monkeypatch.setattr(
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
     path = tmp_path / "settings.json"
     isolated_settings(path)
     app = compose_headless_application(path)
@@ -203,19 +242,31 @@ async def test_control_microphone_reports_route_failure_pending_frame_meter_and_
         control.bind_instance("isolated-microphone")
         microphone = app._microphone.microphone
         route = MicrophoneTestRouteObservation(
-            saved_host_api="", actual_host_api="", requested_device="controlled",
-            hostapi_index=None, resolved_device_idx=None, resolved_device_name=None,
+            saved_host_api="",
+            actual_host_api="",
+            requested_device="controlled",
+            hostapi_index=None,
+            resolved_device_idx=None,
+            resolved_device_name=None,
             resolution_exception_class="DeviceUnavailable",
-            resolution_exception_message=None, should_attempt_open=False,
-            wasapi_auto_convert=False, wasapi_exclusive=False,
+            resolution_exception_message=None,
+            should_attempt_open=False,
+            wasapi_auto_convert=False,
+            wasapi_exclusive=False,
         )
-        monkeypatch.setattr(wiring_microphone_test, "observe_microphone_test_route", lambda **_kwargs: route)
-        receipt = await control.submit("microphone.test", {"enabled": True}, request_id="missing-mic")
+        monkeypatch.setattr(
+            wiring_microphone_test, "observe_microphone_test_route", lambda **_kwargs: route
+        )
+        receipt = await control.submit(
+            "microphone.test", {"enabled": True}, request_id="missing-mic"
+        )
         failed = await control.wait(receipt["operation_id"], timeout=5)
         assert failed["status"] == "action_required"
         assert failed["microphone_test"]["failure_reason"] == "input_route_unavailable"
         assert failed["microphone_test"]["effective_active"] is False
-        assert (await control.query("app.status", {}))["microphone_test"]["failure_reason"] == "input_route_unavailable"
+        assert (await control.query("app.status", {}))["microphone_test"][
+            "failure_reason"
+        ] == "input_route_unavailable"
 
         class ControlledSource:
             def __init__(self):
@@ -224,7 +275,9 @@ async def test_control_microphone_reports_route_failure_pending_frame_meter_and_
 
             async def frames(self):
                 await self.frame.wait()
-                yield AudioFrameF32(samples=np.asarray([0.25, -0.75], dtype=np.float32), sample_rate_hz=16000)
+                yield AudioFrameF32(
+                    samples=np.asarray([0.25, -0.75], dtype=np.float32), sample_rate_hz=16000
+                )
                 await asyncio.Event().wait()
 
             async def close(self):
@@ -232,27 +285,48 @@ async def test_control_microphone_reports_route_failure_pending_frame_meter_and_
 
         source = ControlledSource()
         microphone.source_factory = lambda **_kwargs: source
-        monkeypatch.setattr(wiring_microphone_test, "observe_microphone_test_route", lambda **_kwargs: replace(
-            route, should_attempt_open=True, resolved_device_idx=2,
-        ))
-        monkeypatch.setattr(wiring_microphone_test, "determine_self_mic_capture_channels", lambda **_kwargs: SelfMicCaptureChannelDecision(
-            device_idx=2, internal_channels=1, preferred_capture_channels=1,
-            metadata=SoundDeviceInputMetadata(
-                device_idx=2, name="controlled", max_input_channels=1,
-                default_samplerate=16000.0, metadata_status="ok",
+        monkeypatch.setattr(
+            wiring_microphone_test,
+            "observe_microphone_test_route",
+            lambda **_kwargs: replace(
+                route,
+                should_attempt_open=True,
+                resolved_device_idx=2,
             ),
-        ))
+        )
+        monkeypatch.setattr(
+            wiring_microphone_test,
+            "determine_self_mic_capture_channels",
+            lambda **_kwargs: SelfMicCaptureChannelDecision(
+                device_idx=2,
+                internal_channels=1,
+                preferred_capture_channels=1,
+                metadata=SoundDeviceInputMetadata(
+                    device_idx=2,
+                    name="controlled",
+                    max_input_channels=1,
+                    default_samplerate=16000.0,
+                    metadata_status="ok",
+                ),
+            ),
+        )
         await microphone.close()
         microphone._owner = None
-        pending_receipt = await control.submit("microphone.test", {"enabled": True}, request_id="pending-stop-mic")
+        pending_receipt = await control.submit(
+            "microphone.test", {"enabled": True}, request_id="pending-stop-mic"
+        )
         pending_start = await control.wait(pending_receipt["operation_id"], timeout=0.01)
         assert pending_start["terminal"] is False
-        off_receipt = await control.submit("microphone.test", {"enabled": False}, request_id="stop-pending-mic")
+        off_receipt = await control.submit(
+            "microphone.test", {"enabled": False}, request_id="stop-pending-mic"
+        )
         pending_off = await control.wait(off_receipt["operation_id"], timeout=5)
         assert pending_off["status"] == "applied"
         assert pending_off["microphone_test"]["state"] == "off"
         assert source.closed == 1
-        assert (await control.wait(pending_receipt["operation_id"], timeout=5))["status"] == "cancelled"
+        assert (await control.wait(pending_receipt["operation_id"], timeout=5))[
+            "status"
+        ] == "cancelled"
         source = ControlledSource()
         receipt = await control.submit("microphone.test", {"enabled": True}, request_id="ready-mic")
         pending = await control.wait(receipt["operation_id"], timeout=0.01)
@@ -275,9 +349,13 @@ async def test_control_microphone_reports_route_failure_pending_frame_meter_and_
 
 
 @pytest.mark.asyncio
-async def test_auth_challenge_stays_pending_until_owner_finishes_and_cancel_does_not_fake_success(tmp_path, monkeypatch):
+async def test_auth_challenge_stays_pending_until_owner_finishes_and_cancel_does_not_fake_success(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    monkeypatch.setattr(
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
     path = tmp_path / "settings.json"
     isolated_settings(path)
     app = compose_headless_application(path)
@@ -297,7 +375,11 @@ async def test_auth_challenge_stays_pending_until_owner_finishes_and_cancel_does
                 return outcome
 
             monkeypatch.setattr(app, "start_discord_managed_auth_from_dialog", authorization)
-            receipt = await control.submit("auth.login", {"provider": "discord", "open_browser": False}, request_id=f"auth-{outcome}")
+            receipt = await control.submit(
+                "auth.login",
+                {"provider": "discord", "open_browser": False},
+                request_id=f"auth-{outcome}",
+            )
             await asyncio.wait_for(entered.wait(), 2)
             pending = await control.operation(receipt["operation_id"])
             assert pending["status"] == "running" and pending["terminal"] is False
@@ -316,6 +398,7 @@ async def test_auth_challenge_stays_pending_until_owner_finishes_and_cancel_does
             assert "authorization_url" not in finished
     finally:
         await app.stop()
+
 
 @pytest.mark.asyncio
 async def test_interleaved_transactions_retain_per_operation_outcome() -> None:
@@ -340,10 +423,15 @@ async def test_interleaved_transactions_retain_per_operation_outcome() -> None:
             return results.current.status
 
     assert await asyncio.gather(first_operation(), second_operation()) == [
-        applied.status, degraded.status,
+        applied.status,
+        degraded.status,
     ]
+
+
 @pytest.mark.asyncio
-async def test_control_translation_enable_never_starts_implicit_authorization(tmp_path, monkeypatch):
+async def test_control_translation_enable_never_starts_implicit_authorization(
+    tmp_path, monkeypatch
+):
     import webbrowser
 
     from puripuly_heart.app.wiring import wiring_managed_account
@@ -359,6 +447,7 @@ async def test_control_translation_enable_never_starts_implicit_authorization(tm
                 if name == "start_discord_oauth":
                     authorization_attempts.append("broker")
                 raise AssertionError("offline test forbids external broker requests")
+
             return forbidden_request
 
         async def close(self):
@@ -369,7 +458,9 @@ async def test_control_translation_enable_never_starts_implicit_authorization(tm
         raise AssertionError("control translation enable initiated browser or listener")
 
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    monkeypatch.setattr(
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
     monkeypatch.setattr(wiring_managed_account, "HttpManagedOpenRouterBrokerClient", OfflineBroker)
     monkeypatch.setattr(webbrowser, "open", forbidden_authorization)
     path = tmp_path / "settings.json"
@@ -381,7 +472,9 @@ async def test_control_translation_enable_never_starts_implicit_authorization(tm
         assert release is not None
         release.discord_oauth_listener_factory = forbidden_authorization
         app.control().bind_instance("offline-control")
-        receipt = await app.control().submit("translation.set", {"enabled": True}, request_id="enable-without-auth")
+        receipt = await app.control().submit(
+            "translation.set", {"enabled": True}, request_id="enable-without-auth"
+        )
         result = await app.control().wait(receipt["operation_id"], timeout=5)
         assert result["status"] == "action_required"
         assert result["terminal"] is True
@@ -396,7 +489,9 @@ async def test_control_translation_enable_never_starts_implicit_authorization(tm
 
 
 @pytest.mark.asyncio
-async def test_gui_cli_and_osc_mutations_share_revision_and_preserve_focused_edits(tmp_path, monkeypatch):
+async def test_gui_cli_and_osc_mutations_share_revision_and_preserve_focused_edits(
+    tmp_path, monkeypatch
+):
     from puripuly_heart.core.managed_openrouter_release import (
         UnavailableManagedOpenRouterReleaseClient,
     )
@@ -405,9 +500,12 @@ async def test_gui_cli_and_osc_mutations_share_revision_and_preserve_focused_edi
     from puripuly_heart.app.wiring import wiring_managed_account
 
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
     monkeypatch.setattr(
-        wiring_managed_account, "HttpManagedOpenRouterBrokerClient",
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
+    monkeypatch.setattr(
+        wiring_managed_account,
+        "HttpManagedOpenRouterBrokerClient",
         lambda **_kwargs: UnavailableManagedOpenRouterReleaseClient(),
     )
     path = tmp_path / "settings.json"
@@ -427,8 +525,10 @@ async def test_gui_cli_and_osc_mutations_share_revision_and_preserve_focused_edi
             gui = asyncio.create_task(app.apply_settings_intent(LocaleSettingsIntent("ja")))
             await asyncio.sleep(0)
             cli = await control.submit(
-                "settings.apply", {"changes": {"locale": "en"}},
-                request_id="stale-locale", expected_revision=initial["revision"],
+                "settings.apply",
+                {"changes": {"locale": "en"}},
+                request_id="stale-locale",
+                expected_revision=initial["revision"],
             )
             await asyncio.sleep(0)
             osc_mutation = asyncio.create_task(osc.set_secondary_target_language("zh-CN"))
@@ -450,9 +550,13 @@ async def test_gui_cli_and_osc_mutations_share_revision_and_preserve_focused_edi
 
 
 @pytest.mark.asyncio
-async def test_overlay_command_waits_for_owned_start_and_distinguishes_intent_from_output(tmp_path, monkeypatch):
+async def test_overlay_command_waits_for_owned_start_and_distinguishes_intent_from_output(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    monkeypatch.setattr(
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
     path = tmp_path / "settings.json"
     isolated_settings(path)
     app = compose_headless_application(path)
@@ -479,7 +583,9 @@ async def test_overlay_command_waits_for_owned_start_and_distinguishes_intent_fr
 
         monkeypatch.setattr(OverlayApplicationOwner, "run_start", delayed_start)
         try:
-            receipt = await control.submit("overlay.set", {"enabled": True}, request_id="overlay-on")
+            receipt = await control.submit(
+                "overlay.set", {"enabled": True}, request_id="overlay-on"
+            )
             await asyncio.wait_for(entered.wait(), 5)
             assert (await control.wait(receipt["operation_id"], timeout=0.01))["terminal"] is False
             starting = await control.query("overlay.status", {})
@@ -497,7 +603,9 @@ async def test_overlay_command_waits_for_owned_start_and_distinguishes_intent_fr
             assert result["output"]["effective_target"] is None
             assert result["output"]["presentation_ready"] is False
 
-            off_receipt = await control.submit("overlay.set", {"enabled": False}, request_id="overlay-off")
+            off_receipt = await control.submit(
+                "overlay.set", {"enabled": False}, request_id="overlay-off"
+            )
             off = await control.wait(off_receipt["operation_id"], timeout=5)
             observed = (await control.query("overlay.status", {}))["output"]
             assert off["status"] == "applied"
@@ -515,7 +623,9 @@ async def test_overlay_command_waits_for_owned_start_and_distinguishes_intent_fr
 @pytest.mark.asyncio
 async def test_peer_terms_are_explicit_and_shared_acceptance_is_isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    monkeypatch.setattr(
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
     path = tmp_path / "settings.json"
     isolated_settings(path)
     app = compose_headless_application(path)
@@ -529,7 +639,9 @@ async def test_peer_terms_are_explicit_and_shared_acceptance_is_isolated(tmp_pat
         assert terms["accepted"] is False
         assert terms["terms"] == t("peer_translation_eula.body")
         request = await control.submit(
-            "capture.set", {"channel": "peer", "enabled": True}, request_id="peer-without-consent",
+            "capture.set",
+            {"channel": "peer", "enabled": True},
+            request_id="peer-without-consent",
         )
         denied = await control.wait(request["operation_id"], timeout=5)
         assert denied["status"] == "action_required"

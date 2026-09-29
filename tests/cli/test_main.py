@@ -18,7 +18,9 @@ def test_generic_auth_login_cannot_put_credential_in_process_arguments(monkeypat
     monkeypatch.setattr(cli, "_instance", lambda _path: pytest.fail("must reject before discovery"))
     credential = "private-credential-unique"
 
-    result = cli.main(["command", "auth.login", "--arguments", json.dumps({"credential": credential})])
+    result = cli.main(
+        ["command", "auth.login", "--arguments", json.dumps({"credential": credential})]
+    )
 
     output = capsys.readouterr()
     assert result == 3
@@ -27,7 +29,9 @@ def test_generic_auth_login_cannot_put_credential_in_process_arguments(monkeypat
 
 
 @pytest.mark.parametrize(("channel", "state"), [("self", "on"), ("self", "off"), ("peer", "off")])
-def test_peer_terms_cannot_be_accepted_by_an_unrelated_capture_request(tmp_path, capsys, channel, state):
+def test_peer_terms_cannot_be_accepted_by_an_unrelated_capture_request(
+    tmp_path, capsys, channel, state
+):
     result = cli.main(
         [
             "--config",
@@ -82,7 +86,12 @@ def test_auth_login_stdin_keeps_identity_and_credential_out_of_output(monkeypatc
     async def fake_request(_record, method, arguments=None, *, timeout):
         assert method == "submit"
         submitted.append(arguments)
-        return {"status": "applied", "terminal": True, "instance_id": "session", "operation_id": "operation"}
+        return {
+            "status": "applied",
+            "terminal": True,
+            "instance_id": "session",
+            "operation_id": "operation",
+        }
 
     monkeypatch.setattr(cli, "request", fake_request)
     assert cli.main(["auth", "login", "qq", "--stdin"]) == 0

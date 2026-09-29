@@ -24,12 +24,15 @@ from puripuly_heart.core.runtime_logging import RuntimeLoggingSinks
 
 def isolated_settings(path):
     settings = AppSettingsVNext()
-    settings = replace(settings, intent=replace(
-        settings.intent,
-        secrets=SecretsIntent(backend="encrypted_file", encrypted_file_path="secrets.json"),
-        osc=replace(settings.intent.osc, connection_mode="off"),
-        stt=replace(settings.intent.stt, custom_terms={"ko": ["private phrase"]}),
-    ))
+    settings = replace(
+        settings,
+        intent=replace(
+            settings.intent,
+            secrets=SecretsIntent(backend="encrypted_file", encrypted_file_path="secrets.json"),
+            osc=replace(settings.intent.osc, connection_mode="off"),
+            stt=replace(settings.intent.stt, custom_terms={"ko": ["private phrase"]}),
+        ),
+    )
     path.write_text(json.dumps(to_dict(settings)), encoding="utf-8")
 
 
@@ -83,14 +86,18 @@ async def isolated_composed_logging(tmp_path, monkeypatch):
 @pytest.fixture
 def offline(tmp_path, monkeypatch):
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
-    monkeypatch.setattr(application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions")
+    monkeypatch.setattr(
+        application_runtime, "default_http_extensions_dir", lambda: tmp_path / "extensions"
+    )
     path = tmp_path / "settings.json"
     isolated_settings(path)
     return path
 
 
 @pytest.mark.asyncio
-async def test_committed_gui_event_is_unsolicited_and_staged_failure_is_invisible(offline, monkeypatch):
+async def test_committed_gui_event_is_unsolicited_and_staged_failure_is_invisible(
+    offline, monkeypatch
+):
     app = compose_headless_application(offline)
     try:
         await app.start()
@@ -123,10 +130,13 @@ async def test_committed_gui_event_is_unsolicited_and_staged_failure_is_invisibl
 
         monkeypatch.setattr(type(settings_app.runtime_effects), "prepare", staged)
         before = await control.query("settings.current", {})
-        candidate = replace(app.compatibility_settings(), intent=replace(
-            app.compatibility_settings().intent,
-            ui=replace(app.compatibility_settings().intent.ui, locale="en"),
-        ))
+        candidate = replace(
+            app.compatibility_settings(),
+            intent=replace(
+                app.compatibility_settings().intent,
+                ui=replace(app.compatibility_settings().intent.ui, locale="en"),
+            ),
+        )
         original_persist = type(control.settings.persistence).persist
 
         def fail_persist(self, *_args):
@@ -141,7 +151,11 @@ async def test_committed_gui_event_is_unsolicited_and_staged_failure_is_invisibl
         assert await pending is False
         assert await control.query("settings.current", {}) == before
         monkeypatch.setattr(type(control.settings.persistence), "persist", original_persist)
-        assert not [item for item in control.events.history if item["topic"] == "settings" and item["revision"] > before["revision"]]
+        assert not [
+            item
+            for item in control.events.history
+            if item["topic"] == "settings" and item["revision"] > before["revision"]
+        ]
     finally:
         await app.stop()
 
@@ -171,7 +185,9 @@ async def test_shutdown_before_accepted_task_first_runs_reports_terminal_interru
     app = compose_headless_application(offline)
     control = app.control()
     control.bind_instance("offline-early-freeze")
-    accepted = await control.submit("settings.apply", {"changes": {"locale": "ja"}}, request_id="early")
+    accepted = await control.submit(
+        "settings.apply", {"changes": {"locale": "ja"}}, request_id="early"
+    )
     control.freeze_ingress()
     await control.drain_operations()
     receipt = await control.operation(accepted["operation_id"])
@@ -196,7 +212,9 @@ async def test_completed_settings_receipt_retains_applied_transaction(offline):
         control.bind_instance("offline-completed-settings")
         initial = await control.query("settings.current", {})
         submitted = await control.submit(
-            "settings.apply", {"changes": {"locale": "ja"}}, request_id="completed-locale",
+            "settings.apply",
+            {"changes": {"locale": "ja"}},
+            request_id="completed-locale",
         )
         receipt = await control.wait(submitted["operation_id"], timeout=5)
         assert receipt["status"] == "applied"
@@ -210,7 +228,9 @@ async def test_completed_settings_receipt_retains_applied_transaction(offline):
 
 
 @pytest.mark.asyncio
-async def test_host_shutdown_interrupts_active_and_queued_settings_without_late_commit(offline, monkeypatch):
+async def test_host_shutdown_interrupts_active_and_queued_settings_without_late_commit(
+    offline, monkeypatch
+):
     app = compose_headless_application(offline)
 
     class Lease:
@@ -235,9 +255,13 @@ async def test_host_shutdown_interrupts_active_and_queued_settings_without_late_
         monkeypatch.setattr(CanonicalSettingsPatchRepository, "save", slow_save)
         control = host.control
         initial = await control.query("settings.current", {})
-        active = await control.submit("settings.apply", {"changes": {"locale": "ja"}}, request_id="slow-active")
+        active = await control.submit(
+            "settings.apply", {"changes": {"locale": "ja"}}, request_id="slow-active"
+        )
         await asyncio.wait_for(entered.wait(), 5)
-        queued = await control.submit("settings.apply", {"changes": {"locale": "en"}}, request_id="queued")
+        queued = await control.submit(
+            "settings.apply", {"changes": {"locale": "en"}}, request_id="queued"
+        )
         await asyncio.sleep(0)
         stop = await control.submit("app.stop", {}, request_id="stop")
         assert (await control.wait(stop["operation_id"], timeout=5))["status"] == "applied"
@@ -250,7 +274,11 @@ async def test_host_shutdown_interrupts_active_and_queued_settings_without_late_
         assert "transaction" not in queued_receipt
         assert queued_receipt["revision"] == initial["revision"]
         assert (await control.query("settings.current", {})) == initial
-        assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
+        assert not [
+            operation.task
+            for operation in control._operations.values()
+            if operation.task is not None and not operation.task.done()
+        ]
     finally:
         release.set()
         await host.close()
@@ -286,11 +314,15 @@ async def test_noninterruptible_persistence_drains_before_host_closes(offline, m
         stream = control.subscribe(topics=["settings"])
         event_task = asyncio.create_task(anext(stream))
         await asyncio.sleep(0)
-        active = await control.submit("settings.apply", {"changes": {"locale": "ja"}}, request_id="persist-active")
+        active = await control.submit(
+            "settings.apply", {"changes": {"locale": "ja"}}, request_id="persist-active"
+        )
         assert await asyncio.to_thread(entered.wait, 5)
         assert (await control.query("settings.current", {})) == initial
         assert not event_task.done()
-        queued = await control.submit("settings.apply", {"changes": {"locale": "en"}}, request_id="persist-queued")
+        queued = await control.submit(
+            "settings.apply", {"changes": {"locale": "en"}}, request_id="persist-queued"
+        )
         stop = await control.submit("app.stop", {}, request_id="persist-stop")
         await control.wait(stop["operation_id"], timeout=5)
         closing = asyncio.create_task(host.close())
@@ -317,7 +349,11 @@ async def test_noninterruptible_persistence_drains_before_host_closes(offline, m
         assert queued_receipt["revision"] == initial["revision"]
         assert "transaction" not in queued_receipt
         assert current["settings"]["intent"]["ui"]["locale"] == "ja"
-        assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
+        assert not [
+            operation.task
+            for operation in control._operations.values()
+            if operation.task is not None and not operation.task.done()
+        ]
         assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "ja"
     finally:
         release.set()
@@ -325,7 +361,9 @@ async def test_noninterruptible_persistence_drains_before_host_closes(offline, m
 
 
 @pytest.mark.asyncio
-async def test_shutdown_after_commit_before_runtime_reports_interrupted_transaction(offline, monkeypatch):
+async def test_shutdown_after_commit_before_runtime_reports_interrupted_transaction(
+    offline, monkeypatch
+):
     from puripuly_heart.app.services.provider_runtime_apply import (
         UiPromptClipboardStateRuntimeApplyAdapter,
     )
@@ -358,15 +396,21 @@ async def test_shutdown_after_commit_before_runtime_reports_interrupted_transact
     try:
         await host.start()
         monkeypatch.setattr(type(host.control.settings.persistence), "persist", slow_save)
-        monkeypatch.setattr(UiPromptClipboardStateRuntimeApplyAdapter, "apply_runtime", blocked_runtime)
+        monkeypatch.setattr(
+            UiPromptClipboardStateRuntimeApplyAdapter, "apply_runtime", blocked_runtime
+        )
         control = host.control
         initial = await control.query("settings.current", {})
         active = await control.submit(
-            "settings.apply", {"changes": {"locale": "ja"}}, request_id="commit-before-runtime",
+            "settings.apply",
+            {"changes": {"locale": "ja"}},
+            request_id="commit-before-runtime",
         )
         assert await asyncio.to_thread(persist_entered.wait, 5)
         queued = await control.submit(
-            "settings.apply", {"changes": {"locale": "en"}}, request_id="uncommitted-queued",
+            "settings.apply",
+            {"changes": {"locale": "en"}},
+            request_id="uncommitted-queued",
         )
         closing = asyncio.create_task(host.close())
         await asyncio.sleep(0.05)
@@ -380,7 +424,9 @@ async def test_shutdown_after_commit_before_runtime_reports_interrupted_transact
         current = await control.query("settings.current", {})
         assert active_receipt["status"] == "interrupted"
         assert active_receipt["terminal"] is True
-        assert active_receipt["transaction"]["status"] == "settings_commit_success_runtime_interrupted"
+        assert (
+            active_receipt["transaction"]["status"] == "settings_commit_success_runtime_interrupted"
+        )
         assert active_receipt["revision"] == current["revision"] == initial["revision"] + 1
         assert "private phrase" not in json.dumps(active_receipt)
         assert queued_receipt["status"] == "interrupted"
@@ -388,7 +434,11 @@ async def test_shutdown_after_commit_before_runtime_reports_interrupted_transact
         assert "transaction" not in queued_receipt
         assert current["settings"]["intent"]["ui"]["locale"] == "ja"
         assert json.loads(offline.read_text(encoding="utf-8"))["intent"]["ui"]["locale"] == "ja"
-        assert not [operation.task for operation in control._operations.values() if operation.task is not None and not operation.task.done()]
+        assert not [
+            operation.task
+            for operation in control._operations.values()
+            if operation.task is not None and not operation.task.done()
+        ]
     finally:
         persist_release.set()
         if "active" in locals():
@@ -397,6 +447,7 @@ async def test_shutdown_after_commit_before_runtime_reports_interrupted_transact
                 operation.task.cancel()
         await host.close()
 
+
 @pytest.mark.asyncio
 async def test_model_install_wait_releases_global_lock_but_keeps_backend_order(offline):
     app = compose_headless_application(offline)
@@ -404,7 +455,8 @@ async def test_model_install_wait_releases_global_lock_but_keeps_backend_order(o
     release = asyncio.Event()
     installs = []
     snapshot = SimpleNamespace(
-        required_cpu_model_ids=("cpu-test",), gpu_model_id="gpu-test",
+        required_cpu_model_ids=("cpu-test",),
+        gpu_model_id="gpu-test",
         models=(SimpleNamespace(model_id="cpu-test", backend="cpu"),),
     )
 
@@ -428,15 +480,21 @@ async def test_model_install_wait_releases_global_lock_but_keeps_backend_order(o
         control.bind_instance("isolated-model-wait")
         control.provisioning = lambda: Provisioning()
         first = await control.submit(
-            "models.install", {"backend": "cpu"}, request_id="first-install",
+            "models.install",
+            {"backend": "cpu"},
+            request_id="first-install",
         )
         await asyncio.wait_for(started.wait(), 3)
         second = await control.submit(
-            "models.install", {"backend": "cpu"}, request_id="second-install",
+            "models.install",
+            {"backend": "cpu"},
+            request_id="second-install",
         )
         initial = (await control.query("settings.current", {}))["revision"]
         settings = await control.submit(
-            "settings.apply", {"changes": {"locale": "ja"}}, request_id="during-install",
+            "settings.apply",
+            {"changes": {"locale": "ja"}},
+            request_id="during-install",
             expected_revision=initial,
         )
         committed = await control.wait(settings["operation_id"], timeout=5)
@@ -445,7 +503,9 @@ async def test_model_install_wait_releases_global_lock_but_keeps_backend_order(o
         assert (await control.wait(first["operation_id"], timeout=0.01))["terminal"] is False
         assert len(installs) == 1
         off = await control.submit(
-            "capture.set", {"channel": "self", "enabled": False}, request_id="off-during-install",
+            "capture.set",
+            {"channel": "self", "enabled": False},
+            request_id="off-during-install",
         )
         assert (await control.wait(off["operation_id"], timeout=5))["status"] == "applied"
         release.set()
@@ -464,7 +524,8 @@ async def test_freeze_cancels_active_install_and_never_starts_queued_backend_wor
     release = asyncio.Event()
     installs = []
     snapshot = SimpleNamespace(
-        required_cpu_model_ids=("cpu-test",), gpu_model_id="gpu-test",
+        required_cpu_model_ids=("cpu-test",),
+        gpu_model_id="gpu-test",
         models=(SimpleNamespace(model_id="cpu-test", backend="cpu"),),
     )
 
@@ -488,9 +549,13 @@ async def test_freeze_cancels_active_install_and_never_starts_queued_backend_wor
         control.bind_instance("isolated-model-freeze")
         owner = Provisioning()
         control.provisioning = lambda: owner
-        first = await control.submit("models.install", {"backend": "cpu"}, request_id="active-install")
+        first = await control.submit(
+            "models.install", {"backend": "cpu"}, request_id="active-install"
+        )
         await asyncio.wait_for(started.wait(), 3)
-        second = await control.submit("models.install", {"backend": "cpu"}, request_id="queued-install")
+        second = await control.submit(
+            "models.install", {"backend": "cpu"}, request_id="queued-install"
+        )
         await asyncio.sleep(0)
         control.freeze_ingress()
         await asyncio.wait_for(control.drain_operations(), 5)
@@ -510,7 +575,8 @@ async def test_install_cancel_still_targets_started_owner_work(offline):
     started = asyncio.Event()
     cancelled = []
     snapshot = SimpleNamespace(
-        required_cpu_model_ids=("cpu-test",), gpu_model_id="gpu-test",
+        required_cpu_model_ids=("cpu-test",),
+        gpu_model_id="gpu-test",
         models=(SimpleNamespace(model_id="cpu-test", backend="cpu"),),
     )
 
@@ -535,7 +601,9 @@ async def test_install_cancel_still_targets_started_owner_work(offline):
         owner = Provisioning()
         control.provisioning = lambda: owner
         submitted = await control.submit(
-            "models.install", {"backend": "cpu"}, request_id="cancel-install",
+            "models.install",
+            {"backend": "cpu"},
+            request_id="cancel-install",
         )
         await asyncio.wait_for(started.wait(), 3)
         receipt = await asyncio.wait_for(control.cancel(submitted["operation_id"]), 5)
@@ -547,7 +615,9 @@ async def test_install_cancel_still_targets_started_owner_work(offline):
 
 
 @pytest.mark.asyncio
-async def test_manual_output_wait_allows_safe_mutations_but_orders_provider_transition(offline, monkeypatch):
+async def test_manual_output_wait_allows_safe_mutations_but_orders_provider_transition(
+    offline, monkeypatch
+):
     app = compose_headless_application(offline)
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -571,20 +641,28 @@ async def test_manual_output_wait_allows_safe_mutations_but_orders_provider_tran
         await asyncio.wait_for(entered.wait(), 3)
         old_revision = (await control.query("settings.current", {}))["revision"]
         safe = await control.submit(
-            "settings.apply", {"changes": {"locale": "ja"}}, request_id="manual-safe",
+            "settings.apply",
+            {"changes": {"locale": "ja"}},
+            request_id="manual-safe",
         )
         committed = await control.wait(safe["operation_id"], timeout=5)
         assert committed["status"] == "applied"
         off = await control.submit(
-            "capture.set", {"channel": "self", "enabled": False}, request_id="manual-off",
+            "capture.set",
+            {"channel": "self", "enabled": False},
+            request_id="manual-off",
         )
         assert (await control.wait(off["operation_id"], timeout=5))["status"] == "applied"
         stale = await control.submit(
-            "translation.set", {"enabled": False}, request_id="manual-stale",
+            "translation.set",
+            {"enabled": False},
+            request_id="manual-stale",
             expected_revision=old_revision,
         )
         conflicting = await control.submit(
-            "translation.set", {"enabled": False}, request_id="manual-translation",
+            "translation.set",
+            {"enabled": False},
+            request_id="manual-translation",
         )
         assert (await control.wait(conflicting["operation_id"], timeout=0.01))["terminal"] is False
         assert (await control.wait(stale["operation_id"], timeout=0.01))["terminal"] is False
@@ -602,18 +680,24 @@ async def test_manual_output_wait_allows_safe_mutations_but_orders_provider_tran
         rejected = await control.wait(stale["operation_id"], timeout=5)
         assert rejected["status"] == "rejected"
         assert rejected["error"] == {
-            "code": "revision_conflict", "current_revision": committed["revision"],
+            "code": "revision_conflict",
+            "current_revision": committed["revision"],
         }
         assert (await control.wait(conflicting["operation_id"], timeout=5))["status"] == "applied"
         assert translated == [False]
         await asyncio.wait_for(osc_change, 5)
-        assert (await control.query("settings.current", {}))["settings"]["intent"]["languages"]["secondary_target_language"] == "zh-CN"
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["languages"][
+            "secondary_target_language"
+        ] == "zh-CN"
     finally:
         release.set()
         await app.stop()
 
+
 @pytest.mark.asyncio
-async def test_long_output_wait_orders_cli_overlay_audio_and_gui_settings_capture(offline, monkeypatch):
+async def test_long_output_wait_orders_cli_overlay_audio_and_gui_settings_capture(
+    offline, monkeypatch
+):
     app = compose_headless_application(offline)
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -640,7 +724,9 @@ async def test_long_output_wait_orders_cli_overlay_audio_and_gui_settings_captur
         assert app.current_loopback_capture_option_value() == "device:"
         assert before["settings"]["intent"]["telemetry"]["enabled"] is True
 
-        manual = await control.submit("text.submit", {"text": "gated output"}, request_id="order-manual")
+        manual = await control.submit(
+            "text.submit", {"text": "gated output"}, request_id="order-manual"
+        )
         await asyncio.wait_for(entered.wait(), 3)
         mutations = [
             ("overlay.size", {"preset": "large"}),
@@ -662,11 +748,13 @@ async def test_long_output_wait_orders_cli_overlay_audio_and_gui_settings_captur
         assert app.current_loopback_capture_option_value() == "device:"
         release.set()
         assert (await control.wait(manual["operation_id"], timeout=5))["status"] == "applied"
-        outcomes = [
-            await control.wait(item["operation_id"], timeout=5) for item in pending
-        ]
+        outcomes = [await control.wait(item["operation_id"], timeout=5) for item in pending]
         assert [item["status"] for item in outcomes] == [
-            "applied", "action_required", "action_required", "applied", "applied",
+            "applied",
+            "action_required",
+            "action_required",
+            "applied",
+            "applied",
         ]
         after = await control.query("settings.current", {})
         assert after["revision"] > before["revision"]
@@ -676,26 +764,34 @@ async def test_long_output_wait_orders_cli_overlay_audio_and_gui_settings_captur
 
         entered.clear()
         release = asyncio.Event()
-        second = await control.submit("text.submit", {"text": "second gated output"}, request_id="order-manual-2")
+        second = await control.submit(
+            "text.submit", {"text": "second gated output"}, request_id="order-manual-2"
+        )
         await asyncio.wait_for(entered.wait(), 3)
         gui_capture = asyncio.create_task(app.apply_loopback_capture_option("device:Simulated B"))
         gui_telemetry = asyncio.create_task(app.apply_telemetry_enabled(False))
         await asyncio.sleep(0)
         assert not gui_capture.done() and not gui_telemetry.done()
         assert app.current_loopback_capture_option_value() == "device:Simulated A"
-        assert (await control.query("settings.current", {}))["settings"]["intent"]["telemetry"]["enabled"] is True
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["telemetry"][
+            "enabled"
+        ] is True
         release.set()
         assert (await control.wait(second["operation_id"], timeout=5))["status"] == "applied"
         await asyncio.wait_for(asyncio.gather(gui_capture, gui_telemetry), 5)
         assert app.current_loopback_capture_option_value() == "device:Simulated B"
-        assert (await control.query("settings.current", {}))["settings"]["intent"]["telemetry"]["enabled"] is False
+        assert (await control.query("settings.current", {}))["settings"]["intent"]["telemetry"][
+            "enabled"
+        ] is False
     finally:
         release.set()
         await app.stop()
 
 
 @pytest.mark.asyncio
-async def test_freeze_interrupts_manual_output_and_queued_provider_without_late_dispatch(offline, monkeypatch):
+async def test_freeze_interrupts_manual_output_and_queued_provider_without_late_dispatch(
+    offline, monkeypatch
+):
     app = compose_headless_application(offline)
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -715,10 +811,14 @@ async def test_freeze_interrupts_manual_output_and_queued_provider_without_late_
         control.bind_instance("isolated-manual-freeze")
         monkeypatch.setattr(app, "submit_text", slow_output)
         monkeypatch.setattr(app, "set_translation_enabled", translation)
-        manual = await control.submit("text.submit", {"text": "pending"}, request_id="freeze-manual")
+        manual = await control.submit(
+            "text.submit", {"text": "pending"}, request_id="freeze-manual"
+        )
         await asyncio.wait_for(entered.wait(), 3)
         queued = await control.submit(
-            "translation.set", {"enabled": False}, request_id="freeze-transition",
+            "translation.set",
+            {"enabled": False},
+            request_id="freeze-transition",
         )
         await asyncio.sleep(0)
         control.freeze_ingress()
@@ -732,7 +832,9 @@ async def test_freeze_interrupts_manual_output_and_queued_provider_without_late_
 
 
 @pytest.mark.asyncio
-async def test_control_overlay_receipts_preserve_owner_outcomes_and_captured_transaction(offline, monkeypatch):
+async def test_control_overlay_receipts_preserve_owner_outcomes_and_captured_transaction(
+    offline, monkeypatch
+):
     from puripuly_heart.config.resolved import OVERLAY_TARGET_DESKTOP
     from puripuly_heart.config.settings_vnext.schema import DesktopFletOverlayPositionIntent
 
@@ -762,17 +864,20 @@ async def test_control_overlay_receipts_preserve_owner_outcomes_and_captured_tra
     assert failed["transaction"]["status"] == "settings_commit_failed"
     monkeypatch.setattr(owner.persistence, "persist", persist)
 
-    owner.canonical = replace(owner.canonical, intent=replace(
-        owner.canonical.intent,
-        overlay=replace(
-            owner.canonical.intent.overlay,
-            target=OVERLAY_TARGET_DESKTOP,
-            desktop_flet=replace(
-                owner.canonical.intent.overlay.desktop_flet,
-                position=DesktopFletOverlayPositionIntent(x=140, y=85),
+    owner.canonical = replace(
+        owner.canonical,
+        intent=replace(
+            owner.canonical.intent,
+            overlay=replace(
+                owner.canonical.intent.overlay,
+                target=OVERLAY_TARGET_DESKTOP,
+                desktop_flet=replace(
+                    owner.canonical.intent.overlay.desktop_flet,
+                    position=DesktopFletOverlayPositionIntent(x=140, y=85),
+                ),
             ),
         ),
-    ))
+    )
     owner.persist_current()
     app._settings.projection.remember_all(owner.canonical)
     overlay = app._overlay.overlay
@@ -834,7 +939,11 @@ async def test_gpu_discovery_receipt_follows_owner_snapshot(offline):
             )
 
         owner.runtime_provider = lambda: SimpleNamespace(discover_gpu=discover_gpu)
-        for phase, expected in (("unsupported", "action_required"), ("failed", "failed"), ("available", "applied")):
+        for phase, expected in (
+            ("unsupported", "action_required"),
+            ("failed", "failed"),
+            ("available", "applied"),
+        ):
             accepted = await control.submit("gpu.discover", {}, request_id=f"gpu-{phase}")
             receipt = await control.wait(accepted["operation_id"], timeout=5)
             assert receipt["status"] == expected
@@ -859,16 +968,29 @@ async def test_gpu_discovery_receipt_follows_owner_snapshot(offline):
     ],
 )
 async def test_logout_affects_only_selected_credential_route(
-    offline, provider, model, connection, source, should_stop,
+    offline,
+    provider,
+    model,
+    connection,
+    source,
+    should_stop,
 ):
     app = compose_headless_application(offline)
     control = app.control()
     control.bind_instance("offline-logout")
     base = AppSettingsVNext()
-    settings = replace(base, intent=replace(base.intent, translation=replace(
-        base.intent.translation, model=model, connection=connection,
-        openrouter_selected_source=source,
-    )))
+    settings = replace(
+        base,
+        intent=replace(
+            base.intent,
+            translation=replace(
+                base.intent.translation,
+                model=model,
+                connection=connection,
+                openrouter_selected_source=source,
+            ),
+        ),
+    )
     state = SimpleNamespace(translation_enabled=True)
     effects = []
 
@@ -905,15 +1027,25 @@ async def test_logout_affects_only_selected_credential_route(
 
 
 @pytest.mark.asyncio
-async def test_logout_restores_active_translation_after_failed_persistence_and_honors_pending(offline):
+async def test_logout_restores_active_translation_after_failed_persistence_and_honors_pending(
+    offline,
+):
     app = compose_headless_application(offline)
     control = app.control()
     control.bind_instance("offline-logout-failure")
     base = AppSettingsVNext()
-    settings = replace(base, intent=replace(base.intent, translation=replace(
-        base.intent.translation, model="deepseek_v4_flash", connection="managed_china",
-        openrouter_selected_source="managed",
-    )))
+    settings = replace(
+        base,
+        intent=replace(
+            base.intent,
+            translation=replace(
+                base.intent.translation,
+                model="deepseek_v4_flash",
+                connection="managed_china",
+                openrouter_selected_source="managed",
+            ),
+        ),
+    )
     state = SimpleNamespace(translation_enabled=True)
     effects = []
 
@@ -945,7 +1077,10 @@ async def test_logout_restores_active_translation_after_failed_persistence_and_h
     settings = replace(settings, state=replace(settings.state, managed_connection=pending))
     effects.clear()
     result = await control._logout({"provider": "qq"})
-    assert result == {"status": "action_required", "action": "resolve_pending_managed_authorization"}
+    assert result == {
+        "status": "action_required",
+        "action": "resolve_pending_managed_authorization",
+    }
     assert effects == []
 
     settings = base
@@ -955,7 +1090,9 @@ async def test_logout_restores_active_translation_after_failed_persistence_and_h
 
 
 @pytest.mark.asyncio
-async def test_managed_logout_preserves_other_account_metadata_and_compensates_failed_save(offline, monkeypatch):
+async def test_managed_logout_preserves_other_account_metadata_and_compensates_failed_save(
+    offline, monkeypatch
+):
     from puripuly_heart.core.openrouter_credentials import (
         OPENROUTER_MANAGED_API_KEY_SECRET,
         OPENROUTER_MANAGED_QQ_API_KEY_SECRET,
@@ -1000,8 +1137,14 @@ async def test_managed_logout_preserves_other_account_metadata_and_compensates_f
         ingress_provider=lambda: False,
     )
     assert (await adapter.logout_local_managed("qq"))["status"] == "applied"
-    assert owner.canonical.state.managed_connection.active_managed_credential_ref == "discord-reference"
-    assert owner.canonical.state.managed_connection.founder_letter_seen_credential_ref == "discord-reference"
+    assert (
+        owner.canonical.state.managed_connection.active_managed_credential_ref
+        == "discord-reference"
+    )
+    assert (
+        owner.canonical.state.managed_connection.founder_letter_seen_credential_ref
+        == "discord-reference"
+    )
     assert OPENROUTER_MANAGED_QQ_API_KEY_SECRET not in values
     assert values[OPENROUTER_MANAGED_API_KEY_SECRET] == "offline-discord"
     assert (await adapter.logout_local_managed("qq"))["reason"] == "not_authorized"
@@ -1012,4 +1155,7 @@ async def test_managed_logout_preserves_other_account_metadata_and_compensates_f
     monkeypatch.setattr(owner.persistence, "persist", locked_file)
     assert (await adapter.logout_local_managed("discord"))["status"] == "persistence_failed"
     assert values[OPENROUTER_MANAGED_API_KEY_SECRET] == "offline-discord"
-    assert owner.canonical.state.managed_connection.active_managed_credential_ref == "discord-reference"
+    assert (
+        owner.canonical.state.managed_connection.active_managed_credential_ref
+        == "discord-reference"
+    )

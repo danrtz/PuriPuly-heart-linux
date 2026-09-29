@@ -454,7 +454,10 @@ class DesktopOverlayApplicationOwner:
                 ),
             ),
         )
-        if current.intent.overlay.desktop_flet.position != updated.intent.overlay.desktop_flet.position:
+        if (
+            current.intent.overlay.desktop_flet.position
+            != updated.intent.overlay.desktop_flet.position
+        ):
             application = self.settings_application_provider()
             routed = await application.apply_overlay_osc_output(updated)
             if not routed:
@@ -462,7 +465,10 @@ class DesktopOverlayApplicationOwner:
             if not application.results.committed():
                 result = application.results.current
                 if result is not None and result.status.startswith("settings_commit_failed"):
-                    return {"status": "persistence_failed", "reason": "desktop_position_save_failed"}
+                    return {
+                        "status": "persistence_failed",
+                        "reason": "desktop_position_save_failed",
+                    }
                 return {"status": "failed", "reason": "desktop_position_apply_failed"}
         self.settings.set_overlay_desktop_locked(False)
         if not renderer_active:

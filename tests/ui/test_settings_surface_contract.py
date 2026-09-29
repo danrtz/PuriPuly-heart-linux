@@ -413,5 +413,3 @@ def _track(bucket: list[ft.Control]) -> ft.Control:
     control = ft.Container()
     bucket.append(control)
     return control
-
-

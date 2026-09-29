@@ -277,7 +277,6 @@ def test_single_prompt_whitespace_survives_provider_switch(monkeypatch) -> None:
     assert _prompt(pending) == "  CUSTOM PROMPT\n"
 
 
-
 def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypatch) -> None:
     settings = AppSettingsVNext()
     view = _make_settings_view(monkeypatch)

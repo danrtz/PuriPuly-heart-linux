@@ -105,7 +105,9 @@ class TranslationEnableOwner:
             self._publish_starting(True)
         try:
             if enabled and state.managed_selected:
-                if not await self._prepare_managed(request_generation, state, allow_authorization=allow_authorization):
+                if not await self._prepare_managed(
+                    request_generation, state, allow_authorization=allow_authorization
+                ):
                     return False
             if enabled and not self.intent_matches(
                 enabled=True,

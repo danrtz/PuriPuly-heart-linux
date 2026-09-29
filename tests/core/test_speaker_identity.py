@@ -101,5 +101,10 @@ def test_non_diarized_turn_preserves_prior_palette_without_consuming_slot() -> N
     missing = allocator.observe(_transcript(None, "session", 5), child_sequence=0)
     following = allocator.observe(_transcript("C", "session", 6), child_sequence=0)
     assert [item.palette_index for item in (first, second, off, resumed, missing, following)] == [
-        0, 1, None, 1, None, 2
+        0,
+        1,
+        None,
+        1,
+        None,
+        2,
     ]

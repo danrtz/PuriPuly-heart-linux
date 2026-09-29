@@ -159,12 +159,8 @@ def build_parser() -> argparse.ArgumentParser:
     cap_sub.add_parser("status")
     audio = sub.add_parser("audio", help="Discover audio devices and processes")
     audio_sub = audio.add_subparsers(dest="action", required=True)
-    audio_sub.add_parser("devices").add_subparsers(
-        dest="verb", required=True
-    ).add_parser("list")
-    audio_sub.add_parser("processes").add_subparsers(
-        dest="verb", required=True
-    ).add_parser("list")
+    audio_sub.add_parser("devices").add_subparsers(dest="verb", required=True).add_parser("list")
+    audio_sub.add_parser("processes").add_subparsers(dest="verb", required=True).add_parser("list")
     audio_target = audio_sub.add_parser("target").add_subparsers(dest="verb", required=True)
     audio_target.add_parser("status")
     audio_target_set = audio_target.add_parser("set")
@@ -189,7 +185,9 @@ def build_parser() -> argparse.ArgumentParser:
     microphone_set = microphone.add_subparsers(dest="action", required=True).add_parser("test")
     microphone_set.add_argument("state", choices=("on", "off"))
     microphone_set.add_argument("--no-wait", action="store_true")
-    models = sub.add_parser("models", help="Inspect, prepare, install, retry or cancel local models")
+    models = sub.add_parser(
+        "models", help="Inspect, prepare, install, retry or cancel local models"
+    )
     models_sub = models.add_subparsers(dest="action", required=True)
     models_sub.add_parser("status")
     for action in ("install", "prepare", "cancel", "retry"):
@@ -238,8 +236,12 @@ def build_parser() -> argparse.ArgumentParser:
     auth_sub.add_parser("status")
     auth_login = auth_sub.add_parser("login")
     auth_login.add_argument("provider", choices=("qq", "discord", "openrouter"))
-    auth_login.add_argument("--stdin", action="store_true", help="Read protected JSON fields from stdin")
-    auth_login.add_argument("--open-browser", action="store_true", help="Explicitly open the authorization URL")
+    auth_login.add_argument(
+        "--stdin", action="store_true", help="Read protected JSON fields from stdin"
+    )
+    auth_login.add_argument(
+        "--open-browser", action="store_true", help="Explicitly open the authorization URL"
+    )
     auth_login.add_argument("--no-wait", action="store_true")
     auth_logout = auth_sub.add_parser("logout")
     auth_logout.add_argument("provider", choices=("qq", "discord", "openrouter"))
@@ -302,9 +304,13 @@ def _auth_input(args: argparse.Namespace) -> dict[str, Any]:
     if args.stdin:
         fields = json.loads(sys.stdin.read())
         if not isinstance(fields, dict) or fields.keys() - {
-            "qq_identity", "credential", "referral_id"
+            "qq_identity",
+            "credential",
+            "referral_id",
         }:
-            raise ValueError("Authorization stdin must be a JSON object of supported protected fields")
+            raise ValueError(
+                "Authorization stdin must be a JSON object of supported protected fields"
+            )
     else:
         fields = {}
         if args.provider == "qq":
@@ -371,7 +377,9 @@ async def _submit(record: Any, name: str, values: dict[str, Any], args: argparse
             return 7
         raise
     if type(receipt.get("terminal")) is not bool:
-        raise ControlTransportError("malformed_response", "Operation receipt omitted terminal state")
+        raise ControlTransportError(
+            "malformed_response", "Operation receipt omitted terminal state"
+        )
     if getattr(args, "no_wait", False) or receipt["terminal"]:
         _emit(receipt)
         return _status_code(receipt, waiting=not getattr(args, "no_wait", False))
@@ -386,27 +394,32 @@ async def _submit(record: Any, name: str, values: dict[str, Any], args: argparse
             while True:
                 remaining = deadline - time.monotonic()
                 result = await request(
-                    record, "wait",
+                    record,
+                    "wait",
                     {"operation_id": operation_id, "timeout": max(0, min(0.25, remaining))},
                     timeout=max(0.1, min(0.25, remaining) + 2),
                 )
                 if result.get("terminal") is True or remaining <= 0:
                     break
                 auth = await request(
-                    record, "query", {"name": "auth.status", "values": {}},
+                    record,
+                    "query",
+                    {"name": "auth.status", "values": {}},
                     timeout=max(0.1, deadline - time.monotonic()),
                 )
                 challenge = auth.get("challenge")
                 if isinstance(challenge, dict) and challenge.get("operation_id") == operation_id:
-                    _emit({
-                        "status": "action_required",
-                        "operation_status": result["status"],
-                        "terminal": False,
-                        "instance_id": record.instance_id,
-                        "operation_id": operation_id,
-                        "authorization_url": challenge["authorization_url"],
-                        "message": "Authorize externally, then inspect or wait for operation completion",
-                    })
+                    _emit(
+                        {
+                            "status": "action_required",
+                            "operation_status": result["status"],
+                            "terminal": False,
+                            "instance_id": record.instance_id,
+                            "operation_id": operation_id,
+                            "authorization_url": challenge["authorization_url"],
+                            "message": "Authorize externally, then inspect or wait for operation completion",
+                        }
+                    )
                     return EXIT_CODES["action_required"]
         else:
             result = await request(
@@ -529,7 +542,9 @@ async def _stop(record: Any, args: argparse.Namespace) -> int:
     )
     host_pid = status.get("host_pid")
     if type(host_pid) is not int or host_pid <= 0:
-        raise ControlTransportError("malformed_response", "Host status omitted its process identity")
+        raise ControlTransportError(
+            "malformed_response", "Host status omitted its process identity"
+        )
     try:
         host_created = psutil.Process(host_pid).create_time()
     except psutil.NoSuchProcess:
@@ -629,7 +644,10 @@ async def _run(args: argparse.Namespace) -> int:
         _emit({"instance_id": record.instance_id, "port": record.port, **result})
         return 0
     if args.domain == "command" and args.name in (
-        "secrets.set", "secrets.verify", "auth.login", "text.submit"
+        "secrets.set",
+        "secrets.verify",
+        "auth.login",
+        "text.submit",
     ):
         raise ValueError("Protected input requires the dedicated secrets, auth, or text command")
     if (
@@ -679,14 +697,28 @@ async def _run(args: argparse.Namespace) -> int:
         ("audio", "processes"): "audio.processes",
         ("audio", "target"): "audio.target",
     }.get((args.domain, getattr(args, "action", None)))
-    if query_name and not (args.domain == "audio" and args.action == "target" and args.verb == "set"):
-        _emit(await request(
-            record, "query", {"name": query_name, "values": {}}, timeout=args.timeout
-        ))
+    if query_name and not (
+        args.domain == "audio" and args.action == "target" and args.verb == "set"
+    ):
+        _emit(
+            await request(record, "query", {"name": query_name, "values": {}}, timeout=args.timeout)
+        )
         return 0
     if args.domain in (
-        "command", "settings", "capture", "translation", "asr", "secrets", "text",
-        "microphone", "audio", "models", "gemma", "gpu", "overlay", "auth",
+        "command",
+        "settings",
+        "capture",
+        "translation",
+        "asr",
+        "secrets",
+        "text",
+        "microphone",
+        "audio",
+        "models",
+        "gemma",
+        "gpu",
+        "overlay",
+        "auth",
     ):
         if args.domain == "command":
             name, values = args.name, _parse_arguments(args)
@@ -730,7 +762,8 @@ async def _run(args: argparse.Namespace) -> int:
         elif args.domain == "audio":
             name, values = (
                 ("audio.target.set", {"value": args.value})
-                if args.action == "target" else ("audio.retry", {})
+                if args.action == "target"
+                else ("audio.retry", {})
             )
         elif args.domain == "models":
             name, values = f"models.{args.action}", {"backend": args.backend}

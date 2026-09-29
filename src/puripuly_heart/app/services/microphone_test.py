@@ -135,8 +135,10 @@ class MicrophoneTestSessionOwner:
         return {
             "state": self._state,
             "desired_active": self._state in {"pending", "ready"},
-            "effective_active": self._state == "ready" and self.active
-            and self._runtime is not None and self._runtime.source is not None,
+            "effective_active": self._state == "ready"
+            and self.active
+            and self._runtime is not None
+            and self._runtime.source is not None,
             "meter_level": self._meter_level,
             "failure_reason": self._failure_reason,
             "failure_type": self._failure_type,
@@ -149,8 +151,10 @@ class MicrophoneTestSessionOwner:
     def mark_ready(self, generation: int) -> None:
         runtime = self._runtime
         if (
-            runtime is None or not runtime.is_current_generation(generation)
-            or self._state != "pending" or runtime.source is None
+            runtime is None
+            or not runtime.is_current_generation(generation)
+            or self._state != "pending"
+            or runtime.source is None
         ):
             return
         self._state = "ready"
@@ -158,7 +162,10 @@ class MicrophoneTestSessionOwner:
             self._readiness.set_result(True)
 
     def mark_failure(
-        self, generation: int, reason: str, error_type: str | None,
+        self,
+        generation: int,
+        reason: str,
+        error_type: str | None,
     ) -> None:
         runtime = self._runtime
         if runtime is None or not runtime.is_current_generation(generation):
@@ -235,13 +242,12 @@ class MicrophoneTestSessionOwner:
             if runtime is not None:
                 await runtime.stop()
             self._meter_level = 0.0
-            if (
-                runtime is not None
-                and (
-                    runtime.source is not None
-                    or task is not None and not task.done()
-                    or frame_task is not None and not frame_task.done()
-                )
+            if runtime is not None and (
+                runtime.source is not None
+                or task is not None
+                and not task.done()
+                or frame_task is not None
+                and not frame_task.done()
             ):
                 self._failure_reason = "resource_release_incomplete"
                 return

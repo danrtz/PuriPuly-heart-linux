@@ -1074,12 +1074,16 @@ class ManagedAuthRuntimeAdapter:
             return {"status": "action_required", "action": "resolve_pending_managed_authorization"}
         keys = (
             (OPENROUTER_MANAGED_QQ_API_KEY_SECRET, OPENROUTER_MANAGED_QQ_STATUS_AUTH_SECRET)
-            if provider == "qq" else
-            (OPENROUTER_MANAGED_API_KEY_SECRET, OPENROUTER_MANAGED_USER_ID_SECRET, OPENROUTER_MANAGED_USER_INSTALLATION_ID_SECRET)
+            if provider == "qq"
+            else (
+                OPENROUTER_MANAGED_API_KEY_SECRET,
+                OPENROUTER_MANAGED_USER_ID_SECRET,
+                OPENROUTER_MANAGED_USER_INSTALLATION_ID_SECRET,
+            )
         )
-        store = SyncSecretStoreAdapter(self.secret_store_factory(
-            current.intent.secrets, config_path=self.config_path
-        ))
+        store = SyncSecretStoreAdapter(
+            self.secret_store_factory(current.intent.secrets, config_path=self.config_path)
+        )
         snapshots = [await store.snapshot_secret(key) for key in keys]
         if not snapshots[0].existed:
             return {"status": "rejected", "provider": provider, "reason": "not_authorized"}
@@ -1089,28 +1093,39 @@ class ManagedAuthRuntimeAdapter:
                 await store.clear_secret(snapshot.key)
                 cleared.append(snapshot)
             translation = current.intent.translation
-            active_account = (
-                managed_openrouter_selected_from_vnext(current)
-                and (
-                    (provider == "qq" and translation.connection == "managed_china")
-                    or (provider == "discord" and translation.connection == "managed")
-                )
+            active_account = managed_openrouter_selected_from_vnext(current) and (
+                (provider == "qq" and translation.connection == "managed_china")
+                or (provider == "discord" and translation.connection == "managed")
             )
-            updated_state = replace(state,
-                active_managed_credential_ref=None if active_account else state.active_managed_credential_ref,
-                active_managed_expires_at=None if active_account else state.active_managed_expires_at,
-                founder_letter_seen_credential_ref=None if active_account else state.founder_letter_seen_credential_ref,
+            updated_state = replace(
+                state,
+                active_managed_credential_ref=(
+                    None if active_account else state.active_managed_credential_ref
+                ),
+                active_managed_expires_at=(
+                    None if active_account else state.active_managed_expires_at
+                ),
+                founder_letter_seen_credential_ref=(
+                    None if active_account else state.founder_letter_seen_credential_ref
+                ),
                 referral_id=None if state.referral_source == provider else state.referral_id,
-                referral_source=None if state.referral_source == provider else state.referral_source,
+                referral_source=(
+                    None if state.referral_source == provider else state.referral_source
+                ),
             )
-            updated = replace(current, state=replace(current.state, managed_connection=updated_state))
+            updated = replace(
+                current, state=replace(current.state, managed_connection=updated_state)
+            )
             repository = self.settings.create_canonical_patch_repository(
                 base_settings=current, committed_settings=updated, surface="managed_logout"
             )
-            commit = await repository.save(SettingsCommitRequest(
-                values={"state": {"managed_connection": asdict(updated_state)}},
-                expected_revision=None, reason="managed_logout"
-            ))
+            commit = await repository.save(
+                SettingsCommitRequest(
+                    values={"state": {"managed_connection": asdict(updated_state)}},
+                    expected_revision=None,
+                    reason="managed_logout",
+                )
+            )
             if not commit.succeeded:
                 for snapshot in reversed(cleared):
                     await store.restore_secret(snapshot)
@@ -1253,7 +1268,8 @@ class ManagedAuthRuntimeAdapter:
         if not _supports_transaction_auth(release_service):
             if authorization_url_sink is not None or not open_browser:
                 return ManagedAuthExecutionResult(
-                    succeeded=False, message_key="discord_auth.error.action_required",
+                    succeeded=False,
+                    message_key="discord_auth.error.action_required",
                 )
             return await self._execute_legacy_discord(
                 release_service,

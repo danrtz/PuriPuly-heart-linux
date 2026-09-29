@@ -24,7 +24,8 @@ class SettingsTransactionResultOwner:
     def __init__(self) -> None:
         self._latest: TransactionResult | None = None
         self._scope: ContextVar[_ResultScope | None] = ContextVar(
-            "settings_transaction_result_scope", default=None,
+            "settings_transaction_result_scope",
+            default=None,
         )
 
     @property
@@ -52,7 +53,6 @@ class SettingsTransactionResultOwner:
         if scope is not None and scope.revision is not None:
             scope.current = None
             scope.committed_revision = scope.revision()
-
 
     def committed(self) -> bool:
         current = self.current

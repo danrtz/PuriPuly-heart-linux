@@ -215,7 +215,7 @@ Long-lived resource ownership must be transferred to an explicit owner.
 
 ## Local Application Control
 
-GUI and headless hosts share application owners and runtime resources. Presentation adapters select whether the host has a main window.
+GUI and headless hosts share application owners and runtime resources. Presentation adapters select whether the host has a main window. Headless presentation preserves application error state and severity without GUI notifications.
 
 `ApplicationControlOwner` exposes a finite catalog of typed commands and owner-backed queries.
 

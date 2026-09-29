@@ -75,7 +75,9 @@ class MicrophoneTestCaptureAdapter:
                     self.log_sink(f"[MicTest] failed cause={cause}")
                     if request.failure_callback is not None:
                         request.failure_callback(
-                            capture_generation, "input_route_unavailable", cause,
+                            capture_generation,
+                            "input_route_unavailable",
+                            cause,
                         )
                     return
 
@@ -102,7 +104,9 @@ class MicrophoneTestCaptureAdapter:
                     end_exception = exc
                     if request.failure_callback is not None:
                         request.failure_callback(
-                            capture_generation, "source_open_failed", type(exc).__name__,
+                            capture_generation,
+                            "source_open_failed",
+                            type(exc).__name__,
                         )
                     self.log_sink(f"[MicTest] failed cause={type(exc).__name__}")
                     return
@@ -143,7 +147,9 @@ class MicrophoneTestCaptureAdapter:
                 end_exception = exc
                 if request.failure_callback is not None:
                     request.failure_callback(
-                        capture_generation, "capture_failed", type(exc).__name__,
+                        capture_generation,
+                        "capture_failed",
+                        type(exc).__name__,
                     )
             finally:
                 cleanup_failures: list[Exception] = []
@@ -160,7 +166,9 @@ class MicrophoneTestCaptureAdapter:
                         cleanup_failures.append(exc)
                         if request.failure_callback is not None:
                             request.failure_callback(
-                                capture_generation, "source_close_failed", type(exc).__name__,
+                                capture_generation,
+                                "source_close_failed",
+                                type(exc).__name__,
                             )
 
                 if opened:

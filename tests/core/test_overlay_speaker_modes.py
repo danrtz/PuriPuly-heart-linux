@@ -75,7 +75,9 @@ async def test_non_diarized_gold_does_not_block_identified_speaker_scope() -> No
     await presenter.emit(_peer_event(adapter, off, "off", off_assignment))
     await presenter.emit(_peer_event(adapter, identified, "on", _assignment("new", "A", 2, 0)))
     assert [block.speaker_style for block in presenter.snapshot().blocks] == ["gold", "gold"]
-    await presenter.emit(_peer_event(adapter, unknown, "unknown", _assignment("new", None, 3, None)))
+    await presenter.emit(
+        _peer_event(adapter, unknown, "unknown", _assignment("new", None, 3, None))
+    )
     assert [block.speaker_style for block in presenter.snapshot().blocks] == ["gold", "gray"]
     await presenter.close()
 

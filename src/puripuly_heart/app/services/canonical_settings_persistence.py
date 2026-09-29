@@ -255,7 +255,9 @@ class SettingsOwner:
 
     def persist(self) -> None:
         loop = self._commit_loop
-        different_thread = self.commit_listener is not None and threading.get_ident() != self._commit_thread
+        different_thread = (
+            self.commit_listener is not None and threading.get_ident() != self._commit_thread
+        )
         if different_thread and (loop is None or not loop.is_running()):
             raise RuntimeError("settings commit observer loop is unavailable")
         snapshot = copy.deepcopy(self.require_canonical())

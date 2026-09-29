@@ -78,20 +78,75 @@ class _WindowsSecurity:
         self.kernel.GetCurrentProcess.restype = ctypes.c_void_p
         self.kernel.LocalFree.argtypes = [ctypes.c_void_p]
         self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-        self.kernel.LockFileEx.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(_Overlapped)]
-        self.kernel.UnlockFileEx.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(_Overlapped)]
-        self.advapi.OpenProcessToken.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
-        self.advapi.GetTokenInformation.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-        self.advapi.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-        self.advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
-        self.advapi.GetNamedSecurityInfoW.argtypes = [wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        self.kernel.LockFileEx.argtypes = [
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.POINTER(_Overlapped),
+        ]
+        self.kernel.UnlockFileEx.argtypes = [
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.POINTER(_Overlapped),
+        ]
+        self.advapi.OpenProcessToken.argtypes = [
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        self.advapi.GetTokenInformation.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        self.advapi.ConvertSidToStringSidW.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        self.advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+        ]
+        self.advapi.GetNamedSecurityInfoW.argtypes = [
+            wintypes.LPWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
         self.advapi.SetFileSecurityW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_void_p]
-        self.advapi.GetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(wintypes.DWORD)]
-        self.advapi.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.BOOL)]
-        self.advapi.GetAce.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
+        self.advapi.GetSecurityDescriptorControl.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_ushort),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        self.advapi.GetSecurityDescriptorDacl.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(wintypes.BOOL),
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(wintypes.BOOL),
+        ]
+        self.advapi.GetAce.argtypes = [
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
         self.advapi.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         token = ctypes.c_void_p()
-        if not self.advapi.OpenProcessToken(self.kernel.GetCurrentProcess(), 8, ctypes.byref(token)):
+        if not self.advapi.OpenProcessToken(
+            self.kernel.GetCurrentProcess(), 8, ctypes.byref(token)
+        ):
             raise ctypes.WinError(ctypes.get_last_error())
         try:
             length = wintypes.DWORD()
@@ -100,7 +155,9 @@ class _WindowsSecurity:
             if not self.advapi.GetTokenInformation(token, 1, buffer, length, ctypes.byref(length)):
                 raise ctypes.WinError(ctypes.get_last_error())
             sid_string = ctypes.c_void_p()
-            if not self.advapi.ConvertSidToStringSidW(_TokenUser.from_buffer(buffer).sid, ctypes.byref(sid_string)):
+            if not self.advapi.ConvertSidToStringSidW(
+                _TokenUser.from_buffer(buffer).sid, ctypes.byref(sid_string)
+            ):
                 raise ctypes.WinError(ctypes.get_last_error())
             try:
                 self.sid = ctypes.wstring_at(sid_string)
@@ -109,10 +166,17 @@ class _WindowsSecurity:
         finally:
             self.kernel.CloseHandle(token)
         self.descriptor = ctypes.c_void_p()
-        if not self.advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(f"O:{self.sid}G:{self.sid}D:P(A;;FA;;;{self.sid})", 1, ctypes.byref(self.descriptor), None):
+        if not self.advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            f"O:{self.sid}G:{self.sid}D:P(A;;FA;;;{self.sid})",
+            1,
+            ctypes.byref(self.descriptor),
+            None,
+        ):
             raise ctypes.WinError(ctypes.get_last_error())
         owner = ctypes.c_void_p()
-        if not self.advapi.GetSecurityDescriptorOwner(self.descriptor, ctypes.byref(owner), ctypes.byref(wintypes.BOOL())):
+        if not self.advapi.GetSecurityDescriptorOwner(
+            self.descriptor, ctypes.byref(owner), ctypes.byref(wintypes.BOOL())
+        ):
             self.kernel.LocalFree(self.descriptor)
             raise ctypes.WinError(ctypes.get_last_error())
         self.sid_pointer = owner
@@ -121,7 +185,13 @@ class _WindowsSecurity:
         self.kernel.LocalFree(self.descriptor)
 
     def protect(self, path: Path) -> None:
-        if not self.advapi.SetFileSecurityW(str(path), _OWNER_SECURITY_INFORMATION | _DACL_SECURITY_INFORMATION | _PROTECTED_DACL_SECURITY_INFORMATION, self.descriptor):
+        if not self.advapi.SetFileSecurityW(
+            str(path),
+            _OWNER_SECURITY_INFORMATION
+            | _DACL_SECURITY_INFORMATION
+            | _PROTECTED_DACL_SECURITY_INFORMATION,
+            self.descriptor,
+        ):
             raise ctypes.WinError(ctypes.get_last_error())
         self.verify_path(path)
 
@@ -131,7 +201,16 @@ class _WindowsSecurity:
         owner = ctypes.c_void_p()
         dacl = ctypes.c_void_p()
         descriptor = ctypes.c_void_p()
-        code = self.advapi.GetNamedSecurityInfoW(str(path), 1, _OWNER_SECURITY_INFORMATION | _DACL_SECURITY_INFORMATION, ctypes.byref(owner), None, ctypes.byref(dacl), None, ctypes.byref(descriptor))
+        code = self.advapi.GetNamedSecurityInfoW(
+            str(path),
+            1,
+            _OWNER_SECURITY_INFORMATION | _DACL_SECURITY_INFORMATION,
+            ctypes.byref(owner),
+            None,
+            ctypes.byref(dacl),
+            None,
+            ctypes.byref(descriptor),
+        )
         if code:
             raise ctypes.WinError(code)
         try:
@@ -139,21 +218,36 @@ class _WindowsSecurity:
                 raise InstanceSecurityError("Instance security owner differs from current user")
             control = ctypes.c_ushort()
             revision = wintypes.DWORD()
-            if not self.advapi.GetSecurityDescriptorControl(descriptor, ctypes.byref(control), ctypes.byref(revision)):
+            if not self.advapi.GetSecurityDescriptorControl(
+                descriptor, ctypes.byref(control), ctypes.byref(revision)
+            ):
                 raise ctypes.WinError(ctypes.get_last_error())
             present = wintypes.BOOL()
             defaulted = wintypes.BOOL()
             acl = ctypes.c_void_p()
-            if not self.advapi.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(acl), ctypes.byref(defaulted)):
+            if not self.advapi.GetSecurityDescriptorDacl(
+                descriptor, ctypes.byref(present), ctypes.byref(acl), ctypes.byref(defaulted)
+            ):
                 raise ctypes.WinError(ctypes.get_last_error())
-            if not (control.value & _SE_DACL_PROTECTED) or not present.value or not acl.value or _Acl.from_address(acl.value).ace_count != 1:
+            if (
+                not (control.value & _SE_DACL_PROTECTED)
+                or not present.value
+                or not acl.value
+                or _Acl.from_address(acl.value).ace_count != 1
+            ):
                 raise InstanceSecurityError("Instance security DACL is not exclusive")
             ace = ctypes.c_void_p()
             if not self.advapi.GetAce(acl, 0, ctypes.byref(ace)):
                 raise ctypes.WinError(ctypes.get_last_error())
             header = _AceHeader.from_address(ace.value)
             mask = ctypes.c_uint32.from_address(ace.value + 4).value
-            if header.type != 0 or header.flags != 0 or header.size < 12 or mask != _FILE_ALL_ACCESS or not self.advapi.EqualSid(ace.value + 8, self.sid_pointer):
+            if (
+                header.type != 0
+                or header.flags != 0
+                or header.size < 12
+                or mask != _FILE_ALL_ACCESS
+                or not self.advapi.EqualSid(ace.value + 8, self.sid_pointer)
+            ):
                 raise InstanceSecurityError("Instance security grants access beyond current user")
         finally:
             self.kernel.LocalFree(descriptor)
@@ -161,7 +255,14 @@ class _WindowsSecurity:
     def lock(self, stream: BinaryIO) -> bool:
         handle = msvcrt.get_osfhandle(stream.fileno())
         position = _Overlapped()
-        if self.kernel.LockFileEx(handle, _LOCKFILE_EXCLUSIVE_LOCK | _LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, ctypes.byref(position)):
+        if self.kernel.LockFileEx(
+            handle,
+            _LOCKFILE_EXCLUSIVE_LOCK | _LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            1,
+            0,
+            ctypes.byref(position),
+        ):
             return True
         error = ctypes.get_last_error()
         if error == _ERROR_LOCK_VIOLATION:
@@ -170,7 +271,9 @@ class _WindowsSecurity:
 
     def unlock(self, stream: BinaryIO) -> None:
         position = _Overlapped()
-        if not self.kernel.UnlockFileEx(msvcrt.get_osfhandle(stream.fileno()), 0, 1, 0, ctypes.byref(position)):
+        if not self.kernel.UnlockFileEx(
+            msvcrt.get_osfhandle(stream.fileno()), 0, 1, 0, ctypes.byref(position)
+        ):
             raise ctypes.WinError(ctypes.get_last_error())
 
 
@@ -228,14 +331,26 @@ def _record(path: Path, security: _WindowsSecurity, *, temporary: bool = False) 
     if not isinstance(data, dict) or set(data) != {"port", "token", "instance_id", "settings_path"}:
         raise InstanceSecurityError("Instance record has invalid fields")
     settings_path = data["settings_path"]
-    if not isinstance(settings_path, str) or not settings_path or os.path.normcase(str(Path(settings_path).resolve(strict=False))) != settings_path:
+    if (
+        not isinstance(settings_path, str)
+        or not settings_path
+        or os.path.normcase(str(Path(settings_path).resolve(strict=False))) != settings_path
+    ):
         raise InstanceSecurityError("Instance record has invalid settings identity")
     digest = hashlib.sha256(settings_path.encode("utf-8")).hexdigest()
     expected = f"{digest}.json"
-    if path.name != expected and not (temporary and path.name.startswith(expected + ".") and path.name.endswith(".tmp")):
+    if path.name != expected and not (
+        temporary and path.name.startswith(expected + ".") and path.name.endswith(".tmp")
+    ):
         raise InstanceSecurityError("Instance record has mismatched settings identity")
     port, token, instance_id = data["port"], data["token"], data["instance_id"]
-    if type(port) is not int or not 1 <= port <= 65535 or not isinstance(token, str) or not 32 <= len(token) <= 256 or not isinstance(instance_id, str):
+    if (
+        type(port) is not int
+        or not 1 <= port <= 65535
+        or not isinstance(token, str)
+        or not 32 <= len(token) <= 256
+        or not isinstance(instance_id, str)
+    ):
         raise InstanceSecurityError("Instance record has invalid values")
     try:
         uuid.UUID(instance_id)
@@ -245,7 +360,9 @@ def _record(path: Path, security: _WindowsSecurity, *, temporary: bool = False) 
 
 
 class InstanceLease:
-    def __init__(self, path: Path, settings_path: str, stream: BinaryIO, security: _WindowsSecurity) -> None:
+    def __init__(
+        self, path: Path, settings_path: str, stream: BinaryIO, security: _WindowsSecurity
+    ) -> None:
         self._path = path
         self._settings_path = settings_path
         self._stream = stream
@@ -256,13 +373,27 @@ class InstanceLease:
         if self._stream is None:
             raise RuntimeError("Instance lease is closed")
         record = InstanceRecord(port, token, instance_id)
-        if type(port) is not int or not 1 <= port <= 65535 or not isinstance(token, str) or not 32 <= len(token) <= 256 or not isinstance(instance_id, str):
+        if (
+            type(port) is not int
+            or not 1 <= port <= 65535
+            or not isinstance(token, str)
+            or not 32 <= len(token) <= 256
+            or not isinstance(instance_id, str)
+        ):
             raise ValueError("Invalid application endpoint")
         try:
             uuid.UUID(instance_id)
         except ValueError as exc:
             raise ValueError("Invalid application instance identity") from exc
-        payload = json.dumps({"port": port, "token": token, "instance_id": instance_id, "settings_path": self._settings_path}, separators=(",", ":"))
+        payload = json.dumps(
+            {
+                "port": port,
+                "token": token,
+                "instance_id": instance_id,
+                "settings_path": self._settings_path,
+            },
+            separators=(",", ":"),
+        )
         temporary = self._path.with_name(f"{self._path.name}.{uuid.uuid4().hex}.tmp")
         try:
             with temporary.open("x", encoding="utf-8") as output:
@@ -282,7 +413,11 @@ class InstanceLease:
             return
         self._stream = None
         try:
-            if self._published is not None and _exists(self._path) and _record(self._path, self._security) == self._published:
+            if (
+                self._published is not None
+                and _exists(self._path)
+                and _record(self._path, self._security) == self._published
+            ):
                 self._path.unlink()
         finally:
             with _local_leases_lock:
@@ -373,9 +508,15 @@ def discover_instances() -> list[dict[str, str | int]]:
                 settings_path = json.loads(path.read_text(encoding="utf-8"))["settings_path"]
                 if discover(Path(settings_path)) != record:
                     continue
-            except (OSError, ValueError, InstanceSecurityError, KeyError):
+            except OSError, ValueError, InstanceSecurityError, KeyError:
                 continue
-            records.append({"settings_path": settings_path, "port": record.port, "instance_id": record.instance_id})
+            records.append(
+                {
+                    "settings_path": settings_path,
+                    "port": record.port,
+                    "instance_id": record.instance_id,
+                }
+            )
         return records
     finally:
         security.close()

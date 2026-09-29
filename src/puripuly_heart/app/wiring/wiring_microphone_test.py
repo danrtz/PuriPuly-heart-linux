@@ -67,8 +67,12 @@ class MicrophoneTestRuntime:
     def snapshot(self) -> dict[str, object]:
         if self._owner is None:
             return {
-                "state": "off", "desired_active": False, "effective_active": False,
-                "meter_level": 0.0, "failure_reason": None, "failure_type": None,
+                "state": "off",
+                "desired_active": False,
+                "effective_active": False,
+                "meter_level": 0.0,
+                "failure_reason": None,
+                "failure_type": None,
             }
         return self._owner.snapshot
 

@@ -2075,8 +2075,6 @@ def test_local_llm_unblurred_fields_commit_when_building_provider_apply_settings
     assert pending.intent.local_llm.extra_body == {"think": False}
 
 
-
-
 def test_local_llm_invalid_base_url_shows_error_without_saving(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5432,7 +5430,6 @@ def test_prompt_change_only_updates_draft_until_commit(monkeypatch: pytest.Monke
     assert changed == []
 
 
-
 def test_prompt_commit_preserves_peer_local_qwen_before_emit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -6634,8 +6631,7 @@ async def test_failed_provider_apply_retains_the_settings_draft(
     assert backend.settings is baseline
     assert pending is not None
     assert any(
-        isinstance(edit, PeerSttProviderEdit)
-        and edit.provider == STTProviderName.ROLLING_FREE
+        isinstance(edit, PeerSttProviderEdit) and edit.provider == STTProviderName.ROLLING_FREE
         for edit in pending.edits
     )
     assert view.has_provider_changes is True
@@ -6728,8 +6724,7 @@ async def test_provider_apply_acknowledgement_preserves_edits_staged_while_pendi
     pending = view._build_provider_apply_intent()
     assert pending is not None
     assert any(
-        isinstance(edit, SelfSttProviderEdit)
-        and edit.provider == STTProviderName.ROLLING_FREE
+        isinstance(edit, SelfSttProviderEdit) and edit.provider == STTProviderName.ROLLING_FREE
         for edit in pending.edits
     )
 

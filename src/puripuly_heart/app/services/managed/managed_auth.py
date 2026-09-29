@@ -196,7 +196,9 @@ class ManagedAuthOwner:
                 )
             else:
                 result = await self.discord_executor(
-                    referral_id, on_callback_received, on_recovery_started,
+                    referral_id,
+                    on_callback_received,
+                    on_recovery_started,
                     authorization_url_sink=authorization_url_sink,
                     open_browser=open_browser,
                 )

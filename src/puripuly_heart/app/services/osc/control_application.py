@@ -11,7 +11,9 @@ SettingsProvider = Callable[[], AppSettingsVNext | None]
 SettingsApply = Callable[[AppSettingsVNext], Awaitable[object]]
 ApplicationCall = Callable[..., Awaitable[object]]
 SettingsMutator = Callable[[AppSettingsVNext], AppSettingsVNext]
-SettingsMutationApply = Callable[[SettingsMutator], Awaitable[tuple[object, AppSettingsVNext, AppSettingsVNext]]]
+SettingsMutationApply = Callable[
+    [SettingsMutator], Awaitable[tuple[object, AppSettingsVNext, AppSettingsVNext]]
+]
 TranslationModelNormalizer = Callable[[object], object]
 
 
