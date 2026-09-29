@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 import sys
 import time
+import wave
 
 import keyring
 import requests
