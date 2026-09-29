@@ -436,6 +436,7 @@ Behavior tests: `tests/core/test_overlay_presenter.py`.
 - The writer retains ownership through stream closure; replacement must not race a retiring writer.
 - Persisted records include calendar date and process ID. Recognition terminals correlate channel, utterance, provider epoch/turn, activation generation, watchdog timing, and recovery decisions. Self capture failures identify the actual active-intent transition; peer expiry records sealed wait and TTL.
 - Soniox file-only turn summaries distinguish finalize enqueue/write, final reception/acceptance, server error codes, transport closure, and local cleanup. A completed write is not a server acknowledgement. Diagnostic fields exclude external error prose, credentials, transcript tokens, speaker identities, and PCM.
+- Qwen Audio file-only startup/failure/close records identify handshake, run-task send, task-start wait, receive, and socket-close timings. Failure causes expose only classified exception names and bounded numeric status/close/provider codes; raw exception text, endpoint host, credentials, task IDs, and speech content are excluded.
 
 Implementation: `core/runtime_logging.py`, `app/services/application_runtime_logging.py`. Behavior tests: `tests/core/test_runtime_logging.py`, `tests/core/test_file_logging.py`.
 

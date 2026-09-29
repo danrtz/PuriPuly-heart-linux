@@ -32,6 +32,30 @@ from puripuly_heart.core.stt.session_projection import STTSessionEventProjection
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_exception_class(exc: BaseException | None) -> str:
+    if exc is None:
+        return "none"
+    cls = type(exc)
+    if cls.__module__ == "builtins" or cls.__module__.startswith(("asyncio.", "websockets.")):
+        return cls.__name__
+    return "ExternalError"
+
+
+def _safe_numeric_code(value: object, minimum: int, maximum: int) -> int | str:
+    return value if type(value) is int and minimum <= value <= maximum else "none"
+
+
+def _close_code(exc: BaseException | None, ws: Any) -> int | str:
+    received = getattr(exc, "rcvd", None) if exc is not None else None
+    code = getattr(received, "code", None)
+    if code is None:
+        code = getattr(exc, "code", None) if exc is not None else None
+    if code is None and ws is not None:
+        code = getattr(ws, "close_code", None)
+    return _safe_numeric_code(code, 1000, 4999)
+
+
 QWEN_AUDIO_MODEL = "qwen-audio-3.1-asr-flash-streaming"
 QWEN_AUDIO_DEFAULT_ENDPOINT = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
 QWEN_AUDIO_DEFAULT_HOTWORD_WEIGHT = 4
@@ -267,6 +291,9 @@ class _QwenAudioSession(STTBackendSession):
     _failure: BaseException | None = field(init=False, default=None, repr=False)
     _scoped_task_id: str | None = field(init=False, default=None, repr=False)
     _task_finished_count: int = field(init=False, default=0, repr=False)
+    _startup_at: float = field(init=False, default=0.0, repr=False)
+    _stage_at: float = field(init=False, default=0.0, repr=False)
+    _startup_stage: str = field(init=False, default="connect", repr=False)
 
     def __post_init__(self) -> None:
         self._event_projection = STTSessionEventProjection(self.projection)
@@ -296,7 +323,32 @@ class _QwenAudioSession(STTBackendSession):
     def _vocabulary(self) -> dict[str, int]:
         return _normalized_vocabulary(self.hotwords, default_weight=self.hotword_weight)
 
+    def _log_failure(
+        self, reason: str, *, cause: BaseException | None = None, code: object = None
+    ) -> None:
+        now = time.monotonic()
+        response = getattr(cause, "response", None) if cause is not None else None
+        status = getattr(response, "status_code", None)
+        if status is None and cause is not None:
+            status = getattr(cause, "status_code", None)
+        logger.warning(
+            "[QwenAudio] failure stage=%s reason=%s stage_ms=%d startup_ms=%d "
+            "cause_class=%s nested_class=%s http_status=%s ws_close_code=%s provider_code=%s",
+            self._startup_stage,
+            reason,
+            int((now - self._stage_at) * 1000) if self._stage_at else 0,
+            int((now - self._startup_at) * 1000) if self._startup_at else 0,
+            _safe_exception_class(cause),
+            _safe_exception_class(cause.__cause__ if cause is not None else None),
+            _safe_numeric_code(status, 100, 599),
+            _close_code(cause, self._ws),
+            _safe_numeric_code(code, 0, 999999),
+        )
+
     async def start(self) -> None:
+        self._startup_at = self._stage_at = time.monotonic()
+        self._startup_stage = "connect"
+        logger.info("[QwenAudio] startup stage=connect")
         self._loop = asyncio.get_running_loop()
         factory = self.websocket_factory
         if factory is None:
@@ -315,7 +367,14 @@ class _QwenAudioSession(STTBackendSession):
             except TypeError:
                 connection = factory(self.endpoint, headers=headers)
             self._ws = await connection
+            self._startup_stage = "run_task_send"
+            self._stage_at = time.monotonic()
+            logger.info(
+                "[QwenAudio] startup stage=connected stage_ms=%d",
+                int((self._stage_at - self._startup_at) * 1000),
+            )
         except Exception as exc:
+            self._log_failure("connect_failed", cause=exc)
             self._state = QwenAudioSessionState.FAILED
             raise QwenAudioProtocolError(f"Qwen Audio connection failed: {exc}") from exc
         self._recv_task = asyncio.create_task(self._recv_loop(), name="qwen-audio-recv")
@@ -325,11 +384,16 @@ class _QwenAudioSession(STTBackendSession):
         await self._begin_task(initial=True)
         future = self._start_future
         if future is None:
+            self._log_failure("start_future_missing")
             raise QwenAudioProtocolError("Qwen Audio task start was not requested")
         try:
             await asyncio.wait_for(asyncio.shield(future), timeout=self.task_start_timeout_s)
         except asyncio.TimeoutError as exc:
-            await self._fail(QwenAudioProtocolError("Qwen Audio task-started timeout"))
+            await self._fail(
+                QwenAudioProtocolError("Qwen Audio task-started timeout"),
+                reason="task_start_timeout",
+                cause=exc,
+            )
             raise QwenAudioProtocolError("Qwen Audio task-started timeout") from exc
         except asyncio.CancelledError:
             raise
@@ -373,10 +437,27 @@ class _QwenAudioSession(STTBackendSession):
                 "input": {},
             },
         }
+        if initial:
+            self._startup_stage = "run_task_send"
+            self._stage_at = time.monotonic()
         try:
             await self._send_json(payload)
+            if initial and self._state is not QwenAudioSessionState.FAILED:
+                sent_at = time.monotonic()
+                logger.info(
+                    "[QwenAudio] startup stage=run_task_sent startup_ms=%d send_ms=%d",
+                    int((sent_at - self._startup_at) * 1000),
+                    int((sent_at - self._stage_at) * 1000),
+                )
+                if self._state is QwenAudioSessionState.CONNECTING:
+                    self._startup_stage = "task_start_wait"
+                    self._stage_at = sent_at
         except Exception as exc:
-            await self._fail(QwenAudioProtocolError(f"Qwen Audio run-task send failed: {exc}"))
+            await self._fail(
+                QwenAudioProtocolError(f"Qwen Audio run-task send failed: {exc}"),
+                reason="run_task_send_failed",
+                cause=exc,
+            )
             raise
         if not initial:
             self._cancel_start_timeout()
@@ -388,7 +469,10 @@ class _QwenAudioSession(STTBackendSession):
         try:
             await asyncio.sleep(self.task_start_timeout_s)
             if self._task_id == task_id and self._state is QwenAudioSessionState.STARTING_NEXT_TASK:
-                await self._fail(QwenAudioProtocolError("Qwen Audio task-started timeout"))
+                await self._fail(
+                    QwenAudioProtocolError("Qwen Audio task-started timeout"),
+                    reason="task_start_timeout",
+                )
         except asyncio.CancelledError:
             return
 
@@ -450,14 +534,19 @@ class _QwenAudioSession(STTBackendSession):
             raise
         except Exception as exc:
             if self._state not in (QwenAudioSessionState.CLOSING, QwenAudioSessionState.FAILED):
-                await self._fail(QwenAudioProtocolError(f"Qwen Audio socket failure: {exc}"))
+                await self._fail(
+                    QwenAudioProtocolError(f"Qwen Audio socket failure: {exc}"),
+                    reason="receive_failed",
+                    cause=exc,
+                )
         finally:
             if (
                 self._state not in (QwenAudioSessionState.CLOSING, QwenAudioSessionState.FAILED)
                 and self._accept_terminals
             ):
                 await self._fail(
-                    QwenAudioProtocolError("Qwen Audio socket closed before task completion")
+                    QwenAudioProtocolError("Qwen Audio socket closed before task completion"),
+                    reason="receive_eof",
                 )
             if not self._events_closed and self._state is not QwenAudioSessionState.FAILED:
                 self._put_event(None)
@@ -494,24 +583,30 @@ class _QwenAudioSession(STTBackendSession):
         elif event_type == "task-failed":
             await self._handle_task_failed(event_task_id, header)
         else:
-            logger.debug(
-                "Qwen Audio ignored provider event=%s task_id=%s", event_type, event_task_id
-            )
+            logger.debug("Qwen Audio ignored provider event")
 
     async def inject_event(self, event: Mapping[str, object]) -> None:
         await self._handle_server_message(event)
 
     async def _handle_task_started(self, event_task_id: str) -> None:
         if not event_task_id or event_task_id != self._task_id:
-            logger.debug("Qwen Audio stale task-started ignored task_id=%s", event_task_id)
+            logger.debug("Qwen Audio stale task-started ignored")
             return
         if self._state not in (
             QwenAudioSessionState.CONNECTING,
             QwenAudioSessionState.STARTING_NEXT_TASK,
         ):
-            logger.debug("Qwen Audio duplicate task-started ignored task_id=%s", event_task_id)
+            logger.debug("Qwen Audio duplicate task-started ignored")
             return
         self._cancel_start_timeout()
+        if self._state is QwenAudioSessionState.CONNECTING:
+            now = time.monotonic()
+            logger.info(
+                "[QwenAudio] startup stage=task_started startup_ms=%d wait_ms=%d",
+                int((now - self._startup_at) * 1000),
+                int((now - self._stage_at) * 1000),
+            )
+            self._startup_stage = "active"
         self._state = QwenAudioSessionState.TASK_ACTIVE
         self._last_audio_send_at = time.monotonic()
         if self._post_boundary_audio_queue:
@@ -555,7 +650,7 @@ class _QwenAudioSession(STTBackendSession):
             QwenAudioSessionState.TASK_ACTIVE,
             QwenAudioSessionState.FINISHING_TASK,
         ):
-            logger.debug("Qwen Audio stale result ignored task_id=%s", event_task_id)
+            logger.debug("Qwen Audio stale result ignored")
             return
         payload = response.get("payload")
         payload = payload if isinstance(payload, Mapping) else {}
@@ -572,11 +667,7 @@ class _QwenAudioSession(STTBackendSession):
         if not bool(sentence.get("sentence_end")):
             return
         if sentence_id in self._sentence_ids:
-            logger.debug(
-                "Qwen Audio duplicate sentence ignored task_id=%s sentence_id=%s",
-                event_task_id,
-                sentence_id,
-            )
+            logger.debug("Qwen Audio duplicate sentence ignored")
             return
         self._sentence_ids.add(sentence_id)
         text = str(sentence.get("text") or "").strip()
@@ -615,7 +706,7 @@ class _QwenAudioSession(STTBackendSession):
 
     async def _handle_task_finished(self, event_task_id: str) -> None:
         if event_task_id != self._task_id:
-            logger.debug("Qwen Audio stale task-finished ignored task_id=%s", event_task_id)
+            logger.debug("Qwen Audio stale task-finished ignored")
             return
         if (
             self._state is QwenAudioSessionState.TASK_ACTIVE
@@ -630,7 +721,7 @@ class _QwenAudioSession(STTBackendSession):
                 )
             return
         if self._state is not QwenAudioSessionState.FINISHING_TASK or self._active_boundary is None:
-            logger.debug("Qwen Audio duplicate task-finished ignored task_id=%s", event_task_id)
+            logger.debug("Qwen Audio duplicate task-finished ignored")
             return
         self._task_finished_count += 1
         self._cancel_finish_timeout()
@@ -666,7 +757,7 @@ class _QwenAudioSession(STTBackendSession):
 
     async def _handle_task_failed(self, event_task_id: str, header: Mapping[str, object]) -> None:
         if event_task_id != self._task_id:
-            logger.debug("Qwen Audio stale task-failed ignored task_id=%s", event_task_id)
+            logger.debug("Qwen Audio stale task-failed ignored")
             return
         error_code = str(header.get("error_code") or "UNKNOWN")
         error_message = str(header.get("error_message") or "Qwen Audio task failed")
@@ -679,7 +770,9 @@ class _QwenAudioSession(STTBackendSession):
                 error_code,
                 error_message,
                 hotwords_rejected=hotwords_rejected,
-            )
+            ),
+            reason="provider_task_failed",
+            code=header.get("error_code"),
         )
 
     async def _finish_active_task(self) -> None:
@@ -1014,12 +1107,20 @@ class _QwenAudioSession(STTBackendSession):
         except asyncio.CancelledError:
             return
 
-    async def _fail(self, exc: BaseException) -> None:
+    async def _fail(
+        self,
+        exc: BaseException,
+        *,
+        reason: str = "session_failed",
+        cause: BaseException | None = None,
+        code: object = None,
+    ) -> None:
         if self._state is QwenAudioSessionState.FAILED:
             return
         if self._state is QwenAudioSessionState.CLOSING and self._failure is None:
             return
         initial_connect = self._state is QwenAudioSessionState.CONNECTING
+        self._log_failure(reason, cause=cause, code=code)
         self._failure = exc
         self._state = QwenAudioSessionState.FAILED
         self._accept_terminals = True
@@ -1156,9 +1257,22 @@ class _QwenAudioSession(STTBackendSession):
         self._inflight_send_task = None
         ws = self._ws
         self._ws = None
+        close_at = time.monotonic()
+        close_error: BaseException | None = None
         if ws is not None:
-            with contextlib.suppress(Exception):
+            try:
                 await ws.close()
+            except Exception as exc:
+                close_error = exc
+            logger.info(
+                "[QwenAudio] close elapsed_ms=%d startup_ms=%d ws_close_code=%s "
+                "outcome=%s cause_class=%s",
+                int((time.monotonic() - close_at) * 1000),
+                int((time.monotonic() - self._startup_at) * 1000) if self._startup_at else 0,
+                _close_code(close_error, ws),
+                "failed" if close_error is not None else "completed",
+                _safe_exception_class(close_error),
+            )
         recv_task = self._recv_task
         if recv_task is not None and not recv_task.done() and recv_task is not current_task:
             recv_task.cancel()

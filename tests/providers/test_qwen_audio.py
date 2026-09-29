@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from uuid import uuid4
 
 import numpy as np
@@ -837,6 +838,92 @@ async def test_initial_connection_failure_is_terminal() -> None:
     )
     with pytest.raises(QwenAudioProtocolError, match="connection failed"):
         await backend.open_session()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "stage", "reason"),
+    [
+        ("connect", "connect", "connect_failed"),
+        ("send", "run_task_send", "run_task_send_failed"),
+        ("timeout", "task_start_wait", "task_start_timeout"),
+        ("receive", "task_start_wait", "receive_failed"),
+        ("eof", "task_start_wait", "receive_eof"),
+    ],
+)
+async def test_startup_failure_diagnostics_exclude_transport_content(
+    caplog: pytest.LogCaptureFixture, failure: str, stage: str, reason: str
+) -> None:
+    secret = "private-api-key"
+    host = "private.workspace.example"
+    socket = FakeWebSocket()
+
+    async def connect(*args: object, **kwargs: object) -> FakeWebSocket:
+        if failure == "connect":
+            raise RuntimeError(f"{secret} {host}")
+        return socket
+
+    if failure == "send":
+
+        async def failing_send(value: str | bytes) -> None:
+            raise RuntimeError(f"{secret} {host} {value}")
+
+        socket.send = failing_send
+    elif failure == "receive":
+
+        async def failing_receive() -> object:
+            while not socket.sent:
+                await asyncio.sleep(0)
+            await asyncio.sleep(0.005)
+            raise RuntimeError(f"{secret} {host}")
+
+        socket.recv = failing_receive
+    elif failure == "eof":
+
+        async def eof_receive() -> object:
+            while not socket.sent:
+                await asyncio.sleep(0)
+            await asyncio.sleep(0.005)
+            return None
+
+        socket.recv = eof_receive
+
+    backend = QwenAudioStreamingSTTBackend(
+        api_key=secret,
+        endpoint=f"wss://{host}/api-ws/v1/inference",
+        websocket_factory=connect,
+        task_start_timeout_s=0.02,
+    )
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.stt.qwen_audio"):
+        with pytest.raises((QwenAudioProtocolError, RuntimeError)):
+            await backend.open_session()
+    records = [r.getMessage() for r in caplog.records if "[QwenAudio] failure" in r.getMessage()]
+    assert len(records) == 1
+    assert f"stage={stage}" in records[0]
+    assert f"reason={reason}" in records[0]
+    assert "startup_ms=" in records[0] and "stage_ms=" in records[0]
+    assert secret not in caplog.text and host not in caplog.text
+    assert all(isinstance(value, str) for value in socket.sent)
+    for value in socket.sent:
+        if isinstance(value, str):
+            assert json.loads(value)["header"]["task_id"] not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_close_timing_diagnostic_after_successful_start(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.stt.qwen_audio"):
+        _, session, socket, task_id = await open_fake()
+        await session.abort_for_toggle_off()
+    assert socket.closed
+    assert any("startup stage=task_started" in r.getMessage() for r in caplog.records)
+    close_records = [
+        r.getMessage() for r in caplog.records if "[QwenAudio] close " in r.getMessage()
+    ]
+    assert len(close_records) == 1
+    assert "elapsed_ms=" in close_records[0] and "outcome=completed" in close_records[0]
+    assert task_id not in caplog.text
 
 
 @pytest.mark.asyncio
