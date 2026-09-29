@@ -44,7 +44,9 @@ from puripuly_heart.app.ports.settings_view import (
     PeerVadSpeechThresholdIntent,
     PromptApplyIntent,
     ProviderApplyIntent,
+    QwenBeijingApiHostEdit,
     QwenRegionEdit,
+    QwenSingaporeApiHostEdit,
     SelfSttProviderEdit,
     SelfVadSettingsIntent,
     SonioxSpeakerDiarizationEdit,
@@ -215,6 +217,8 @@ PROVIDER_EDITS = {
     "stt.gpu_device_id": SttGpuDeviceEdit,
     "translation.gpu_device_id": LlmGpuDeviceEdit,
     "translation.qwen.region": QwenRegionEdit,
+    "translation.qwen.beijing.api_host": QwenBeijingApiHostEdit,
+    "translation.qwen.singapore.api_host": QwenSingaporeApiHostEdit,
     "translation.http_extension_id": TranslationHttpExtensionEdit,
     "local_llm.base_url": LocalLlmBaseUrlEdit,
     "local_llm.model": LocalLlmModelEdit,
@@ -2592,6 +2596,11 @@ def _validate_settings_field(
         )
     elif name == "translation.qwen.region":
         valid = value in {item.value for item in QwenRegion}
+    elif name in {"translation.qwen.beijing.api_host", "translation.qwen.singapore.api_host"}:
+        from puripuly_heart.config.alibaba_connection import workspace_api_host_region
+
+        parsed = workspace_api_host_region(value)
+        valid = value == "" or (parsed is not None and parsed[0] == name.split(".")[2])
     elif name == "overlay.target":
         valid = value in OVERLAY_TARGETS
     elif name == "overlay.desktop_size":

@@ -104,6 +104,8 @@ class ProviderSettingsSnapshot:
     openrouter_selection_alias: OpenRouterSelectionAlias | None
     verified: ProviderVerificationSnapshot
     managed_referral_id: str | None
+    qwen_api_host_beijing: str = ""
+    qwen_api_host_singapore: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +348,16 @@ class QwenRegionEdit:
 
 
 @dataclass(frozen=True, slots=True)
+class QwenBeijingApiHostEdit:
+    api_host: str
+
+
+@dataclass(frozen=True, slots=True)
+class QwenSingaporeApiHostEdit:
+    api_host: str
+
+
+@dataclass(frozen=True, slots=True)
 class LocalLlmBaseUrlEdit:
     base_url: str
 
@@ -395,6 +407,8 @@ ProviderSettingsEdit: TypeAlias = (
     | TranslationSelectionEdit
     | TranslationHttpExtensionEdit
     | QwenRegionEdit
+    | QwenBeijingApiHostEdit
+    | QwenSingaporeApiHostEdit
     | LocalLlmBaseUrlEdit
     | LocalLlmModelEdit
     | LocalLlmExtraBodyEdit
@@ -470,7 +484,9 @@ __all__ = [
     "ProviderSettingsEdit",
     "ProviderSettingsSnapshot",
     "ProviderVerificationSnapshot",
+    "QwenBeijingApiHostEdit",
     "QwenRegionEdit",
+    "QwenSingaporeApiHostEdit",
     "SelfSttProviderEdit",
     "SelfVadSettingsIntent",
     "SttGpuDeviceEdit",

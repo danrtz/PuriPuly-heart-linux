@@ -61,6 +61,17 @@ def normalize_api_host(value: str, region: AlibabaRegion) -> str:
     return host
 
 
+def workspace_api_host_region(value: str) -> tuple[AlibabaRegion, str] | None:
+    for region in _WORKSPACE_SUFFIXES:
+        try:
+            host = normalize_api_host(value, region)
+        except ValueError:
+            continue
+        if host:
+            return region, host
+    return None
+
+
 def validated_native_url(value: str, region: AlibabaRegion) -> str:
     try:
         parsed = urlsplit(value)

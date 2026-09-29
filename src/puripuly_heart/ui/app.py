@@ -1516,6 +1516,16 @@ class TranslatorApp:
             if result:
                 view_settings.acknowledge_provider_apply_settings(pending_intent)
                 self.application.refresh_settings_projection()
+                consume_alibaba_key_verification = getattr(
+                    view_settings, "consume_alibaba_key_verification", None
+                )
+                verification = (
+                    consume_alibaba_key_verification()
+                    if callable(consume_alibaba_key_verification)
+                    else None
+                )
+                if verification is not None:
+                    self._run_page_task(verification)
 
         self._queue_settings_mutation_task(_task)
 

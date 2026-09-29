@@ -16,6 +16,7 @@ from puripuly_heart.config.alibaba_connection import (
     AlibabaRegionalSettings,
     normalize_api_host,
     resolve_alibaba_connection,
+    workspace_api_host_region,
 )
 from puripuly_heart.config.runtime_resolution import resolve_llm_config, resolve_stt_config
 from puripuly_heart.config.settings_vnext import compat, serialization
@@ -93,6 +94,28 @@ def test_recognized_https_paste_normalizes_without_suffix_duplication() -> None:
     host = "work-123.cn-beijing.maas.aliyuncs.com"
     assert normalize_api_host(f"https://{host}/compatible-mode/v1", "beijing") == host
     assert normalize_api_host(f"https://{host}/api/v1", "beijing") == host
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "work-123.cn-beijing.maas.aliyuncs.com",
+            ("beijing", "work-123.cn-beijing.maas.aliyuncs.com"),
+        ),
+        (
+            "https://Work-456.AP-Southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            ("singapore", "work-456.ap-southeast-1.maas.aliyuncs.com"),
+        ),
+        ("dashscope.aliyuncs.com", None),
+        ("dashscope-intl.aliyuncs.com", None),
+        ("evil.cn-beijing.maas.aliyuncs.com.attacker.net", None),
+        ("https://user:secret@work-123.cn-beijing.maas.aliyuncs.com", None),
+        ("", None),
+    ],
+)
+def test_workspace_api_host_identifies_region_from_host_alone(value, expected) -> None:
+    assert workspace_api_host_region(value) == expected
 
 
 def test_version_48_migrates_legacy_without_changing_region_or_models(tmp_path) -> None:
