@@ -143,7 +143,7 @@ def test_canonical_runtime_intent_contracts_are_frozen_and_slotted() -> None:
         assert "__dict__" not in dto_class.__slots__
 
     intent = runtime_resolution.TranslationRuntimeIntent(
-        model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+        model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
         connection=runtime_resolution.TRANSLATION_CONNECTION_MANAGED,
     )
     with pytest.raises(FrozenInstanceError):
@@ -491,7 +491,7 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "managed",
             "openrouter:managed",
             None,
-            "gemma4_26b_latency",
+            "gemma4_26b_31b_latency",
         ),
         (
             "gemma4",
@@ -502,7 +502,7 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "secret_store",
             "openrouter:byok",
             None,
-            "gemma4_26b_latency",
+            "gemma4_26b_31b_latency",
         ),
         (
             "gemma4",
@@ -513,7 +513,7 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "secret_store",
             "openrouter:byok",
             None,
-            "gemma4_26b_latency",
+            "gemma4_26b_31b_latency",
         ),
         (
             "deepseek_v4_flash",
@@ -947,7 +947,7 @@ def test_standard_managed_resolves_standard_managed_credential_reference() -> No
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
             connection=runtime_resolution.TRANSLATION_CONNECTION_MANAGED,
             openrouter=runtime_resolution.OpenRouterRuntimeIntent(
                 selected_source=runtime_resolution.OPENROUTER_SOURCE_MANAGED,
@@ -1030,12 +1030,14 @@ def test_legacy_current_openrouter_aliases_normalize_to_canonical_intent_and_res
 
     assert openrouter_intent.model == profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT
     assert openrouter_intent.selected_source == profiles.OPENROUTER_CREDENTIAL_SOURCE_BYOK
-    assert openrouter_intent.selection_alias == profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_BYOK
+    assert (
+        openrouter_intent.selection_alias == profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK
+    )
     assert not hasattr(openrouter_intent, "fallback_selection_alias")
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
             connection=runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER,
             openrouter=openrouter_intent,
             concurrency_limit=7,
@@ -1101,7 +1103,7 @@ def test_legacy_gemini_alias_only_normalizes_to_canonical_runtime_target() -> No
         (
             "openrouter:byok:google/gemma-4-26b-a4b-it",
             "managed",
-            "gemma4_byok",
+            "gemma4_26b_31b_byok",
             "byok",
             "google/gemma-4-26b-a4b-it",
             "secret_store",
@@ -1110,7 +1112,7 @@ def test_legacy_gemini_alias_only_normalizes_to_canonical_runtime_target() -> No
         (
             "openrouter:managed:google/gemma-4-26b-a4b-it",
             "byok",
-            "gemma4_managed",
+            "gemma4_26b_31b_managed",
             "managed",
             "google/gemma-4-26b-a4b-it",
             "managed",
@@ -1119,7 +1121,7 @@ def test_legacy_gemini_alias_only_normalizes_to_canonical_runtime_target() -> No
         (
             "openrouter:none:google/gemma-4-26b-a4b-it",
             "managed",
-            "gemma4_managed",
+            "gemma4_26b_31b_managed",
             "managed",
             "google/gemma-4-26b-a4b-it",
             "managed",
@@ -1567,8 +1569,8 @@ def test_missing_openrouter_source_defaults_to_byok_for_openrouter_provider() ->
 
     assert openrouter_intent.model == "google/gemma-4-26b-a4b-it"
     assert openrouter_intent.selected_source == "byok"
-    assert openrouter_intent.selection_alias == "gemma4_byok"
-    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4
+    assert openrouter_intent.selection_alias == "gemma4_26b_31b_byok"
+    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B
     assert translation_intent.connection == runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER
     assert config.provider == "openrouter"
     assert config.model == "google/gemma-4-26b-a4b-it"
@@ -1578,7 +1580,7 @@ def test_missing_openrouter_source_defaults_to_byok_for_openrouter_provider() ->
         reference="openrouter:byok",
     )
     assert config.routing_mode == "latency"
-    assert config.provider_routing == "gemma4_26b_latency"
+    assert config.provider_routing == "gemma4_26b_31b_latency"
     assert config.service_endpoint == "https://broker.fixture.test/v1"
     assert config.fallback is not None
     assert config.fallback.target == config.primary
@@ -1605,7 +1607,7 @@ def test_derive_translation_compatibility_defaults_missing_openrouter_source_to_
         **source_kwargs,
     )
 
-    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4
+    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B
     assert translation_intent.connection == runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER
     assert translation_intent.concurrency_limit == 3
 
@@ -1684,7 +1686,7 @@ def test_resolved_output_uses_lookup_references_not_raw_secret_values() -> None:
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
             connection=runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER,
             openrouter=runtime_resolution.OpenRouterRuntimeIntent(
                 selected_source=runtime_resolution.OPENROUTER_SOURCE_BYOK,

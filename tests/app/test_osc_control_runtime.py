@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import pytest
 from puripuly_heart.app.services.settings_application import osc_control_presentation_state
@@ -407,6 +408,94 @@ async def test_in_process_complete_control_matrix_projects_final_canonical_state
     assert len(settings_apply_calls) == 11
     assert sender.messages == []
     await integration.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_id", [0, 1, 2])
+async def test_gemma_osc_inputs_restore_connection_and_publish_canonical_after_restart(
+    model_id: int,
+    tmp_path: Path,
+) -> None:
+    from puripuly_heart.config.settings_vnext.compat import load_vnext_settings, save_vnext_settings
+    from puripuly_heart.config.settings_vnext.serialization import to_dict
+
+    initial = AppSettingsVNext()
+    current = [
+        replace(
+            initial,
+            intent=replace(
+                initial.intent,
+                translation=replace(
+                    initial.intent.translation,
+                    model="gpt_6_luna",
+                    connection="official_byok",
+                    connection_history={
+                        "gemma4_26b_31b": "openrouter",
+                        "gpt_6_luna": "official_byok",
+                    },
+                ),
+            ),
+        )
+    ]
+    saved: list[dict[str, object]] = []
+    config_path = tmp_path / "osc-settings.json"
+
+    async def apply_settings(value: object) -> None:
+        assert isinstance(value, AppSettingsVNext)
+        assert save_vnext_settings(config_path, value).ok
+        saved.append(to_dict(value))
+        result = load_vnext_settings(config_path)
+        assert result.ok and result.settings is not None and not result.migrated
+        current[0] = result.settings
+
+    def start_owner(sender: FakeSender) -> OscControlIntegrationOwner:
+        return OscControlIntegrationOwner(
+            receiver_owner=FakeReceiverOwner(),
+            settings_provider=lambda: current[0],
+            apply_settings=apply_settings,
+            application_provider=lambda: None,
+            sender_provider=lambda: sender,
+            state_provider=lambda: state_from_settings(current[0]),
+            language_state_provider=lambda: ("ko", "en", "en", "ko"),
+            translation_model_normalizer=materialize_canonical_translation_settings,
+            query_service=FakeService(None),
+        )
+
+    address = "/avatar/parameters/PuriPuly_Translator"
+    sender = FakeSender()
+    owner = start_owner(sender)
+    await owner.configure_connection(mode="manual", send_port=9000, receive_port=9001)
+    result = await owner.router.dispatch_packet(address, model_id)
+    assert result.applied is True
+    assert current[0].intent.translation.model == "gemma4_26b_31b"
+    assert current[0].intent.translation.connection == "openrouter"
+    assert current[0].intent.translation.connection_history["gpt_6_luna"] == "official_byok"
+    assert current[0].intent.translation.connection_history["gemma4_26b_31b"] == "openrouter"
+    assert (address, 0) in sender.messages
+    if model_id in (1, 2):
+        assert (address, 0) in sender.messages[15:]
+    assert saved and saved[-1]["intent"]["translation"]["model"] == "gemma4_26b_31b"
+    await owner.close()
+
+    loaded = load_vnext_settings(config_path)
+    assert loaded.ok and loaded.settings is not None and not loaded.migrated
+    current[0] = loaded.settings
+    restarted_sender = FakeSender()
+    restarted = start_owner(restarted_sender)
+    await restarted.configure_connection(mode="manual", send_port=9000, receive_port=9001)
+    assert (address, 0) in restarted_sender.messages
+    published_before_alias = len(restarted_sender.messages)
+    await restarted.router.dispatch_packet(address, model_id)
+    assert current[0].intent.translation.connection == "openrouter"
+    assert (address, 0) in restarted_sender.messages
+    if model_id in (1, 2):
+        assert (address, 0) in restarted_sender.messages[published_before_alias:]
+    await restarted.router.dispatch_packet(address, 14)
+    assert current[0].intent.translation.connection == "official_byok"
+    await restarted.router.dispatch_packet(address, model_id)
+    assert current[0].intent.translation.connection == "openrouter"
+    assert current[0].intent.translation.connection_history["gpt_6_luna"] == "official_byok"
+    await restarted.close()
 
 
 @pytest.mark.asyncio

@@ -70,7 +70,7 @@ def test_byok_target_rejects_non_openrouter_settings() -> None:
         model=TranslationModel.GEMINI_FLASH.value,
         connection=TranslationConnection.OFFICIAL_BYOK.value,
         openrouter_source="managed",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_MANAGED.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value,
         openrouter_model=OpenRouterLLMModel.GEMMA_4_26B_A4B_IT.value,
     )
     assert _byok_target(settings) is None
@@ -78,10 +78,10 @@ def test_byok_target_rejects_non_openrouter_settings() -> None:
 
 def test_byok_target_rejects_non_managed_openrouter_source() -> None:
     settings = _vnext(
-        model=TranslationModel.GEMMA4.value,
+        model=TranslationModel.GEMMA4_26B_31B.value,
         connection=TranslationConnection.OPENROUTER.value,
         openrouter_source="byok",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
         openrouter_model=OpenRouterLLMModel.GEMMA_4_26B_A4B_IT.value,
     )
     assert _byok_target(settings) is None

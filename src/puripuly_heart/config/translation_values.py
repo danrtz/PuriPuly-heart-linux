@@ -5,8 +5,6 @@ from enum import Enum
 
 class TranslationModel(str, Enum):
     GEMMA4_26B_31B = "gemma4_26b_31b"
-    GEMMA4_31B = "gemma4_31b"
-    GEMMA4 = "gemma4"
     DEEPSEEK_V4_FLASH = "deepseek_v4_flash"
     DEEPSEEK_V4_FLASH_41 = "deepseek_v4_flash_41"
     GEMINI_FLASH = "gemini_flash"
@@ -33,14 +31,6 @@ TRANSLATION_CONNECTIONS_BY_MODEL: dict[
     tuple[TranslationConnection, ...],
 ] = {
     TranslationModel.GEMMA4_26B_31B: (
-        TranslationConnection.MANAGED,
-        TranslationConnection.OPENROUTER,
-    ),
-    TranslationModel.GEMMA4_31B: (
-        TranslationConnection.MANAGED,
-        TranslationConnection.OPENROUTER,
-    ),
-    TranslationModel.GEMMA4: (
         TranslationConnection.MANAGED,
         TranslationConnection.OPENROUTER,
     ),

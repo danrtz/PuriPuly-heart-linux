@@ -68,7 +68,7 @@ def test_local_llm_enum_values_are_stable() -> None:
 
 
 def test_public_translation_connection_helpers_match_model_matrix() -> None:
-    assert supported_translation_connections(TranslationModel.GEMMA4) == (
+    assert supported_translation_connections(TranslationModel.GEMMA4_26B_31B) == (
         TranslationConnection.MANAGED,
         TranslationConnection.OPENROUTER,
     )
@@ -93,20 +93,16 @@ def test_public_translation_connection_helpers_match_model_matrix() -> None:
     assert supported_translation_connections(TranslationModel.LOCAL_LLM) == (
         TranslationConnection.OLLAMA,
     )
-    assert supported_translation_connections(TranslationModel.GEMMA4_31B) == (
-        TranslationConnection.MANAGED,
-        TranslationConnection.OPENROUTER,
+    assert (
+        default_translation_connection(TranslationModel.GEMMA4_26B_31B)
+        == TranslationConnection.MANAGED
     )
-    assert default_translation_connection(TranslationModel.GEMMA4) == TranslationConnection.MANAGED
     assert (
         default_translation_connection(TranslationModel.GEMINI_FLASH)
         == TranslationConnection.OFFICIAL_BYOK
     )
     assert (
         default_translation_connection(TranslationModel.LOCAL_LLM) == TranslationConnection.OLLAMA
-    )
-    assert (
-        default_translation_connection(TranslationModel.GEMMA4_31B) == TranslationConnection.MANAGED
     )
 
 
