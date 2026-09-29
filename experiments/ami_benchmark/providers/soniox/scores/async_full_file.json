@@ -4,23 +4,23 @@
   "pyannote_metrics_version": "4.0.0",
   "independent_six": {
     "cases": 6,
-    "der": 0.7265292482727386,
+    "der": 0.4827332460437651,
     "speaker_count_accuracy": 0.3333333333333333,
     "speaker_count_mae": 0.6666666666666666,
-    "total": 1170.0519999999842,
-    "missed detection": 787.5200000000056,
-    "false alarm": 29.84799999999746,
-    "confusion": 32.708999999999804
+    "total": 1170.051999999999,
+    "missed detection": 290.3219999999991,
+    "false alarm": 203.26999999999995,
+    "confusion": 71.23099999999985
   },
   "paired_far_field": {
     "cases": 1,
-    "der": 0.81836307214895,
+    "der": 0.6949418153607458,
     "speaker_count_accuracy": 0.0,
     "speaker_count_mae": 1.0,
-    "total": 128.89999999999964,
-    "missed detection": 87.94799999999921,
-    "false alarm": 4.768000000000087,
-    "confusion": 12.77100000000005
+    "total": 128.90000000000003,
+    "missed detection": 47.69800000000003,
+    "false alarm": 17.13800000000004,
+    "confusion": 24.742000000000093
   },
   "per_case": [
     {
@@ -30,10 +30,10 @@
       "reference_speakers": 3,
       "predicted_speakers": 2,
       "speaker_count_absolute_error": 1,
-      "der": 0.6490867690518822,
-      "total": 103.20499999999963,
-      "missed detection": 65.08699999999924,
-      "false alarm": 1.9020000000000243,
+      "der": 0.1552347269996611,
+      "total": 103.205,
+      "missed detection": 0.7229999999999984,
+      "false alarm": 15.298000000000023,
       "confusion": 0.0
     },
     {
@@ -43,11 +43,11 @@
       "reference_speakers": 4,
       "predicted_speakers": 3,
       "speaker_count_absolute_error": 1,
-      "der": 0.8708122521536967,
-      "total": 146.25999999999965,
-      "missed detection": 109.53599999999932,
-      "false alarm": 3.176000000000062,
-      "confusion": 14.653000000000006
+      "der": 0.7289552851087098,
+      "total": 146.26,
+      "missed detection": 65.87799999999993,
+      "false alarm": 10.157999999999948,
+      "confusion": 30.581000000000007
     },
     {
       "id": "overlap_heavy",
@@ -56,11 +56,11 @@
       "reference_speakers": 4,
       "predicted_speakers": 3,
       "speaker_count_absolute_error": 1,
-      "der": 0.8005973622963507,
-      "total": 128.89999999999958,
-      "missed detection": 87.61199999999931,
-      "false alarm": 4.4920000000000275,
-      "confusion": 11.092999999999918
+      "der": 0.6815360744763377,
+      "total": 128.9,
+      "missed detection": 46.157999999999994,
+      "false alarm": 17.698000000000004,
+      "confusion": 23.99399999999995
     },
     {
       "id": "long_return_gap",
@@ -69,11 +69,11 @@
       "reference_speakers": 4,
       "predicted_speakers": 3,
       "speaker_count_absolute_error": 1,
-      "der": 0.6856076150014809,
-      "total": 124.28099999999979,
-      "missed detection": 82.26999999999887,
-      "false alarm": 2.629000000000035,
-      "confusion": 0.30900000000000105
+      "der": 0.4516136818982788,
+      "total": 124.28100000000003,
+      "missed detection": 5.3629999999999995,
+      "false alarm": 50.401999999999994,
+      "confusion": 0.362000000000009
     },
     {
       "id": "brief_interjections",
@@ -82,11 +82,11 @@
       "reference_speakers": 4,
       "predicted_speakers": 4,
       "speaker_count_absolute_error": 0,
-      "der": 0.7724169012168235,
-      "total": 117.60099999999969,
-      "missed detection": 85.44399999999933,
-      "false alarm": 3.2430000000000394,
-      "confusion": 2.1500000000000528
+      "der": 0.49673897330805056,
+      "total": 117.60100000000001,
+      "missed detection": 39.282000000000025,
+      "false alarm": 13.901000000000026,
+      "confusion": 5.234000000000009
     },
     {
       "id": "long_context",
@@ -95,11 +95,11 @@
       "reference_speakers": 3,
       "predicted_speakers": 3,
       "speaker_count_absolute_error": 0,
-      "der": 0.6847536853975796,
-      "total": 549.8049999999859,
-      "missed detection": 357.57100000000946,
-      "false alarm": 14.40599999999727,
-      "confusion": 4.503999999999827
+      "der": 0.4361382672038257,
+      "total": 549.804999999999,
+      "missed detection": 132.91799999999915,
+      "false alarm": 95.81299999999995,
+      "confusion": 11.059999999999878
     },
     {
       "id": "far_field_pair",
@@ -108,11 +108,11 @@
       "reference_speakers": 4,
       "predicted_speakers": 3,
       "speaker_count_absolute_error": 1,
-      "der": 0.8183630721489499,
-      "total": 128.89999999999964,
-      "missed detection": 87.94799999999921,
-      "false alarm": 4.768000000000087,
-      "confusion": 12.77100000000005
+      "der": 0.694941815360746,
+      "total": 128.90000000000003,
+      "missed detection": 47.69800000000003,
+      "false alarm": 17.13800000000004,
+      "confusion": 24.742000000000093
     }
   ]
 }

@@ -1,0 +1,3 @@
+# Historical token-pulse diagnostic (not the current hypothesis)
+
+`predictions/<arm>/<case>.rttm` (28), `predictions/<arm>/provenance.json` (4), and `scores/<arm>.json` (4) are byte-preserved copies of the original 60-ms token-union evaluation. `sha256.json` lists the original relative paths and SHA-256 digests. These archives must not be used as the current Soniox output-segment predictions or as evidence of speaker-identity error rates. The canonical `../predictions/` and `../scores/` use the official SDK speaker-grouped output instead. Original complete API results remain unchanged under `../results/`; their embedded `conversion`, `prediction_sha256` and speaker diagnostics describe only the historical pulse projection.

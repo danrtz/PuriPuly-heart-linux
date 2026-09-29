@@ -33,9 +33,11 @@ All reference files, source attribution and small selected labels are tracked; r
 
 ## Score predictions
 
-Create a directory containing exactly one `<case-id>.rttm` per published manifest case. Required RTTM `SPEAKER` lines have ten standard fields and case-local time 0..duration; `SPEAKER low_overlap 1 0.250 1.100 <NA> <NA> predicted_1 <NA> <NA>` is an example format only, **not a benchmark prediction**. Multiple speakers can share time and speaker ID strings need not match reference IDs. An explicitly empty file means a completed run reporting no speech; **a missing file, wrong recording ID, invalid interval, or out-of-bounds timestamp is an error**. Predictions must derive their own time support from the model: Soniox word-token support, Qwen utterance support, and Nemotron segment support differ. Do not fill unknown time from reference, stretch tokens to utterances, or manufacture dense frame labels. Native support and reference `only_words` timing must be considered when interpreting cross-provider DER. Audio is supplied to inference; reference annotations, true speaker labels and known speaker counts are not.
+Create a directory containing exactly one `<case-id>.rttm` per published manifest case. Required RTTM `SPEAKER` lines have ten standard fields and case-local time 0..duration; `SPEAKER low_overlap 1 0.250 1.100 <NA> <NA> predicted_1 <NA> <NA>` is an example format only, **not a benchmark prediction**. Multiple speakers can share time and speaker ID strings need not match reference IDs. An explicitly empty file means a completed run reporting no speech; **a missing file, wrong recording ID, invalid interval, or out-of-bounds timestamp is an error**. The corrected hypotheses are Soniox official SDK speaker-grouped segments, Qwen native utterances, and Nemotron native speaker-activity segments. They are scored as declared end-to-end system outputs, not pure voice-ID or word accuracy. Audio is supplied to inference; reference annotations, true speaker labels and known speaker counts are not.
 
-Provider conversion intersects native intervals with actual source-audio support and the clip UEM: wholly outside spans are excluded, straddling spans are clipped, and original timestamps plus diagnostics are retained. This is a source-window restriction, not reference-driven alignment or a timestamp shift. Unattributed output is not assigned an invented speaker ID. The strict scorer still rejects malformed or out-of-bounds serialized RTTMs.
+Soniox grouping uses the pinned official `@soniox/node@2.3.0` function `segmentTranscript(tokens, {group_by: ['speaker']})` in provider time before mapping to source time. A group follows input token order and spans the first defined start to the last defined end; A→B→A remains three runs. No reference-based alignment, extra VAD, gap threshold, endpoint/finalize split or timestamp correction is applied. SDK grouping can bridge silence between same-speaker tokens; that time stays in the hypothesis and may count as false alarm. This expressly supersedes the earlier token-pulse-only support policy, which was unsuitable for the intended voice-recognition interpretation.
+
+Projection intersects the declared segments with actual source-audio support and the clip UEM: wholly outside spans are excluded, straddling spans are clipped, and original timestamps plus diagnostics are retained. Padding is not speech evidence, unattributed output receives no invented speaker ID, and the strict scorer still rejects malformed or out-of-bounds serialized RTTMs. In-window provider timing errors, including the observed unresolved forced-finalization drift, remain errors rather than being shifted to match the reference.
 
 Use a local isolated scorer environment (no credentials or model downloads):
 
@@ -60,14 +62,26 @@ Runner uses the pinned NVIDIA checkpoint and official `ultra_low_latency` preset
 
 ## Soniox and Qwen comparison
 
-[Native-output comparison](provider_comparison.md) and [machine-readable evidence](provider_comparison.json) contain four Soniox arms, Qwen realtime, and the retained Nemotron baseline. As recorded, Soniox completed 28/28 case/arm runs; Qwen completed 6/7. Qwen `brief_interjections` remains blocked by intermittent TLS/WebSocket connectivity to the configured Beijing endpoint. Failed attempts are retained, not scored as empty predictions. The seven-case Qwen aggregate is deliberately unavailable; completing that case remains an outstanding requirement.
+[Corrected output-segment comparison](provider_comparison.md) and [machine-readable evidence](provider_comparison.json) contain four Soniox arms, Qwen realtime, and the retained Nemotron baseline. Soniox's 28 stored complete responses have been reprojected and rescored without new provider calls; their original JSON bytes remain unchanged. Qwen completed 6/7 and a fresh brief-only recovery attempt again stopped at unstable Beijing TLS preflight, before a model connection or audio submission. Failed attempts are retained, not scored as empty predictions. The seven-case Qwen aggregate remains unavailable; completing `brief_interjections` is still an outstanding requirement.
 
 Provider execution, settings, conversion diagnostics, resource cleanup and recovery commands are documented separately:
 
 - [Soniox](providers/soniox/execution_report.md): continuous, forced-six-second finalization, app-equivalent VAD/SmartTurn segmentation, and whole-file async.
 - [Qwen](providers/qwen/execution_report.md): six completed sessions plus failed-attempt and same-route TLS diagnostics; recover only the missing case once connectivity is reliable.
 
-Observed positive Soniox token spans are all 60 ms. Consequently their literal-support DER includes substantial missed-speech time and is **not the fraction of words or speaker identities that are wrong**. Qwen utterance spans and Nemotron diarization segments expose different temporal support. No synthetic gap filling is used to manufacture a comparable dense output.
+The old 60-ms token-pulse RTTMs, four scores and four provenance files are preserved under [the non-primary baseline archive](providers/soniox/token_pulse_baseline/README.md), with hashes. They are no longer the canonical Soniox hypothesis or a valid basis for a general voice-recognition ranking. Current SDK groups and source projections are in `providers/soniox/sdk_output/`; current receipts declare `hypothesis.method=soniox_sdk_speaker_segments` and record the pinned package, bridge and derived-artifact hashes. Embedded projection metadata in old raw result JSON is historical, not the current receipt.
+
+The corrected pooled Soniox DER is 48.27% continuous, 70.28% forced, 68.15% app-segmented and 48.27% async, versus old pulse values 72.34%, 89.21%, 86.66% and 72.65%. The repair reduces misses but increases false alarm and confusion; it does **not** improve the underlying model or establish acoustic speech completeness. The comparison reports all three error components, the old/new measurements, per-case scores and separate microphone pair. It does not reinstate the withdrawn general provider ranking.
+
+To reproduce the offline Soniox conversion, use Node/npm and the existing application Python environment used by the original Soniox probe:
+
+```sh
+npm ci --prefix experiments/ami_benchmark/providers/soniox/sdk --no-audit --no-fund
+python experiments/ami_benchmark/providers/soniox/run.py --convert-all
+python experiments/ami_benchmark/providers/soniox/receipts.py
+```
+
+No Soniox client or API request is created by the SDK grouping bridge. `run.py` live conversion and saved-output conversion use the same corrected adapter. Run the standard scorer above for each `providers/soniox/predictions/ARM` directory to update `providers/soniox/scores/ARM.json` if predictions change; the execution report records all four actual scorer invocations.
 
 Rebuild available results offline under Linux/WSL:
 
@@ -75,6 +89,6 @@ Rebuild available results offline under Linux/WSL:
 experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py --allow-incomplete
 ```
 
-This checks input, native-result and prediction digests, reproduces every complete-arm score, and scores only completed cases of the explicitly incomplete Qwen arm. Missing rows are `NOT COMPLETED`; Qwen aggregate scores remain unavailable. Without `--allow-incomplete`, the comparison rejects the missing case. `score.py` still requires all seven predictions; its extracted `score_case` helper uses the same standard per-case calculation, without relaxing the complete-benchmark contract.
+This checks input, native-result and prediction digests, rejects the obsolete Soniox projection method, reproduces every complete-arm score, and scores only completed cases of the explicitly incomplete Qwen arm. Missing rows are `NOT COMPLETED`; Qwen aggregate scores remain unavailable. Without `--allow-incomplete`, the comparison rejects the missing case. `score.py` still requires all seven predictions; standard DER, references, UEM and the retained Qwen/Nemotron hypotheses are unchanged.
 
 Provider JSON, JSONL and RTTM evidence has byte-preserving Git attributes so line-ending conversion cannot silently invalidate retained digest chains. Existing benchmark audio, references, Nemotron output and production application behavior are unchanged.

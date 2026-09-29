@@ -36,6 +36,12 @@ def collect_run(provider, arm, owner, predictions, recorded_score, manifest, all
         raise ValueError(f"Prediction files differ from completed receipts: {provider}/{arm}")
     if provenance["mode"] != arm:
         raise ValueError(f"Wrong provenance mode: {provider}/{arm}")
+    if provider == "Soniox":
+        hypothesis = provenance.get("hypothesis", {})
+        if hypothesis.get("method") != "soniox_sdk_speaker_segments" or hypothesis.get("group_by") != ["speaker"]:
+            raise ValueError(f"Expected corrected official SDK speaker-segment projection: {arm}")
+    else:
+        hypothesis = {"method": "qwen_native_utterances" if provider == "Qwen" else "nemotron_native_activity"}
     token_widths = Counter()
     for row in receipts:
         case = expected[row["id"]]
@@ -71,13 +77,15 @@ def collect_run(provider, arm, owner, predictions, recorded_score, manifest, all
         "model": provenance["model"],
         "status": "incomplete" if missing else "complete",
         "missing_cases": missing,
-        "reused_prior_inference": provider == "Nemotron",
+        "hypothesis": hypothesis,
         "provenance": provenance_path.relative_to(ROOT).as_posix(),
         "provenance_sha256": digest(provenance_path),
         "score_artifact": None if missing else recorded_score.relative_to(ROOT).as_posix(),
         "score_artifact_sha256": None if missing else digest(recorded_score),
         "score": computed,
         "native_token_width_counts_ms": {str(width): count for width, count in sorted(token_widths.items())},
+        "previous_token_pulse_score": read_json(owner / "token_pulse_baseline" / "scores" / f"{arm}.json")
+        if provider == "Soniox" else None,
     }
 
 
@@ -98,10 +106,11 @@ def compare(allow_incomplete=False):
         "benchmark": manifest["benchmark"],
         "manifest_sha256": digest(ROOT / "manifest.json"),
         "status": "incomplete" if any(row["missing_cases"] for row in rows) else "complete",
-        "new_completed_case_runs": sum(len(row["score"]["per_case"]) for row in rows
-                                       if not row["reused_prior_inference"]),
-        "expected_new_case_runs": 35,
-        "reused_case_runs": 7,
+        "measurement_protocol": "Declared output-segment DER: Soniox official SDK speaker segments, Qwen native utterances, Nemotron native activity",
+        "completed_cloud_case_runs": sum(len(row["score"]["per_case"]) for row in rows
+                                        if row["provider"] != "Nemotron"),
+        "expected_cloud_case_runs": 35,
+        "retained_nemotron_case_runs": 7,
         "cases": [{key: case[key] for key in ("id", "duration_s", "pair_with", "clip_pcm_sha256")}
                   for case in manifest["cases"]],
         "runs": rows,
@@ -111,9 +120,10 @@ def compare(allow_incomplete=False):
 def render_report(comparison):
     rows = comparison["runs"]
     lines = [
-        "# AMI scenario subset: native-output provider comparison", "",
-        f"Status: **{comparison['status']}**. Newly completed case/arm runs: **{comparison['new_completed_case_runs']}/{comparison['expected_new_case_runs']}**. The seven prior Nemotron ultra-low-latency CPU inferences are reused without new model calls. A missing case has no score, is not an empty completed prediction, and prevents that arm's complete benchmark aggregate. The far-field case repeats the overlap case's content through a different microphone and is excluded from the six-primary-case aggregate.", "",
-        "**Interpretation:** these are standard DER scores of each provider's native timestamped output, not a controlled ranking of speaker-identity recognition alone. Soniox exposes word-token spans, Qwen speech-event spans, and Nemotron diarization segments. Their speech-time support differs. No reference-based gap filling, token stretching, or dominant-speaker reduction is applied. Read miss, false alarm, confusion and speaker counts together.", "",
+        "# AMI scenario subset: corrected output-segment comparison", "",
+        f"Status: **{comparison['status']}**. Available completed cloud case/arm runs: **{comparison['completed_cloud_case_runs']}/{comparison['expected_cloud_case_runs']}**, plus seven retained Nemotron CPU runs. This comparison is rebuilt from saved outputs without provider calls. A missing case has no score and prevents that arm's complete benchmark aggregate. The paired far-field microphone case is excluded from the six-primary-case aggregate.", "",
+        "**Corrected protocol:** Soniox hypotheses now come from the official `@soniox/node@2.3.0` `segmentTranscript(tokens, {group_by: ['speaker']})` function, not a union of 60-ms token pulses. Speaker runs are grouped in provider time before mapping to original audio. Qwen native utterances and Nemotron native activity intervals are unchanged. This is end-to-end DER of these declared system outputs, not pure voice-identity or word accuracy.", "",
+        "The SDK uses each run's first defined start and last defined end; it can bridge silence between same-speaker tokens. Such time remains in the hypothesis and can count as false alarm. No extra VAD, gap threshold, reference-based fill, endpoint split, timestamp correction or score-driven tuning is added. The earlier token-pulse interpretation and provisional general provider ranking are superseded, not rescued by a disclaimer.", "",
         "The standard scoring protocol is unchanged: pyannote.metrics 4.0.0, collar 0, overlapping speech included, complete clip UEM and optimal speaker-label mapping per case. `score_case` exposes the existing per-case calculation for explicitly incomplete evidence without relaxing the seven-case `score.py` CLI. Complete-arm scores must match their retained score artifacts; input, native-result and prediction digests are checked against provenance.", "",
         "Native intervals are intersected with actual mapped source-audio support and the fixed clip UEM. Entirely out-of-audio spans are omitted and boundary-straddling spans are clipped, with original outputs and conversion diagnostics retained. This does not shift timestamps to fit the reference: native in-window timestamp errors remain scored errors. Unconfirmed event tails are not completed using the reference.", "",
         "## Six primary windows: pooled speaker-time errors", "",
@@ -128,8 +138,20 @@ def render_report(comparison):
             continue
         parts = [100 * value[key] / value["total"] for key in ("missed detection", "false alarm", "confusion")]
         lines.append(f"| {row['provider']} / {row['arm']} | {100 * value['der']:.2f} | {parts[0]:.2f} | {parts[1]:.2f} | {parts[2]:.2f} | {100 * value['speaker_count_accuracy']:.2f}% | {value['speaker_count_mae']:.3f} |")
-    lines += ["", "## Soniox native time-support diagnostics", "",
-              "Counts below come from all seven saved native outputs per arm, before source/UEM projection. A short token pulse is not a continuous speech region. High missed-speech DER under this literal-support protocol does not mean the same percentage of words or speaker identities is wrong.", "",
+    lines += ["", "## Soniox before/after: representation repair, not new inference", "",
+              "Old token-pulse scores are retained only as a diagnostic baseline, not primary diarization scores. All columns are percentages of reference speaker-time over six primary windows. Both miss and false alarm are shown because SDK grouping can trade one for the other.", "",
+              "| Arm | Old pulse DER | SDK segment DER | Old miss | SDK miss | Old FA | SDK FA |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for row in rows:
+        if row["provider"] == "Soniox":
+            old = row["previous_token_pulse_score"]["independent_six"]
+            current = row["score"]["independent_six"]
+            values = [100 * old["der"], 100 * current["der"]]
+            values += [100 * value[key] / value["total"]
+                       for key in ("missed detection", "false alarm") for value in (old, current)]
+            lines.append(f"| {row['arm']} | " + " | ".join(f"{value:.2f}" for value in values) + " |")
+    lines += ["", "## Retained native-token diagnostics (not scored intervals)", "",
+              "These are the original token widths before SDK grouping, preserved to explain the previous coverage mismatch. The scored Soniox intervals are now the SDK envelopes, not these individual pulses.", "",
               "| Arm | Native token widths in ms: count |",
               "| --- | --- |"]
     for row in rows:
@@ -158,9 +180,9 @@ def render_report(comparison):
         "- [Retained Nemotron execution](report.md): official ultra-low-latency preset, nominal 0.32-second input buffer. Unpaced CPU compute time is not live end-to-end latency.",
         "- Each case starts fresh state; the 600-second case retains one continuous session/cache. Speaker identity is not compared across cases. Six primary windows are nonduplicated audio, not independent participants; several meetings can share participants.",
         "- This is an annotation-selected AMI test subset, not the full AMI test score, ASR/translation accuracy, a statistically independent population estimate, or evidence about six-plus speakers and VRChat. The forced-aligned reference covers words, not all vocal sounds; boundaries and missing annotations can affect DER.",
-        "- No oracle speaker counts or reference timings are supplied to inference. Unattributed output is reported by each provider but never invented as an optimally mappable reference speaker. Native output gaps remain gaps; a completed run is not necessarily a complete speech transcription.",
-        "- Benchmark waveforms, references, scoring semantics and previous Nemotron evidence remain unchanged. No production UI, configuration or application behavior changes.",
-        "", "Rebuild this comparison offline with `experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py` under Linux/WSL. It makes no provider/model calls and normally requires all 35 new completed runs plus seven retained predictions. `--allow-incomplete` explicitly permits declared incomplete Qwen receipts, reports only completed per-case values, and withholds Qwen aggregate scores. It does not satisfy the outstanding inference requirement.", "",
+        "- No oracle speaker counts or reference timings are supplied to inference or SDK grouping. Unattributed output is not assigned an invented speaker ID. SDK grouping, not gold timing, defines Soniox interval support; grouping does not prove continuous acoustic speech. Completed inference is not proof of complete transcription.",
+        "- Benchmark waveforms, references, standard DER semantics, Qwen outputs and previous Nemotron evidence are unchanged. Soniox interval construction is deliberately corrected; original responses remain immutable and prior token-pulse artifacts are archived. No production UI, configuration or application behavior changes.",
+        "", "Rebuild this comparison offline with `experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py` under Linux/WSL. It makes no provider/model calls and normally requires all 35 completed cloud case/arm runs plus seven retained Nemotron predictions. `--allow-incomplete` explicitly permits declared incomplete Qwen receipts, reports only completed per-case values, and withholds Qwen aggregate scores. It does not satisfy the outstanding inference requirement.", "",
     ]
     for row in rows:
         if row["missing_cases"]:
@@ -175,7 +197,7 @@ def main():
     comparison = compare(allow_incomplete=args.allow_incomplete)
     (ROOT / "provider_comparison.json").write_text(json.dumps(comparison, indent=2) + "\n", encoding="utf-8")
     (ROOT / "provider_comparison.md").write_text(render_report(comparison), encoding="utf-8")
-    print(f"status={comparison['status']} new_completed_case_runs={comparison['new_completed_case_runs']}/35 reused_case_runs=7 cases=7 provider_arms=6")
+    print(f"status={comparison['status']} completed_cloud_case_runs={comparison['completed_cloud_case_runs']}/35 retained_nemotron_case_runs=7 cases=7 provider_arms=6")
 
 
 if __name__ == "__main__":

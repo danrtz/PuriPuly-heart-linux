@@ -1,0 +1,791 @@
+{
+  "native_artifact_sha256": "05b3ff611c9cc72dac03e61c8700c70d2410a9661f14f3ca6732450f76bf52b8",
+  "sdk_segments": [
+    {
+      "text": "Um, after—",
+      "start_ms": 660,
+      "end_ms": 1620,
+      "speaker": "1",
+      "token_start_index": 0,
+      "token_end_index": 4
+    },
+    {
+      "text": " Yeah, that's an option too, yeah, after dinner. Sure.",
+      "start_ms": 1680,
+      "end_ms": 5640,
+      "speaker": "2",
+      "token_start_index": 4,
+      "token_end_index": 22
+    },
+    {
+      "text": " Today is a good day, but yeah, whatever. What would you prefer?",
+      "start_ms": 6120,
+      "end_ms": 10260,
+      "speaker": "1",
+      "token_start_index": 22,
+      "token_end_index": 45
+    },
+    {
+      "text": " Or 3:30. I just, yeah.",
+      "start_ms": 10320,
+      "end_ms": 13200,
+      "speaker": "2",
+      "token_start_index": 45,
+      "token_end_index": 56
+    },
+    {
+      "text": " Well, it doesn't matter for me, I mean—",
+      "start_ms": 13740,
+      "end_ms": 15000,
+      "speaker": "1",
+      "token_start_index": 56,
+      "token_end_index": 71
+    },
+    {
+      "text": " Not necessarily.",
+      "start_ms": 15000,
+      "end_ms": 15420,
+      "speaker": "2",
+      "token_start_index": 71,
+      "token_end_index": 77
+    },
+    {
+      "text": " 3:30 in the computer room in here, and then we can just go.",
+      "start_ms": 15660,
+      "end_ms": 17880,
+      "speaker": "1",
+      "token_start_index": 77,
+      "token_end_index": 97
+    },
+    {
+      "text": " Get in there though.",
+      "start_ms": 18540,
+      "end_ms": 19320,
+      "speaker": "2",
+      "token_start_index": 97,
+      "token_end_index": 104
+    },
+    {
+      "text": " If you can't, can you get in the front door? Oh, you haven't got a key, do you? Can none of you get in there?",
+      "start_ms": 19620,
+      "end_ms": 24000,
+      "speaker": "1",
+      "token_start_index": 104,
+      "token_end_index": 145
+    },
+    {
+      "text": " We. Can get in 3:30, through there.",
+      "start_ms": 24000,
+      "end_ms": 26280,
+      "speaker": "2",
+      "token_start_index": 145,
+      "token_end_index": 159
+    },
+    {
+      "text": " There's computer rooms in here, the MSC computer lab.",
+      "start_ms": 26940,
+      "end_ms": 29460,
+      "speaker": "1",
+      "token_start_index": 159,
+      "token_end_index": 176
+    },
+    {
+      "text": " I've not found that yet.",
+      "start_ms": 29460,
+      "end_ms": 30120,
+      "speaker": "2",
+      "token_start_index": 176,
+      "token_end_index": 184
+    },
+    {
+      "text": " All right. In here.",
+      "start_ms": 30120,
+      "end_ms": 30900,
+      "speaker": "1",
+      "token_start_index": 184,
+      "token_end_index": 191
+    },
+    {
+      "text": " How about if we take a—",
+      "start_ms": 30900,
+      "end_ms": 31620,
+      "speaker": "2",
+      "token_start_index": 191,
+      "token_end_index": 199
+    },
+    {
+      "text": " Or if you find me, I'll show you where— I'll let us all in there, and we can all go in there.",
+      "start_ms": 31620,
+      "end_ms": 35760,
+      "speaker": "1",
+      "token_start_index": 199,
+      "token_end_index": 233
+    },
+    {
+      "text": " We can look at— Afterwards.",
+      "start_ms": 35940,
+      "end_ms": 37500,
+      "speaker": "2",
+      "token_start_index": 233,
+      "token_end_index": 242
+    },
+    {
+      "text": " Yeah, yeah, exactly. You do need to have a key for it, though, that's the thing. It's got a locked door, but—",
+      "start_ms": 37980,
+      "end_ms": 41580,
+      "speaker": "1",
+      "token_start_index": 242,
+      "token_end_index": 281
+    },
+    {
+      "text": " Just bang on it.",
+      "start_ms": 41760,
+      "end_ms": 42360,
+      "speaker": "2",
+      "token_start_index": 281,
+      "token_end_index": 286
+    },
+    {
+      "text": " Yeah, somebody'll answer.",
+      "start_ms": 43080,
+      "end_ms": 43860,
+      "speaker": "1",
+      "token_start_index": 286,
+      "token_end_index": 296
+    },
+    {
+      "text": " Actually, I was asking Steve about that, whether we can get in there, whether he was going to get us access into there.",
+      "start_ms": 43860,
+      "end_ms": 48480,
+      "speaker": "2",
+      "token_start_index": 296,
+      "token_end_index": 333
+    },
+    {
+      "text": " Into what?",
+      "start_ms": 49140,
+      "end_ms": 49620,
+      "speaker": "1",
+      "token_start_index": 333,
+      "token_end_index": 338
+    },
+    {
+      "text": " The computer room.",
+      "start_ms": 49740,
+      "end_ms": 50280,
+      "speaker": "2",
+      "token_start_index": 338,
+      "token_end_index": 343
+    },
+    {
+      "text": " Okay. Yeah. It's only got— it's crap, it's only got about 4 or 5 computers in, but it would do. Quite good for our job, because it can also— it's not very abnormally many people in it very often.",
+      "start_ms": 50520,
+      "end_ms": 58980,
+      "speaker": "1",
+      "token_start_index": 343,
+      "token_end_index": 410
+    },
+    {
+      "text": " Is there a printer in there too?",
+      "start_ms": 59760,
+      "end_ms": 60720,
+      "speaker": "2",
+      "token_start_index": 410,
+      "token_end_index": 420
+    },
+    {
+      "text": " Yeah. There's a printer in there. And there's a photocopier. With the code on it, yeah, yeah. It's cool, yeah.",
+      "start_ms": 60720,
+      "end_ms": 66780,
+      "speaker": "1",
+      "token_start_index": 420,
+      "token_end_index": 458
+    },
+    {
+      "text": " Huh. Well, and the photocopier, I haven't heard of it.",
+      "start_ms": 68100,
+      "end_ms": 71220,
+      "speaker": "2",
+      "token_start_index": 458,
+      "token_end_index": 479
+    },
+    {
+      "text": " Assignment.",
+      "start_ms": 71340,
+      "end_ms": 71760,
+      "speaker": "1",
+      "token_start_index": 479,
+      "token_end_index": 483
+    },
+    {
+      "text": " If we want to.",
+      "start_ms": 72240,
+      "end_ms": 72960,
+      "speaker": "2",
+      "token_start_index": 483,
+      "token_end_index": 490
+    },
+    {
+      "text": " We've got it in my computer.",
+      "start_ms": 74100,
+      "end_ms": 75180,
+      "speaker": "1",
+      "token_start_index": 490,
+      "token_end_index": 500
+    },
+    {
+      "text": " Yeah.",
+      "start_ms": 75540,
+      "end_ms": 75660,
+      "speaker": "2",
+      "token_start_index": 500,
+      "token_end_index": 502
+    },
+    {
+      "text": " Whatever comments I'm thinking.",
+      "start_ms": 75780,
+      "end_ms": 76980,
+      "speaker": "1",
+      "token_start_index": 502,
+      "token_end_index": 513
+    },
+    {
+      "text": " So what time do we say?",
+      "start_ms": 77520,
+      "end_ms": 79080,
+      "speaker": "2",
+      "token_start_index": 513,
+      "token_end_index": 521
+    },
+    {
+      "text": " I just think it's better to do it afterwards than we have all the time we need.",
+      "start_ms": 79620,
+      "end_ms": 82380,
+      "speaker": "1",
+      "token_start_index": 521,
+      "token_end_index": 544
+    },
+    {
+      "text": " Yeah, that's true.",
+      "start_ms": 82440,
+      "end_ms": 82860,
+      "speaker": "2",
+      "token_start_index": 544,
+      "token_end_index": 551
+    },
+    {
+      "text": " Yeah, then have half an hour, and then we'll actually run. Out.",
+      "start_ms": 83220,
+      "end_ms": 85860,
+      "speaker": "1",
+      "token_start_index": 551,
+      "token_end_index": 572
+    },
+    {
+      "text": " Yeah.",
+      "start_ms": 86100,
+      "end_ms": 86280,
+      "speaker": "2",
+      "token_start_index": 572,
+      "token_end_index": 574
+    },
+    {
+      "text": " Yeah.",
+      "start_ms": 87060,
+      "end_ms": 87240,
+      "speaker": "1",
+      "token_start_index": 574,
+      "token_end_index": 576
+    },
+    {
+      "text": " Okay. As long as DNLG doesn't. Late.",
+      "start_ms": 88980,
+      "end_ms": 92220,
+      "speaker": "2",
+      "token_start_index": 576,
+      "token_end_index": 591
+    },
+    {
+      "text": " Hopefully it's not that man, so it won't matter.",
+      "start_ms": 93600,
+      "end_ms": 95280,
+      "speaker": "1",
+      "token_start_index": 591,
+      "token_end_index": 608
+    },
+    {
+      "text": " Actually, it's not even confirmed yet.",
+      "start_ms": 98220,
+      "end_ms": 99840,
+      "speaker": "2",
+      "token_start_index": 608,
+      "token_end_index": 621
+    },
+    {
+      "text": " What?",
+      "start_ms": 100680,
+      "end_ms": 100920,
+      "speaker": "1",
+      "token_start_index": 621,
+      "token_end_index": 624
+    },
+    {
+      "text": " Oh.",
+      "start_ms": 101100,
+      "end_ms": 101280,
+      "speaker": "2",
+      "token_start_index": 624,
+      "token_end_index": 626
+    },
+    {
+      "text": " She doesn't even know what she's talking about yet. Maybe it doesn't happen at all.",
+      "start_ms": 101580,
+      "end_ms": 106140,
+      "speaker": "1",
+      "token_start_index": 626,
+      "token_end_index": 655
+    },
+    {
+      "text": " Yeah, you never know.",
+      "start_ms": 106920,
+      "end_ms": 107940,
+      "speaker": "2",
+      "token_start_index": 655,
+      "token_end_index": 664
+    },
+    {
+      "text": " It's reading week next week. It should be. It should be.",
+      "start_ms": 107940,
+      "end_ms": 109680,
+      "speaker": "1",
+      "token_start_index": 664,
+      "token_end_index": 685
+    },
+    {
+      "text": " Me.",
+      "start_ms": 110340,
+      "end_ms": 110520,
+      "speaker": "2",
+      "token_start_index": 685,
+      "token_end_index": 687
+    },
+    {
+      "text": " Really?",
+      "start_ms": 110760,
+      "end_ms": 111060,
+      "speaker": "1",
+      "token_start_index": 687,
+      "token_end_index": 690
+    },
+    {
+      "text": " Well, it's supposed to be.",
+      "start_ms": 111300,
+      "end_ms": 112320,
+      "speaker": "2",
+      "token_start_index": 690,
+      "token_end_index": 700
+    },
+    {
+      "text": " Okay.",
+      "start_ms": 112620,
+      "end_ms": 112800,
+      "speaker": "1",
+      "token_start_index": 700,
+      "token_end_index": 702
+    },
+    {
+      "text": " Next week. It's week 6 next week.",
+      "start_ms": 113400,
+      "end_ms": 115320,
+      "speaker": "2",
+      "token_start_index": 702,
+      "token_end_index": 715
+    },
+    {
+      "text": " Really?",
+      "start_ms": 115440,
+      "end_ms": 115800,
+      "speaker": "1",
+      "token_start_index": 715,
+      "token_end_index": 718
+    },
+    {
+      "text": " Oh.",
+      "start_ms": 115800,
+      "end_ms": 115800,
+      "speaker": "2",
+      "token_start_index": 718,
+      "token_end_index": 720
+    },
+    {
+      "text": " I don't think we have a reading week though.",
+      "start_ms": 116340,
+      "end_ms": 117780,
+      "speaker": "1",
+      "token_start_index": 720,
+      "token_end_index": 736
+    },
+    {
+      "text": " I don't know. We have one class at least when we, like, speech perception, we don't have any. ",
+      "start_ms": 117900,
+      "end_ms": 121920,
+      "speaker": "2",
+      "token_start_index": 736,
+      "token_end_index": 766
+    }
+  ],
+  "projected_intervals": [
+    [
+      0.66,
+      1.62,
+      "1"
+    ],
+    [
+      1.68,
+      5.64,
+      "2"
+    ],
+    [
+      6.12,
+      10.26,
+      "1"
+    ],
+    [
+      10.32,
+      12.0,
+      "2"
+    ],
+    [
+      12.0,
+      13.2,
+      "2"
+    ],
+    [
+      13.74,
+      15.0,
+      "1"
+    ],
+    [
+      15.0,
+      15.42,
+      "2"
+    ],
+    [
+      15.66,
+      17.88,
+      "1"
+    ],
+    [
+      18.54,
+      19.32,
+      "2"
+    ],
+    [
+      19.62,
+      24.0,
+      "1"
+    ],
+    [
+      24.0,
+      26.28,
+      "2"
+    ],
+    [
+      26.94,
+      29.46,
+      "1"
+    ],
+    [
+      29.46,
+      30.0,
+      "2"
+    ],
+    [
+      30.0,
+      30.12,
+      "2"
+    ],
+    [
+      30.12,
+      30.9,
+      "1"
+    ],
+    [
+      30.9,
+      31.62,
+      "2"
+    ],
+    [
+      31.62,
+      35.76,
+      "1"
+    ],
+    [
+      35.94,
+      36.0,
+      "2"
+    ],
+    [
+      36.0,
+      37.5,
+      "2"
+    ],
+    [
+      37.98,
+      41.58,
+      "1"
+    ],
+    [
+      41.76,
+      42.0,
+      "2"
+    ],
+    [
+      42.0,
+      42.36,
+      "2"
+    ],
+    [
+      43.08,
+      43.86,
+      "1"
+    ],
+    [
+      43.86,
+      48.0,
+      "2"
+    ],
+    [
+      48.0,
+      48.48,
+      "2"
+    ],
+    [
+      49.14,
+      49.62,
+      "1"
+    ],
+    [
+      49.74,
+      50.28,
+      "2"
+    ],
+    [
+      50.52,
+      54.0,
+      "1"
+    ],
+    [
+      54.0,
+      58.98,
+      "1"
+    ],
+    [
+      59.76,
+      60.0,
+      "2"
+    ],
+    [
+      60.0,
+      60.72,
+      "2"
+    ],
+    [
+      60.72,
+      66.0,
+      "1"
+    ],
+    [
+      66.0,
+      66.78,
+      "1"
+    ],
+    [
+      68.1,
+      71.22,
+      "2"
+    ],
+    [
+      71.34,
+      71.76,
+      "1"
+    ],
+    [
+      72.24,
+      72.96,
+      "2"
+    ],
+    [
+      74.1,
+      75.18,
+      "1"
+    ],
+    [
+      75.54,
+      75.66,
+      "2"
+    ],
+    [
+      75.78,
+      76.98,
+      "1"
+    ],
+    [
+      77.52,
+      78.0,
+      "2"
+    ],
+    [
+      78.0,
+      79.08,
+      "2"
+    ],
+    [
+      79.62,
+      82.38,
+      "1"
+    ],
+    [
+      82.44,
+      82.86,
+      "2"
+    ],
+    [
+      83.22,
+      84.0,
+      "1"
+    ],
+    [
+      84.0,
+      85.86,
+      "1"
+    ],
+    [
+      86.1,
+      86.28,
+      "2"
+    ],
+    [
+      87.06,
+      87.24,
+      "1"
+    ],
+    [
+      88.98,
+      90.0,
+      "2"
+    ],
+    [
+      90.0,
+      92.22,
+      "2"
+    ],
+    [
+      93.6,
+      95.28,
+      "1"
+    ],
+    [
+      98.22,
+      99.84,
+      "2"
+    ],
+    [
+      100.68,
+      100.92,
+      "1"
+    ],
+    [
+      101.1,
+      101.28,
+      "2"
+    ],
+    [
+      101.58,
+      102.0,
+      "1"
+    ],
+    [
+      102.0,
+      106.14,
+      "1"
+    ],
+    [
+      106.92,
+      107.94,
+      "2"
+    ],
+    [
+      107.94,
+      108.0,
+      "1"
+    ],
+    [
+      108.0,
+      109.68,
+      "1"
+    ],
+    [
+      110.34,
+      110.52,
+      "2"
+    ],
+    [
+      110.76,
+      111.06,
+      "1"
+    ],
+    [
+      111.3,
+      112.32,
+      "2"
+    ],
+    [
+      112.62,
+      112.8,
+      "1"
+    ],
+    [
+      113.4,
+      114.0,
+      "2"
+    ],
+    [
+      114.0,
+      115.32,
+      "2"
+    ],
+    [
+      115.44,
+      115.8,
+      "1"
+    ],
+    [
+      116.34,
+      117.78,
+      "1"
+    ],
+    [
+      117.9,
+      120.0,
+      "2"
+    ]
+  ],
+  "projection_diagnostics": {
+    "sdk_groups": 54,
+    "untimed_groups": [],
+    "zero_duration_groups": [
+      51
+    ],
+    "unattributed_groups": [],
+    "padding_or_omitted_groups": [],
+    "out_of_support_groups": [
+      53
+    ],
+    "wholly_out_of_support_groups": [],
+    "out_of_support_total_ms": 1920.0000000000018,
+    "mapped_source_pieces": 67,
+    "bridged_positive_gap_ms": 54120.0,
+    "max_bridged_gap_ms": 1620
+  }
+}

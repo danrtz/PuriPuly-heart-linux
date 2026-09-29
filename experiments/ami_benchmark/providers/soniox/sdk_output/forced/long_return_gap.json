@@ -1,0 +1,344 @@
+{
+  "native_artifact_sha256": "e28dda07a57bbc0f9860a5d8df55dc8dfc7066a0996c99be8ea81f164102dfb9",
+  "sdk_segments": [
+    {
+      "text": "Design, um, reducing the size of the control, and an electronic panel— For further features like programming, things like that. Okay. Three presentations, I've got written here, so— Shall we hear from marketing first?",
+      "start_ms": 360,
+      "end_ms": 21000,
+      "speaker": "1",
+      "token_start_index": 0,
+      "token_end_index": 65
+    },
+    {
+      "text": " Um, is it okay if I postpone that to later? I just want to get access. To a little bit more information, is that okay?",
+      "start_ms": 21480,
+      "end_ms": 26220,
+      "speaker": "2",
+      "token_start_index": 65,
+      "token_end_index": 102
+    },
+    {
+      "text": " No, that's fine, that's fine.",
+      "start_ms": 26220,
+      "end_ms": 27000,
+      "speaker": "1",
+      "token_start_index": 102,
+      "token_end_index": 112
+    },
+    {
+      "text": " Okay, yeah, I'll go first. Can I grab the—",
+      "start_ms": 27180,
+      "end_ms": 29640,
+      "speaker": "3",
+      "token_start_index": 112,
+      "token_end_index": 128
+    },
+    {
+      "text": " It looks like me.",
+      "start_ms": 29700,
+      "end_ms": 30120,
+      "speaker": "1",
+      "token_start_index": 128,
+      "token_end_index": 135
+    },
+    {
+      "text": " Thanks. What about. Presso F8?",
+      "start_ms": 32820,
+      "end_ms": 43980,
+      "speaker": "3",
+      "token_start_index": 135,
+      "token_end_index": 147
+    },
+    {
+      "text": " Um, FN. Function FN.",
+      "start_ms": 44940,
+      "end_ms": 47880,
+      "speaker": "1",
+      "token_start_index": 147,
+      "token_end_index": 158
+    },
+    {
+      "text": " All right, yeah. Okay. Maybe.",
+      "start_ms": 47940,
+      "end_ms": 54600,
+      "speaker": "3",
+      "token_start_index": 158,
+      "token_end_index": 169
+    },
+    {
+      "text": " Yep.",
+      "start_ms": 60660,
+      "end_ms": 60720,
+      "speaker": "2",
+      "token_start_index": 169,
+      "token_end_index": 172
+    },
+    {
+      "text": " Yep, there we go. Okay, this is, uh, the working design presented by me. The, uh, industrial designer extraordinaire. Okay, this is where I went a bit mad. With PowerPoint, so. What— the first thing question I asked was, what are we trying to. Design? Well, a device which basically just sends the signal to the TV to change its state, whether that. Be the power, or the channel. Um, or the volume, everything is just, um. Some sort of signal to change the state of the TV or other appliance that it's. Sending the signal to. Um, so I decided I'd have a look at what. Other people have designed and try and take some inspiration from that. But, uh. Although we will want to be taking ideas from other people, we want to make sure that our. Design stands out and I thought that was something that, well, it wasn't really. My area because I'm dealing with the inside, really. So. Yeah, I ran out of time, so I couldn't do this one as fun as the last one. Um, and, uh. I found out that most, uh, controls use some form of infrared to send signals. To the TV, presumably because of the cost issue of, uh, something like the same thing that computers. Use wireless, and you don't need to send very much information. Um, most of them. Are powered by some form of battery. Now, R1, I'm— I'm not sure whether we want. To look at the size issue because most of them are powered by AAA batteries, but those can be. Quite bulky, so I— I didn't know if you wanted to look at something else so we could shrink down. The size of the control.",
+      "start_ms": 61260,
+      "end_ms": 173820,
+      "speaker": "3",
+      "token_start_index": 172,
+      "token_end_index": 674
+    },
+    {
+      "text": " Um, can I interject to ask a question there, is that appropriate?",
+      "start_ms": 173820,
+      "end_ms": 176100,
+      "speaker": "2",
+      "token_start_index": 674,
+      "token_end_index": 697
+    },
+    {
+      "text": " Yes.",
+      "start_ms": 176100,
+      "end_ms": 176400,
+      "speaker": "3",
+      "token_start_index": 697,
+      "token_end_index": 699
+    },
+    {
+      "text": " You're saying the AAA batteries? Are small, are the car—",
+      "start_ms": 176400,
+      "end_ms": 178980,
+      "speaker": "2",
+      "token_start_index": 699,
+      "token_end_index": 719
+    },
+    {
+      "text": " Um, no, no, if you— if you look at— if you look at most remote controls, they're quite— they're quite. ",
+      "start_ms": 179220,
+      "end_ms": 183120,
+      "speaker": "3",
+      "token_start_index": 719,
+      "token_end_index": 761
+    }
+  ],
+  "projected_intervals": [
+    [
+      0.36,
+      6.0,
+      "1"
+    ],
+    [
+      6.0,
+      12.0,
+      "1"
+    ],
+    [
+      12.0,
+      18.0,
+      "1"
+    ],
+    [
+      18.0,
+      21.0,
+      "1"
+    ],
+    [
+      21.48,
+      24.0,
+      "2"
+    ],
+    [
+      24.0,
+      26.22,
+      "2"
+    ],
+    [
+      26.22,
+      27.0,
+      "1"
+    ],
+    [
+      27.18,
+      29.64,
+      "3"
+    ],
+    [
+      29.7,
+      30.0,
+      "1"
+    ],
+    [
+      30.0,
+      30.12,
+      "1"
+    ],
+    [
+      32.82,
+      36.0,
+      "3"
+    ],
+    [
+      36.0,
+      42.0,
+      "3"
+    ],
+    [
+      42.0,
+      43.98,
+      "3"
+    ],
+    [
+      44.94,
+      47.88,
+      "1"
+    ],
+    [
+      47.94,
+      48.0,
+      "3"
+    ],
+    [
+      48.0,
+      54.0,
+      "3"
+    ],
+    [
+      54.0,
+      54.6,
+      "3"
+    ],
+    [
+      60.66,
+      60.72,
+      "2"
+    ],
+    [
+      61.26,
+      66.0,
+      "3"
+    ],
+    [
+      66.0,
+      72.0,
+      "3"
+    ],
+    [
+      72.0,
+      78.0,
+      "3"
+    ],
+    [
+      78.0,
+      84.0,
+      "3"
+    ],
+    [
+      84.0,
+      90.0,
+      "3"
+    ],
+    [
+      90.0,
+      96.0,
+      "3"
+    ],
+    [
+      96.0,
+      102.0,
+      "3"
+    ],
+    [
+      102.0,
+      108.0,
+      "3"
+    ],
+    [
+      108.0,
+      114.0,
+      "3"
+    ],
+    [
+      114.0,
+      120.0,
+      "3"
+    ],
+    [
+      120.0,
+      126.0,
+      "3"
+    ],
+    [
+      126.0,
+      132.0,
+      "3"
+    ],
+    [
+      132.0,
+      138.0,
+      "3"
+    ],
+    [
+      138.0,
+      144.0,
+      "3"
+    ],
+    [
+      144.0,
+      150.0,
+      "3"
+    ],
+    [
+      150.0,
+      156.0,
+      "3"
+    ],
+    [
+      156.0,
+      162.0,
+      "3"
+    ],
+    [
+      162.0,
+      168.0,
+      "3"
+    ],
+    [
+      168.0,
+      173.82,
+      "3"
+    ],
+    [
+      173.82,
+      174.0,
+      "2"
+    ],
+    [
+      174.0,
+      176.1,
+      "2"
+    ],
+    [
+      176.1,
+      176.4,
+      "3"
+    ],
+    [
+      176.4,
+      178.98,
+      "2"
+    ],
+    [
+      179.22,
+      180.0,
+      "3"
+    ]
+  ],
+  "projection_diagnostics": {
+    "sdk_groups": 14,
+    "untimed_groups": [],
+    "zero_duration_groups": [],
+    "unattributed_groups": [],
+    "padding_or_omitted_groups": [],
+    "out_of_support_groups": [
+      13
+    ],
+    "wholly_out_of_support_groups": [],
+    "out_of_support_total_ms": 3120.0000000000045,
+    "mapped_source_pieces": 42,
+    "bridged_positive_gap_ms": 129060.0,
+    "max_bridged_gap_ms": 9180
+  }
+}

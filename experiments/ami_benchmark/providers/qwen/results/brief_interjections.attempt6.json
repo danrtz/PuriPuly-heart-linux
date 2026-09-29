@@ -63,7 +63,7 @@
   },
   "offset_policy": "Native audio milliseconds / 1000; intersect finite valid intervals with input [0, case_duration]; count and exclude wholly outside and zero-duration intervals; exclude malformed, ambiguous or unpaired intervals; preserve all bounded overlaps; no shift, inferred speech or speaker labels.",
   "native_events": {
-    "path": "events/brief_interjections.jsonl",
+    "path": "events/brief_interjections.attempt6.jsonl",
     "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "count": 0
   },

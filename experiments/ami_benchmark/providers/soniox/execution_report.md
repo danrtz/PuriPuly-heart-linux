@@ -1,5 +1,7 @@
 # Soniox AMItest-derived seven-case execution
 
+**Current primary measurement is the SDK speaker-grouped remeasurement below.** The original execution/projection and score tables in the following sections document the **historical token-pulse baseline only**, archived verbatim under `token_pulse_baseline/`; they are not the current canonical hypothesis. The original 28 complete provider results were not changed or rerun, and their embedded `conversion`, `prediction_sha256` and `predicted_speaker_ids` remain historical metadata, not current SDK projection receipts.
+
 This task-local record covers the seven published `experiments/ami_benchmark/manifest.json` cases (six primary Mix-Headset clips plus the dependent Array1-01 microphone pair). All cases were consumed as real WAV audio, with WAV and 16-kHz mono PCM SHA-256 checked against the frozen manifest *before* each provider request. No annotation, reference RTTM, speaker count, or true speaker labels entered inference or prediction conversion. The `only_words` forced-aligned reference is used only by the unchanged offline scorer; provider-native word support and annotation support are not identical.
 
 ## Execution and projection
@@ -85,4 +87,54 @@ From repository root (the Windows application venv Python executable was used fo
 wsl.exe --cd <this-worktree-WSL-path> experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/score.py --predictions experiments/ami_benchmark/providers/soniox/predictions/ARM --output experiments/ami_benchmark/providers/soniox/scores/ARM.json
 ```
 
-The real runner command was invoked once for each of 28 distinct published `CASE`/`ARM` pairs. The final receipt invocation printed `verified=continuous cases=7`, `verified=forced cases=7`, `verified=segmented cases=7`, `verified=async_full_file cases=7`. Four actual unchanged scorer commands returned `pyannote_metrics_version=4.0.0`, each with six primary cases and one separate far-field pair. Boundary smoke checked native-to-source mapping across removed silence, padding, overlapping distinct IDs, null IDs, zero-length native tokens, partially outside and wholly outside support; native reconstruction checked against each of all 28 RTTMs. Per-case results, exact full-precision DER/components, receipt hashes, native-ID evidence, native timing diagnostics, recorded endpoint completion and async cleanup are in `scores/`, `predictions/`, and `results/`. These are word-token-support DER comparisons, **not** pure voice-recognition rankings or a complete AMI/test leaderboard.
+During the **original token-pulse run**, the runner was invoked once for each of 28 distinct published `CASE`/`ARM` pairs. The historical receipt invocation verified seven cases per arm, and four historical scorer commands returned `pyannote_metrics_version=4.0.0` with six primary cases and one separately scored far-field pair. The former boundary smoke checked token-level mapping, zero-length and null-ID tokens; old token-union per-case RTTMs, receipts and scores are now exclusively preserved in `token_pulse_baseline/`, with native API evidence and original projection metadata in `results/`. These pulse results are **not** current output-segment DER, pure voice-recognition rankings, or a complete AMI/test leaderboard.
+
+## Offline repair: official SDK speaker-grouped output (current)
+
+The declared Soniox hypothesis is the **actual** `segmentTranscript(tokens, { group_by: ['speaker'] })` exported by pinned `@soniox/node@2.3.0`, source commit `8661b750e6cbd0a2c382f6b79c7c198e29c4a2b0`. The isolated dependency is reproducible with `npm ci --no-audit --no-fund` in `providers/soniox/sdk/`, using `sdk/package-lock.json` (npm tarball integrity `sha512-WGDxaUFzet/NXoLYj5kw/JPAvFFWwce+iwhBNfWupNpXubXR5ijpUO6Qt5xnVYmpqnDtG57t8TIfKaFprL6y3g==`, MIT). `sdk/segments.mjs` invokes that function directly; SHA-256 `bb530cec977d249e825fab2076fc4f9e99386ab8b947c074d736f7f8a2455b4a`. Both final RT token lists and async token lists use the same speaker-only option. This SDK speaker-run envelope is **not** provider-native VAD or proof of continuous acoustic speech: it starts at the run's first defined token start and ends at its last defined token end, retaining arbitrarily long intervening silence, order, distinct-speaker overlap, and unattributed runs. Neither reference times/counts nor extra VAD, endpoint/`<fin>` splitting, language splitting, timestamp sorting, silence/gap thresholds, global speaker merging, synthetic support, or clock adjustment enter conversion.
+
+Group first **on provider time**, then intersect each grouped interval with the saved source-piece timeline; removed source audio and inserted padding are never assigned speaker time. No negative/inverted/nonfinite SDK interval is repaired; a zero/untimed group generates no positive interval, and groups lacking an attributed speaker do not acquire an artificial label. `sdk_output/<arm>/<case>.json` records each SDK group with original token-index membership, text/time/speaker/language, projected source intervals and detailed projection diagnostics. `predictions/<arm>/<case>.rttm` and `scores/<arm>.json` now contain only current SDK-segment results. `predictions/<arm>/provenance.json` retains `model`, `mode` and the seven existing `cases` receipt fields (`id`, `input_pcm_sha256`, `prediction_rttm_sha256`, `completed`, `native_result`, `native_result_sha256`), adds `hypothesis.method=soniox_sdk_speaker_segments`, `hypothesis.group_by=['speaker']`, package/version/source/integrity/bridge digest, `post_group_gap_filling=false`, `clock_correction=false`, and per-case `sdk_output`, `sdk_output_sha256`, `sdk_groups`, `projection_diagnostics`. The verifier reruns the real SDK grouping against immutable native tokens, checks source/lifecycle/hash and compares every SDK artifact and reconstructed RTTM. The old raw embedded pulse-projection hash is intentionally **not** a verification target.
+
+Historical `token_pulse_baseline/predictions/<arm>/` contains all 28 old RTTMs plus four original provenance files; `token_pulse_baseline/scores/<arm>.json` contains the four exact old score JSONs. The archive `sha256.json` enumerates all 36 originals. SHA-256 of the original canonical native result files equals each corresponding old provenance receipt for **28/28** before and after migration. The dependent far-field pair is separate, not pooled with the six primary windows. All four scores below are real reruns of the unchanged `score.py` in the WSL pyannote.metrics 4.0.0 environment: full-duration UEM, zero collar, overlap included, optimal per-case speaker mapping. DER is output-segment diarization error, **not** a pure voice-ID accuracy rate; SDK-bridged silence incurs false alarm. The forced and segmented arms retain their previously observed time drift, including forced +11.52 s at 600 s; no authority to correct the clock was assumed.
+
+| Arm | Six DER old→SDK | Six miss old→SDK (s) | Six false alarm old→SDK (s) | Six confusion old→SDK (s) | Six known-speaker support union old→SDK (s / 1260 s) | Paired DER old→SDK | Paired support union old→SDK (s / 120 s) | SDK groups, all seven; largest bridged token gap |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| continuous | 72.34%→48.27% | 776.229→276.091 | 31.157→203.559 | 39.046→85.154 | 424.980→1097.520 | 76.04%→61.44% | 46.560→101.820 | 484; 9.060 s |
+| forced | 89.21%→70.28% | 857.982→330.085 | 81.590→246.213 | 104.252→246.055 | 393.660→1086.180 | 88.99%→80.88% | 42.300→97.020 | 470; 9.180 s |
+| segmented | 86.66%→68.15% | 846.577→314.356 | 74.917→255.076 | 92.464→227.966 | 397.128→1058.916 | 89.64%→80.17% | 41.500→89.836 | 480; 4.380 s |
+| async_full_file | 72.65%→48.27% | 787.520→290.322 | 29.848→203.270 | 32.709→71.231 | 412.380→1083.000 | 81.84%→69.49% | 45.720→98.340 | 505; 8.880 s |
+
+SDK support is longer than pulse support by 672.540 / 692.520 / 661.788 / 670.620 s across the respective six-case arms. Across seven windows, sums of positive within-run token gaps are 727.800 / 757.860 / 793.620 / 723.240 s respectively; these are *token-gap sums*, not additional net union support (overlap, mapping and padding change the latter). The increased prediction support reduces misses but increases false alarms, and confusion rises in every pooled arm; the lower DER is **not** an isolated improvement in speaker identity. The following case rows give original→SDK DER, component speaker-seconds (miss/false-alarm/confusion) and predicted speaker counts. The reference speaker-time and reference speaker counts are unchanged and recorded in both corresponding full score JSONs.
+
+| Case | Arm | DER % old→SDK | Miss old→SDK | False alarm old→SDK | Confusion old→SDK | Predicted speakers old→SDK |
+|---|---|---:|---:|---:|---:|---:|
+| low_overlap | continuous | 65.80→15.39 | 65.786→0.534 | 2.121→15.349 | 0→0 | 2→2 |
+| rapid_turn_taking | continuous | 82.03→64.54 | 107.476→62.568 | 3.456→12.608 | 9.051→19.220 | 2→2 |
+| overlap_heavy | continuous | 81.54→70.90 | 85.659→46.603 | 3.979→15.803 | 15.472→28.990 | 2→2 |
+| long_return_gap | continuous | 69.14→44.57 | 83.328→5.055 | 2.547→50.274 | 0.050→0.063 | 3→3 |
+| brief_interjections | continuous | 81.46→62.60 | 83.013→34.229 | 3.452→16.768 | 9.327→22.627 | 3→3 |
+| long_context | continuous | 67.61→42.58 | 350.967→127.102 | 15.602→92.757 | 5.146→14.254 | 3→3 |
+| far_field_pair | continuous | 76.04→61.44 | 86.862→45.558 | 4.522→18.478 | 6.634→15.159 | 3→3 |
+| low_overlap | forced | 74.31→17.53 | 70.875→0.900 | 5.590→16.675 | 0.222→0.516 | 2→2 |
+| rapid_turn_taking | forced | 91.17→78.31 | 114.539→71.208 | 7.399→16.988 | 11.405→26.337 | 2→2 |
+| overlap_heavy | forced | 91.54→82.46 | 94.676→55.043 | 8.676→22.083 | 14.639→29.169 | 2→2 |
+| long_return_gap | forced | 84.25→51.59 | 93.031→6.721 | 9.370→50.800 | 2.301→6.591 | 3→3 |
+| brief_interjections | forced | 92.33→80.31 | 88.947→39.841 | 7.106→19.860 | 12.532→34.749 | 3→3 |
+| long_context | forced | 91.40→77.28 | 395.914→156.372 | 43.449→119.807 | 63.153→148.693 | 3→3 |
+| far_field_pair | forced | 88.99→80.88 | 95.412→56.630 | 8.812→24.750 | 10.480→22.879 | 3→3 |
+| low_overlap | segmented | 70.86→25.31 | 68.545→1.260 | 4.268→24.295 | 0.322→0.564 | 2→2 |
+| rapid_turn_taking | segmented | 88.35→76.96 | 112.720→69.722 | 6.396→18.610 | 10.102→24.235 | 2→2 |
+| overlap_heavy | segmented | 88.23→77.23 | 94.713→50.803 | 8.445→24.823 | 10.566→23.918 | 3→3 |
+| long_return_gap | segmented | 83.39→41.43 | 92.514→6.485 | 9.265→40.068 | 1.865→4.939 | 3→3 |
+| brief_interjections | segmented | 93.30→84.90 | 89.176→34.480 | 7.163→24.979 | 13.379→40.389 | 3→3 |
+| long_context | segmented | 88.13→74.18 | 388.909→151.606 | 39.380→122.301 | 56.230→133.921 | 3→3 |
+| far_field_pair | segmented | 89.64→80.17 | 95.759→57.719 | 8.395→21.983 | 11.396→23.639 | 3→3 |
+| low_overlap | async_full_file | 64.91→15.52 | 65.087→0.723 | 1.902→15.298 | 0→0 | 2→2 |
+| rapid_turn_taking | async_full_file | 87.08→72.90 | 109.536→65.878 | 3.176→10.158 | 14.653→30.581 | 3→3 |
+| overlap_heavy | async_full_file | 80.06→68.15 | 87.612→46.158 | 4.492→17.698 | 11.093→23.994 | 3→3 |
+| long_return_gap | async_full_file | 68.56→45.16 | 82.270→5.363 | 2.629→50.402 | 0.309→0.362 | 3→3 |
+| brief_interjections | async_full_file | 77.24→49.67 | 85.444→39.282 | 3.243→13.901 | 2.150→5.234 | 4→4 |
+| long_context | async_full_file | 68.48→43.61 | 357.571→132.918 | 14.406→95.813 | 4.504→11.060 | 3→3 |
+| far_field_pair | async_full_file | 81.84→69.49 | 87.948→47.698 | 4.768→17.138 | 12.771→24.742 | 3→3 |
+
+Executed locally without API keys, uploads or additional Soniox requests: Windows main-venv `python experiments/ami_benchmark/providers/soniox/run.py --convert-all` converted all **28/28** complete native results; `python experiments/ami_benchmark/providers/soniox/receipts.py` printed seven verified cases for each of four arms; four separate WSL `experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/score.py --predictions experiments/ami_benchmark/providers/soniox/predictions/ARM --output experiments/ami_benchmark/providers/soniox/scores/ARM.json` scored all seven cases per arm (pyannote.metrics 4.0.0). The focused smoke invoked the same official SDK function for A→B→A, null vs absent speaker, zero/untimed token, language transition, bridged silence, last token end rather than max end, overlapping speakers; it then exercised compaction, padding and source-piece crossing, including a speaker overlap. Historical scores remain at `token_pulse_baseline/scores/`; the two sets must not be interchanged.

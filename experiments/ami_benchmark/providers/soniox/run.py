@@ -11,10 +11,10 @@ from hashlib import sha256
 import json
 import math
 import os
+import subprocess
 from pathlib import Path
 import sys
 import time
-import wave
 
 import keyring
 import requests
@@ -102,12 +102,14 @@ def async_arm(audio: Path, duration: float, key: str) -> dict:
             "tokens": tokens, "lifecycle": lifecycle, "cleanup": cleanup, "error": failure}
 
 
-def mapped_intervals(tokens: list[dict], timeline: list[dict], duration: float) -> tuple[list[tuple[float, float, str]], dict]:
-    """Intersect native word-time support with source-audio pieces, never padding.
+def sdk_segments(tokens: list[dict]) -> list[dict]:
+    bridge = ROOT / "sdk" / "segments.mjs"
+    completed = subprocess.run(["node", str(bridge)], input=json.dumps(tokens, ensure_ascii=False),
+                               text=True, encoding="utf-8", capture_output=True, check=True)
+    return json.loads(completed.stdout)
 
-    Null-speaker tokens remain diagnostic only. Same-speaker overlapping word supports
-    are unioned, but touching/nonoverlapping words and distinct speakers remain separate.
-    """
+
+def mapped_intervals(segments: list[dict], timeline: list[dict], duration: float) -> tuple[list[tuple[float, float, str]], dict]:
     if not timeline:
         raise ValueError("Empty provider timeline")
     previous = 0.0
@@ -123,72 +125,96 @@ def mapped_intervals(tokens: list[dict], timeline: list[dict], duration: float) 
         elif piece["source_end_s"] is not None:
             raise ValueError("Partially mapped padding")
     projected: list[tuple[float, float, str]] = []
-    stats = {"native_tokens": len(tokens), "untimed_tokens": 0, "zero_duration_token_indices": [],
-             "unattributed_tokens": 0, "unattributed_provider_intervals_ms": [],
-             "padding_or_omitted_portions": 0, "mapped_token_pieces": 0,
-             "out_of_support_token_indices": [], "wholly_out_of_support_tokens": 0,
-             "straddling_support_tokens": 0, "out_of_support_total_ms": 0.0,
-             "straddling_trimmed_ms": 0.0, "max_overrun_ms": 0.0}
-    for token_index, token in enumerate(tokens):
-        start_ms, end_ms = token.get("start_ms"), token.get("end_ms")
-        if start_ms is None and end_ms is None:
-            stats["untimed_tokens"] += 1
+    stats = {"sdk_groups": len(segments), "untimed_groups": [], "zero_duration_groups": [],
+             "unattributed_groups": [], "padding_or_omitted_groups": [],
+             "out_of_support_groups": [], "wholly_out_of_support_groups": [],
+             "out_of_support_total_ms": 0.0, "mapped_source_pieces": 0,
+             "bridged_positive_gap_ms": 0.0, "max_bridged_gap_ms": 0.0}
+    for index, segment in enumerate(segments):
+        prior_end = None
+        for token in segment["tokens"]:
+            start_ms, end_ms = token.get("start_ms"), token.get("end_ms")
+            if (isinstance(start_ms, (int, float)) and isinstance(end_ms, (int, float))
+                    and math.isfinite(start_ms) and math.isfinite(end_ms)):
+                if prior_end is not None:
+                    gap = max(0, start_ms - prior_end)
+                    stats["bridged_positive_gap_ms"] += gap
+                    stats["max_bridged_gap_ms"] = max(stats["max_bridged_gap_ms"], gap)
+                prior_end = end_ms
+        start_ms, end_ms = segment.get("start_ms"), segment.get("end_ms")
+        if start_ms is None or end_ms is None:
+            stats["untimed_groups"].append(index)
             continue
         if not all(isinstance(value, (float, int)) and math.isfinite(value) for value in (start_ms, end_ms)):
-            raise ValueError("Invalid native token time")
+            raise ValueError(f"Invalid SDK segment time: {index}")
         start, end = start_ms / 1000, end_ms / 1000
         if end < start:
-            raise ValueError("Negative native token duration")
+            raise ValueError(f"Inverted SDK segment time: {index}")
         if end == start:
-            stats["zero_duration_token_indices"].append(token_index)
-            continue  # provider gave no support; never invent a duration
-        outside_s = max(0.0, min(end, 0.0) - start) + max(0.0, end - max(start, previous))
-        within_s = max(0.0, min(end, previous) - max(start, 0.0))
-        if outside_s:
-            stats["out_of_support_token_indices"].append(token_index)
-            stats["out_of_support_total_ms"] = round(stats["out_of_support_total_ms"] + outside_s * 1000, 6)
-            stats["max_overrun_ms"] = round(max(stats["max_overrun_ms"], (end - previous) * 1000), 6)
-            if within_s:
-                stats["straddling_support_tokens"] += 1
-                stats["straddling_trimmed_ms"] = round(stats["straddling_trimmed_ms"] + outside_s * 1000, 6)
-            else:
-                stats["wholly_out_of_support_tokens"] += 1
-        speaker = token.get("speaker")
+            stats["zero_duration_groups"].append(index)
+            continue
+        outside = max(0.0, min(end, 0.0) - start) + max(0.0, end - max(start, previous))
+        within = max(0.0, min(end, previous) - max(start, 0.0))
+        if outside:
+            stats["out_of_support_groups"].append(index)
+            stats["out_of_support_total_ms"] += outside * 1000
+            if not within:
+                stats["wholly_out_of_support_groups"].append(index)
+        speaker = segment.get("speaker")
         if speaker is None or speaker == "":
-            stats["unattributed_tokens"] += 1
-            stats["unattributed_provider_intervals_ms"].append([start_ms, end_ms])
+            stats["unattributed_groups"].append(index)
             continue
         if not isinstance(speaker, (str, int)) or any(c.isspace() for c in str(speaker)):
-            raise ValueError("Invalid native speaker ID")
-        speaker = str(speaker)
+            raise ValueError(f"Invalid SDK speaker ID: {index}")
         covered = 0.0
         for piece in timeline:
             left, right = max(start, piece["provider_start_s"]), min(end, piece["provider_end_s"])
             if right - left < 1e-6:
-                continue  # float accumulation can create a phantom crossing at an exact token boundary
+                continue
             if piece["source_start_s"] is None:
                 continue
-            a = piece["source_start_s"] + left - piece["provider_start_s"]
-            b = piece["source_start_s"] + right - piece["provider_start_s"]
-            a, b = round(a, 6), round(b, 6)
+            a = round(piece["source_start_s"] + left - piece["provider_start_s"], 6)
+            b = round(piece["source_start_s"] + right - piece["provider_start_s"], 6)
             if a < -1e-6 or b > duration + 1e-6 or a >= b:
-                raise ValueError("Projected native interval outside source")
-            if b > duration:
-                b = duration  # only float/sample-grid precision at case endpoint
-            projected.append((a, b, speaker))
+                raise ValueError("Projected SDK segment outside source")
+            projected.append((a, min(b, duration), str(speaker)))
             covered += right - left
-            stats["mapped_token_pieces"] += 1
-        if covered < within_s - 1e-5:
-            stats["padding_or_omitted_portions"] += 1
-    projected.sort(key=lambda row: (row[2], row[0], row[1]))
-    merged: list[tuple[float, float, str]] = []
-    for start, end, speaker in projected:
-        if merged and speaker == merged[-1][2] and start < merged[-1][1]:
-            a, b, _ = merged[-1]
-            merged[-1] = (a, max(b, end), speaker)
-        else:
-            merged.append((start, end, speaker))
-    return sorted(merged), stats
+            stats["mapped_source_pieces"] += 1
+        if covered < within - 1e-5:
+            stats["padding_or_omitted_groups"].append(index)
+    return sorted(projected), stats
+
+
+def conversion(result: dict, duration: float) -> tuple[str, dict]:
+    segments = sdk_segments(result["tokens"])
+    intervals, diagnostics = mapped_intervals(segments, result["timeline"], duration)
+    groups = []
+    offset = 0
+    for segment in segments:
+        count = len(segment["tokens"])
+        groups.append({**{key: value for key, value in segment.items() if key != "tokens"},
+                       "token_start_index": offset, "token_end_index": offset + count})
+        offset += count
+    if offset != len(result["tokens"]):
+        raise ValueError("SDK groups do not account for every native token")
+    case_id = result["case_id"]
+    rttm = "".join(f"SPEAKER {case_id} 1 {a:.6f} {b-a:.6f} <NA> <NA> {speaker} <NA> <NA>\n"
+                   for a, b, speaker in intervals)
+    artifact = {"native_artifact_sha256": result["native_artifact_sha256"],
+                "sdk_segments": groups, "projected_intervals": intervals,
+                "projection_diagnostics": diagnostics}
+    return rttm, artifact
+
+
+def write_conversion(case: dict, arm: str, result: dict) -> None:
+    case_id = case["id"]
+    rttm, artifact = conversion(result, case["duration_s"])
+    derived = ROOT / "sdk_output" / arm / f"{case_id}.json"
+    pred = ROOT / "predictions" / arm / f"{case_id}.rttm"
+    derived.parent.mkdir(parents=True, exist_ok=True)
+    pred.parent.mkdir(parents=True, exist_ok=True)
+    derived.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    pred.write_bytes(rttm.encode("utf-8"))
 
 
 def persist(case: dict, arm: str, result: dict, elapsed: float, wav_sha: str) -> bool:
@@ -210,22 +236,13 @@ def persist(case: dict, arm: str, result: dict, elapsed: float, wav_sha: str) ->
                                and result["cleanup"]["file_deleted"] and not result["error"])
     if result["completed"]:
         try:
-            intervals, diagnostics = mapped_intervals(result["tokens"], result["timeline"], case["duration_s"])
-            result["conversion"] = diagnostics
-            rttm = "".join(f"SPEAKER {case_id} 1 {a:.6f} {b-a:.6f} <NA> <NA> {speaker} <NA> <NA>\n"
-                           for a, b, speaker in intervals)
-            result["predicted_speaker_ids"] = sorted({speaker for _, _, speaker in intervals})
-            result["prediction_sha256"] = sha256(rttm.encode()).hexdigest()
+            write_conversion(case, arm, result)
         except Exception as error:
             result["completed"] = False
             result["error"] = f"Conversion {type(error).__name__}: {error}"
     output = ROOT / "results" / case_id / f"{arm}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if result["completed"]:
-        pred = ROOT / "predictions" / arm / f"{case_id}.rttm"
-        pred.parent.mkdir(parents=True, exist_ok=True)
-        pred.write_bytes(rttm.encode("utf-8"))
     return result["completed"]
 
 
@@ -265,49 +282,44 @@ async def execute(case: dict, arm: str, key: str) -> None:
           f"http_requests={result.get('http_requests', '-')} elapsed_s={result['wall_time_s']}", flush=True)
 
 def convert_existing(case: dict, arm: str) -> None:
-    """Reproject a verified provider-completed native artifact without another request."""
-    import shutil
-
     case_id = case["id"]
-    output = ROOT / "results" / case_id / f"{arm}.json"
-    result = json.loads(output.read_text(encoding="utf-8"))
-    already_complete = result.get("completed") is True
-    saved = output.with_name(f"{arm}.pre_boundary.json" if already_complete else f"{arm}.initial.json")
-    prediction = ROOT / "predictions" / arm / f"{case_id}.rttm"
-    if saved.exists():
-        raise FileExistsError(f"Existing repair artifact: {case_id}/{arm}")
-    if already_complete:
-        if not prediction.is_file() or sha256(prediction.read_text(encoding="utf-8").encode()).hexdigest() != result["prediction_sha256"]:
-            raise ValueError(f"Previously completed RTTM digest mismatch: {case_id}/{arm}")
-    elif prediction.exists() or not str(result.get("error", "")).startswith("Conversion "):
-        raise ValueError(f"Only native conversion failures can be repaired: {case_id}/{arm}")
-    _, _, wav_sha = load_audio(case)
-    if (result.get("source_pcm_sha256") != case["clip_pcm_sha256"]
-            or result.get("source_wav_sha256") != wav_sha):
+    result_path = ROOT / "results" / case_id / f"{arm}.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    if result.get("completed") is not True or result.get("case_id") != case_id or result.get("arm") != arm:
+        raise ValueError(f"Native result not completed: {case_id}/{arm}")
+    if result["source_pcm_sha256"] != case["clip_pcm_sha256"] or result["source_wav_sha256"] != case["clip_wav_sha256"]:
         raise ValueError(f"Wrong source: {case_id}/{arm}")
+    if result["native_artifact_sha256"] != sha256(json.dumps({"tokens": result["tokens"],
+            "messages": result.get("messages", [])}, ensure_ascii=False, sort_keys=True).encode()).hexdigest():
+        raise ValueError(f"Native tokens changed: {case_id}/{arm}")
     if arm == "async_full_file" and (result["lifecycle"]["status"] != "completed"
-            or not result["cleanup"]["transcription_deleted"] or not result["cleanup"]["file_deleted"]):
-        raise ValueError(f"Provider/cleanup was incomplete: {case_id}/{arm}")
+            or not result["cleanup"]["transcription_deleted"] or not result["cleanup"]["file_deleted"] or result["error"]):
+        raise ValueError(f"Provider/cleanup incomplete: {case_id}/{arm}")
     if arm != "async_full_file" and (result["lifecycle"]["websocket_requests"] != 1
             or result["lifecycle"]["finalize_requested"] != result["lifecycle"]["fin_received"]
             or not result["lifecycle"]["finished_received"]):
         raise ValueError(f"Realtime provider incomplete: {case_id}/{arm}")
-    shutil.copyfile(output, saved)
-    result["error"] = None
-    result["conversion_repair_from"] = saved.relative_to(ROOT).as_posix()
-    result["conversion_repair_source_sha256"] = sha256(saved.read_bytes()).hexdigest()
-    if not persist(case, arm, result, result["wall_time_s"], wav_sha):
-        raise RuntimeError(f"Conversion still incomplete: {case_id}/{arm}")
-    print(f"converted_existing={case_id}/{arm} native_attempt_preserved={saved.name}", flush=True)
+    write_conversion(case, arm, result)
+    print(f"converted_existing={case_id}/{arm} sdk_segments_verified", flush=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--case", required=True)
-    parser.add_argument("--arm", required=True, choices=ARMS)
-    parser.add_argument("--convert-existing", action="store_true", help="Reproject previously saved native output; no provider request")
+    parser.add_argument("--case")
+    parser.add_argument("--arm", choices=ARMS)
+    parser.add_argument("--convert-existing", action="store_true", help="Reproject saved native output; no provider request")
+    parser.add_argument("--convert-all", action="store_true", help="Reproject all 28 saved native outputs; no provider request")
     args = parser.parse_args()
     manifest = json.loads((BENCH / "manifest.json").read_text(encoding="utf-8"))
+    if args.convert_all:
+        if args.case or args.arm or args.convert_existing:
+            parser.error("--convert-all cannot be combined with case/arm or --convert-existing")
+        for arm in ARMS:
+            for case in manifest["cases"]:
+                convert_existing(case, arm)
+        return
+    if not args.case or not args.arm:
+        parser.error("--case and --arm are required unless --convert-all")
     case = next((case for case in manifest["cases"] if case["id"] == args.case), None)
     if case is None:
         parser.error("Case must be a published manifest ID")
