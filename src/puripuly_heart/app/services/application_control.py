@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
+from puripuly_heart.app.ports.managed_gemma_translation import ManagedGemmaTranslationSelection
 from puripuly_heart.app.ports.settings_view import (
     AudioInputSettingsIntent,
     AudioSettingsIntent,
@@ -54,11 +55,12 @@ from puripuly_heart.app.ports.settings_view import (
     VrcMicInterceptSettingsIntent,
 )
 from puripuly_heart.app.services.application_control_events import ControlEvents
+from puripuly_heart.app.services.canonical_settings_persistence import canonical_snapshot_values
 from puripuly_heart.app.services.capture.peer_capture_target_application import (
     PeerCaptureTargetUnavailable,
 )
 from puripuly_heart.config.provider_values import QwenRegion, STTProviderName
-from puripuly_heart.config.settings_vnext.serialization import to_dict
+from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import (
     TranslationConnection,
     TranslationModel,
@@ -404,6 +406,9 @@ class ApplicationControlOwner:
     calibration: Callable[[], object | None]
     gemma: Callable[[], object | None]
     sync_ui: Callable[[], None]
+    locale_choices: tuple[str, ...]
+    localize: Callable[[str], str]
+    gemma_selection: Callable[[AppSettingsVNext], ManagedGemmaTranslationSelection]
     instance_id: str | None = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _resource_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -457,7 +462,7 @@ class ApplicationControlOwner:
 
     def _publish_committed(self, canonical: object) -> None:
         fingerprint = hashlib.sha256(
-            json.dumps(to_dict(canonical), sort_keys=True, default=str).encode()
+            json.dumps(canonical_snapshot_values(canonical), sort_keys=True, default=str).encode()
         ).hexdigest()
         if fingerprint == self._fingerprint:
             return
@@ -592,7 +597,6 @@ class ApplicationControlOwner:
             SONIOX_STT_MODEL_RT_V5,
         )
         from puripuly_heart.core.language import get_all_language_options
-        from puripuly_heart.ui.i18n import available_locales
 
         settings = getattr(canonical, "intent", None)
         language_codes = [code for code, _name in get_all_language_options()]
@@ -701,7 +705,7 @@ class ApplicationControlOwner:
         extension_ids = _extension_ids(self.application)
         extension_errors = len(registry.snapshot.errors) if registry is not None else 0
         finite_choices = {
-            "locale": list(available_locales()),
+            "locale": list(self.locale_choices),
             "languages": {
                 "codes": language_codes,
                 "secondary_target_unset": "",
@@ -1004,7 +1008,9 @@ class ApplicationControlOwner:
         if name == "settings.current":
             return {
                 **base,
-                "settings": _redact(to_dict(canonical)) if canonical is not None else None,
+                "settings": (
+                    _redact(canonical_snapshot_values(canonical)) if canonical is not None else None
+                ),
             }
         if name == "settings.choices":
             return await self._settings_choice_catalog(base, canonical)
@@ -1086,12 +1092,10 @@ class ApplicationControlOwner:
                 ),
             }
         if name == "consent.peer_translation":
-            from puripuly_heart.ui.i18n import t
-
             return {
                 **base,
                 "accepted": self.application.state().peer_translation_eula_accepted,
-                "terms": t("peer_translation_eula.body"),
+                "terms": self.localize("peer_translation_eula.body"),
             }
         if name == "secrets.presence":
             keys = _secret_keys(self.application)
@@ -1224,7 +1228,9 @@ class ApplicationControlOwner:
                             error={"code": "revision_conflict", "current_revision": revision},
                         )
                     elif command == "models.install":
-                        _validate_command_args(command, arguments)
+                        _validate_command_args(
+                            command, arguments, locale_choices=self.locale_choices
+                        )
                         if self.provisioning() is None:
                             result = {
                                 "status": "failed",
@@ -1236,7 +1242,9 @@ class ApplicationControlOwner:
                                 self._start_model_install(arguments, operation_id),
                             )
                     elif command == "text.submit":
-                        _validate_command_args(command, arguments)
+                        _validate_command_args(
+                            command, arguments, locale_choices=self.locale_choices
+                        )
                         if not isinstance(arguments["text"], str) or not arguments["text"].strip():
                             raise ValueError("text must be non-empty")
                         deferred = ("text", arguments["text"])
@@ -1422,7 +1430,7 @@ class ApplicationControlOwner:
 
     async def _dispatch(self, command: str, args: dict, *, operation_id: str) -> object:
         app = self.application
-        _validate_command_args(command, args)
+        _validate_command_args(command, args, locale_choices=self.locale_choices)
         if command == "app.stop":
             self._stop_requested.set()
             return True
@@ -1605,13 +1613,11 @@ class ApplicationControlOwner:
                 "reason": None if active else "no_active_install",
             }
         if command == "gemma.prepare":
-            from puripuly_heart.app.wiring.wiring_managed_gemma import managed_gemma_selection
-
             owner = self.gemma()
             settings = app.compatibility_settings()
             if owner is None or settings is None:
                 return {"status": "failed", "error": {"code": "gemma_owner_unavailable"}}
-            activation = await owner.prepare(managed_gemma_selection(settings))
+            activation = await owner.prepare(self.gemma_selection(settings))
             await activation.release()
             return {"status": "applied", "gemma": _json(owner.snapshot)}
         if command == "gemma.cancel":
@@ -2019,7 +2025,9 @@ class ApplicationControlOwner:
             dynamic_choices["translation.http_extension_id"] = set(_extension_ids(self.application))
 
         for name, value in changes.items():
-            _validate_settings_field(name, value, choices=dynamic_choices)
+            _validate_settings_field(
+                name, value, locale_choices=self.locale_choices, choices=dynamic_choices
+            )
         if "translation.connection" in changes:
             from puripuly_heart.config.translation_values import (
                 TranslationModel,
@@ -2292,7 +2300,7 @@ class ApplicationControlOwner:
         )
 
 
-def _validate_command_args(command: str, args: dict) -> None:
+def _validate_command_args(command: str, args: dict, *, locale_choices: tuple[str, ...]) -> None:
     if type(args) is not dict:
         raise ValueError("command arguments must be an object")
     if command not in COMMAND_ARGUMENTS:
@@ -2311,7 +2319,7 @@ def _validate_command_args(command: str, args: dict) -> None:
         if changes.keys() - SETTINGS_FIELDS:
             raise ValueError("unknown settings field")
         for name, value in changes.items():
-            _validate_settings_field(name, value)
+            _validate_settings_field(name, value, locale_choices=locale_choices)
         return
     if command == "provider.apply":
         if "channel" in args:
@@ -2515,6 +2523,7 @@ def _validate_settings_field(
     name: str,
     value: object,
     *,
+    locale_choices: tuple[str, ...],
     choices: dict[str, set[str]] | None = None,
 ) -> None:
     if name not in SETTINGS_FIELDS:
@@ -2554,11 +2563,10 @@ def _validate_settings_field(
         TranslationModel,
         supported_translation_connections,
     )
-    from puripuly_heart.ui.i18n import available_locales
 
     language_codes = _supported_language_codes()
     if name == "locale":
-        valid = value in available_locales()
+        valid = value in locale_choices
     elif name in {"stt.provider", "peer_stt.provider"}:
         valid = value in {item.value for item in STTProviderName}
     elif name == "stt.cloud_free_tier_providers":

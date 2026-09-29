@@ -14,7 +14,7 @@ from puripuly_heart.core.runtime_logging import (
     install_headless_console_privacy_filter,
 )
 from puripuly_heart.ui.event_dispatch import UIEventBridge
-from puripuly_heart.ui.i18n import get_locale, set_locale, t
+from puripuly_heart.ui.i18n import available_locales, get_locale, set_locale, t
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,9 @@ class HeadlessApplicationPresentation:
 
     def current_locale(self) -> str:
         return get_locale()
+
+    def available_locales(self) -> tuple[str, ...]:
+        return available_locales()
 
     def localize(self, message_key: str, **kwargs: object) -> str:
         return t(message_key, **kwargs)

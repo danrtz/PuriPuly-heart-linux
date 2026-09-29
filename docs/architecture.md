@@ -217,7 +217,7 @@ Long-lived resource ownership must be transferred to an explicit owner.
 
 GUI and headless hosts share application owners and runtime resources. Presentation adapters select whether the host has a main window. Headless presentation preserves application error state and severity without GUI notifications.
 
-`ApplicationControlOwner` exposes a finite catalog of typed commands and owner-backed queries.
+`ApplicationControlOwner` exposes a finite catalog of typed commands and owner-backed queries. Settings projections and runtime dependencies come from existing application owners and composition.
 
 - Settings and provider edits use existing owners, with shared ordering for CLI commands, ordered GUI intents, and OSC edits.
 - Canonical mutations and resource conflicts have separate ordering boundaries.

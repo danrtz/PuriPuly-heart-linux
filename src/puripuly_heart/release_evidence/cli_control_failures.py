@@ -23,10 +23,19 @@ from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 
+from puripuly_heart.app.adapters.settings_vnext_canonical_persistence import (
+    SettingsVNextCanonicalPersistenceAdapter,
+)
+from puripuly_heart.app.ports.canonical_settings_persistence import (
+    CanonicalSettingsPersistenceError,
+)
 from puripuly_heart.cli.transport import ControlTransportError, follow, request
-from puripuly_heart.config.settings_vnext import compat
 from puripuly_heart.config.settings_vnext.defaults import new_settings_for_first_run
-from puripuly_heart.config.settings_vnext.schema import SecretsIntent, with_telemetry_enabled
+from puripuly_heart.config.settings_vnext.schema import (
+    AppSettingsVNext,
+    SecretsIntent,
+    with_telemetry_enabled,
+)
 from puripuly_heart.core.control_instance import discover
 
 CREDENTIAL_PROBE = "invalid-controlled-probe-credential"
@@ -37,6 +46,14 @@ def restore_env(name: str, previous: str | None) -> None:
         os.environ.pop(name, None)
     else:
         os.environ[name] = previous
+
+
+def persist_isolated_settings(path: Path, settings: AppSettingsVNext) -> bool:
+    try:
+        SettingsVNextCanonicalPersistenceAdapter().persist(path, settings)
+    except CanonicalSettingsPersistenceError:
+        return False
+    return True
 
 
 class SettingsReplacementLock:
@@ -276,8 +293,8 @@ async def lost_process_target(root: Path, settings: object, cases: dict) -> None
             peer_translation=replace(settings.state.peer_translation, eula_accepted=True),
         ),
     )
-    saved = compat.save_vnext_settings(config, consented)
-    if not saved.ok:
+    saved = persist_isolated_settings(config, consented)
+    if not saved:
         cases["lost_target"] = {
             "result": "blocked",
             "reason": "isolated_consent_settings_save_failed",
@@ -421,7 +438,7 @@ async def isolated_install_cancellation(root: Path, settings: object, cases: dic
     localappdata = root / "private-localappdata"
     localappdata.mkdir()
     config = root / "cancellation-settings.json"
-    if not compat.save_vnext_settings(config, settings).ok:
+    if not persist_isolated_settings(config, settings):
         cases["supported_cancel"] = {"result": "blocked", "reason": "isolated_settings_save_failed"}
         return
     previous = os.environ.get("LOCALAPPDATA")
@@ -506,7 +523,7 @@ async def isolated_install_cancellation(root: Path, settings: object, cases: dic
 
 async def isolated_subscriber_progress(root: Path, settings: object, cases: dict) -> None:
     config = root / "subscriber-settings.json"
-    if not compat.save_vnext_settings(config, settings).ok:
+    if not persist_isolated_settings(config, settings):
         cases["slow_subscriber"] = {"result": "blocked", "reason": "isolated_settings_save_failed"}
         return
     host = None
@@ -608,8 +625,7 @@ async def run(report: Path) -> dict:
             ),
         )
         settings = with_telemetry_enabled(settings, False)
-        saved = compat.save_vnext_settings(config, settings)
-        if not saved.ok:
+        if not persist_isolated_settings(config, settings):
             raise RuntimeError("isolated_settings_save_failed")
         passphrase_name = "PURIPULY_HEART_SECRETS_PASSPHRASE"
         previous_passphrase = os.environ.get(passphrase_name)

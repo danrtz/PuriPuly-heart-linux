@@ -23,8 +23,11 @@ from puripuly_heart.core.messages import (
     TransactionResult,
     UserMessageRef,
 )
+from puripuly_heart.core.runtime.logging import (
+    LIVE_AUDIENCE_BASIC,
+    LIVE_AUDIENCE_RECORD_ATTRIBUTE,
+)
 from puripuly_heart.core.runtime.provider_rebuild import ProviderRuntimeRebuildService
-from puripuly_heart.core.runtime_logging import emit_basic_log
 
 logger = logging.getLogger(__name__)
 
@@ -505,13 +508,13 @@ class ProviderRuntimeApplyAdapter:
         try:
             await self.owner.apply(self.settings, self.plan)
         except Exception as exc:
-            emit_basic_log(
-                logger,
+            logger.log(
+                logging.WARNING,
                 "[Settings] provider_apply_failed operation=%s exception_type=%s cause=%s",
                 self.operation,
                 type(exc).__name__,
                 _exception_code(exc, "provider_runtime_apply_exception"),
-                level=logging.WARNING,
+                extra={LIVE_AUDIENCE_RECORD_ATTRIBUTE: LIVE_AUDIENCE_BASIC},
             )
             return RuntimeApplyResult(
                 status=RUNTIME_APPLY_STATUS_FAILED,
@@ -536,8 +539,8 @@ class ProviderRuntimeApplyAdapter:
             surface=self.surface,
         )
         if unavailable_result is not None:
-            emit_basic_log(
-                logger,
+            logger.log(
+                logging.WARNING,
                 "[Settings] provider_apply_failed operation=%s cause=%s",
                 self.operation,
                 (
@@ -545,15 +548,16 @@ class ProviderRuntimeApplyAdapter:
                     if unavailable_result.diagnostics is not None
                     else "provider_runtime_apply_unavailable"
                 ),
-                level=logging.WARNING,
+                extra={LIVE_AUDIENCE_RECORD_ATTRIBUTE: LIVE_AUDIENCE_BASIC},
             )
             return unavailable_result
-        emit_basic_log(
-            logger,
+        logger.log(
+            logging.INFO,
             "[Settings] provider_apply_completed operation=%s refresh_self=%s refresh_peer=%s",
             self.operation,
             self.plan.should_refresh_self_stt,
             self.plan.should_refresh_peer,
+            extra={LIVE_AUDIENCE_RECORD_ATTRIBUTE: LIVE_AUDIENCE_BASIC},
         )
         return RuntimeApplyResult(
             status=RUNTIME_APPLY_STATUS_APPLIED,

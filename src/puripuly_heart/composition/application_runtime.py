@@ -2218,6 +2218,9 @@ def compose_application_runtime(
         calibration=lambda: calibration,
         gemma=lambda: managed_gemma,
         sync_ui=sync_ui_from_settings,
+        locale_choices=presentation.available_locales(),
+        localize=presentation.localize,
+        gemma_selection=managed_gemma_selection,
     )
     application.attach_control(control)
     settings.observe_commits(control._publish_committed)

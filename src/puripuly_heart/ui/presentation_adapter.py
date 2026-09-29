@@ -22,9 +22,9 @@ from puripuly_heart.ui.event_bridge import (
     AppHistoryEventDestination,
     UIEventBridge,
 )
+from puripuly_heart.ui.i18n import available_locales, t
 from puripuly_heart.ui.i18n import get_locale as get_ui_locale
 from puripuly_heart.ui.i18n import set_locale as set_ui_locale
-from puripuly_heart.ui.i18n import t
 from puripuly_heart.ui.overlay_peer_contract import (
     build_overlay_peer_consumer_contract_from_state,
 )
@@ -63,6 +63,9 @@ class FletUiPresentationAdapter:
 
     def current_locale(self) -> str:
         return get_ui_locale()
+
+    def available_locales(self) -> tuple[str, ...]:
+        return available_locales()
 
     def localize(self, message_key: str, **message_kwargs: object) -> str:
         return t(message_key, **message_kwargs)
