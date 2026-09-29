@@ -100,11 +100,51 @@ Windows offline SAPI generated the 3.53-second phrase; it was converted to 16-kH
 
 Cumulative paid operations: one translation verification, one ASR verification, three translation calls (including the malformed historical harness prompt), and four speech tasks across three ASR sessions. Unchanged verifier/reuse/reconnection evidence was retained rather than repeating the whole paid sequence. These small checks establish only the observed configuration and behavior, not a latency or statistical quality claim.
 
+## Subsequent dedicated-host validation
+
+After the user supplied an API Host in the private local environment file and requested testing, bounded live checks ran on clean candidate `771dc882a21b32f6221e360a2fd49479b02db058` (unchanged product source from `b74984ca`). This supersedes the earlier missing-host blocker for Beijing only; it does not turn every live criterion into a pass.
+
+- Region/mode: Beijing / `workspace_dedicated`.
+- Host: official Beijing workspace structure validated by the product resolver; private workspace identity redacted. SHA-256 host fingerprint prefix: `8f4f611505c6`.
+- Credential: explicitly Beijing-bound environment key, used only in an isolated in-memory regional secret store. No actual profile, environment file, or saved secret was modified.
+- Models: `qwen3.8-flash` and `qwen-audio-3.1-asr-flash-streaming`.
+- Other supplied region variables did not expand the supported region scope. Singapore and Tokyo were not called; Tokyo is outside this implementation's Beijing/Singapore support.
+
+The narrow real application composition used `UiProviderRuntimeAdapter`, `AlibabaWorkspaceOwner`, `ProviderSettingsOwner`, `ProviderVerifierAdapter`, `SettingsOwner`, and temporary canonical persistence. Runtime replacement hooks were controlled rather than a fully booted application.
+
+| Check | Observed outcome |
+| --- | --- |
+| Dedicated draft, independent ASR and translation verification | Both capabilities verified. |
+| Dedicated apply/save/reload | Temporary settings restored dedicated mode and connection revision 1. |
+| Dedicated translation | Exact Korean output below. |
+| Two consecutive dedicated ASR tasks on one WebSocket | Both exact final transcripts below; normal `task-finished` counts 1 then 2. |
+| Close and open a replacement dedicated ASR session | **Failed:** `QwenAudioProtocolError` before `open_session()` returned. No replacement speech was sent; not retried. |
+| Explicit dedicated → shared settings return | Passed in a separately reconstructed temporary configuration: dedicated revision 1 → shared revision 2, same regional key source. |
+| Shared translation and ASR after that explicit return | Both succeeded with exact controlled results; ASR had normal `task-finished`. |
+
+```text
+Controlled input and final ASR transcript (dedicated and shared):
+The purple lantern is glowing beside the quiet river.
+
+Translation output (dedicated and shared):
+보라색 등불이 고요한 강 옆에서 빛나고 있어요.
+```
+
+The audio was the same 3.53-second offline SAPI fixture converted to 16-kHz PCM, not microphone or conversation audio. Temporary files and in-memory credentials were removed after the checks.
+
+The reconnect exception's HTTP status, provider error code, source-origin line, and handshake-versus-task-start stage were not captured. The failure's root cause is **undetermined**; this evidence does not establish whether it was transient service behavior, protocol/lifecycle behavior, or a harness problem. No diagnostic paid rerun was made. The original session's observed state after close was `closing`; the evidence does not establish the provider's remote resource-release timing.
+
+A separate harness-only count-bookkeeping `KeyError` stopped the original temporary sequence after the replacement failure. The explicit shared return therefore used a fresh temporary configuration reconstructed from the same dedicated settings. It proves the isolated settings transition and successful shared requests, **not** an uninterrupted original-session rollback or a full application runtime rebind.
+
+This additional run attempted: 1 dedicated ASR verifier, 1 dedicated translation verifier, 1 dedicated translation, 2 dedicated speech tasks on one WebSocket, 1 failed dedicated replacement open, 1 shared translation, and 1 shared speech task. Speech-task counts refer to explicitly supplied controlled speech; provider session internals may start a successor idle task. No other regional calls were made.
+
+Upstream `dev` advanced separately to `547014fe04b92ab5f81f17bbeb5dfb88c5680a02` through #201, which also allocated schema 49. It was not merged or tested in this validation. The schema-version collision must be reconciled before integration; these results apply to the pinned branch candidate, not the newer upstream tree.
+
 ## Blocked, not run, and follow-up
 
-- **Blocked:** workspace-dedicated live translation/ASR and actual dedicated ↔ shared transition. Missing prerequisite: a validated user workspace API Host and a compatible regional key. Deterministic dedicated-mode tests do not replace this service evidence.
-- **Not run:** Singapore live calls. No claim of live-validated Singapore service/model access.
+- **Failed / unresolved:** dedicated ASR close/recreate. The subsequent live run removed the missing Beijing API Host prerequisite and proved dedicated translation/ASR, but its replacement session failed as recorded above. Completion criterion 7 is not wholly passed.
+- **Not run:** Singapore live calls. Tokyo is outside this implementation's supported regions and was not tested.
 - **Not run:** fully booted application/hardware capture replacement and real-profile persistent apply/rebind. Provider sessions and narrowly composed real application adapters were exercised; application apply/replacement evidence is controlled/simulated.
 - **Outstanding by scope:** concrete rendered UI rollout and visual/interaction verification. The UI session must consume the typed contract rather than redefine routing, readiness, or rollback.
 - **Pre-existing CI exception:** unrelated Black failure noted above.
-- Issue #200 remains open/in progress rather than treating the blocked live criteria or later UI rollout as completed. No measured latency improvement is claimed.
+- Issue #200 remains open/in progress rather than treating the unresolved dedicated reconnect, integration/schema coordination, or later UI rollout as completed. No measured latency improvement is claimed.
