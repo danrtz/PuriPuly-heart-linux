@@ -97,15 +97,19 @@ $SoxrBuildEnvironmentPath = if ([System.IO.Path]::IsPathRooted($SoxrBuildEnviron
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $repoRoot $SoxrBuildEnvironment))
 }
-$OutputDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDir))
+$OutputDir = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+    [System.IO.Path]::GetFullPath($OutputDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDir))
+}
 $allowedBuildRoot = [System.IO.Path]::GetFullPath("C:\d177\native-integration")
 $allowedScratchRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot ".tmp\issue-177-native-integration"))
 $allowedOutputRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot "dist\native"))
 if (-not ((Test-PathWithin -Candidate $BuildRoot -Root $allowedBuildRoot) -or (Test-PathWithin -Candidate $BuildRoot -Root $allowedScratchRoot))) {
     throw "BuildRoot must be below $allowedBuildRoot or $allowedScratchRoot"
 }
-if (-not (Test-PathWithin -Candidate $OutputDir -Root $allowedOutputRoot)) {
-    throw "OutputDir must be below $allowedOutputRoot"
+if (-not ((Test-PathWithin -Candidate $OutputDir -Root $allowedOutputRoot) -or (Test-PathWithin -Candidate $OutputDir -Root $allowedBuildRoot))) {
+    throw "OutputDir must be below $allowedOutputRoot or $allowedBuildRoot"
 }
 foreach ($required in @($ToolPython, $PinnedInputRoot, $PythonEmbedArchive, $SoxrBuildEnvironmentPath)) {
     if (-not (Test-Path -LiteralPath $required)) {
@@ -133,6 +137,7 @@ $artifactRoot = Join-Path $BuildRoot "artifact"
 $evidenceRoot = Join-Path $BuildRoot "evidence"
 $overlayTarget = Join-Path $BuildRoot "overlay-target"
 $gpuTarget = Join-Path $BuildRoot "gpu-target"
+$consoleBuildRoot = Join-Path $BuildRoot "console-build"
 
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 foreach ($transient in @(
@@ -144,9 +149,7 @@ foreach ($transient in @(
     $soxrRoot,
     $llamaRoot,
     $artifactRoot,
-    $evidenceRoot,
-    $overlayTarget,
-    $gpuTarget
+    $evidenceRoot
 )) {
     Remove-Item -LiteralPath $transient -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -318,6 +321,15 @@ company = "salee"
     Copy-Item -LiteralPath (Join-Path $overlayTarget "release\PuriPulyHeartOverlay.exe") -Destination $artifactRoot -Force
     Copy-Item -LiteralPath (Join-Path $gpuTarget "release\PuriPulyHeartGpuWorker.exe") -Destination $artifactRoot -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot "third_party\openvr\win64\openvr_api.dll") -Destination $artifactRoot -Force
+    $cmakeCommand = (Get-Command cmake -ErrorAction Stop).Source
+    Invoke-Checked -FilePath $cmakeCommand -ArgumentList @(
+        "-S", (Join-Path $repoRoot "native\windows_host\console"),
+        "-B", $consoleBuildRoot, "-G", "Visual Studio 17 2022", "-A", "x64"
+    ) -WorkingDirectory $repoRoot
+    Invoke-Checked -FilePath $cmakeCommand -ArgumentList @(
+        "--build", $consoleBuildRoot, "--config", "Release"
+    ) -WorkingDirectory $repoRoot
+    Copy-Item -LiteralPath (Join-Path $consoleBuildRoot "Release\puripuly.exe") -Destination $artifactRoot -Force
 
     Invoke-Checked -FilePath $ToolPython -ArgumentList @(
         "-m", "puripuly_heart.release_evidence.managed_gemma_distribution", "prepare",

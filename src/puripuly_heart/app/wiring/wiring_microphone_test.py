@@ -63,6 +63,22 @@ class MicrophoneTestRuntime:
     def active(self) -> bool:
         return self._owner.active if self._owner is not None else False
 
+    @property
+    def snapshot(self) -> dict[str, object]:
+        if self._owner is None:
+            return {
+                "state": "off",
+                "desired_active": False,
+                "effective_active": False,
+                "meter_level": 0.0,
+                "failure_reason": None,
+                "failure_type": None,
+            }
+        return self._owner.snapshot
+
+    async def wait_ready(self) -> bool:
+        return await self._owner.wait_ready() if self._owner is not None else False
+
     def owner(self) -> MicrophoneTestSessionOwner:
         owner = self._owner
         if owner is None:

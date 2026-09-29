@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 
@@ -17,14 +19,15 @@ class OverlayCalibrationApplicationOwner:
     settings: SettingsOwner
     settings_application_provider: Callable[[], SettingsApplicationOwner]
     overlay_provider: Callable[[], OverlayApplicationOwner]
-    schedule_task: Callable[[Callable[[], Awaitable[None]]], bool]
     log_diagnostic: Callable[..., object]
     ingress_available: Callable[[], bool]
+    schedule_task: Callable[[Callable[[], Awaitable[None]]], bool] | None = None
     _owner: OverlayCalibrationOwner = field(init=False, repr=False)
+    _tasks: set[asyncio.Task[None]] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._owner = OverlayCalibrationOwner(
-            schedule_task=self.schedule_task,
+            schedule_task=self._schedule_owned,
             persist=self._persist,
             emit=self._emit,
             can_persist=lambda: self.settings.canonical is not None,
@@ -33,6 +36,28 @@ class OverlayCalibrationApplicationOwner:
             ),
             log_diagnostic=self.log_diagnostic,
         )
+
+    def _schedule_owned(self, factory: Callable[[], Awaitable[None]]) -> bool:
+        task = asyncio.create_task(factory(), name="overlay-calibration")
+        self._tasks.add(task)
+        task.add_done_callback(self._task_done)
+        return True
+
+    def _task_done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if not task.cancelled():
+            try:
+                task.result()
+            except Exception as exc:
+                self.log_diagnostic(
+                    "[Overlay] Calibration task failed",
+                    level=logging.WARNING,
+                    exception=exc,
+                )
+
+    async def wait_pending(self) -> None:
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
 
     @property
     def current(self) -> OverlayCalibration:

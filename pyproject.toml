@@ -41,6 +41,9 @@ dependencies = [
   "soxr==1.1.0",
 ]
 
+[project.scripts]
+puripuly = "puripuly_heart.cli.main:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=9.0",

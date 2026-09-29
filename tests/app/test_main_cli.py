@@ -270,62 +270,6 @@ def test_run_gui_logs_actionable_ui_startup_failure(monkeypatch, tmp_path, caplo
     assert all("application boundary construction failed" not in message for message in messages)
 
 
-def test_run_gui_forwards_main_logging_sinks_when_supported(monkeypatch, tmp_path) -> None:
-    calls: dict[str, object] = {}
-    logging_sinks = object()
-    fake_flet = ModuleType("flet")
-
-    def fake_run(*, main, assets_dir, **_kwargs):
-        _ = assets_dir
-        asyncio.run(main(object()))
-
-    fake_flet.run = fake_run
-    fake_flet.AppView = FAKE_APP_VIEW
-    monkeypatch.setitem(sys.modules, "flet", fake_flet)
-
-    fake_ui_app = ModuleType("puripuly_heart.ui.app")
-
-    async def main_gui(
-        page,
-        *,
-        config_path,
-        application_factory=None,
-        debug_ui_preview=False,
-        runtime_logging_sinks=None,
-        vrchat_osc_presence=None,
-    ):
-        calls.update(
-            page=page,
-            config_path=config_path,
-            application_factory=application_factory,
-            debug_ui_preview=debug_ui_preview,
-            runtime_logging_sinks=runtime_logging_sinks,
-            vrchat_osc_presence=vrchat_osc_presence,
-        )
-
-    fake_ui_app.main_gui = main_gui
-    monkeypatch.setitem(sys.modules, "puripuly_heart.ui.app", fake_ui_app)
-
-    fake_fonts = ModuleType("puripuly_heart.ui.fonts")
-    fake_fonts.assets_dir = lambda: tmp_path
-    monkeypatch.setitem(sys.modules, "puripuly_heart.ui.fonts", fake_fonts)
-
-    config_path = tmp_path / "settings.json"
-    result = main_module._run_gui(
-        config_path,
-        debug_ui_preview=False,
-        runtime_logging_sinks=logging_sinks,
-    )
-
-    assert result == 0
-    assert calls["config_path"] == config_path
-    from puripuly_heart.composition.ui_application import compose_ui_application
-
-    assert calls["application_factory"] is compose_ui_application
-    assert calls["runtime_logging_sinks"] is logging_sinks
-    assert calls["vrchat_osc_presence"] is not None
-
-
 def test_main_default_invokes_gui(monkeypatch, tmp_path) -> None:
     calls: dict[str, object] = {}
 

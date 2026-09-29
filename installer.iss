@@ -37,6 +37,7 @@
 #ifndef MyAppExeName
   #define MyAppExeName "PuriPulyHeart.exe"
 #endif
+#define MyCliExeName "puripuly.exe"
 #define MyOverlayExeName "PuriPulyHeartOverlay.exe"
 #define MyGpuWorkerExeName "PuriPulyHeartGpuWorker.exe"
 #ifndef MyPackagedAppDir
@@ -199,12 +200,13 @@ Source: "{#InstallerPrivacyDir}\ja.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\zh-CN.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\zh-TW.txt"; Flags: dontcopy noencryption
 Source: "{#MyPackagedAppDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyPackagedAppDir}\{#MyCliExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyStagedOverlayDir}\{#MyOverlayExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackagedAppDir}\{#MyGpuWorkerExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; Vendored OpenVR runtime DLL comes from dist\PuriPulyHeart\openvr_api.dll in the packaged tree built by build.spec.
 ; Installer build/install never resolves SteamVR paths for openvr_api.dll.
 ; Bundled CJK font is staged at {#MyPackagedAppDir}\{#NotoCjkFontRelativePath}; the recursive packaged-tree copy installs it to {app}\{#NotoCjkFontRelativePath}.
-Source: "{#MyPackagedAppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "{#MyAppExeName},{#MyOverlayExeName},{#MyGpuWorkerExeName}"
+Source: "{#MyPackagedAppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "{#MyAppExeName},{#MyCliExeName},{#MyOverlayExeName},{#MyGpuWorkerExeName}"
 #ifdef ProcessCaptureSmokeArtifactRoot
 Source: "{#ProcessCaptureSmokeArtifactRoot}\*"; DestDir: "{app}\process-capture-smoke"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif

@@ -10,7 +10,7 @@ import json
 import logging
 import math
 import re
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -188,6 +188,27 @@ from puripuly_heart.ui.theme import (
 )
 
 logger = logging.getLogger(__name__)
+_DRAFT_PROVIDER_FIELDS: dict[type, str] = {
+    SelfSttProviderEdit: "stt_provider",
+    PeerSttProviderEdit: "peer_stt_provider",
+    CloudFreeTierProvidersEdit: "cloud_free_tier_providers",
+    SonioxSpeakerDiarizationEdit: "soniox_speaker_diarization_enabled",
+    SttGpuDeviceEdit: "stt_gpu_device_id",
+    QwenRegionEdit: "qwen_region",
+    LocalLlmBaseUrlEdit: "local_llm_base_url",
+    LocalLlmModelEdit: "local_llm_model",
+    LocalLlmExtraBodyEdit: "local_llm_extra_body_json",
+    CustomSttEndpointEdit: "custom_stt_endpoint",
+    CustomSttModelEdit: "custom_stt_model",
+    CustomSttExtraEdit: "custom_stt_extra_json",
+    ManagedReferralEdit: "managed_referral_id",
+    TranslationSelectionEdit: "translation",
+}
+_DRAFT_TRANSLATION_FIELDS: dict[type, str] = {
+    LlmGpuDeviceEdit: "gpu_device_id",
+    TranslationHttpExtensionEdit: "http_extension_id",
+}
+
 
 _CJK_START = 0x3000
 _CENTER_ALIGNMENT = ft.Alignment(0, 0)
@@ -463,6 +484,8 @@ class SettingsView(ft.Column):
         self._provider_snapshot: ProviderSettingsSnapshot | None = None
         self._provider_draft: ProviderSettingsSnapshot | None = None
         self._provider_edits: dict[type, ProviderSettingsEdit] = {}
+        self.external_settings_conflict: bool = False
+        self._external_conflict_dialog: ft.AlertDialog | None = None
         self._general_snapshot: GeneralSettingsSnapshot | None = None
         self._prompt_snapshot: PromptSettingsSnapshot | None = None
         self._overlay_snapshot: OverlaySettingsSnapshot | None = None
@@ -3573,33 +3596,150 @@ class SettingsView(ft.Column):
     def build_provider_apply_settings(self) -> ProviderApplyIntent | None:
         return self._build_provider_apply_intent()
 
-    def consume_provider_apply_settings(self) -> ProviderApplyIntent | None:
-        intent = self.build_provider_apply_settings()
-        if intent is None:
-            return None
-        if self._provider_draft is not None:
-            self._provider_snapshot = self._provider_draft
-        if self._prompt_snapshot is not None and self.has_pending_prompt_changes:
-            self._prompt_snapshot = replace(
-                self._prompt_snapshot,
-                system_prompt=self._prompt_editor.value,
-            )
-        self._provider_draft = None
-        self._provider_edits.clear()
-        self.has_provider_changes = False
-        self.has_pending_prompt_changes = False
-        return intent
+    def acknowledge_provider_apply_settings(self, intent: ProviderApplyIntent) -> None:
+        if self.external_settings_conflict:
+            self._show_external_conflict()
+            return
+        snapshot = self._provider_snapshot
+        if snapshot is None:
+            return
+        for edit in intent.edits:
+            edit_type = type(edit)
+            field_name = _DRAFT_PROVIDER_FIELDS.get(edit_type)
+            translation_field = _DRAFT_TRANSLATION_FIELDS.get(edit_type)
+            if edit_type is TranslationSelectionEdit:
+                selection = edit.selection
+                history = dict(snapshot.translation.connection_history)
+                history.update(edit.history_updates)
+                translation = replace(
+                    snapshot.translation,
+                    model=selection.model,
+                    connection=selection.connection,
+                    connection_history=tuple(history.items()),
+                    previous_llm_model=selection.previous_llm_model,
+                )
+                snapshot = self._provider_snapshot_with_translation(snapshot, translation)
+            elif field_name is not None:
+                value = getattr(edit, fields(edit)[0].name)
+                snapshot = replace(snapshot, **{field_name: value})
+            elif translation_field is not None:
+                value = getattr(edit, fields(edit)[0].name)
+                snapshot = replace(
+                    snapshot,
+                    translation=replace(snapshot.translation, **{translation_field: value}),
+                )
+            elif edit_type is SystemPromptEdit and self._prompt_snapshot is not None:
+                self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=edit.value)
+            if self._provider_edits.get(edit_type) == edit:
+                del self._provider_edits[edit_type]
+        self._provider_snapshot = snapshot
+        self.has_provider_changes = any(
+            edit_type is not SystemPromptEdit for edit_type in self._provider_edits
+        )
+        self.has_pending_prompt_changes = (
+            self._prompt_snapshot is not None
+            and self._prompt_editor.value != self._prompt_snapshot.system_prompt
+        )
+        if not self.has_provider_changes:
+            self._provider_draft = None
 
-    def consume_prompt_apply_settings(self) -> PromptApplyIntent | None:
-        if not self.has_pending_prompt_changes:
-            return None
+    def acknowledge_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
+        if self.external_settings_conflict:
+            self._show_external_conflict()
+            return
         if self._prompt_snapshot is None:
-            return None
-        value = self._prompt_editor.value
-        self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=value)
-        self.has_pending_prompt_changes = False
-        self._provider_edits.pop(SystemPromptEdit, None)
-        return PromptApplyIntent(value)
+            return
+        self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=intent.value)
+        self._stage_prompt_draft(self._prompt_editor.value)
+
+    def _show_external_conflict(self) -> None:
+        if not self.external_settings_conflict or self.page is None:
+            return
+        if self._external_conflict_dialog is not None:
+            return
+
+        def resolve(keep_draft: bool) -> None:
+            dialog = self._external_conflict_dialog
+            if dialog is not None:
+                self.page.pop_dialog()
+            self._external_conflict_dialog = None
+            self.external_settings_conflict = False
+            if not keep_draft:
+                self._provider_draft = None
+                self._provider_edits.clear()
+                self.has_provider_changes = False
+                self.has_pending_prompt_changes = False
+                if all(
+                    (
+                        self._provider_snapshot,
+                        self._general_snapshot,
+                        self._prompt_snapshot,
+                        self._overlay_snapshot,
+                        self._config_path,
+                    )
+                ):
+                    self.load_from_settings(
+                        provider=self._provider_snapshot,
+                        general=self._general_snapshot,
+                        prompt=self._prompt_snapshot,
+                        overlay=self._overlay_snapshot,
+                        config_path=self._config_path,
+                    )
+
+        self._external_conflict_dialog = ft.AlertDialog(
+            title=ft.Text("Settings changed externally"),
+            content=ft.Text(
+                "Your staged changes are preserved. Choose whether to keep your draft and overwrite conflicting fields on the next apply, or discard your draft and use the latest settings."
+            ),
+            actions=[
+                ft.TextButton("Use latest", on_click=lambda _: resolve(False)),
+                ft.TextButton("Keep my draft", on_click=lambda _: resolve(True)),
+            ],
+        )
+        self.page.show_dialog(self._external_conflict_dialog)
+
+    def _rebase_provider_draft(self, provider: ProviderSettingsSnapshot) -> bool:
+        old = self._provider_snapshot
+        draft = self._provider_draft
+        if old is None or draft is None:
+            return False
+        updates: dict[str, object] = {}
+        translation_updates: dict[str, object] = {}
+        conflict = False
+        for edit_type in self._provider_edits:
+            field_name = _DRAFT_PROVIDER_FIELDS.get(edit_type)
+            if field_name == "translation":
+                for name in ("model", "connection", "connection_history", "previous_llm_model"):
+                    previous = getattr(old.translation, name)
+                    staged = getattr(draft.translation, name)
+                    incoming = getattr(provider.translation, name)
+                    if previous != staged:
+                        conflict |= previous != incoming and staged != incoming
+                        translation_updates[name] = staged
+            elif field_name is not None:
+                previous = getattr(old, field_name)
+                staged = getattr(draft, field_name)
+                incoming = getattr(provider, field_name)
+                conflict |= previous != incoming and staged != incoming
+                updates[field_name] = staged
+            translation_field = _DRAFT_TRANSLATION_FIELDS.get(edit_type)
+            if translation_field is not None:
+                previous = getattr(old.translation, translation_field)
+                staged = getattr(draft.translation, translation_field)
+                incoming = getattr(provider.translation, translation_field)
+                conflict |= previous != incoming and staged != incoming
+                translation_updates[translation_field] = staged
+        if translation_updates:
+            updates["translation"] = replace(provider.translation, **translation_updates)
+        self._provider_draft = replace(provider, **updates)
+        if TranslationSelectionEdit in self._provider_edits:
+            self._provider_draft = self._provider_snapshot_with_translation(
+                self._provider_draft, self._provider_draft.translation
+            )
+            self._provider_edits[TranslationSelectionEdit] = self._translation_selection_edit(
+                self._provider_draft.translation
+            )
+        return conflict
 
     # --- Load Settings ---
     def load_from_settings(
@@ -3613,17 +3753,23 @@ class SettingsView(ft.Column):
         preserve_custom_vocab_draft: bool = False,
     ) -> None:
         """Load current settings into the UI."""
+        conflict = self._rebase_provider_draft(provider)
+        draft = self._provider_draft
+        prompt_draft = self._prompt_editor.value if self.has_pending_prompt_changes else None
+        previous_prompt = self._prompt_snapshot
+        if prompt_draft is not None and previous_prompt is not None:
+            conflict |= (
+                previous_prompt.system_prompt != prompt.system_prompt
+                and prompt_draft != prompt.system_prompt
+            )
+        self.external_settings_conflict |= conflict
         self._provider_snapshot = provider
-        self._provider_draft = None
-        self._provider_edits.clear()
         self._general_snapshot = general
         self._prompt_snapshot = prompt
         self._overlay_snapshot = overlay
         self._config_path = config_path
         self._http_extension_runtime_reload_pending = False
-        self._http_extension_secret_dirty.clear()
-        self.has_provider_changes = False
-        self.has_pending_prompt_changes = False
+        display_provider = draft or provider
         self._desktop_overlay_pending_size_preset = None
         self._desktop_overlay_pending_position_reset = False
         self._desktop_overlay_pending_locked = None
@@ -3639,41 +3785,40 @@ class SettingsView(ft.Column):
         self._set_unit_card_value_text(
             self._stt_text,
             self._stt_provider_display_label(
-                provider.stt_provider,
-                custom_mode=provider.custom_stt_mode,
+                display_provider.stt_provider,
+                custom_mode=display_provider.custom_stt_mode,
             ),
         )
         self._set_unit_card_value_text(
             self._peer_stt_text,
             self._stt_provider_display_label(
-                self._effective_peer_stt_provider(provider),
-                custom_mode=provider.custom_stt_mode,
+                self._effective_peer_stt_provider(display_provider),
+                custom_mode=display_provider.custom_stt_mode,
             ),
         )
-        self._sync_cloud_free_tier_card(provider)
-        self._sync_soniox_speaker_diarization_card(provider)
+        self._sync_cloud_free_tier_card(display_provider)
+        self._sync_soniox_speaker_diarization_card(display_provider)
         self._update_api_visibility()
         self._sync_gpu_device_card()
 
         # LLM Provider
         self._set_unit_card_value_text(
             self._llm_text,
-            self._get_llm_display_label(provider),
+            self._get_llm_display_label(display_provider),
         )
         self._set_translation_connection_text(
-            self._get_translation_connection_display_label(provider),
+            self._get_translation_connection_display_label(display_provider),
         )
-        self._sync_translation_connection_title(provider)
-        self._local_llm_base_url.value = provider.local_llm_base_url
+        self._sync_translation_connection_title(display_provider)
+        self._local_llm_base_url.value = display_provider.local_llm_base_url
         self._local_llm_base_url.error = None
-        self._local_llm_model.value = provider.local_llm_model
+        self._local_llm_model.value = display_provider.local_llm_model
         self._local_llm_model.error = None
-        self._local_llm_extra_body.value = provider.local_llm_extra_body_json
+        self._local_llm_extra_body.value = display_provider.local_llm_extra_body_json
         self._clear_local_llm_extra_body_error()
-        self._sync_custom_stt_card(provider)
+        self._sync_custom_stt_card(display_provider)
 
-        # Qwen Region
-        region_label = t(f"region.{provider.qwen_region.value}")
+        region_label = t(f"region.{display_provider.qwen_region.value}")
         _set_text_button_label(self._qwen_region_btn, f"{t('settings.qwen_region')} {region_label}")
 
         # Audio Settings
@@ -3705,7 +3850,9 @@ class SettingsView(ft.Column):
         # Prompt
         provider_name = self._active_prompt_key()
         self._prompt_editor.set_provider(provider_name)
-        if prompt.system_prompt.strip():
+        if prompt_draft is not None:
+            self._prompt_editor.value = prompt_draft
+        elif prompt.system_prompt.strip():
             self._prompt_editor.value = prompt.system_prompt
         else:
             self._prompt_editor.load_default_prompt(emit_change=False)
@@ -6274,10 +6421,11 @@ class SettingsView(ft.Column):
         self._stage_prompt_draft(value)
         if self.has_provider_changes:
             return
-        pending = self.consume_prompt_apply_settings()
-        if pending is None:
+        if self.external_settings_conflict:
+            self._show_external_conflict()
             return
-        self._emit_prompt_apply_settings(pending)
+        if self.has_pending_prompt_changes:
+            self._emit_prompt_apply_settings(PromptApplyIntent(value))
 
     def _on_reset_prompt(self, e) -> None:
         """Reset prompt to default for current provider."""

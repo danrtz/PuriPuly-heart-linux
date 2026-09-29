@@ -9,6 +9,7 @@ import secrets
 import threading
 import urllib.parse
 import webbrowser
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -86,9 +87,17 @@ class _OpenRouterPKCECallbackListener:
 
 
 class OpenRouterPKCEClient:
-    def __init__(self, *, callback_origin: str):
+    def __init__(
+        self,
+        *,
+        callback_origin: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
+    ):
         self.callback_origin = callback_origin.rstrip("/")
         self.current_authorization_url: str | None = None
+        self.open_browser = open_browser
+        self.authorization_url_sink = authorization_url_sink
 
     def build_session(self) -> OpenRouterPKCESession:
         code_verifier = secrets.token_urlsafe(64)
@@ -200,7 +209,10 @@ class OpenRouterPKCEClient:
         self.current_authorization_url = session.authorization_url
         listener = self._create_callback_listener(session)
         try:
-            webbrowser.open(session.authorization_url)
+            if self.authorization_url_sink is not None:
+                self.authorization_url_sink(session.authorization_url)
+            if self.open_browser:
+                webbrowser.open(session.authorization_url)
             code = await asyncio.to_thread(listener.wait_for_code)
         finally:
             listener.close()

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.21)
+project(puripuly_console LANGUAGES CXX)
+add_executable(puripuly main.cpp)
+target_compile_features(puripuly PRIVATE cxx_std_17)
+target_link_libraries(puripuly PRIVATE shell32)

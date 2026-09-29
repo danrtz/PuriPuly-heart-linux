@@ -50,7 +50,10 @@ from puripuly_heart.app.ports.vrchat_osc_presence import VrchatOscPresencePort
 from puripuly_heart.app.services.application_after_launch import (
     ApplicationAfterLaunchOwner,
 )
+from puripuly_heart.app.services.application_control import ApplicationControlOwner
+from puripuly_heart.app.services.application_control_events import ControlEvents, ObservedEventQueue
 from puripuly_heart.app.services.application_ingress import ApplicationIngressGate
+from puripuly_heart.app.services.application_shutdown import application_shutdown_callback
 from puripuly_heart.app.services.audio_diagnostics_application import (
     AudioDiagnosticsApplicationOwner,
 )
@@ -227,6 +230,10 @@ from puripuly_heart.config.translation_values import TranslationModel
 from puripuly_heart.core.clipboard.watcher import create_clipboard_watcher
 from puripuly_heart.core.clock import SystemClock
 from puripuly_heart.core.http_extensions import HttpExtensionRegistry
+from puripuly_heart.core.lifecycle import (
+    SHUTDOWN_PHASE_FREEZE_INGRESS,
+    SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+)
 from puripuly_heart.core.local_asr_provider_runtime import (
     LocalASRProviderRuntimePort,
 )
@@ -460,6 +467,7 @@ def compose_application_runtime(
     clock = SystemClock()
     ingress = ApplicationIngressGate()
     pipeline = RuntimePipelineHandle()
+    control_events = ControlEvents()
     signatures = ProviderRuntimeSignatures(http_extensions=http_extensions)
     effects_state = SettingsRuntimeEffectsState()
     manual_fallback = ManualLocalASRFallbackOwner()
@@ -555,6 +563,7 @@ def compose_application_runtime(
         presentation=presentation,
         sinks=runtime_logging_sinks,
     )
+    runtime_logging.control_event_sink = control_events.publish
     settings = compose_settings_owner(
         config_path,
         retired_asset_cleanup_logging=runtime_logging,
@@ -1090,10 +1099,16 @@ def compose_application_runtime(
             last_self_capture_lifecycle = lifecycle
         require_local_asr().adapters.notice.sync()
         publish_osc_state_from_runtime()
+        control_events.publish(
+            {"topic": "capture", "channel": "self", "generation": snapshot.generation}
+        )
 
     def on_peer_capture_state(snapshot: PeerCaptureSessionSnapshot) -> None:
         require_peer().owner.on_runtime_state_changed(snapshot)
         publish_osc_state_from_runtime()
+        control_events.publish(
+            {"topic": "capture", "channel": "peer", "generation": snapshot.generation}
+        )
 
     def require_self_application() -> SelfCaptureApplicationOwner:
         nonlocal self_application
@@ -1206,6 +1221,7 @@ def compose_application_runtime(
                     next_settings,
                     reload_settings_view=False,
                 ),
+                apply_mutation=lambda mutate: application.control().apply_mutation(mutate),
                 application_provider=lambda: application,
                 sender_provider=lambda: pipeline.sender,
                 osc_state_provider=osc_state,
@@ -2009,7 +2025,7 @@ def compose_application_runtime(
         if event_queue is None:
             raise RuntimeError("UI Event Bridge owner is unavailable")
         return presentation.create_ui_event_bridge(
-            event_queue=event_queue,
+            event_queue=ObservedEventQueue(event_queue, control_events),
             runtime_logging=active_runtime_logging,
         )
 
@@ -2177,10 +2193,58 @@ def compose_application_runtime(
             secret_store_factory=create_settings_secret_store,
         ),
         osc_state_publisher=lambda: require_vrc_mic_sync().publish_delta(),
+        output_status_provider=lambda: {
+            "overlay": {
+                **overlay_owner.output_snapshot(),
+                "calibration_draft_active": calibration_owner.draft is not None,
+            },
+            "osc": require_vrc_mic_sync().output_snapshot(),
+        },
         http_extension_registry=HttpExtensionRegistryService(
             http_extensions,
             SystemDirectoryOpener(),
         ),
+    )
+
+    control = ApplicationControlOwner(
+        application=application,
+        settings=settings,
+        pipeline=pipeline,
+        results=settings_owner.results,
+        events=control_events,
+        provisioning=lambda: provisioning,
+        gpu=lambda: gpu,
+        peer=lambda: peer,
+        calibration=lambda: calibration,
+        gemma=lambda: managed_gemma,
+        sync_ui=sync_ui_from_settings,
+        locale_choices=presentation.available_locales(),
+        localize=presentation.localize,
+        gemma_selection=managed_gemma_selection,
+    )
+    application.attach_control(control)
+    settings.observe_commits(control._publish_committed)
+    application.register_application_shutdown_callbacks(
+        (
+            application_shutdown_callback(
+                phase=SHUTDOWN_PHASE_FREEZE_INGRESS,
+                owner_name="ApplicationControlOwner",
+                callback_name="freeze_ingress",
+                callback=control.freeze_ingress,
+            ),
+            application_shutdown_callback(
+                phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+                owner_name="ApplicationControlOwner",
+                callback_name="drain_operations",
+                callback=control.drain_operations,
+            ),
+            application_shutdown_callback(
+                phase=SHUTDOWN_PHASE_OWNER_DRAIN_CANCEL,
+                owner_name="OverlayCalibrationApplicationOwner",
+                callback_name="wait_pending",
+                callback=calibration_owner.wait_pending,
+            ),
+        )
     )
 
     async def initialize_local_asr_evidence(value: AppSettingsVNext) -> None:

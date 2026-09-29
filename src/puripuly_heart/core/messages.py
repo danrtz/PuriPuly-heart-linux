@@ -106,6 +106,7 @@ TransactionStatus: TypeAlias = Literal[
     "settings_commit_failed",
     "settings_commit_success_runtime_applied",
     "settings_commit_success_runtime_degraded",
+    "settings_commit_success_runtime_interrupted",
     "secret_write_failed",
     "provider_verification_failed",
     "settings_commit_failed_secret_restored",
@@ -119,6 +120,9 @@ TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED: Final[TransactionSta
 )
 TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED: Final[TransactionStatus] = (
     "settings_commit_success_runtime_degraded"
+)
+TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED: Final[TransactionStatus] = (
+    "settings_commit_success_runtime_interrupted"
 )
 TRANSACTION_STATUS_SECRET_WRITE_FAILED: Final[TransactionStatus] = "secret_write_failed"
 TRANSACTION_STATUS_PROVIDER_VERIFICATION_FAILED: Final[TransactionStatus] = (
@@ -140,6 +144,7 @@ TRANSACTION_RESULT_STATUSES: Final[tuple[TransactionStatus, ...]] = (
     TRANSACTION_STATUS_SETTINGS_COMMIT_FAILED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+    TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
     TRANSACTION_STATUS_SECRET_WRITE_FAILED,
     TRANSACTION_STATUS_PROVIDER_VERIFICATION_FAILED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_FAILED_SECRET_RESTORED,
@@ -257,6 +262,7 @@ __all__ = [
     "TRANSACTION_STATUS_SETTINGS_COMMIT_FAILED_SECRET_RESTORED",
     "TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED",
     "TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED",
+    "TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED",
     "TransactionResult",
     "TransactionStatus",
     "SafeMessageParam",

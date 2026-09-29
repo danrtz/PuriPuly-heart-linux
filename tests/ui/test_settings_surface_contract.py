@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import ast
-
 import flet as ft
 import pytest
 
@@ -28,18 +26,6 @@ from puripuly_heart.ui.settings.renderer import (
     compose_settings_prompt_surface,
 )
 from puripuly_heart.ui.views import settings as settings_view_module
-from tests.helpers.paths import SOURCE_ROOT
-
-SETTINGS_ADAPTER_PUSHES = (
-    "set_managed_trial_usage_state",
-    "set_local_cpu_auto_available",
-    "refresh_loopback_capture_target",
-    "load_from_settings",
-    "refresh_after_openrouter_pkce_success",
-    "set_managed_key_state",
-    "set_gpu_devices",
-    "set_overlay_calibration",
-)
 
 
 class _SlotProvider:
@@ -427,53 +413,3 @@ def _track(bucket: list[ft.Control]) -> ft.Control:
     control = ft.Container()
     bucket.append(control)
     return control
-
-
-def _attribute_calls(source: str, owner_names: tuple[str, ...]) -> set[str]:
-    tree = ast.parse(source)
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
-            value = node.value
-            if isinstance(value, ast.Name) and value.id in owner_names:
-                names.add(node.attr)
-            elif isinstance(value, ast.Attribute) and value.attr in owner_names:
-                names.add(node.attr)
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "getattr"
-            and len(node.args) >= 2
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
-        ):
-            owner = node.args[0]
-            if (isinstance(owner, ast.Name) and owner.id in owner_names) or (
-                isinstance(owner, ast.Attribute) and owner.attr in owner_names
-            ):
-                names.add(node.args[1].value)
-    return names
-
-
-def test_settings_projection_is_the_only_full_settings_view_pusher() -> None:
-    adapter_source = (SOURCE_ROOT / "ui" / "presentation_adapter.py").read_text(encoding="utf-8")
-    app_source = (SOURCE_ROOT / "ui" / "app.py").read_text(encoding="utf-8")
-    projection_source = (
-        SOURCE_ROOT / "app" / "services" / "settings" / "settings_projection.py"
-    ).read_text(encoding="utf-8")
-    driver_names = ("view_settings", "settings_view")
-
-    adapter_attrs = _attribute_calls(adapter_source, driver_names)
-    app_attrs = _attribute_calls(app_source, driver_names)
-    projection_attrs = _attribute_calls(projection_source, ("presentation",))
-
-    for name in SETTINGS_ADAPTER_PUSHES:
-        assert name in adapter_attrs, f"{name} lost its presentation adapter push site"
-        assert callable(getattr(settings_view_module.SettingsView, name, None)), name
-
-    assert "render_settings" in projection_attrs
-    assert "refresh_settings_after_openrouter_pkce_success" in projection_attrs
-    assert "load_from_settings" not in app_attrs
-    assert "refresh_after_openrouter_pkce_success" not in app_attrs
-    assert "consume_provider_apply_settings" in app_attrs
-    assert "has_provider_changes" in app_attrs

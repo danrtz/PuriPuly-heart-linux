@@ -101,8 +101,10 @@ class UiInputRuntimeAdapter:
     def set_manual_input_activity(self, has_text: bool) -> None:
         self.manual_typing.set_input_activity(has_text)
 
-    async def set_translation_enabled(self, enabled: bool) -> object:
-        return await self.translation.set_enabled(enabled)
+    async def set_translation_enabled(
+        self, enabled: bool, *, allow_authorization: bool = True
+    ) -> object:
+        return await self.translation.set_enabled(enabled, allow_authorization=allow_authorization)
 
     async def set_stt_enabled(self, enabled: bool) -> object:
         return await self.self_capture.set_enabled(enabled)
@@ -156,6 +158,12 @@ class UiMicrophoneRuntimeAdapter:
             level_log_interval_s=self.level_log_interval_seconds,
         )
 
+    def microphone_test_snapshot(self) -> dict[str, object]:
+        return self.microphone.snapshot
+
+    async def wait_microphone_test_ready(self) -> bool:
+        return await self.microphone.wait_ready()
+
     async def stop_microphone_test(self) -> None:
         await self.microphone.stop()
 
@@ -169,14 +177,20 @@ class UiOverlayRuntimeAdapter:
     async def set_overlay_enabled(self, enabled: bool) -> object:
         return await self.overlay.set_enabled(enabled)
 
-    async def set_desktop_overlay_captions_locked(self, locked: bool) -> None:
-        await self.desktop.set_captions_locked(locked)
+    async def wait_overlay_transition(self) -> dict[str, object]:
+        return {
+            **await self.overlay.wait_start_outcome(),
+            "calibration_draft_active": self.calibration.draft is not None,
+        }
 
-    async def set_desktop_overlay_size_preset(self, size_preset: str) -> None:
-        await self.desktop.set_size_preset(size_preset)
+    async def set_desktop_overlay_captions_locked(self, locked: bool) -> dict[str, str]:
+        return await self.desktop.set_captions_locked(locked)
 
-    async def reset_desktop_overlay_position(self) -> None:
-        await self.desktop.reset_position()
+    async def set_desktop_overlay_size_preset(self, size_preset: str) -> dict[str, str]:
+        return await self.desktop.set_size_preset(size_preset)
+
+    async def reset_desktop_overlay_position(self) -> dict[str, str]:
+        return await self.desktop.reset_position()
 
     def begin_overlay_calibration(self) -> object:
         return self.calibration.begin()
@@ -218,11 +232,17 @@ class UiManagedRuntimeAdapter:
         callback = kwargs.get("on_callback_received")
         recovery_hook = kwargs.get("on_recovery_started")
         referral_id = kwargs.get("referral_id")
+        url_sink = kwargs.get("authorization_url_sink")
         return await self.managed.auth.start_discord(
             on_callback_received=callback if callable(callback) else None,
             on_recovery_started=recovery_hook if callable(recovery_hook) else None,
             referral_id=str(referral_id) if referral_id is not None else None,
+            authorization_url_sink=url_sink if callable(url_sink) else None,
+            open_browser=kwargs.get("open_browser", True) is True,
         )
+
+    async def logout_local_managed(self, provider: str) -> dict[str, object]:
+        return await self.managed.auth_runtime.logout_local_managed(provider)
 
     def managed_auth_last_failure_kind(self) -> str:
         kind = getattr(self.managed.auth, "last_failure_kind", "failed")
@@ -391,10 +411,14 @@ class UiProviderRuntimeAdapter:
         *,
         target: OpenRouterPkceTarget,
         launch_source: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:
         return await self.managed.pkce.connect(
             target=target,
             launch_source=launch_source,
+            open_browser=open_browser,
+            authorization_url_sink=authorization_url_sink,
         )
 
     def reopen_openrouter_pkce_authorization_url(self) -> object:

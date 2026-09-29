@@ -304,9 +304,9 @@ async def test_end_to_end_secondary_first_publishes_progressive_parent_snapshots
 async def test_split_self_primary_a_survives_b_retirement_until_its_own_deadline() -> None:
     clock = FakeClock(_now=10.0)
     provider = TargetControlledProvider()
-    expiration_sleeps: asyncio.Queue[
-        tuple[asyncio.Task[None], float, asyncio.Event]
-    ] = asyncio.Queue()
+    expiration_sleeps: asyncio.Queue[tuple[asyncio.Task[None], float, asyncio.Event]] = (
+        asyncio.Queue()
+    )
 
     async def controlled_sleep(delay: float) -> None:
         release = asyncio.Event()
@@ -355,9 +355,7 @@ async def test_split_self_primary_a_survives_b_retirement_until_its_own_deadline
         utterance_id: UUID,
     ) -> tuple[float, asyncio.Event]:
         while True:
-            task, delay, release = await asyncio.wait_for(
-                expiration_sleeps.get(), timeout=1
-            )
+            task, delay, release = await asyncio.wait_for(expiration_sleeps.get(), timeout=1)
             if task is presenter._expiration_tasks.get(("self", utterance_id)):
                 return delay, release
 
@@ -391,9 +389,7 @@ async def test_split_self_primary_a_survives_b_retirement_until_its_own_deadline
                 ),
             )
         )
-        started = {
-            await asyncio.wait_for(provider.started.get(), timeout=1) for _ in range(4)
-        }
+        started = {await asyncio.wait_for(provider.started.get(), timeout=1) for _ in range(4)}
         assert started == {
             ("alpha ", "zh-CN"),
             ("alpha ", "ja"),

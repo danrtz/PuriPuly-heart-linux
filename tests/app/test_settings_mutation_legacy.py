@@ -10,6 +10,8 @@ from puripuly_heart.app.services.settings_mutation_legacy import (
     ORDER24_UI_PROMPT_CLIPBOARD_STATE_SETTINGS_PATHS,
     SettingsPathMutationValidator,
     SettingsPathPatch,
+    _SettingsPathSnapshot,
+    apply_settings_path_patch,
     build_stt_language_audio_settings_path_patch,
     build_translation_provider_settings_path_patch,
 )
@@ -121,6 +123,62 @@ def test_order22_patch_carries_soniox_speaker_diarization() -> None:
     patch = build_stt_language_audio_settings_path_patch(previous, next_settings)
 
     assert patch == {"intent.stt.soniox.enable_speaker_diarization": False}
+
+
+def test_mutable_patch_values_are_isolated_from_canonical_settings_and_future_patches() -> None:
+    previous = AppSettingsVNext()
+    next_settings = replace(
+        previous,
+        intent=replace(
+            previous.intent,
+            stt=replace(previous.intent.stt, custom_terms={"ko": ["source"]}),
+        ),
+    )
+    patch = build_stt_language_audio_settings_path_patch(previous, next_settings)
+    assert patch == {"intent.stt.custom_terms": {"ko": ["source"]}}
+
+    patch["intent.stt.custom_terms"]["ko"].append("changed")
+    assert next_settings.intent.stt.custom_terms == {"ko": ["source"]}
+    assert build_stt_language_audio_settings_path_patch(previous, next_settings) == {
+        "intent.stt.custom_terms": {"ko": ["source"]}
+    }
+
+
+def test_snapshot_replay_preserves_unrelated_changes_and_isolates_mutable_values() -> None:
+    baseline = AppSettingsVNext()
+    snapshot = _SettingsPathSnapshot.from_settings(
+        baseline,
+        paths=("intent.stt.custom_terms", "intent.languages.source_language"),
+    )
+    next_settings = replace(
+        baseline,
+        intent=replace(
+            baseline.intent,
+            stt=replace(baseline.intent.stt, custom_terms={"ja": ["hello"]}),
+            languages=replace(baseline.intent.languages, source_language="ja"),
+            audio=replace(baseline.intent.audio, input_device="other microphone"),
+        ),
+    )
+    patch = snapshot.patch_to(next_settings)
+    assert patch == {
+        "intent.stt.custom_terms": {"ja": ["hello"]},
+        "intent.languages.source_language": "ja",
+    }
+    patch["intent.stt.custom_terms"]["ja"].append("changed")
+    assert snapshot.patch_to(next_settings)["intent.stt.custom_terms"] == {"ja": ["hello"]}
+    assert next_settings.intent.stt.custom_terms == {"ja": ["hello"]}
+
+    restored = snapshot.materialize_base_from(next_settings)
+    assert restored.intent.stt.custom_terms == {}
+    assert restored.intent.languages.source_language == "ko"
+    assert restored.intent.audio.input_device == "other microphone"
+
+
+def test_invalid_mutable_leaf_patch_rejects_type_without_changing_settings() -> None:
+    settings = AppSettingsVNext()
+    with pytest.raises(ValueError):
+        apply_settings_path_patch(settings, {"intent.stt.custom_terms": ["wrong"]})
+    assert settings.intent.stt.custom_terms == {}
 
 
 def test_order22_stt_language_audio_patch_records_initial_covered_surface_list() -> None:

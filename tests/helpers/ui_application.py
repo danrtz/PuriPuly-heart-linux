@@ -166,9 +166,18 @@ class UiApplicationRuntimeStub:
         *,
         target: OpenRouterPkceTarget,
         launch_source: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:
         connect = getattr(self._backend, "connect_openrouter_via_pkce")
-        return bool(await connect(target=target, launch_source=launch_source))
+        return bool(
+            await connect(
+                target=target,
+                launch_source=launch_source,
+                open_browser=open_browser,
+                authorization_url_sink=authorization_url_sink,
+            )
+        )
 
     def build_managed_openrouter_byok_target(self) -> OpenRouterPkceTarget | None:
         build = getattr(self._backend, "build_managed_openrouter_byok_target", None)

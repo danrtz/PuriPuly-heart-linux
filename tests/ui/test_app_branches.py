@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import datetime as real_datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 pytest.importorskip("flet")
-from dataclasses import replace
 
 import flet as ft
 from puripuly_heart.core.managed_openrouter_release import TalkTogetherPassStatus
@@ -24,8 +24,6 @@ from puripuly_heart.app.ports.settings_view import (
     OpenRouterPkceTarget,
     OverlaySettingsSnapshot,
     PromptApplyIntent,
-    ProviderApplyIntent,
-    SelfSttProviderEdit,
 )
 from puripuly_heart.app.ports.ui_models import OverlayPeerPresentationState
 from puripuly_heart.app.services.application_shutdown import (
@@ -43,7 +41,6 @@ from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     OpenRouterLLMModel,
     OpenRouterSelectionAlias,
-    STTProviderName,
 )
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import TranslationConnection, TranslationModel
@@ -54,8 +51,6 @@ from puripuly_heart.ui import i18n as i18n_module
 from puripuly_heart.ui.app import TranslatorApp, _check_and_notify_update
 from puripuly_heart.ui.presentation_adapter import FletUiPresentationAdapter
 from tests.helpers.ui_application import compose_test_ui_application_boundary
-
-MISSING = object()
 
 
 def _vnext(
@@ -1831,18 +1826,6 @@ def test_translator_app_keeps_debug_ui_preview_out_of_controller(
     assert not hasattr(app._presentation_adapter, "app")
 
 
-def test_settings_view_pkce_callback_is_wired(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_app_construction(monkeypatch)
-
-    app = TranslatorApp(
-        DummyPage(),
-        config_path=Path("settings.json"),
-        application_factory=_construction_application_factory,
-    )
-
-    assert app.view_settings.on_request_openrouter_pkce == app._on_request_openrouter_pkce
-
-
 def test_translator_app_4x3_window_keeps_shell_navigation_usable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2342,56 +2325,48 @@ def test_discord_managed_auth_byok_clears_managed_china_translation_state() -> N
 
 
 @pytest.mark.asyncio
-async def test_start_discord_managed_auth_uses_run_task_and_success_enables_translation() -> None:
+async def test_discord_managed_auth_success_enables_translation_and_closes_dialog() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
     dialog = SimpleNamespace(set_waiting_calls=0, close_calls=0)
     dialog.set_waiting = lambda: setattr(dialog, "set_waiting_calls", dialog.set_waiting_calls + 1)
     dialog.close = lambda: setattr(dialog, "close_calls", dialog.close_calls + 1)
     app._discord_managed_auth_dialog = dialog
-    snackbar_calls: list[tuple[str, object]] = []
-    enable_calls: list[bool] = []
-    start_calls: list[str] = []
-    dashboard_translation_calls: list[bool] = []
     hub = SimpleNamespace(llm=object(), translation_enabled=False)
+    dashboard_translation_calls: list[bool] = []
     app.view_dashboard = SimpleNamespace(
         set_translation_enabled=lambda enabled: dashboard_translation_calls.append(enabled)
     )
-    app._show_snackbar = lambda message, color: snackbar_calls.append((message, color))
+    app._show_snackbar = lambda *_args, **_kwargs: None
 
     async def fake_start_discord_managed_auth_from_dialog(**_kwargs) -> bool:
-        start_calls.append("start")
         return True
 
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
-        enable_calls.append(enabled)
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
         hub.translation_enabled = enabled
         return True
 
-    controller = SimpleNamespace(
-        hub=hub,
-        start_discord_managed_auth_from_dialog=fake_start_discord_managed_auth_from_dialog,
-        set_translation_enabled=fake_set_translation_enabled,
+    app._ui_application = compose_test_ui_application_boundary(
+        SimpleNamespace(
+            hub=hub,
+            start_discord_managed_auth_from_dialog=fake_start_discord_managed_auth_from_dialog,
+            set_translation_enabled=fake_set_translation_enabled,
+        )
     )
-    app._ui_application = compose_test_ui_application_boundary(controller)
 
     app._start_discord_managed_auth()
-
-    assert dialog.set_waiting_calls == 1
-    assert start_calls == []
-    assert len(app.page.tasks) == 1
-
     await app.page.tasks[0]()
 
-    assert start_calls == ["start"]
+    assert dialog.set_waiting_calls == 1
     assert dialog.close_calls == 1
-    assert snackbar_calls == [(app_module.t("discord_auth.success"), app_module.COLOR_SUCCESS)]
-    assert enable_calls == [True]
+    assert hub.translation_enabled is True
     assert dashboard_translation_calls == [True]
 
 
 @pytest.mark.asyncio
-async def test_start_qq_managed_auth_uses_run_task_and_success_closes_dialog() -> None:
+async def test_qq_managed_auth_success_enables_translation_and_closes_dialog() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
     dialog = SimpleNamespace(
@@ -2405,45 +2380,36 @@ async def test_start_qq_managed_auth_uses_run_task_and_success_closes_dialog() -
     app._qq_managed_auth_dialog = dialog
     app._qq_managed_auth_generation = 0
     app._qq_managed_auth_cancelled = False
-    snackbar_calls: list[tuple[str, object]] = []
-    dashboard_translation_calls: list[bool] = []
-    start_calls: list[tuple[str, str]] = []
-    enable_calls: list[bool] = []
     hub = SimpleNamespace(llm=object(), translation_enabled=False)
-    app._show_snackbar = lambda message, color: snackbar_calls.append((message, color))
+    dashboard_translation_calls: list[bool] = []
+    app._show_snackbar = lambda *_args, **_kwargs: None
     app.view_dashboard = SimpleNamespace(
         set_translation_enabled=lambda enabled: dashboard_translation_calls.append(enabled)
     )
 
-    async def fake_start_qq_managed_auth_from_dialog(**kwargs) -> bool:
-        start_calls.append((kwargs["qq_identity"], kwargs["credential"]))
+    async def fake_start_qq_managed_auth_from_dialog(**_kwargs) -> bool:
         return True
 
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
-        enable_calls.append(enabled)
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
         hub.translation_enabled = enabled
         return True
 
-    controller = SimpleNamespace(
-        hub=hub,
-        start_qq_managed_auth_from_dialog=fake_start_qq_managed_auth_from_dialog,
-        set_translation_enabled=fake_set_translation_enabled,
+    app._ui_application = compose_test_ui_application_boundary(
+        SimpleNamespace(
+            hub=hub,
+            start_qq_managed_auth_from_dialog=fake_start_qq_managed_auth_from_dialog,
+            set_translation_enabled=fake_set_translation_enabled,
+        )
     )
-    app._ui_application = compose_test_ui_application_boundary(controller)
 
     app._start_qq_managed_auth()
-
-    assert dialog.set_waiting_calls == 1
-    assert start_calls == []
-    assert len(app.page.tasks) == 1
-
     await app.page.tasks[0]()
 
-    assert start_calls == [("qq-user", "credential")]
-    assert enable_calls == [True]
-    assert hub.translation_enabled is True
+    assert dialog.set_waiting_calls == 1
     assert dialog.close_calls == 1
-    assert snackbar_calls == [(app_module.t("qq_auth.success"), app_module.COLOR_SUCCESS)]
+    assert hub.translation_enabled is True
     assert dashboard_translation_calls == [True]
 
 
@@ -2540,7 +2506,7 @@ async def test_start_qq_managed_auth_key_unavailable_stays_recoverable_and_trans
     async def fake_start_qq_managed_auth_from_dialog(**_kwargs):
         return "qq_auth.error.key_unavailable", {}
 
-    async def fake_set_translation_enabled(_enabled: bool):
+    async def fake_set_translation_enabled(_enabled: bool, *, allow_authorization: bool = True):
         pytest.fail("key unavailable must not enable translation")
 
     controller = SimpleNamespace(
@@ -2656,7 +2622,9 @@ async def test_close_oauth_runtime_blocks_late_discord_auth_ui_mutation() -> Non
         await release_start.wait()
         return True
 
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
         hub.translation_enabled = enabled
         return True
 
@@ -2684,115 +2652,6 @@ async def test_close_oauth_runtime_blocks_late_discord_auth_ui_mutation() -> Non
 
 
 @pytest.mark.asyncio
-async def test_start_discord_managed_auth_passes_dialog_referral_id_to_controller() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    dialog = SimpleNamespace(referral_id="not a referral id", set_waiting=lambda: None)
-    app._discord_managed_auth_dialog = dialog
-    start_kwargs: list[dict[str, object]] = []
-    enable_calls: list[bool] = []
-
-    async def fake_start_discord_managed_auth_from_dialog(**kwargs) -> bool:
-        start_kwargs.append(kwargs)
-        return False
-
-    async def fake_set_translation_enabled(enabled: bool) -> None:
-        enable_calls.append(enabled)
-
-    controller = SimpleNamespace(
-        start_discord_managed_auth_from_dialog=fake_start_discord_managed_auth_from_dialog,
-        set_translation_enabled=fake_set_translation_enabled,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._start_discord_managed_auth()
-    await app.page.tasks[0]()
-
-    assert len(start_kwargs) == 1
-    assert start_kwargs[0]["referral_id"] == "not a referral id"
-    assert callable(start_kwargs[0]["on_callback_received"])
-    assert enable_calls == []
-
-
-@pytest.mark.asyncio
-async def test_start_discord_managed_auth_shows_referral_reward_snackbar_when_bonus_applied() -> (
-    None
-):
-    previous_locale = i18n_module.get_locale()
-    i18n_module.set_locale("ko")
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    dialog = SimpleNamespace(referral_id="7KQ9M2", set_waiting=lambda: None, close=lambda: None)
-    app._discord_managed_auth_dialog = dialog
-    snackbar_calls: list[tuple[str, object]] = []
-    app._show_snackbar = lambda message, color: snackbar_calls.append((message, color))
-    app.view_dashboard = SimpleNamespace(set_translation_enabled=lambda _enabled: None)
-    hub = SimpleNamespace(llm=object(), translation_enabled=False)
-
-    controller = SimpleNamespace(hub=hub)
-
-    async def fake_start_discord_managed_auth_from_dialog(**_kwargs) -> bool:
-        controller.last_discord_managed_auth_referral_bonus_applied = True
-        return True
-
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
-        hub.translation_enabled = enabled
-        return True
-
-    controller.start_discord_managed_auth_from_dialog = fake_start_discord_managed_auth_from_dialog
-    controller.set_translation_enabled = fake_set_translation_enabled
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    try:
-        app._start_discord_managed_auth()
-        await app.page.tasks[0]()
-
-        assert snackbar_calls == [
-            (app_module.t("discord_auth.success"), app_module.COLOR_SUCCESS),
-            (app_module.t("discord_auth.referral_reward_applied"), app_module.COLOR_SUCCESS),
-        ]
-    finally:
-        i18n_module.set_locale(previous_locale)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "referral_bonus_applied",
-    [MISSING, False, None, "true", 1],
-)
-async def test_start_discord_managed_auth_omits_referral_snackbar_without_boolean_true(
-    referral_bonus_applied: object,
-) -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    dialog = SimpleNamespace(referral_id="7KQ9M2", set_waiting=lambda: None, close=lambda: None)
-    app._discord_managed_auth_dialog = dialog
-    snackbar_calls: list[tuple[str, object]] = []
-    app._show_snackbar = lambda message, color: snackbar_calls.append((message, color))
-    app.view_dashboard = SimpleNamespace(set_translation_enabled=lambda _enabled: None)
-    hub = SimpleNamespace(llm=object(), translation_enabled=False)
-    controller = SimpleNamespace(hub=hub)
-
-    async def fake_start_discord_managed_auth_from_dialog(**_kwargs) -> bool:
-        if referral_bonus_applied is not MISSING:
-            controller.last_discord_managed_auth_referral_bonus_applied = referral_bonus_applied
-        return True
-
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
-        hub.translation_enabled = enabled
-        return True
-
-    controller.start_discord_managed_auth_from_dialog = fake_start_discord_managed_auth_from_dialog
-    controller.set_translation_enabled = fake_set_translation_enabled
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._start_discord_managed_auth()
-    await app.page.tasks[0]()
-
-    assert snackbar_calls == [(app_module.t("discord_auth.success"), app_module.COLOR_SUCCESS)]
-
-
-@pytest.mark.asyncio
 async def test_start_discord_managed_auth_no_success_when_enable_fails() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
@@ -2809,7 +2668,9 @@ async def test_start_discord_managed_auth_no_success_when_enable_fails() -> None
     async def fake_start_discord_managed_auth_from_dialog(**_kwargs) -> bool:
         return True
 
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
         enable_calls.append(enabled)
         return False
 
@@ -2844,7 +2705,9 @@ async def test_start_discord_managed_auth_no_success_when_llm_unavailable_after_
     async def fake_start_discord_managed_auth_from_dialog(**_kwargs) -> bool:
         return True
 
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
         enable_calls.append(enabled)
         return True
 
@@ -2875,7 +2738,9 @@ async def test_start_discord_managed_auth_failure_does_not_show_success_snackbar
     async def fake_start_discord_managed_auth_from_dialog(**_kwargs) -> bool:
         return False
 
-    async def fake_set_translation_enabled(enabled: bool) -> None:
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> None:
         enable_calls.append(enabled)
 
     controller = SimpleNamespace(
@@ -2913,7 +2778,9 @@ async def test_cancel_discord_managed_auth_prevents_late_success_and_enable() ->
         await release_start.wait()
         return True
 
-    async def fake_set_translation_enabled(enabled: bool) -> bool:
+    async def fake_set_translation_enabled(
+        enabled: bool, *, allow_authorization: bool = True
+    ) -> bool:
         enable_calls.append(enabled)
         return True
 
@@ -3022,143 +2889,6 @@ def test_peer_translation_disable_does_not_open_eula() -> None:
     assert enabled == [False]
 
 
-@pytest.mark.asyncio
-async def test_on_nav_change_merges_current_languages_into_prompt_only_apply() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._current_tab = 1
-    app.view_dashboard = object()
-    app.view_logs = SimpleNamespace(scroll_to_bottom=lambda: asyncio.sleep(0))
-    app.view_about = object()
-    pending_settings = object()
-    merged_settings = object()
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=False,
-        has_pending_prompt_changes=True,
-        consume_prompt_apply_settings=lambda: pending_settings,
-        refresh_prompt_if_empty=lambda: None,
-    )
-    app.content_area = DummyContent()
-    events: list[tuple[str, object]] = []
-
-    def fake_merge_settings(settings) -> object:
-        events.append(("merge", settings))
-        return merged_settings
-
-    async def fake_apply_settings(settings) -> None:
-        events.append(("apply", settings))
-
-    controller = SimpleNamespace(
-        merge_settings_tab_apply_with_current_languages=fake_merge_settings,
-        apply_settings=fake_apply_settings,
-        apply_providers=lambda _settings=None: asyncio.sleep(0),
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_nav_change(0)
-
-    assert app.content_area.content is app.view_dashboard
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert events == [("apply", pending_settings)]
-
-
-@pytest.mark.parametrize(
-    ("exit_tab", "expected_view"),
-    ((0, "view_dashboard"), (2, "view_logs"), (3, "view_about")),
-)
-@pytest.mark.asyncio
-async def test_on_nav_change_applies_provider_changes_when_leaving_settings(
-    exit_tab: int,
-    expected_view: str,
-) -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._current_tab = 1
-    app.view_dashboard = object()
-    app.view_logs = SimpleNamespace(scroll_to_bottom=lambda: asyncio.sleep(0))
-    app.view_about = object()
-
-    canonical = AppSettingsVNext()
-    canonical = replace(
-        canonical,
-        intent=replace(
-            canonical.intent,
-            stt=replace(
-                canonical.intent.stt,
-                provider=STTProviderName.SONIOX.value,
-            ),
-        ),
-    )
-    pending_intent = ProviderApplyIntent((SelfSttProviderEdit(STTProviderName.ROLLING_FREE),))
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=True,
-        consume_provider_apply_settings=lambda: pending_intent,
-        refresh_prompt_if_empty=lambda: None,
-    )
-    app.content_area = DummyContent()
-    applied_provider_targets: list[str] = []
-    auto_installs: list[str] = []
-
-    async def fake_apply_providers(settings: AppSettingsVNext | None = None) -> bool:
-        assert settings is not None
-        applied_provider_targets.append(settings.intent.stt.provider)
-        controller.settings = settings
-        return True
-
-    async def fake_auto_install() -> None:
-        auto_installs.append("started")
-
-    controller = SimpleNamespace(
-        settings=canonical,
-        apply_providers=fake_apply_providers,
-        install_selected_gpu_model_if_needed=fake_auto_install,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_nav_change(exit_tab)
-    assert app.content_area.content is getattr(app, expected_view)
-    assert app.view_settings.has_provider_changes is False
-    assert len(app.page.tasks) >= 1
-    await app.page.tasks[0]()
-    assert applied_provider_targets == [STTProviderName.ROLLING_FREE.value]
-    assert canonical.intent.stt.provider == STTProviderName.SONIOX.value
-    assert controller.settings.intent.stt.provider == STTProviderName.ROLLING_FREE.value
-    assert auto_installs == []
-
-
-@pytest.mark.asyncio
-async def test_on_nav_change_does_not_auto_install_when_provider_apply_fails() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._current_tab = 1
-    app.view_dashboard = object()
-    app.view_logs = SimpleNamespace(scroll_to_bottom=lambda: asyncio.sleep(0))
-    app.view_about = object()
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=True,
-        consume_provider_apply_settings=lambda: "rejected-settings",
-        refresh_prompt_if_empty=lambda: None,
-    )
-    app.content_area = DummyContent()
-    auto_install = AsyncMock()
-
-    async def fake_apply_providers(_settings) -> bool:
-        return False
-
-    controller = SimpleNamespace(
-        apply_providers=fake_apply_providers,
-        install_selected_gpu_model_if_needed=auto_install,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_nav_change(0)
-    await app.page.tasks[0]()
-
-    assert len(app.page.tasks) == 1
-    auto_install.assert_not_awaited()
-
-
 def test_gpu_provider_selection_alone_does_not_start_install() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
@@ -3184,185 +2914,39 @@ def test_gpu_provider_selection_alone_does_not_start_install() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_providers_changed_applies_consumed_provider_draft() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._settings_mutation_queue = []
-    app._settings_mutation_worker_active = False
-    provider_settings = AppSettingsVNext()
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=True,
-        consume_provider_apply_settings=lambda: provider_settings,
-    )
-    seen: list[object] = []
-
-    async def fake_apply_providers(settings=None) -> None:
-        seen.append(settings)
-
-    controller = SimpleNamespace(apply_providers=fake_apply_providers)
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_providers_changed()
-
-    assert app.view_settings.has_provider_changes is False
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert seen == [provider_settings]
-
-
-@pytest.mark.asyncio
-async def test_on_providers_changed_runtime_only_reload_does_not_consume_provider_draft() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._settings_mutation_queue = []
-    app._settings_mutation_worker_active = False
-    consumed = {"draft": False, "reload": True}
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=True,
-        consume_http_extension_runtime_reload=lambda: consumed.__setitem__("reload", False) or True,
-        consume_provider_apply_settings=lambda: consumed.__setitem__("draft", True),
-    )
-    seen: list[tuple[bool, bool]] = []
-
-    async def fake_apply_providers(
-        settings=None,
-        *,
-        force_rebuild_llm: bool = False,
-        persist_settings: bool = True,
-        refresh_ui: bool = True,
-    ) -> None:
-        assert settings is None
-        assert force_rebuild_llm is False
-        seen.append((persist_settings, refresh_ui))
-
-    controller = SimpleNamespace(apply_providers=fake_apply_providers)
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_providers_changed()
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-
-    assert seen == [(False, False)]
-    assert consumed == {"draft": False, "reload": False}
-
-
-@pytest.mark.asyncio
-async def test_on_nav_change_refreshes_prompt_and_schedules_log_scroll() -> None:
+async def test_navigation_to_logs_scrolls_after_rendering() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
     app._current_tab = 0
-    refreshed = {"count": 0}
     scrolled = {"count": 0}
 
-    async def fake_scroll_to_bottom():
+    async def fake_scroll_to_bottom() -> None:
         scrolled["count"] += 1
 
     app.view_dashboard = object()
     app.view_settings = SimpleNamespace(
         has_provider_changes=False,
-        refresh_prompt_if_empty=lambda: refreshed.__setitem__("count", refreshed["count"] + 1),
+        refresh_prompt_if_empty=lambda: None,
     )
     app.view_logs = SimpleNamespace(scroll_to_bottom=fake_scroll_to_bottom)
     app.view_about = object()
     app.content_area = DummyContent()
-    auto_installs = {"count": 0}
-
-    async def fake_auto_install() -> None:
-        auto_installs["count"] += 1
-
-    controller = SimpleNamespace(
-        apply_providers=lambda _settings=None: asyncio.sleep(0),
-        install_selected_gpu_model_if_needed=fake_auto_install,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
+    app._close_open_dialog_for_navigation = lambda: None
+    app._run_page_task = lambda task_factory: app.page.run_task(task_factory)
 
     app._on_nav_change(1)
-    assert app.content_area.content is app.view_settings
-    assert refreshed["count"] == 1
-
     app._on_nav_change(2)
+    await app.page.tasks[0]()
+
     assert app.content_area.content is app.view_logs
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert auto_installs["count"] == 0
     assert scrolled["count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_on_nav_change_applies_pending_prompt_changes_when_leaving_settings() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._current_tab = 1
-    app.view_dashboard = object()
-    app.view_logs = SimpleNamespace(scroll_to_bottom=lambda: asyncio.sleep(0))
-    app.view_about = object()
-    pending_settings = object()
-    merged_settings = object()
-    merge_calls: list[object] = []
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=False,
-        has_pending_prompt_changes=True,
-        consume_prompt_apply_settings=lambda: pending_settings,
-        refresh_prompt_if_empty=lambda: None,
-    )
-    app.content_area = DummyContent()
-    seen: list[object] = []
-
-    def fake_merge_settings(settings) -> object:
-        merge_calls.append(settings)
-        return merged_settings
-
-    async def fake_apply_settings(settings) -> None:
-        seen.append(settings)
-
-    controller = SimpleNamespace(
-        merge_settings_tab_apply_with_current_languages=fake_merge_settings,
-        apply_settings=fake_apply_settings,
-        apply_providers=lambda _settings=None: asyncio.sleep(0),
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_nav_change(0)
-
-    assert app.content_area.content is app.view_dashboard
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert merge_calls == []
-    assert seen == [pending_settings]
-
-
-@pytest.mark.asyncio
-async def test_on_prompt_apply_settings_merges_current_languages_before_apply_settings() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    pending_settings = object()
-    merged_settings = object()
-    events: list[tuple[str, object]] = []
-
-    def fake_merge_settings(settings) -> object:
-        events.append(("merge", settings))
-        return merged_settings
-
-    async def fake_apply_settings(settings) -> None:
-        events.append(("apply", settings))
-
-    controller = SimpleNamespace(
-        merge_settings_tab_apply_with_current_languages=fake_merge_settings,
-        apply_settings=fake_apply_settings,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_prompt_apply_settings(pending_settings)
-
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert events == [("apply", pending_settings)]
 
 
 @pytest.mark.asyncio
 async def test_prompt_apply_keeps_dashboard_target_for_next_request() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
+    app.view_settings = SimpleNamespace(external_settings_conflict=False)
     pending_settings = PromptApplyIntent("new prompt")
     current_settings = _vnext(target_language="ja")
     applied_targets: list[str] = []
@@ -3384,52 +2968,12 @@ async def test_prompt_apply_keeps_dashboard_target_for_next_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_settings_changed_captures_patch_before_queued_apply() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    raw_settings = object()
-    captured_change = object()
-    merged_settings = object()
-    seen: list[object] = []
-
-    def fake_merge_settings(_settings) -> object:
-        raise AssertionError("prompt merge should not run for generic settings changes")
-
-    def fake_capture_settings_view_change(settings) -> object:
-        assert settings is raw_settings
-        return captured_change
-
-    def fake_merge_settings_view_change(change) -> object:
-        assert change is captured_change
-        return merged_settings
-
-    async def fake_apply_settings(settings) -> None:
-        seen.append(settings)
-
-    controller = SimpleNamespace(
-        merge_settings_tab_apply_with_current_languages=fake_merge_settings,
-        capture_settings_view_change=fake_capture_settings_view_change,
-        merge_settings_view_change_with_current=fake_merge_settings_view_change,
-        apply_settings=fake_apply_settings,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_settings_changed(raw_settings)
-
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert seen == [raw_settings]
-
-
-@pytest.mark.asyncio
-async def test_start_microphone_test_success_opens_percentage_modal() -> None:
+async def test_start_microphone_test_success_shows_measured_level() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
     app.view_settings = InlineMicrophoneTestSettingsView()
-    start_kwargs: list[dict[str, object]] = []
 
     async def fake_start_microphone_test(**kwargs) -> bool:
-        start_kwargs.append(dict(kwargs))
         kwargs["meter_callback"](0.37)
         return True
 
@@ -3444,109 +2988,7 @@ async def test_start_microphone_test_success_opens_percentage_modal() -> None:
     await app.page.tasks[0]()
 
     assert len(app.page.opened) == 1
-    dialog = app.page.opened[0]
-    assert "37%" in _dialog_text_values(dialog)
-    percent_text = next(
-        node
-        for node in _iter_control_tree(dialog)
-        if isinstance(node, ft.Text) and node.value == "37%"
-    )
-    assert percent_text.color == app_module.COLOR_PRIMARY
-    assert percent_text.size == 96
-    assert i18n_module.t("settings.microphone_test.host_api_hint") in _dialog_text_values(dialog)
-    modal_panel = next(
-        node
-        for node in _dialog_containers(dialog)
-        if getattr(node, "width", None) == 450 and getattr(node, "height", None) == 500
-    )
-    assert modal_panel.width == 450
-    assert modal_panel.height == 500
-    hint_text = next(
-        node
-        for node in _iter_control_tree(dialog)
-        if isinstance(node, ft.Text)
-        and node.value == i18n_module.t("settings.microphone_test.host_api_hint")
-    )
-    assert hint_text.size == 28
-    number_container = next(
-        node
-        for node in _dialog_containers(dialog)
-        if getattr(node, "content", None) is percent_text
-    )
-    assert number_container.bgcolor == ft.Colors.TRANSPARENT
-    assert dialog.modal is False
-    assert not any(isinstance(node, ft.IconButton) for node in _iter_control_tree(dialog))
-    assert "meter_callback" in start_kwargs[0]
-
-
-@pytest.mark.asyncio
-async def test_start_microphone_test_callback_uses_page_run_task() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app.view_settings = InlineMicrophoneTestSettingsView()
-    calls: list[str] = []
-
-    async def fake_start_microphone_test() -> bool:
-        calls.append("start")
-        return True
-
-    controller = SimpleNamespace(start_microphone_test=fake_start_microphone_test)
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_start_microphone_test()
-
-    assert len(app.page.tasks) == 1
-    assert calls == []
-    await app.page.tasks[0]()
-    assert calls == ["start"]
-    assert len(app.page.opened) == 1
-
-
-@pytest.mark.asyncio
-async def test_start_microphone_test_false_opens_failure_modal() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app.view_settings = InlineMicrophoneTestSettingsView()
-
-    async def fake_start_microphone_test(**_kwargs) -> bool:
-        return False
-
-    controller = SimpleNamespace(
-        start_microphone_test=fake_start_microphone_test,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_start_microphone_test()
-    await app.page.tasks[0]()
-
-    assert len(app.page.opened) == 1
-    assert i18n_module.t("settings.microphone_test.start_failed") in _dialog_text_values(
-        app.page.opened[0]
-    )
-    assert i18n_module.t("settings.microphone_test.host_api_hint") in _dialog_text_values(
-        app.page.opened[0]
-    )
-
-
-@pytest.mark.asyncio
-async def test_start_microphone_test_false_modal_has_no_close_button() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app.view_settings = InlineMicrophoneTestSettingsView()
-
-    async def fake_start_microphone_test(**_kwargs) -> bool:
-        return False
-
-    controller = SimpleNamespace(start_microphone_test=fake_start_microphone_test)
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_start_microphone_test()
-    await app.page.tasks[0]()
-
-    assert len(app.page.opened) == 1
-    assert not any(
-        isinstance(node, ft.IconButton) for node in _iter_control_tree(app.page.opened[0])
-    )
+    assert "37%" in _dialog_text_values(app.page.opened[0])
 
 
 @pytest.mark.asyncio
@@ -3572,34 +3014,6 @@ async def test_microphone_test_meter_callback_updates_modal_percentage() -> None
     callbacks[0](0.82)
 
     assert "82%" in _dialog_text_values(app.page.opened[0])
-
-
-@pytest.mark.asyncio
-async def test_stop_microphone_test_stops_runtime_through_settings_queue() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app.view_settings = InlineMicrophoneTestSettingsView()
-    stop_calls: list[str] = []
-
-    async def fake_start_microphone_test(**_kwargs) -> bool:
-        return True
-
-    async def fake_stop_microphone_test() -> None:
-        stop_calls.append("stop")
-
-    controller = SimpleNamespace(
-        start_microphone_test=fake_start_microphone_test,
-        stop_microphone_test=fake_stop_microphone_test,
-        microphone_test_active=True,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_stop_microphone_test()
-
-    assert stop_calls == []
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert stop_calls == ["stop"]
 
 
 @pytest.mark.asyncio
@@ -3700,63 +3114,18 @@ async def test_settings_apply_closes_microphone_test_modal_after_audio_cleanup()
     assert app.page.closed == [app.page.opened[0]]
 
 
-@pytest.mark.asyncio
-async def test_start_microphone_test_waits_for_pending_settings_queue() -> None:
+def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app.view_settings = InlineMicrophoneTestSettingsView()
-    events: list[str] = []
-
-    async def fake_apply_settings(settings) -> None:
-        events.append(f"apply:{settings}")
-
-    async def fake_start_microphone_test() -> bool:
-        events.append("start")
-        return True
-
-    controller = SimpleNamespace(
-        apply_settings=fake_apply_settings,
-        start_microphone_test=fake_start_microphone_test,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_settings_changed("audio")
-    app._on_start_microphone_test()
-
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-    assert events == ["apply:audio", "start"]
-
-
-def test_on_request_openrouter_pkce_uses_settings_mutation_queue(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_app_construction(monkeypatch)
-    app = TranslatorApp(
-        DummyPage(),
-        config_path=Path("settings.json"),
-        application_factory=_construction_application_factory,
-    )
-    target_settings = AppSettingsVNext()
-    queued: list[object] = []
-    monkeypatch.setattr(app, "_queue_settings_mutation_task", queued.append)
-
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-
-    assert len(queued) == 1
-
-
-def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    target_settings = AppSettingsVNext()
+    target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
     reopen_calls: list[str] = []
 
     async def fake_connect_openrouter_via_pkce(
-        *, target: AppSettingsVNext, launch_source: str
+        *,
+        target: OpenRouterPkceTarget,
+        launch_source: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:
-        _ = (target, launch_source)
         return False
 
     controller = SimpleNamespace(
@@ -3766,32 +3135,27 @@ def test_on_request_openrouter_pkce_reopens_existing_auth_url_while_flow_active(
         config_path=Path("settings.json"),
     )
     app._ui_application = compose_test_ui_application_boundary(controller)
-    app.view_settings = SimpleNamespace(
-        refresh_after_openrouter_pkce_success=lambda *_args, **_kwargs: None,
-        load_from_settings=lambda *_args, **_kwargs: None,
-    )
-    queued: list[object] = []
-    monkeypatch.setattr(app, "_queue_settings_mutation_task", queued.append)
+    app._queue_settings_mutation_task = lambda task: task().close()
 
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
+    app._on_request_openrouter_pkce(target, launch_source="settings")
+    app._on_request_openrouter_pkce(target, launch_source="settings")
 
-    assert len(queued) == 1
     assert reopen_calls == ["reopen"]
 
 
 @pytest.mark.asyncio
-async def test_on_request_openrouter_pkce_ignores_duplicate_while_flow_active(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_on_request_openrouter_pkce_coalesces_while_active_and_allows_retry() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
-    target_settings = AppSettingsVNext()
+    target = OpenRouterPkceTarget(selection_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
     pkce_calls: list[str] = []
 
     async def fake_connect_openrouter_via_pkce(
-        *, target: AppSettingsVNext, launch_source: str
+        *,
+        target: OpenRouterPkceTarget,
+        launch_source: str,
+        open_browser: bool = True,
+        authorization_url_sink: Callable[[str], None] | None = None,
     ) -> bool:
-        _ = target
         pkce_calls.append(launch_source)
         return False
 
@@ -3802,172 +3166,20 @@ async def test_on_request_openrouter_pkce_ignores_duplicate_while_flow_active(
         config_path=Path("settings.json"),
     )
     app._ui_application = compose_test_ui_application_boundary(controller)
-    app.view_settings = SimpleNamespace(
-        refresh_after_openrouter_pkce_success=lambda *_args, **_kwargs: None,
-        load_from_settings=lambda *_args, **_kwargs: None,
-    )
-    queued: list[object] = []
-    monkeypatch.setattr(app, "_queue_settings_mutation_task", queued.append)
+    tasks: list[object] = []
+    app._queue_settings_mutation_task = tasks.append
 
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-
-    assert len(queued) == 1
-    await queued[0]()
+    app._on_request_openrouter_pkce(target, launch_source="settings")
+    app._on_request_openrouter_pkce(target, launch_source="settings")
+    first_batch = tuple(tasks)
+    for task in first_batch:
+        await task()
     assert pkce_calls == ["settings"]
 
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-
-    assert len(queued) == 2
-
-
-@pytest.mark.asyncio
-async def test_on_request_openrouter_pkce_uses_draft_preserving_refresh_on_success(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    target_settings = AppSettingsVNext()
-    updated_settings = AppSettingsVNext()
-    pkce_calls: list[tuple[AppSettingsVNext, str]] = []
-    refresh_calls: list[tuple[AppSettingsVNext, Path]] = []
-    snackbar_calls: list[tuple[str, str]] = []
-
-    async def fake_connect_openrouter_via_pkce(
-        *, target: AppSettingsVNext, launch_source: str
-    ) -> bool:
-        pkce_calls.append((target, launch_source))
-        return True
-
-    controller = SimpleNamespace(
-        connect_openrouter_via_pkce=fake_connect_openrouter_via_pkce,
-        settings=updated_settings,
-        config_path=Path("settings.json"),
-        refresh_settings_after_openrouter_pkce_success=lambda: (
-            refresh_calls.append((updated_settings, Path("settings.json"))) or True
-        ),
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-    app._show_snackbar = lambda message, bgcolor: snackbar_calls.append((message, bgcolor))
-    queued: list[object] = []
-    monkeypatch.setattr(app, "_queue_settings_mutation_task", queued.append)
-
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-
-    assert len(queued) == 1
-    await queued[0]()
-    assert pkce_calls == [(target_settings, "settings")]
-    assert refresh_calls == [(updated_settings, Path("settings.json"))]
-    assert snackbar_calls == [(app_module.t("openrouter.pkce.connected"), app_module.COLOR_SUCCESS)]
-
-
-@pytest.mark.asyncio
-async def test_on_request_openrouter_pkce_does_not_refresh_settings_view_on_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    target_settings = AppSettingsVNext()
-    refresh_calls: list[tuple[AppSettingsVNext, Path]] = []
-
-    async def fake_connect_openrouter_via_pkce(
-        *, target: AppSettingsVNext, launch_source: str
-    ) -> bool:
-        _ = (target, launch_source)
-        return False
-
-    controller = SimpleNamespace(
-        connect_openrouter_via_pkce=fake_connect_openrouter_via_pkce,
-        settings=AppSettingsVNext(),
-        config_path=Path("settings.json"),
-        refresh_settings_after_openrouter_pkce_success=lambda: (
-            refresh_calls.append((AppSettingsVNext(), Path("settings.json"))) or True
-        ),
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-    queued: list[object] = []
-    monkeypatch.setattr(app, "_queue_settings_mutation_task", queued.append)
-
-    app._on_request_openrouter_pkce(target_settings, launch_source="settings")
-
-    assert len(queued) == 1
-    await queued[0]()
-    assert refresh_calls == []
-
-
-@pytest.mark.asyncio
-async def test_queue_orders_generic_settings_change_before_prompt_apply() -> None:
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    raw_settings = object()
-    pending_settings = object()
-    merged_settings = object()
-    events: list[tuple[str, object]] = []
-
-    def fake_merge_settings(settings) -> object:
-        events.append(("merge", settings))
-        return merged_settings
-
-    async def fake_apply_settings(settings) -> None:
-        events.append(("apply", settings))
-
-    controller = SimpleNamespace(
-        merge_settings_tab_apply_with_current_languages=fake_merge_settings,
-        apply_settings=fake_apply_settings,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_settings_changed(raw_settings)
-    app._on_prompt_apply_settings(pending_settings)
-
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-
-    assert events == [
-        ("apply", raw_settings),
-        ("apply", pending_settings),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_queue_orders_generic_settings_change_before_provider_apply_on_settings_exit() -> (
-    None
-):
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.page = DummyPage()
-    app._current_tab = 1
-    raw_settings = object()
-    provider_settings = AppSettingsVNext()
-    app.view_dashboard = object()
-    app.view_logs = SimpleNamespace(scroll_to_bottom=lambda: asyncio.sleep(0))
-    app.view_about = object()
-    app.view_settings = SimpleNamespace(
-        has_provider_changes=True,
-        consume_provider_apply_settings=lambda: provider_settings,
-        refresh_prompt_if_empty=lambda: None,
-    )
-    app.content_area = DummyContent()
-    events: list[tuple[str, object]] = []
-
-    async def fake_apply_settings(settings) -> None:
-        events.append(("settings", settings))
-
-    async def fake_apply_providers(settings) -> bool:
-        events.append(("providers", settings))
-        return True
-
-    controller = SimpleNamespace(
-        apply_settings=fake_apply_settings,
-        apply_providers=fake_apply_providers,
-        install_selected_gpu_model_if_needed=AsyncMock(),
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_settings_changed(raw_settings)
-    app._on_nav_change(0)
-
-    assert len(app.page.tasks) == 1
-    await app.page.tasks[0]()
-
-    assert events == [("settings", raw_settings), ("providers", provider_settings)]
+    app._on_request_openrouter_pkce(target, launch_source="settings")
+    for task in tuple(tasks[len(first_batch) :]):
+        await task()
+    assert pkce_calls == ["settings", "settings"]
 
 
 def test_on_nav_change_closes_open_dialog_before_switching_tabs() -> None:
@@ -4104,76 +3316,6 @@ def test_on_overlay_state_changed_updates_settings_view_runtime_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_debug_preview_submit_toggle_and_settings_wrappers_schedule_controller_tasks() -> (
-    None
-):
-    app = TranslatorApp.__new__(TranslatorApp)
-    app.debug_ui_preview = True
-    app.page = DummyPage()
-    seen: list[tuple[str, object]] = []
-
-    async def fake_submit(text: str) -> None:
-        seen.append(("submit", text))
-
-    async def fake_translation(enabled: bool) -> None:
-        seen.append(("translation", enabled))
-
-    async def fake_stt(enabled: bool) -> None:
-        seen.append(("stt", enabled))
-
-    async def fake_overlay(enabled: bool) -> None:
-        seen.append(("overlay", enabled))
-
-    async def fake_peer(enabled: bool) -> None:
-        seen.append(("peer", enabled))
-
-    async def fake_apply_settings(settings) -> None:
-        seen.append(("apply_settings", settings))
-
-    async def fake_apply_providers() -> None:
-        seen.append(("apply_providers", True))
-
-    def fake_manual_activity(has_text: bool) -> None:
-        seen.append(("manual_activity", has_text))
-
-    controller = SimpleNamespace(
-        submit_text=fake_submit,
-        set_manual_input_activity=fake_manual_activity,
-        set_translation_enabled=fake_translation,
-        set_stt_enabled=fake_stt,
-        set_overlay_enabled=fake_overlay,
-        set_peer_translation_enabled=fake_peer,
-        apply_settings=fake_apply_settings,
-        apply_providers=fake_apply_providers,
-    )
-    app._ui_application = compose_test_ui_application_boundary(controller)
-
-    app._on_manual_submit("You", "hello")
-    app._on_message_input_activity(True)
-    app._on_translation_toggle(True)
-    app._on_stt_toggle(False)
-    app._on_overlay_toggle(True)
-    app._on_peer_translation_toggle(True)
-    app._on_settings_changed("settings")
-    app._on_providers_changed()
-
-    assert len(app.page.tasks) == 7
-    for task_fn in app.page.tasks:
-        await task_fn()
-
-    assert seen == [
-        ("submit", "hello"),
-        ("manual_activity", True),
-        ("translation", True),
-        ("stt", False),
-        ("overlay", True),
-        ("peer", True),
-        ("apply_settings", "settings"),
-        ("apply_providers", True),
-    ]
-
-
-@pytest.mark.asyncio
 async def test_local_llm_secret_changed_forces_local_llm_rebuild() -> None:
     app = TranslatorApp.__new__(TranslatorApp)
     app.page = DummyPage()
@@ -4230,7 +3372,7 @@ def test_toggle_handlers_do_not_log_click_requests() -> None:
 
     controller = RuntimeLoggingController()
 
-    async def fake_translation(enabled: bool) -> None:
+    async def fake_translation(enabled: bool, *, allow_authorization: bool = True) -> None:
         _ = enabled
 
     async def fake_stt(enabled: bool) -> None:

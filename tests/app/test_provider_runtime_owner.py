@@ -383,7 +383,7 @@ async def test_managed_provider_rebuild_blocks_concurrent_enable_from_closing_by
         runtime_values.append(enabled)
         runtime.translation_enabled = enabled
 
-    async def prepare() -> ManagedTranslationPreparation:
+    async def prepare(_allow_authorization: bool) -> ManagedTranslationPreparation:
         raise AssertionError("managed preparation must wait for the provider switch")
 
     translation = TranslationEnableOwner(

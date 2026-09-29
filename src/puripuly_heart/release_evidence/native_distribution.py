@@ -70,6 +70,7 @@ class NativeArtifactLayout:
             raise ValueError(f"unexpected native artifact layout schema in {source}")
         expected = {
             "host_executable",
+            "console_executable",
             "python_executable",
             "application_root",
             "dependency_root",
@@ -100,6 +101,8 @@ class NativeArtifactLayout:
             values[key] = value
         if values["host_executable"] != "PuriPulyHeart.exe":
             raise ValueError("native host executable must be PuriPulyHeart.exe")
+        if values["console_executable"] != "puripuly.exe":
+            raise ValueError("native console executable must be puripuly.exe")
         if values["python_executable"] != "python.exe":
             raise ValueError("native Python executable must be python.exe")
         return cls(source.resolve(), values)
@@ -376,6 +379,7 @@ def validate_target(
         key: layout.resolve(target_root, key)
         for key in (
             "host_executable",
+            "console_executable",
             "python_executable",
             "application_root",
             "dependency_root",

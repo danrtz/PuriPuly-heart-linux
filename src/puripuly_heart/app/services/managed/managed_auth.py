@@ -168,6 +168,8 @@ class ManagedAuthOwner:
         on_callback_received: Callable[[], None] | None = None,
         on_recovery_started: Callable[[], None] | None = None,
         referral_id: str | None = None,
+        authorization_url_sink: Callable[[str], None] | None = None,
+        open_browser: bool = True,
     ) -> bool:
         self.last_referral_bonus_applied = False
         self.last_failure_kind = "failed"
@@ -188,9 +190,18 @@ class ManagedAuthOwner:
         self.discord_in_progress = True
         self.set_pending(True)
         try:
-            result = await self.discord_executor(
-                referral_id, on_callback_received, on_recovery_started
-            )
+            if authorization_url_sink is None and open_browser:
+                result = await self.discord_executor(
+                    referral_id, on_callback_received, on_recovery_started
+                )
+            else:
+                result = await self.discord_executor(
+                    referral_id,
+                    on_callback_received,
+                    on_recovery_started,
+                    authorization_url_sink=authorization_url_sink,
+                    open_browser=open_browser,
+                )
             if result.transaction_result is not None:
                 self.result_sink(result.transaction_result)
             if result.succeeded:

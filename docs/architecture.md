@@ -57,7 +57,9 @@ Broker is a control-plane dependency, not part of the normal utterance data path
 
 | Owner                   | Owns                                                       | Key path                                                                  |
 | ----------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
-| UI application boundary | UI-facing application operations                           | `app/services/ui_application.py`                 |
+| UI application boundary | UI-facing application operations | `app/services/ui_application.py` |
+| Application control owner | Typed operations, state queries, mutation ordering | `app/services/application_control.py`, `app/services/application_control_events.py` |
+| Local control host | Authenticated endpoint, instance identity and lifetime | `cli/host.py`, `cli/transport.py`, `core/control_instance.py` |
 | Settings owner          | Canonical settings, persistence, projection, rollback      | `app/services/canonical_settings_persistence.py` |
 | Runtime pipeline        | Active runtime component set                               | `app/wiring/wiring_runtime_pipeline.py`                    |
 | Self capture owner      | Microphone source and capture lifecycle                    | `core/runtime/self_capture.py`                       |
@@ -165,8 +167,9 @@ VRChat process lifetime
 
 | Boundary        | Contract                                             | Implementations                          |
 | --------------- | ---------------------------------------------------- | ---------------------------------------- |
-| UI application  | `UiApplicationPort`                                  | Flet application boundary                |
-| UI presentation | `UiPresentationPort`, `UIEventBridgePort`            | Flet presentation adapters               |
+| Local application control | Typed commands, queries, operations, and events | `ApplicationControlOwner`, local transport |
+| UI application  | `UiApplicationPort`                                  | `UiApplicationBoundary` |
+| UI presentation | `UiPresentationPort`, `UIEventBridgePort`            | Flet and headless presentation adapters   |
 | Audio capture   | Capture and VAD ports                                | Microphone, loopback, process capture    |
 | STT             | Provider and local ASR ports                         | CPU ASR, GPU worker, remote STT          |
 | Translation     | `TranslationRequestPort`                             | BYOK, managed, local or remote providers |
@@ -210,6 +213,22 @@ Composition may construct resources.
 
 Long-lived resource ownership must be transferred to an explicit owner.
 
+## Local Application Control
+
+GUI and headless hosts share application owners and runtime resources. Presentation adapters select whether the host has a main window. Headless presentation preserves application error state and severity without GUI notifications.
+
+`ApplicationControlOwner` exposes a finite catalog of typed commands and owner-backed queries. Settings projections and runtime dependencies come from existing application owners and composition.
+
+- Settings and provider edits use existing owners, with shared ordering for CLI commands, ordered GUI intents, and OSC edits.
+- Canonical mutations and resource conflicts have separate ordering boundaries.
+- `settings.current` projects committed settings. Status queries distinguish selected settings from effective runtime state.
+- Submitted tasks and bounded operation receipts belong to the control owner, not client connections. Receipts distinguish durable settings commits from runtime completion.
+- `ControlEvents` provides bounded, privacy-filtered subscriptions to the shared runtime event stream. Content requires explicit opt-in; slow clients do not block producers, and gaps require snapshot resynchronization.
+
+`HostedApplication` owns the authenticated same-user loopback endpoint and settings-identity lease. Shutdown stops ingress and drains owned operations before releasing runtime resources and the lease.
+
+Implementation: `app/services/application_control.py`, `app/services/application_control_events.py`, `cli/host.py`, `cli/transport.py`, `core/control_instance.py`. Command and protocol details: [CLI guide](cli.md).
+
 ## Runtime Pipeline
 
 `RuntimePipelineLauncher` builds and installs the active component set.
@@ -243,6 +262,8 @@ Do not retain references across replacement unless the API explicitly allows it.
 - Translation model and connection values: `config/translation_values.py`
 
 `SettingsView` consumes only frozen surface snapshots and emits focused typed intents. The settings application owner replays those intents onto the latest canonical settings before persistence and runtime application.
+
+Provider and prompt drafts retain a base snapshot and focused edits. External changes rebase or surface conflicts. Only successful apply acknowledges matching submitted edits; newer edits remain staged.
 
 Contains user selections, not active runtime resources.
 

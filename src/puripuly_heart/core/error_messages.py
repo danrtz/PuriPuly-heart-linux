@@ -286,17 +286,15 @@ def _failure_report(
         )
         status_code = branch_reports[0].diagnostics.status_code if matching else None
         category = (
-            branch_reports[0].diagnostics.category
-            if matching
-            else DIAGNOSTIC_CATEGORY_UNKNOWN
+            branch_reports[0].diagnostics.category if matching else DIAGNOSTIC_CATEGORY_UNKNOWN
         )
         message_key = (
             branch_reports[0].message.key
             if unanimous_402
-            and all(report.message.key == branch_reports[0].message.key for report in branch_reports)
-            else "provider.openrouter.payment_required"
-            if unanimous_402
-            else "provider.failure"
+            and all(
+                report.message.key == branch_reports[0].message.key for report in branch_reports
+            )
+            else "provider.openrouter.payment_required" if unanimous_402 else "provider.failure"
         )
         retry_values = {report.diagnostics.retry_after_ms for report in branch_reports}
         retry_after_ms = retry_values.pop() if matching and len(retry_values) == 1 else None

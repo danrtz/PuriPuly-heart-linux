@@ -58,6 +58,7 @@ OVERLAY_TERMINAL_RESTART_WINDOW_S = 60.0
 OVERLAY_STEAMVR_FALLBACK_POLICY: Literal["retry_every_enable"] = "retry_every_enable"
 OVERLAY_FAILURE_REASONS = frozenset(
     {
+        "output_unavailable",
         "missing_executable",
         "spawn_failed",
         "manifest_invalid",
@@ -298,6 +299,42 @@ class OverlayApplicationOwner:
             ),
         )
 
+    def output_snapshot(self) -> dict[str, object]:
+        intent = self.state_provider()
+        snapshot = self.snapshot
+        runtime = self._runtime
+        manager = runtime.process_manager if runtime is not None else None
+        process_state = manager.state if manager is not None else None
+        ready = bool(
+            snapshot.state == "connected"
+            and process_state == "connected"
+            and runtime is not None
+            and runtime.presenter is not None
+        )
+        return {
+            "settings_available": intent.settings_available,
+            "desired_enabled": intent.overlay_intent_enabled,
+            "configured_target": intent.configured_target,
+            "effective_target": snapshot.active_target if ready else None,
+            "attempting_target": snapshot.active_target,
+            "lifecycle": snapshot.state,
+            "runtime_active": self.runtime_is_active(),
+            "process_state": process_state,
+            "presentation_ready": ready,
+            "desktop_visible": (
+                self._current_desktop_first_visible()
+                if snapshot.active_target == OVERLAY_TARGET_DESKTOP
+                else None
+            ),
+            "generation": runtime.overlay_instance_id if runtime is not None else None,
+            "failure_reason": snapshot.failure_reason,
+            "auto_restart_scheduled": snapshot.auto_restart_scheduled,
+            "fallback_active": snapshot.fallback_active,
+            "recovery_active": snapshot.recovery_active,
+            "recovery_reason": snapshot.recovery_reason,
+            "ingress_stopped": self._ingress_stopped,
+        }
+
     @property
     def startup_recovery(self) -> dict[str, object] | None:
         recovery = self._startup_recovery
@@ -391,6 +428,40 @@ class OverlayApplicationOwner:
     def publish_presentation(self) -> None:
         with contextlib.suppress(Exception):
             self.presentation_sink(self.presentation_state())
+
+    async def wait_start_outcome(self) -> dict[str, object]:
+        seen: set[asyncio.Task[object]] = set()
+        while self._state in {"starting", "recovering"} and not self._ingress_stopped:
+            runtime = self._runtime
+            start_task = runtime.start_task if runtime is not None else None
+            fallback_task = self._fallback_owner.task if self._fallback_owner.active else None
+            recovery_task = self._startup_recovery_task
+            task = next(
+                (
+                    candidate
+                    for candidate in (start_task, fallback_task, recovery_task)
+                    if candidate is not None and candidate not in seen
+                ),
+                None,
+            )
+            if task is None:
+                break
+            seen.add(task)
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                waiter = asyncio.current_task()
+                if waiter is not None and waiter.cancelling():
+                    raise
+                if self._ingress_stopped:
+                    break
+            if (
+                self._state == "connected"
+                or self._state in {"failed", "off"}
+                and not (self._fallback_owner.active and self._fallback_owner.task is not None)
+            ):
+                break
+        return self.output_snapshot()
 
     async def set_enabled(self, enabled: bool) -> None:
         state = self.state_provider()
@@ -781,10 +852,14 @@ class OverlayApplicationOwner:
     async def run_start(self, runtime: OverlayRuntimeHandle | None = None) -> None:
         if runtime is None:
             runtime = self._runtime or self.new_runtime()
-        if not self.state_provider().settings_available or self.output_provider() is None:
-            self._active_target = None
+        if not self.state_provider().settings_available:
             if self.runtime_is_current(runtime):
                 self.on_start_failed("unknown")
+            return
+        if self.output_provider() is None:
+            self._active_target = None
+            if self.runtime_is_current(runtime):
+                self.on_start_failed("output_unavailable")
             return
         await self._generation_owner.start(
             runtime,

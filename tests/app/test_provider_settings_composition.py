@@ -53,7 +53,7 @@ async def test_peer_provider_options_survive_composed_apply_and_reload(
         config_path=config_path,
     )
     pending = []
-    view.on_providers_changed = lambda: pending.append(view.consume_provider_apply_settings())
+    view.on_providers_changed = lambda: pending.append(view.build_provider_apply_settings())
     view._on_peer_stt_selected(peer_provider)
     selected_label = view._peer_stt_text.content.value
 
@@ -68,6 +68,8 @@ async def test_peer_provider_options_survive_composed_apply_and_reload(
         intent = pending.pop()
         assert intent is not None
         await app.apply_provider_intent(intent)
+        view.acknowledge_provider_apply_settings(intent)
+        app.refresh_settings_projection()
 
         canonical = app._settings.settings.canonical
         loaded = load_vnext_settings(config_path)
