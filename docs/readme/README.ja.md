@@ -228,20 +228,6 @@ PuriPulyはクラウドSTTと組み合わせると最良の体験になります
 登録するだけで200ドル分の無料クレジットがもらえます。
 
 <details>
-<summary><h3>GPT 6 Luna</h3></summary>
-
-GPT 6 Luna には2つの接続方法のみがあり、管理型アクセスはありません。
-
-- [OpenRouter](https://openrouter.ai/openai/gpt-6-luna?view=api) は既存の OpenRouter BYOK キーまたは PKCE 認証を使用します (`openai/gpt-6-luna`)。
-- [OpenAI 公式 API](https://developers.openai.com/api/docs/models/gpt-6-luna) (`gpt-6-luna`) は OpenAI API キー設定 (`openai_api_key`) または `OPENAI_API_KEY` 環境変数を使用します。
-
-GPT 6 Luna を初めて選ぶと OpenRouter が既定で選択され、以後は Luna 用に保存した接続が復元されます。両ルートとも reasoning effort に `none` を明示します。OpenAI ルートは `reasoning_effort: "none"`、OpenRouter ルートは `reasoning: {"effort": "none"}` を使用し、アプリから変更できません。OpenAI キーの検証では GPT 6 Luna に小さなリクエストを送るため、API 料金が発生する場合があります。
-
-OpenRouter の既存のレイテンシーポリシーには、同じ Luna モデルへの追加リクエストと、4.4 秒後の Gemma 4 31B 緊急試行が含まれます。GPT 6 Luna を選択していても Gemma が先に完了して採用されることがあり、重複リクエストで料金が発生する場合があります。OpenAI 直接ルートは既存の直接接続ポリシーを維持し、OpenRouter へ自動的に切り替わりません。
-
-</details>
-
-<details>
 <summary><h3>OpenRouter</h3></summary>
 
 1. 赤い丸の中のオプションをスクリーンショットのとおりに設定してください。

@@ -230,20 +230,6 @@ We recommend starting with Deepgram.
 Just signing up gets you $200 in free credits.
 
 <details>
-<summary><h3>GPT 6 Luna</h3></summary>
-
-GPT 6 Luna has two connections only; managed access is not available.
-
-- [OpenRouter](https://openrouter.ai/openai/gpt-6-luna?view=api) uses your existing OpenRouter BYOK key or PKCE sign-in (`openai/gpt-6-luna`).
-- [Official OpenAI API](https://developers.openai.com/api/docs/models/gpt-6-luna) (`gpt-6-luna`) uses the OpenAI API Key setting (`openai_api_key`) or the `OPENAI_API_KEY` environment variable.
-
-The first time you select GPT 6 Luna, OpenRouter is selected by default; later, the app restores Luna's saved connection. Both routes explicitly set reasoning effort to `none`: `reasoning_effort: "none"` for OpenAI and `reasoning: {"effort": "none"}` for OpenRouter. This setting cannot be changed in the app. Verifying a direct OpenAI key sends a small request to GPT 6 Luna and may incur an API charge.
-
-The existing OpenRouter latency policy still includes an additional attempt to the same Luna model and a Gemma 4 31B emergency attempt after 4.4 seconds. Gemma may finish first even when GPT 6 Luna is selected; duplicate attempts may incur charges. The direct OpenAI route retains its existing direct-provider policy and does not fail over to OpenRouter.
-
-</details>
-
-<details>
 <summary><h3>OpenRouter</h3></summary>
 
 1. Set the options inside the red circle as shown in the screenshot.

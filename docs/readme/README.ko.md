@@ -247,20 +247,6 @@ PuriPuly는 클라우드 ASR와 결합했을 때 최상의 경험을 제공해�
 클라우드 ASR은 우선 Gemini 3.5 Transcribe으로 시작하는걸 추천해요.
 
 <details>
-<summary><h3>GPT 6 Luna</h3></summary>
-
-GPT 6 Luna는 두 연결만 지원하며 관리형 액세스는 제공하지 않아요.
-
-- [OpenRouter](https://openrouter.ai/openai/gpt-6-luna?view=api)는 기존 OpenRouter BYOK 키 또는 PKCE 인증을 사용해요 (`openai/gpt-6-luna`).
-- [OpenAI 공식 API](https://developers.openai.com/api/docs/models/gpt-6-luna) (`gpt-6-luna`)는 OpenAI API 키 설정 (`openai_api_key`) 또는 `OPENAI_API_KEY` 환경 변수를 사용해요.
-
-GPT 6 Luna를 처음 선택하면 OpenRouter가 기본 연결로 선택되고, 이후에는 Luna에 저장된 연결을 복원해요. 두 경로 모두 reasoning effort를 `none`으로 명시해요. OpenAI 경로는 `reasoning_effort: "none"`, OpenRouter 경로는 `reasoning: {"effort": "none"}`을 사용하며 앱에서 변경할 수 없어요. OpenAI 키를 확인할 때 GPT 6 Luna에 작은 요청을 보내므로 API 요금이 발생할 수 있어요.
-
-OpenRouter의 기존 지연시간 정책에는 Luna 모델을 추가로 한 번 시도하는 것과 4.4초 후 Gemma 4 31B 비상 시도가 포함돼요. GPT 6 Luna를 선택했어도 Gemma가 먼저 완료되어 결과로 채택될 수 있고, 중복 요청으로 요금이 발생할 수 있어요. 직접 OpenAI 경로는 기존 직접 제공자 정책을 유지하며 OpenRouter로 자동 전환하지 않아요.
-
-</details>
-
-<details>
 <summary><h3>OpenRouter</h3></summary>
 
 1. 빨간색 원 안의 옵션을 화면과 같이 설정해주세요.

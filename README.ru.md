@@ -229,20 +229,6 @@ PuriPuly работает лучше всего с облачным STT.
 Начните с Deepgram — при регистрации дают $200.
 
 <details>
-<summary><h3>GPT 6 Luna</h3></summary>
-
-Для GPT 6 Luna доступны только два способа подключения; управляемого доступа нет.
-
-- [OpenRouter](https://openrouter.ai/openai/gpt-6-luna?view=api) использует существующий ключ OpenRouter BYOK или вход через PKCE (`openai/gpt-6-luna`).
-- [Официальный API OpenAI](https://developers.openai.com/api/docs/models/gpt-6-luna) (`gpt-6-luna`) использует поле OpenAI API Key (`openai_api_key`) или переменную среды `OPENAI_API_KEY`.
-
-При первом выборе GPT 6 Luna по умолчанию выбирается OpenRouter; позднее приложение восстанавливает сохранённое для Luna подключение. Оба маршрута явно задают reasoning effort `none`: `reasoning_effort: "none"` для OpenAI и `reasoning: {"effort": "none"}` для OpenRouter. Изменить этот параметр в приложении нельзя. Проверка прямого ключа OpenAI отправляет небольшой запрос к GPT 6 Luna и может привести к расходам на API.
-
-В OpenRouter сохраняется прежняя политика задержки: дополнительная попытка для той же модели Luna и аварийная попытка Gemma 4 31B через 4,4 секунды. Gemma может завершиться первой и быть выбрана, даже если выбрана GPT 6 Luna; повторные запросы могут привести к расходам. Прямой маршрут OpenAI сохраняет прежнюю политику провайдера и не переключается автоматически на OpenRouter.
-
-</details>
-
-<details>
 <summary><h3>OpenRouter</h3></summary>
 
 1. Установите параметры, обведённые красным, как на скриншоте.

@@ -226,20 +226,6 @@ PuriPuly 与云端 STT 结合时能提供最佳体验。
 例如即使同样是 Qwen ASR，本地与云端的语音识别性能也有相当差距。
 
 <details>
-<summary><h3>GPT 6 Luna</h3></summary>
-
-GPT 6 Luna 仅支持以下两种连接，不提供托管访问。
-
-- [OpenRouter](https://openrouter.ai/openai/gpt-6-luna?view=api) 使用现有的 OpenRouter BYOK 密钥或 PKCE 登录 (`openai/gpt-6-luna`)。
-- [OpenAI 官方 API](https://developers.openai.com/api/docs/models/gpt-6-luna) (`gpt-6-luna`) 使用 OpenAI API 密钥设置 (`openai_api_key`) 或 `OPENAI_API_KEY` 环境变量。
-
-首次选择 GPT 6 Luna 时默认选择 OpenRouter；之后会恢复为 Luna 保存的连接。两条路由都会明确将 reasoning effort 设为 `none`：OpenAI 使用 `reasoning_effort: "none"`，OpenRouter 使用 `reasoning: {"effort": "none"}`。此设置不能在应用中更改。验证 OpenAI 密钥时会向 GPT 6 Luna 发送一个小请求，可能产生 API 费用。
-
-OpenRouter 保留现有的延迟策略，其中包括对同一 Luna 模型的额外尝试，以及 4.4 秒后的 Gemma 4 31B 紧急尝试。即使选择了 GPT 6 Luna，Gemma 也可能先完成并被采用；重复请求可能产生费用。OpenAI 直连路由保留现有的直接提供方策略，不会自动切换到 OpenRouter。
-
-</details>
-
-<details>
 <summary><h3>OpenRouter</h3></summary>
 
 1. 请按下方截图所示设置红色圆圈内的选项。
