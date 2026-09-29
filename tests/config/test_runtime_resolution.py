@@ -826,6 +826,7 @@ def test_managed_openrouter_primary_gets_identity_hedge_and_emergency_route() ->
     assert config.attempts[2].start_on_primary_error is False
     assert config.attempts[2].target.provider_routing == "gemma4_31b_modelrun_only"
 
+
 @pytest.mark.parametrize(
     ("connection", "attempt_count"),
     [("openrouter", 3), ("official_byok", 2)],
@@ -906,13 +907,14 @@ def test_luna_canonical_product_resolves_independently_of_legacy_alias(
     ):
         config = runtime_resolution.resolve_llm_config(
             _runtime_input(
-                runtime_resolution, model="gpt_6_luna", connection=connection,
+                runtime_resolution,
+                model="gpt_6_luna",
+                connection=connection,
                 openrouter=normalized,
             )
         )
         assert (config.provider, config.model) == (provider, model)
         assert config.credential.source == "secret_store"
-
 
 
 def test_managed_china_resolves_explicit_qq_managed_credential_reference() -> None:

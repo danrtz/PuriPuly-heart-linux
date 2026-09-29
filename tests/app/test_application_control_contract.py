@@ -45,7 +45,9 @@ def isolated_settings(path):
 
 
 @pytest.mark.asyncio
-async def test_cli_model_only_selection_restores_saved_luna_connection(tmp_path, monkeypatch) -> None:
+async def test_cli_model_only_selection_restores_saved_luna_connection(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
     path = tmp_path / "settings.json"
     isolated_settings(path)

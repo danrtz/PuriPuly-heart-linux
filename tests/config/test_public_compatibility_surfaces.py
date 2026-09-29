@@ -19,14 +19,9 @@ import pytest
 
 from puripuly_heart.app import wiring
 from puripuly_heart.app.ports.broker_client import ManagedOperationStatusResult
-from puripuly_heart.config import llm_profiles, runtime_resolution
-from puripuly_heart.config import prompts as prompts_module
 from puripuly_heart.config import resolved as resolved_config
-from puripuly_heart.config.prompts import (
-    TRANSLATION_PROMPT_NAME,
-    load_prompt,
-    load_prompt_for_provider,
-)
+from puripuly_heart.config import runtime_resolution
+from puripuly_heart.config.prompts import load_prompt, load_prompt_for_provider
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     QwenRegion,
@@ -1500,8 +1495,6 @@ def test_prompt_loader_prefers_named_files_then_defaults(
 
     with pytest.raises(FileNotFoundError):
         load_prompt_for_provider("gemini")
-
-
 
 
 def test_provider_runtime_public_config_snapshot_matches_resolved_contracts() -> None:

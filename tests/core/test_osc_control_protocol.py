@@ -61,6 +61,7 @@ def test_translation_model_publish_ids_cover_every_product_model() -> None:
 
     assert {model.value for model in TranslationModel} <= set(TRANSLATION_MODEL_ID_BY_VALUE)
 
+
 def test_luna_osc_selection_has_new_id_and_keeps_both_connections() -> None:
     message = decode_control_message("/avatar/parameters/PuriPuly_Translator", 14)
     assert message.value == 14
