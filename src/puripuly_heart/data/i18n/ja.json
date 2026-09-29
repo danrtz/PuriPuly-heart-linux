@@ -76,7 +76,7 @@
   "settings.translation_model.managed_gemma_cpu.description": "8コアDDR5システム以上での使用を推奨します",
   "settings.translation_model.managed_gemma_gpu.description": "空き VRAM が 3 GB 必要です",
   "settings.translation_model.gemma4_26b_31b.description": "ほとんどの場面で優秀です",
-  "settings.translation_model.deepseek_v4_flash.description": "まさに水のように安い知能",
+  "settings.translation_model.deepseek_v4_flash.description": "",
   "settings.translation_model.deepseek_v4_flash_41.description": "中国語に強いです",
   "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "DeepSeekの良い代替手段です",

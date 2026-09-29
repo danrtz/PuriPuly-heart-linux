@@ -76,7 +76,7 @@
   "settings.translation_model.managed_gemma_cpu.description": "Рекомендуется использовать на системах с 8 и более ядрами и DDR5",
   "settings.translation_model.managed_gemma_gpu.description": "Нужно 3 ГБ свободной VRAM",
   "settings.translation_model.gemma4_26b_31b.description": "Подходит для большинства случаев",
-  "settings.translation_model.deepseek_v4_flash.description": "Буквально: интеллект, дешёвый как вода",
+  "settings.translation_model.deepseek_v4_flash.description": "",
   "settings.translation_model.deepseek_v4_flash_41.description": "Хорошо знает китайский",
   "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "Сильная альтернатива DeepSeek",

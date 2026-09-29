@@ -76,7 +76,7 @@
   "settings.translation_model.managed_gemma_cpu.description": "建议在 8 核 DDR5 或更高配置的系统上使用",
   "settings.translation_model.managed_gemma_gpu.description": "需要 3 GB 空闲显存",
   "settings.translation_model.gemma4_26b_31b.description": "适合大多数情况",
-  "settings.translation_model.deepseek_v4_flash.description": "名副其实，像水一样便宜的智能",
+  "settings.translation_model.deepseek_v4_flash.description": "",
   "settings.translation_model.deepseek_v4_flash_41.description": "擅长中文",
   "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "DeepSeek 的不错替代选择",

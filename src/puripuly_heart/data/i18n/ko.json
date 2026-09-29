@@ -76,7 +76,7 @@
   "settings.translation_model.managed_gemma_cpu.description": "8코어 DDR5 시스템 이상에서 사용하는걸 권장해요",
   "settings.translation_model.managed_gemma_gpu.description": "여유 VRAM이 3 GB 필요해요",
   "settings.translation_model.gemma4_26b_31b.description": "대부분의 상황에서 좋아요",
-  "settings.translation_model.deepseek_v4_flash.description": "말 그대로 물처럼 저렴한 지능",
+  "settings.translation_model.deepseek_v4_flash.description": "",
   "settings.translation_model.deepseek_v4_flash_41.description": "중국어를 잘해요",
   "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "딥시크의 좋은 대안이에요",

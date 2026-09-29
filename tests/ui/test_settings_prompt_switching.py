@@ -340,6 +340,16 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
 
     managed = {option.value: option for option in options}
     assert managed[TranslationModel.GPT_6_LUNA.value].description == ""
+    deepseek_v4_flash = managed[TranslationModel.DEEPSEEK_V4_FLASH.value]
+    assert deepseek_v4_flash.section == t("settings.translation_model.section.others")
+    assert deepseek_v4_flash.description == ""
+    deepseek_v4_flash_41 = managed[TranslationModel.DEEPSEEK_V4_FLASH_41.value]
+    assert deepseek_v4_flash_41.section == t(
+        "settings.translation_model.section.recommended_cloud"
+    )
+    assert deepseek_v4_flash_41.description == t(
+        "settings.translation_model.deepseek_v4_flash_41.description"
+    )
     assert managed["managed_gemma_cpu"].label == t("provider.managed_gemma_cpu")
     assert managed["managed_gemma_cpu"].description == t(
         "settings.translation_model.managed_gemma_cpu.description"
@@ -379,8 +389,9 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
     ]
 
     others_options = [option for option in options if option.section == gemma26_a4b.section]
-    assert others_options[0] is gemma26_a4b
-    assert others_options[1] is gemma31
+    assert others_options[0] is deepseek_v4_flash
+    assert others_options[1] is gemma26_a4b
+    assert others_options[2] is gemma31
 
 
 def test_gemma31_connection_modal_lists_managed_and_openrouter(monkeypatch) -> None:
