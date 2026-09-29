@@ -1,0 +1,106 @@
+{
+  "sample_rate_hz": 16000,
+  "sample_width_bytes": 2,
+  "channels": 1,
+  "silence_after_every_clip_s": 0.5,
+  "cases": {
+    "repeated": {
+      "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+      "pcm_bytes": 712960,
+      "duration_s": 22.28,
+      "turns": [
+        {
+          "utt_id": "1:1089-134686-0001",
+          "source_clip": "1089-134686-0001",
+          "label": "A",
+          "speaker": "1089",
+          "start_s": 0.0,
+          "end_s": 3.275
+        },
+        {
+          "utt_id": "2:1089-134686-0001",
+          "source_clip": "1089-134686-0001",
+          "label": "A",
+          "speaker": "1089",
+          "start_s": 3.775,
+          "end_s": 7.05
+        },
+        {
+          "utt_id": "3:1995-1826-0003",
+          "source_clip": "1995-1826-0003",
+          "label": "B",
+          "speaker": "1995",
+          "start_s": 7.55,
+          "end_s": 10.64
+        },
+        {
+          "utt_id": "4:1995-1826-0003",
+          "source_clip": "1995-1826-0003",
+          "label": "B",
+          "speaker": "1995",
+          "start_s": 11.14,
+          "end_s": 14.23
+        },
+        {
+          "utt_id": "5:1089-134686-0001",
+          "source_clip": "1089-134686-0001",
+          "label": "A",
+          "speaker": "1089",
+          "start_s": 14.73,
+          "end_s": 18.005
+        },
+        {
+          "utt_id": "6:1089-134686-0001",
+          "source_clip": "1089-134686-0001",
+          "label": "A",
+          "speaker": "1089",
+          "start_s": 18.505,
+          "end_s": 21.78
+        }
+      ],
+      "audio": "audio/repeated.wav",
+      "qwen_reference": "../qwen_validation/result.json"
+    },
+    "distinct": {
+      "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+      "pcm_bytes": 450560,
+      "duration_s": 14.08,
+      "turns": [
+        {
+          "utt_id": "1:1089-134686-0001",
+          "source_clip": "1089-134686-0001",
+          "label": "A1",
+          "speaker": "1089",
+          "start_s": 0.0,
+          "end_s": 3.275
+        },
+        {
+          "utt_id": "2:1995-1826-0003",
+          "source_clip": "1995-1826-0003",
+          "label": "B1",
+          "speaker": "1995",
+          "start_s": 3.775,
+          "end_s": 6.865
+        },
+        {
+          "utt_id": "3:1089-134686-0003",
+          "source_clip": "1089-134686-0003",
+          "label": "A2",
+          "speaker": "1089",
+          "start_s": 7.365,
+          "end_s": 10.045
+        },
+        {
+          "utt_id": "4:1995-1826-0004",
+          "source_clip": "1995-1826-0004",
+          "label": "B2",
+          "speaker": "1995",
+          "start_s": 10.545,
+          "end_s": 13.58
+        }
+      ],
+      "audio": "audio/distinct.wav",
+      "qwen_reference": "../qwen_validation/result_distinct.json"
+    }
+  }
+}

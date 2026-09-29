@@ -1,0 +1,639 @@
+{
+  "arm": "async_full_file",
+  "model": "stt-async-v5",
+  "config": {
+    "model": "stt-async-v5",
+    "enable_speaker_diarization": true,
+    "enable_language_identification": false,
+    "language_hints": [
+      "en"
+    ]
+  },
+  "duration_s": 22.28,
+  "sent_seconds": 22.28,
+  "http_requests": 7,
+  "timeline": [
+    {
+      "provider_start_s": 0,
+      "provider_end_s": 22.28,
+      "source_start_s": 0,
+      "source_end_s": 22.28
+    }
+  ],
+  "tokens": [
+    {
+      "text": "\"S",
+      "speaker": "1",
+      "start_ms": 570,
+      "end_ms": 630
+    },
+    {
+      "text": "tu",
+      "speaker": "1",
+      "start_ms": 690,
+      "end_ms": 750
+    },
+    {
+      "text": "ff",
+      "speaker": "1",
+      "start_ms": 750,
+      "end_ms": 810
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 930,
+      "end_ms": 990
+    },
+    {
+      "text": " into",
+      "speaker": "1",
+      "start_ms": 1050,
+      "end_ms": 1110
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 1230,
+      "end_ms": 1290
+    },
+    {
+      "text": "ou,",
+      "speaker": "1",
+      "start_ms": 1410,
+      "end_ms": 1470
+    },
+    {
+      "text": "\"",
+      "speaker": "1",
+      "start_ms": 1530,
+      "end_ms": 1590
+    },
+    {
+      "text": " his",
+      "speaker": "1",
+      "start_ms": 1650,
+      "end_ms": 1710
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 1830,
+      "end_ms": 1890
+    },
+    {
+      "text": "elly",
+      "speaker": "1",
+      "start_ms": 2070,
+      "end_ms": 2130
+    },
+    {
+      "text": " co",
+      "speaker": "1",
+      "start_ms": 2310,
+      "end_ms": 2370
+    },
+    {
+      "text": "un",
+      "speaker": "1",
+      "start_ms": 2430,
+      "end_ms": 2490
+    },
+    {
+      "text": "sel",
+      "speaker": "1",
+      "start_ms": 2490,
+      "end_ms": 2550
+    },
+    {
+      "text": "ed",
+      "speaker": "1",
+      "start_ms": 2550,
+      "end_ms": 2610
+    },
+    {
+      "text": " him",
+      "speaker": "1",
+      "start_ms": 2670,
+      "end_ms": 2730
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 2970,
+      "end_ms": 3030
+    },
+    {
+      "text": " \"S",
+      "speaker": "1",
+      "start_ms": 4290,
+      "end_ms": 4350
+    },
+    {
+      "text": "tu",
+      "speaker": "1",
+      "start_ms": 4350,
+      "end_ms": 4410
+    },
+    {
+      "text": "ff",
+      "speaker": "1",
+      "start_ms": 4410,
+      "end_ms": 4470
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 4590,
+      "end_ms": 4650
+    },
+    {
+      "text": " into",
+      "speaker": "1",
+      "start_ms": 4710,
+      "end_ms": 4770
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 4950,
+      "end_ms": 5010
+    },
+    {
+      "text": "ou,",
+      "speaker": "1",
+      "start_ms": 5070,
+      "end_ms": 5130
+    },
+    {
+      "text": "\"",
+      "speaker": "1",
+      "start_ms": 5190,
+      "end_ms": 5250
+    },
+    {
+      "text": " his",
+      "speaker": "1",
+      "start_ms": 5310,
+      "end_ms": 5370
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 5610,
+      "end_ms": 5670
+    },
+    {
+      "text": "elly",
+      "speaker": "1",
+      "start_ms": 5790,
+      "end_ms": 5850
+    },
+    {
+      "text": " co",
+      "speaker": "1",
+      "start_ms": 6030,
+      "end_ms": 6090
+    },
+    {
+      "text": "un",
+      "speaker": "1",
+      "start_ms": 6150,
+      "end_ms": 6210
+    },
+    {
+      "text": "sel",
+      "speaker": "1",
+      "start_ms": 6210,
+      "end_ms": 6270
+    },
+    {
+      "text": "ed",
+      "speaker": "1",
+      "start_ms": 6330,
+      "end_ms": 6390
+    },
+    {
+      "text": " him",
+      "speaker": "1",
+      "start_ms": 6450,
+      "end_ms": 6510
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 6630,
+      "end_ms": 6690
+    },
+    {
+      "text": " \"B",
+      "speaker": "2",
+      "start_ms": 7950,
+      "end_ms": 8010
+    },
+    {
+      "text": "et",
+      "speaker": "2",
+      "start_ms": 8010,
+      "end_ms": 8070
+    },
+    {
+      "text": "ter",
+      "speaker": "2",
+      "start_ms": 8130,
+      "end_ms": 8190
+    },
+    {
+      "text": " g",
+      "speaker": "2",
+      "start_ms": 8430,
+      "end_ms": 8490
+    },
+    {
+      "text": "o,",
+      "speaker": "2",
+      "start_ms": 8610,
+      "end_ms": 8670
+    },
+    {
+      "text": "\"",
+      "speaker": "2",
+      "start_ms": 8730,
+      "end_ms": 8790
+    },
+    {
+      "text": " he",
+      "speaker": "2",
+      "start_ms": 8790,
+      "end_ms": 8850
+    },
+    {
+      "text": " had",
+      "speaker": "2",
+      "start_ms": 8970,
+      "end_ms": 9030
+    },
+    {
+      "text": " co",
+      "speaker": "2",
+      "start_ms": 9150,
+      "end_ms": 9210
+    },
+    {
+      "text": "uns",
+      "speaker": "2",
+      "start_ms": 9210,
+      "end_ms": 9270
+    },
+    {
+      "text": "els",
+      "speaker": "2",
+      "start_ms": 9390,
+      "end_ms": 9450
+    },
+    {
+      "text": " sent",
+      "speaker": "2",
+      "start_ms": 9690,
+      "end_ms": 9750
+    },
+    {
+      "text": "ent",
+      "speaker": "2",
+      "start_ms": 9870,
+      "end_ms": 9930
+    },
+    {
+      "text": "ious",
+      "speaker": "2",
+      "start_ms": 9990,
+      "end_ms": 10050
+    },
+    {
+      "text": "ly",
+      "speaker": "2",
+      "start_ms": 10230,
+      "end_ms": 10290
+    },
+    {
+      "text": ".",
+      "speaker": "2",
+      "start_ms": 10410,
+      "end_ms": 10470
+    },
+    {
+      "text": " \"B",
+      "speaker": "2",
+      "start_ms": 11430,
+      "end_ms": 11490
+    },
+    {
+      "text": "et",
+      "speaker": "2",
+      "start_ms": 11490,
+      "end_ms": 11550
+    },
+    {
+      "text": "ter",
+      "speaker": "2",
+      "start_ms": 11610,
+      "end_ms": 11670
+    },
+    {
+      "text": " g",
+      "speaker": "2",
+      "start_ms": 11850,
+      "end_ms": 11910
+    },
+    {
+      "text": "o,",
+      "speaker": "2",
+      "start_ms": 12090,
+      "end_ms": 12150
+    },
+    {
+      "text": "\"",
+      "speaker": "2",
+      "start_ms": 12210,
+      "end_ms": 12270
+    },
+    {
+      "text": " he",
+      "speaker": "2",
+      "start_ms": 12330,
+      "end_ms": 12390
+    },
+    {
+      "text": " had",
+      "speaker": "2",
+      "start_ms": 12450,
+      "end_ms": 12510
+    },
+    {
+      "text": " co",
+      "speaker": "2",
+      "start_ms": 12630,
+      "end_ms": 12690
+    },
+    {
+      "text": "uns",
+      "speaker": "2",
+      "start_ms": 12750,
+      "end_ms": 12810
+    },
+    {
+      "text": "els",
+      "speaker": "2",
+      "start_ms": 12930,
+      "end_ms": 12990
+    },
+    {
+      "text": " sent",
+      "speaker": "2",
+      "start_ms": 13230,
+      "end_ms": 13290
+    },
+    {
+      "text": "ent",
+      "speaker": "2",
+      "start_ms": 13410,
+      "end_ms": 13470
+    },
+    {
+      "text": "ious",
+      "speaker": "2",
+      "start_ms": 13590,
+      "end_ms": 13650
+    },
+    {
+      "text": "ly",
+      "speaker": "2",
+      "start_ms": 13770,
+      "end_ms": 13830
+    },
+    {
+      "text": ".",
+      "speaker": "2",
+      "start_ms": 13950,
+      "end_ms": 14010
+    },
+    {
+      "text": " \"S",
+      "speaker": "1",
+      "start_ms": 15210,
+      "end_ms": 15270
+    },
+    {
+      "text": "tu",
+      "speaker": "1",
+      "start_ms": 15270,
+      "end_ms": 15330
+    },
+    {
+      "text": "ff",
+      "speaker": "1",
+      "start_ms": 15390,
+      "end_ms": 15450
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 15510,
+      "end_ms": 15570
+    },
+    {
+      "text": " into",
+      "speaker": "1",
+      "start_ms": 15690,
+      "end_ms": 15750
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 15870,
+      "end_ms": 15930
+    },
+    {
+      "text": "ou,",
+      "speaker": "1",
+      "start_ms": 16050,
+      "end_ms": 16110
+    },
+    {
+      "text": "\"",
+      "speaker": "1",
+      "start_ms": 16170,
+      "end_ms": 16230
+    },
+    {
+      "text": " his",
+      "speaker": "1",
+      "start_ms": 16290,
+      "end_ms": 16350
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 16530,
+      "end_ms": 16590
+    },
+    {
+      "text": "elly",
+      "speaker": "1",
+      "start_ms": 16710,
+      "end_ms": 16770
+    },
+    {
+      "text": " co",
+      "speaker": "1",
+      "start_ms": 16950,
+      "end_ms": 17010
+    },
+    {
+      "text": "uns",
+      "speaker": "1",
+      "start_ms": 17070,
+      "end_ms": 17130
+    },
+    {
+      "text": "ell",
+      "speaker": "1",
+      "start_ms": 17190,
+      "end_ms": 17250
+    },
+    {
+      "text": "ed",
+      "speaker": "1",
+      "start_ms": 17250,
+      "end_ms": 17310
+    },
+    {
+      "text": " him",
+      "speaker": "1",
+      "start_ms": 17370,
+      "end_ms": 17430
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 17550,
+      "end_ms": 17610
+    },
+    {
+      "text": " \"S",
+      "speaker": "1",
+      "start_ms": 18990,
+      "end_ms": 19050
+    },
+    {
+      "text": "tu",
+      "speaker": "1",
+      "start_ms": 19050,
+      "end_ms": 19110
+    },
+    {
+      "text": "ff",
+      "speaker": "1",
+      "start_ms": 19170,
+      "end_ms": 19230
+    },
+    {
+      "text": " it",
+      "speaker": "1",
+      "start_ms": 19290,
+      "end_ms": 19350
+    },
+    {
+      "text": " into",
+      "speaker": "1",
+      "start_ms": 19410,
+      "end_ms": 19470
+    },
+    {
+      "text": " y",
+      "speaker": "1",
+      "start_ms": 19650,
+      "end_ms": 19710
+    },
+    {
+      "text": "ou,",
+      "speaker": "1",
+      "start_ms": 19770,
+      "end_ms": 19830
+    },
+    {
+      "text": "\"",
+      "speaker": "1",
+      "start_ms": 19950,
+      "end_ms": 20010
+    },
+    {
+      "text": " his",
+      "speaker": "1",
+      "start_ms": 20070,
+      "end_ms": 20130
+    },
+    {
+      "text": " b",
+      "speaker": "1",
+      "start_ms": 20310,
+      "end_ms": 20370
+    },
+    {
+      "text": "elly",
+      "speaker": "1",
+      "start_ms": 20490,
+      "end_ms": 20550
+    },
+    {
+      "text": " co",
+      "speaker": "1",
+      "start_ms": 20730,
+      "end_ms": 20790
+    },
+    {
+      "text": "uns",
+      "speaker": "1",
+      "start_ms": 20850,
+      "end_ms": 20910
+    },
+    {
+      "text": "ell",
+      "speaker": "1",
+      "start_ms": 20970,
+      "end_ms": 21030
+    },
+    {
+      "text": "ed",
+      "speaker": "1",
+      "start_ms": 21030,
+      "end_ms": 21090
+    },
+    {
+      "text": " him",
+      "speaker": "1",
+      "start_ms": 21150,
+      "end_ms": 21210
+    },
+    {
+      "text": ".",
+      "speaker": "1",
+      "start_ms": 21330,
+      "end_ms": 21390
+    }
+  ],
+  "lifecycle": {
+    "status": "completed",
+    "http_requests": 7
+  },
+  "cleanup": {
+    "transcription_deleted": true,
+    "file_deleted": true,
+    "unresolved_transcription": false,
+    "unresolved_file": false,
+    "errors": []
+  },
+  "error": null,
+  "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+  "completed": true
+}

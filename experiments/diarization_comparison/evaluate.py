@@ -260,6 +260,8 @@ def source_intervals(result: dict[str, Any]) -> tuple[list[dict[str, Any]], dict
 def score_clip_dominants(
     intervals: list[dict[str, Any]],
     turns: list[dict[str, Any]],
+    *,
+    expected_pair_counts: tuple[int, int] = (6, 60),
 ) -> dict[str, Any]:
     clips: list[dict[str, Any]] = []
     for turn in turns:
@@ -379,10 +381,10 @@ def score_clip_dominants(
             else:
                 counts["distinct_ids"] += 1
 
-    if same_total != 6 or different_total != 60:
+    if (same_total, different_total) != expected_pair_counts:
         raise ValueError(
-            "The clip recurrence probe requires twelve clips from six speakers "
-            f"(got {same_total} same-person and {different_total} different-person pairs)"
+            f"Expected {expected_pair_counts} same/different-person pairs, "
+            f"got {(same_total, different_total)}"
         )
     return {
         "same_person_pairs": {

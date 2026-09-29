@@ -1,0 +1,2620 @@
+{
+  "status": "complete",
+  "metric": "source_clip_dominant_native_id",
+  "cases": {
+    "repeated": {
+      "fixture": {
+        "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+        "pcm_bytes": 712960,
+        "duration_s": 22.28,
+        "turns": [
+          {
+            "utt_id": "1:1089-134686-0001",
+            "source_clip": "1089-134686-0001",
+            "label": "A",
+            "speaker": "1089",
+            "start_s": 0.0,
+            "end_s": 3.275
+          },
+          {
+            "utt_id": "2:1089-134686-0001",
+            "source_clip": "1089-134686-0001",
+            "label": "A",
+            "speaker": "1089",
+            "start_s": 3.775,
+            "end_s": 7.05
+          },
+          {
+            "utt_id": "3:1995-1826-0003",
+            "source_clip": "1995-1826-0003",
+            "label": "B",
+            "speaker": "1995",
+            "start_s": 7.55,
+            "end_s": 10.64
+          },
+          {
+            "utt_id": "4:1995-1826-0003",
+            "source_clip": "1995-1826-0003",
+            "label": "B",
+            "speaker": "1995",
+            "start_s": 11.14,
+            "end_s": 14.23
+          },
+          {
+            "utt_id": "5:1089-134686-0001",
+            "source_clip": "1089-134686-0001",
+            "label": "A",
+            "speaker": "1089",
+            "start_s": 14.73,
+            "end_s": 18.005
+          },
+          {
+            "utt_id": "6:1089-134686-0001",
+            "source_clip": "1089-134686-0001",
+            "label": "A",
+            "speaker": "1089",
+            "start_s": 18.505,
+            "end_s": 21.78
+          }
+        ],
+        "audio": "audio/repeated.wav",
+        "qwen_reference": "../qwen_validation/result.json"
+      },
+      "expected_pair_counts": [
+        7,
+        8
+      ],
+      "runs": [
+        {
+          "provider": "Soniox",
+          "arm": "continuous",
+          "artifact": "soniox/repeated/continuous.json",
+          "artifact_sha256": "489f28f3dce43d456d4e85b4ca8c791da0d180dd48c465610b37844e0833044e",
+          "model": "stt-rt-v5",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 22.28,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "mapped_interval_pieces": 94,
+            "records_with_source_mapping": 94,
+            "timed_records": 94
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.19
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.19
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Soniox",
+          "arm": "forced",
+          "artifact": "soniox/repeated/forced.json",
+          "artifact_sha256": "21eb5fa14abb88ed2000a324c09f467953c467304e7cfa37c0fb74d69b0559f3",
+          "model": "stt-rt-v5",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 22.28,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "invalid_timing_records": 4,
+            "mapped_interval_pieces": 92,
+            "records_with_source_mapping": 92,
+            "timed_records": 92
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.9
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.375
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.19
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.78
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.78,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.31
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Soniox",
+          "arm": "segmented",
+          "artifact": "soniox/repeated/segmented.json",
+          "artifact_sha256": "a04521f53513936bc67be18c9fd366597003331d6196de9fab9bf0682686e654",
+          "model": "stt-rt-v5",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 20.336,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "invalid_timing_records": 2,
+            "mapped_interval_pieces": 269,
+            "records_with_source_mapping": 93,
+            "timed_records": 93
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.19
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.19
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.9
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.375
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Soniox",
+          "arm": "async_full_file",
+          "artifact": "soniox/repeated/async_full_file.json",
+          "artifact_sha256": "b06df18da6d00fb39f6bfedea152a2c66e2e5161e66568c1933e50e66bbf07ac",
+          "model": "stt-async-v5",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 22.28,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "mapped_interval_pieces": 100,
+            "records_with_source_mapping": 100,
+            "timed_records": 100
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 1.02
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.255
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 1.02
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.255
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.96
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.13
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.96
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.13
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 1.02
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.255
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 1.02
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.255
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "offline",
+          "artifact": "nemotron/evidence/repeated/offline.json",
+          "artifact_sha256": "a961e0e98c9d690183f397812d245d92641517e4d04c8426b90dc75a3fa23157",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 30.400000000000002,
+          "measured_compute_s": 1.1981983900000017,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 6,
+            "timed_records": 6
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.55
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.55,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.725
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.53
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.53,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.745
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.74
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.74,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.35
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.73
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.73,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.36
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.54
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.54,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.735
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.54
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.54,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.735
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "low_latency",
+          "artifact": "nemotron/evidence/repeated/low_latency.json",
+          "artifact_sha256": "39e72262d853ca209335edf7803a61e8387c96f4c69bfc74e6272e15decf9e35",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 1.04,
+          "measured_compute_s": 2.366738054999999,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 6,
+            "timed_records": 6
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.57
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.57,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.705
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.53
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.53,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.745
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.74
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.74,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.35
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.74
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.74,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.35
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.54
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.54,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.735
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.54
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.54,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.735
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "very_low_latency",
+          "artifact": "nemotron/evidence/repeated/very_low_latency.json",
+          "artifact_sha256": "c8aa0f5813247c8c4e93e32be76ff1e282702d8f24363840a1e57a7db106fa90",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 0.64,
+          "measured_compute_s": 3.6161626499999926,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 7,
+            "timed_records": 7
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.56
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.56,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.715
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.56
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.56,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.715
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.73
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.73,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.36
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.74
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.74,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.35
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.56
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.56,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.715
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.54
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.54,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.735
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "ultra_low_latency",
+          "artifact": "nemotron/evidence/repeated/ultra_low_latency.json",
+          "artifact_sha256": "97a4c70c01c4e38209deb18abb65ccbb93580d95befcbc1e9700a149c295c10b",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 0.32,
+          "measured_compute_s": 6.968443398000005,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 7,
+            "timed_records": 7
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.6
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.6,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.675
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.54
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.54,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.735
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.73
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.73,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.36
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.74
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.74,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.35
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.56
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.56,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.715
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.55
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.55,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.725
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Qwen",
+          "arm": "previous_control",
+          "artifact": "../qwen_validation/result.json",
+          "artifact_sha256": "c72749b247861df60f97e2174c1c0c7a197a39fe15e3ef3189ab7478fb906272",
+          "model": "qwen3.8-livetranslate-flash-realtime",
+          "source_sha256": "a498e5872ad0edb2ebe3fe38d811b09a824e43c6080c1ec5b74870008520c650",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 22.28,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 5,
+            "timed_records": 5
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 7,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 7
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 8,
+              "unresolved": 0,
+              "denominator": 8
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 2,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 3.155
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 3.155,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.12
+              },
+              {
+                "clip_id": "2:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 3.775,
+                "end_s": 7.05,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 3.275
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 3.275,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.0
+              },
+              {
+                "clip_id": "3:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 7.55,
+                "end_s": 10.64,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.13,
+                  "2": 2.96
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 3.09,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.0
+              },
+              {
+                "clip_id": "4:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 11.14,
+                "end_s": 14.23,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 3.09
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 3.09,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.0
+              },
+              {
+                "clip_id": "5:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 14.73,
+                "end_s": 18.005,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.965,
+                  "2": 0.31
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 3.275,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.0
+              },
+              {
+                "clip_id": "6:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 18.505,
+                "end_s": 21.78,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 3.015
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 3.015,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.26
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "distinct": {
+      "fixture": {
+        "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+        "pcm_bytes": 450560,
+        "duration_s": 14.08,
+        "turns": [
+          {
+            "utt_id": "1:1089-134686-0001",
+            "source_clip": "1089-134686-0001",
+            "label": "A1",
+            "speaker": "1089",
+            "start_s": 0.0,
+            "end_s": 3.275
+          },
+          {
+            "utt_id": "2:1995-1826-0003",
+            "source_clip": "1995-1826-0003",
+            "label": "B1",
+            "speaker": "1995",
+            "start_s": 3.775,
+            "end_s": 6.865
+          },
+          {
+            "utt_id": "3:1089-134686-0003",
+            "source_clip": "1089-134686-0003",
+            "label": "A2",
+            "speaker": "1089",
+            "start_s": 7.365,
+            "end_s": 10.045
+          },
+          {
+            "utt_id": "4:1995-1826-0004",
+            "source_clip": "1995-1826-0004",
+            "label": "B2",
+            "speaker": "1995",
+            "start_s": 10.545,
+            "end_s": 13.58
+          }
+        ],
+        "audio": "audio/distinct.wav",
+        "qwen_reference": "../qwen_validation/result_distinct.json"
+      },
+      "expected_pair_counts": [
+        2,
+        4
+      ],
+      "runs": [
+        {
+          "provider": "Soniox",
+          "arm": "continuous",
+          "artifact": "soniox/distinct/continuous.json",
+          "artifact_sha256": "7284620252add9b51895a0ccf6f69f158c3961945a26784ed25234afcaa9ee64",
+          "model": "stt-rt-v5",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 14.08,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "mapped_interval_pieces": 63,
+            "records_with_source_mapping": 63,
+            "timed_records": 63
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 1,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 1.02
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.07
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.84
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.84,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 1.84
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.06,
+                  "2": 0.84
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.135
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Soniox",
+          "arm": "forced",
+          "artifact": "soniox/distinct/forced.json",
+          "artifact_sha256": "2655c12544b55d4938f40743bd825a17aae7a9a9e7daa7b481cbbd8e7e868a31",
+          "model": "stt-rt-v5",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 14.08,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "invalid_timing_records": 3,
+            "mapped_interval_pieces": 63,
+            "records_with_source_mapping": 63,
+            "timed_records": 63
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 1,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.96
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.13
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.9
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 1.78
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.06,
+                  "2": 0.84
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.135
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Soniox",
+          "arm": "segmented",
+          "artifact": "soniox/distinct/segmented.json",
+          "artifact_sha256": "8049d30ec6163d8cb33c8800bd40574649a2fdcd5def245fbc0b01eb18f67988",
+          "model": "stt-rt-v5",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 13.416,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "invalid_timing_records": 1,
+            "mapped_interval_pieces": 188,
+            "records_with_source_mapping": 64,
+            "timed_records": 64
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.315
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 1.02
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.07
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.953
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.953,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 1.727
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.135
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Soniox",
+          "arm": "async_full_file",
+          "artifact": "soniox/distinct/async_full_file.json",
+          "artifact_sha256": "be307901a9c6b2d1b1ab3a70f6c7be5427c18088fe685d49ebc5da286fa158fe",
+          "model": "stt-async-v5",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 14.08,
+          "support_diagnostics": {
+            "invalid_timeline_parts": 0,
+            "mapped_interval_pieces": 65,
+            "records_with_source_mapping": 65,
+            "timed_records": 65
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 1.02
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.255
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 1.02
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 1.02,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.07
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.96
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 0.96,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 1.72
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "2": 0.9
+                },
+                "observed_native_ids": [
+                  "2"
+                ],
+                "uniquely_labeled_s": 0.9,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 2.135
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "offline",
+          "artifact": "nemotron/evidence/distinct/offline.json",
+          "artifact_sha256": "2b609d2090e8413efe261aa30ccc922aa81683a2792dd2ad0ef81fb1f3c6e855",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 30.400000000000002,
+          "measured_compute_s": 0.09946407999998996,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 4,
+            "timed_records": 4
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.53
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.53,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.745
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.73
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.73,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.36
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.08
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.08,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.6
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.33
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.33,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.705
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "low_latency",
+          "artifact": "nemotron/evidence/distinct/low_latency.json",
+          "artifact_sha256": "e7ae4592f37901160f2c30530c02ecfd7e7a5cea41bf4c2ded18d06413013d4e",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 1.04,
+          "measured_compute_s": 1.2702883110000016,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 4,
+            "timed_records": 4
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.57
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.57,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.705
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.73
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.73,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.36
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.07
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.07,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.61
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.33
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.33,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.705
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "very_low_latency",
+          "artifact": "nemotron/evidence/distinct/very_low_latency.json",
+          "artifact_sha256": "1631547b0015f234f7895ed89bf2ccef79434aa575c7df4ac294f7c44fde8b8d",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 0.64,
+          "measured_compute_s": 1.8501586530000225,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 4,
+            "timed_records": 4
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.56
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.56,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.715
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.73
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.73,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.36
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.07
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.07,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.61
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.33
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.33,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.705
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Nemotron",
+          "arm": "ultra_low_latency",
+          "artifact": "nemotron/evidence/distinct/ultra_low_latency.json",
+          "artifact_sha256": "bc88f8bcc974617de33480d2781b4179e39ea95156f1010cfd5730987c14189b",
+          "model": "nvidia/Nemotron-3-Diarization",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "0",
+            "1"
+          ],
+          "nominal_delay_s": 0.32,
+          "measured_compute_s": 3.323870196999991,
+          "sent_seconds": null,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 4,
+            "timed_records": 4
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 0,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.6
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.6,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.675
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.74
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.74,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.35
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "0",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "0": 2.09
+                },
+                "observed_native_ids": [
+                  "0"
+                ],
+                "uniquely_labeled_s": 2.09,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.59
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.32
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 2.32,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.715
+              }
+            ]
+          }
+        },
+        {
+          "provider": "Qwen",
+          "arm": "previous_control",
+          "artifact": "../qwen_validation/result_distinct.json",
+          "artifact_sha256": "f7cdcd34c813e502284121b0dd147ff65a87fd76b6c6ae7d1339d0283a8c2c78",
+          "model": "qwen3.8-livetranslate-flash-realtime",
+          "source_sha256": "d569edbca911b0db8e5b9239efe3fa5057b16e0763fc1d442a37dd6b303f0fa6",
+          "native_ids": [
+            "1",
+            "2"
+          ],
+          "nominal_delay_s": null,
+          "measured_compute_s": null,
+          "sent_seconds": 14.08,
+          "support_diagnostics": {
+            "mapped_interval_pieces": 4,
+            "timed_records": 4
+          },
+          "score": {
+            "same_person_pairs": {
+              "id_matches": 2,
+              "id_splits": 0,
+              "unresolved": 0,
+              "denominator": 2
+            },
+            "different_person_pairs": {
+              "false_merges": 0,
+              "distinct_ids": 4,
+              "unresolved": 0,
+              "denominator": 4
+            },
+            "unresolved_clip_count": 0,
+            "clips_with_multiple_native_ids": 3,
+            "clips": [
+              {
+                "clip_id": "1:1089-134686-0001",
+                "reference_speaker": "1089",
+                "start_s": 0.0,
+                "end_s": 3.275,
+                "clip_duration_s": 3.275,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 3.155
+                },
+                "observed_native_ids": [
+                  "1"
+                ],
+                "uniquely_labeled_s": 3.155,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.12
+              },
+              {
+                "clip_id": "2:1995-1826-0003",
+                "reference_speaker": "1995",
+                "start_s": 3.775,
+                "end_s": 6.865,
+                "clip_duration_s": 3.09,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.145,
+                  "2": 2.945
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 3.09,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.0
+              },
+              {
+                "clip_id": "3:1089-134686-0003",
+                "reference_speaker": "1089",
+                "start_s": 7.365,
+                "end_s": 10.045,
+                "clip_duration_s": 2.68,
+                "dominant_native_id": "1",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 2.285,
+                  "2": 0.395
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 2.68,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.0
+              },
+              {
+                "clip_id": "4:1995-1826-0004",
+                "reference_speaker": "1995",
+                "start_s": 10.545,
+                "end_s": 13.58,
+                "clip_duration_s": 3.035,
+                "dominant_native_id": "2",
+                "dominant_tie": false,
+                "dominant_id_reason": null,
+                "unique_id_durations_s": {
+                  "1": 0.255,
+                  "2": 2.4
+                },
+                "observed_native_ids": [
+                  "1",
+                  "2"
+                ],
+                "uniquely_labeled_s": 2.655,
+                "unknown_s": 0.0,
+                "ambiguous_s": 0.0,
+                "uncovered_s": 0.38
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
