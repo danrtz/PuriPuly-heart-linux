@@ -33,7 +33,9 @@ All reference files, source attribution and small selected labels are tracked; r
 
 ## Score predictions
 
-Create a directory containing exactly one `<case-id>.rttm` per published manifest case. Required RTTM `SPEAKER` lines have ten standard fields and case-local time 0..duration; `SPEAKER low_overlap 1 0.250 1.100 <NA> <NA> predicted_1 <NA> <NA>` is an example format only, **not a benchmark prediction**. Multiple speakers can share time and speaker ID strings need not match reference IDs. An explicitly empty file means a completed run reporting no speech; **a missing file, wrong recording ID, invalid interval, or out-of-bounds timestamp is an error**. Predictions must derive their own time support from the model: Soniox word-token support, Qwen utterance support, and Nemotron segment support differ. Do not fill unknown time from reference, stretch tokens to utterances, or manufacture dense frame labels. Native support and reference `only_words` timing must be considered when interpreting cross-provider DER. No audio, reference, labels or known speaker count are passed to the model.
+Create a directory containing exactly one `<case-id>.rttm` per published manifest case. Required RTTM `SPEAKER` lines have ten standard fields and case-local time 0..duration; `SPEAKER low_overlap 1 0.250 1.100 <NA> <NA> predicted_1 <NA> <NA>` is an example format only, **not a benchmark prediction**. Multiple speakers can share time and speaker ID strings need not match reference IDs. An explicitly empty file means a completed run reporting no speech; **a missing file, wrong recording ID, invalid interval, or out-of-bounds timestamp is an error**. Predictions must derive their own time support from the model: Soniox word-token support, Qwen utterance support, and Nemotron segment support differ. Do not fill unknown time from reference, stretch tokens to utterances, or manufacture dense frame labels. Native support and reference `only_words` timing must be considered when interpreting cross-provider DER. Audio is supplied to inference; reference annotations, true speaker labels and known speaker counts are not.
+
+Provider conversion intersects native intervals with actual source-audio support and the clip UEM: wholly outside spans are excluded, straddling spans are clipped, and original timestamps plus diagnostics are retained. This is a source-window restriction, not reference-driven alignment or a timestamp shift. Unattributed output is not assigned an invented speaker ID. The strict scorer still rejects malformed or out-of-bounds serialized RTTMs.
 
 Use a local isolated scorer environment (no credentials or model downloads):
 
@@ -55,3 +57,24 @@ experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/score.py --
 ```
 
 Runner uses the pinned NVIDIA checkpoint and official `ultra_low_latency` preset (0.32-s *nominal input buffer*, not measured live end-to-end latency), eight CPU threads, unaltered contiguous PCM and fresh speaker-cache per case. It exports native processor speaker intervals as case-local RTTM; source labels are evaluation-only. It records runtime, pinned weights, effective streaming config, input/prediction hashes, forward count and compute times in prediction provenance. This is an actual local sanity baseline, not a paid-provider or comprehensive leaderboard comparison.
+
+## Soniox and Qwen comparison
+
+[Native-output comparison](provider_comparison.md) and [machine-readable evidence](provider_comparison.json) contain four Soniox arms, Qwen realtime, and the retained Nemotron baseline. As recorded, Soniox completed 28/28 case/arm runs; Qwen completed 6/7. Qwen `brief_interjections` remains blocked by intermittent TLS/WebSocket connectivity to the configured Beijing endpoint. Failed attempts are retained, not scored as empty predictions. The seven-case Qwen aggregate is deliberately unavailable; completing that case remains an outstanding requirement.
+
+Provider execution, settings, conversion diagnostics, resource cleanup and recovery commands are documented separately:
+
+- [Soniox](providers/soniox/execution_report.md): continuous, forced-six-second finalization, app-equivalent VAD/SmartTurn segmentation, and whole-file async.
+- [Qwen](providers/qwen/execution_report.md): six completed sessions plus failed-attempt and same-route TLS diagnostics; recover only the missing case once connectivity is reliable.
+
+Observed positive Soniox token spans are all 60 ms. Consequently their literal-support DER includes substantial missed-speech time and is **not the fraction of words or speaker identities that are wrong**. Qwen utterance spans and Nemotron diarization segments expose different temporal support. No synthetic gap filling is used to manufacture a comparable dense output.
+
+Rebuild available results offline under Linux/WSL:
+
+```sh
+experiments/ami_benchmark/.venv/bin/python experiments/ami_benchmark/compare_providers.py --allow-incomplete
+```
+
+This checks input, native-result and prediction digests, reproduces every complete-arm score, and scores only completed cases of the explicitly incomplete Qwen arm. Missing rows are `NOT COMPLETED`; Qwen aggregate scores remain unavailable. Without `--allow-incomplete`, the comparison rejects the missing case. `score.py` still requires all seven predictions; its extracted `score_case` helper uses the same standard per-case calculation, without relaxing the complete-benchmark contract.
+
+Provider JSON, JSONL and RTTM evidence has byte-preserving Git attributes so line-ending conversion cannot silently invalidate retained digest chains. Existing benchmark audio, references, Nemotron output and production application behavior are unchanged.

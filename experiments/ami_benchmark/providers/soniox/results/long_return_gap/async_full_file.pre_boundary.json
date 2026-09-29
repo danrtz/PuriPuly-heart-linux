@@ -1,0 +1,7576 @@
+{
+  "arm": "async_full_file",
+  "model": "stt-async-v5",
+  "config": {
+    "model": "stt-async-v5",
+    "enable_speaker_diarization": true,
+    "enable_language_identification": false,
+    "language_hints": [
+      "en"
+    ]
+  },
+  "duration_s": 180,
+  "sent_seconds": 180,
+  "http_requests": 8,
+  "timeline": [
+    {
+      "provider_start_s": 0,
+      "provider_end_s": 180,
+      "source_start_s": 0,
+      "source_end_s": 180
+    }
+  ],
+  "tokens": [
+    {
+      "text": "Des",
+      "start_ms": 390,
+      "end_ms": 450,
+      "confidence": 0.9992011785507202,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ign",
+      "start_ms": 570,
+      "end_ms": 630,
+      "confidence": 0.9998363852500916,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 1230,
+      "end_ms": 1290,
+      "confidence": 0.9132599830627441,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " um",
+      "start_ms": 1530,
+      "end_ms": 1590,
+      "confidence": 0.9673620462417603,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 1710,
+      "end_ms": 1770,
+      "confidence": 0.9998760223388672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " red",
+      "start_ms": 1890,
+      "end_ms": 1950,
+      "confidence": 0.9954350590705872,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "uc",
+      "start_ms": 2010,
+      "end_ms": 2070,
+      "confidence": 0.9855272173881531,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 2130,
+      "end_ms": 2190,
+      "confidence": 0.9999942779541016,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 2250,
+      "end_ms": 2310,
+      "confidence": 0.9999847412109375,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " s",
+      "start_ms": 2370,
+      "end_ms": 2430,
+      "confidence": 0.9999446868896484,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ize",
+      "start_ms": 2490,
+      "end_ms": 2550,
+      "confidence": 0.9989534020423889,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 2610,
+      "end_ms": 2670,
+      "confidence": 0.9998455047607422,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 2670,
+      "end_ms": 2730,
+      "confidence": 0.9998569488525391,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " contr",
+      "start_ms": 2850,
+      "end_ms": 2910,
+      "confidence": 0.9322109818458557,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ol,",
+      "start_ms": 3090,
+      "end_ms": 3150,
+      "confidence": 0.9871043562889099,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " and",
+      "start_ms": 3270,
+      "end_ms": 3330,
+      "confidence": 0.9999847412109375,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " an",
+      "start_ms": 3750,
+      "end_ms": 3810,
+      "confidence": 0.9999656677246094,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " elec",
+      "start_ms": 3990,
+      "end_ms": 4050,
+      "confidence": 0.9998054504394531,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "tron",
+      "start_ms": 4110,
+      "end_ms": 4170,
+      "confidence": 0.9999523162841797,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ic",
+      "start_ms": 4230,
+      "end_ms": 4290,
+      "confidence": 0.9999942779541016,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " pan",
+      "start_ms": 4470,
+      "end_ms": 4530,
+      "confidence": 0.9976453185081482,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "el,",
+      "start_ms": 4770,
+      "end_ms": 4830,
+      "confidence": 0.9398001432418823,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " um",
+      "start_ms": 5910,
+      "end_ms": 5970,
+      "confidence": 0.9997768998146057,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 6030,
+      "end_ms": 6090,
+      "confidence": 0.9999962449073792,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " for",
+      "start_ms": 6510,
+      "end_ms": 6570,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " fur",
+      "start_ms": 6630,
+      "end_ms": 6690,
+      "confidence": 0.9998264312744141,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ther",
+      "start_ms": 6750,
+      "end_ms": 6810,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " fe",
+      "start_ms": 6930,
+      "end_ms": 6990,
+      "confidence": 0.9999275207519531,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "atur",
+      "start_ms": 7050,
+      "end_ms": 7110,
+      "confidence": 0.9999809265136719,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "es",
+      "start_ms": 7290,
+      "end_ms": 7350,
+      "confidence": 0.9971944093704224,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " l",
+      "start_ms": 7470,
+      "end_ms": 7530,
+      "confidence": 0.9993671178817749,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ike",
+      "start_ms": 7530,
+      "end_ms": 7590,
+      "confidence": 1,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " programm",
+      "start_ms": 7770,
+      "end_ms": 7830,
+      "confidence": 0.9995390176773071,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing,",
+      "start_ms": 8190,
+      "end_ms": 8250,
+      "confidence": 0.9651047587394714,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " th",
+      "start_ms": 8490,
+      "end_ms": 8550,
+      "confidence": 0.9999523162841797,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ings",
+      "start_ms": 8610,
+      "end_ms": 8670,
+      "confidence": 0.9999961853027344,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " l",
+      "start_ms": 8730,
+      "end_ms": 8790,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ike",
+      "start_ms": 8790,
+      "end_ms": 8850,
+      "confidence": 1,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 8910,
+      "end_ms": 8970,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 9270,
+      "end_ms": 9330,
+      "confidence": 0.9999561905860901,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ok",
+      "start_ms": 11250,
+      "end_ms": 11310,
+      "confidence": 0.9995323419570923,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay.",
+      "start_ms": 11430,
+      "end_ms": 11490,
+      "confidence": 0.9706790447235107,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 13530,
+      "end_ms": 13590,
+      "confidence": 0.9852530360221863,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 13710,
+      "end_ms": 13770,
+      "confidence": 0.9994798302650452,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " three",
+      "start_ms": 14430,
+      "end_ms": 14490,
+      "confidence": 0.9696400165557861,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " present",
+      "start_ms": 14610,
+      "end_ms": 14670,
+      "confidence": 0.9999160766601562,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ations",
+      "start_ms": 15150,
+      "end_ms": 15210,
+      "confidence": 0.992505669593811,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 15450,
+      "end_ms": 15510,
+      "confidence": 0.9997349381446838,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 15510,
+      "end_ms": 15570,
+      "confidence": 0.9999809265136719,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ve",
+      "start_ms": 15630,
+      "end_ms": 15690,
+      "confidence": 0.9999885559082031,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " got",
+      "start_ms": 15690,
+      "end_ms": 15750,
+      "confidence": 0.99993896484375,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " written",
+      "start_ms": 15930,
+      "end_ms": 15990,
+      "confidence": 0.9770922064781189,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " her",
+      "start_ms": 16170,
+      "end_ms": 16230,
+      "confidence": 0.9999179840087891,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 16230,
+      "end_ms": 16290,
+      "confidence": 0.9988276958465576,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " so",
+      "start_ms": 16470,
+      "end_ms": 16530,
+      "confidence": 0.9820002913475037,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sh",
+      "start_ms": 18930,
+      "end_ms": 18990,
+      "confidence": 0.8526307344436646,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "all",
+      "start_ms": 19050,
+      "end_ms": 19110,
+      "confidence": 0.9775992631912231,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 19110,
+      "end_ms": 19170,
+      "confidence": 0.9999961853027344,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " he",
+      "start_ms": 19290,
+      "end_ms": 19350,
+      "confidence": 0.9999027848243713,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ar",
+      "start_ms": 19350,
+      "end_ms": 19410,
+      "confidence": 0.9999924302101135,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " from",
+      "start_ms": 19530,
+      "end_ms": 19590,
+      "confidence": 0.9999924302101135,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " mar",
+      "start_ms": 19830,
+      "end_ms": 19890,
+      "confidence": 0.5926098823547363,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ket",
+      "start_ms": 19890,
+      "end_ms": 19950,
+      "confidence": 0.9999842643737793,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 20070,
+      "end_ms": 20130,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " first",
+      "start_ms": 20310,
+      "end_ms": 20370,
+      "confidence": 0.9999828338623047,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 20610,
+      "end_ms": 20670,
+      "confidence": 0.9999904632568359,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 21150,
+      "end_ms": 21210,
+      "confidence": 0.9996166825294495,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 21210,
+      "end_ms": 21270,
+      "confidence": 0.9997196793556213,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " is",
+      "start_ms": 21330,
+      "end_ms": 21390,
+      "confidence": 0.9999790191650391,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " it",
+      "start_ms": 21450,
+      "end_ms": 21510,
+      "confidence": 0.9999980926513672,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ok",
+      "start_ms": 21570,
+      "end_ms": 21630,
+      "confidence": 0.9999904632568359,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay",
+      "start_ms": 21690,
+      "end_ms": 21750,
+      "confidence": 0.9999828338623047,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " if",
+      "start_ms": 21810,
+      "end_ms": 21870,
+      "confidence": 0.9999809265136719,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 21930,
+      "end_ms": 21990,
+      "confidence": 0.9999980926513672,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " post",
+      "start_ms": 22110,
+      "end_ms": 22170,
+      "confidence": 0.9988143444061279,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "p",
+      "start_ms": 22230,
+      "end_ms": 22290,
+      "confidence": 0.9967874884605408,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "one",
+      "start_ms": 22350,
+      "end_ms": 22410,
+      "confidence": 0.999969482421875,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 22470,
+      "end_ms": 22530,
+      "confidence": 0.9999885559082031,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " till",
+      "start_ms": 22650,
+      "end_ms": 22710,
+      "confidence": 0.5500228404998779,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " later",
+      "start_ms": 22770,
+      "end_ms": 22830,
+      "confidence": 0.9980545043945312,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 22950,
+      "end_ms": 23010,
+      "confidence": 0.9999942779541016,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 23010,
+      "end_ms": 23070,
+      "confidence": 0.9999637603759766,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " just",
+      "start_ms": 23130,
+      "end_ms": 23190,
+      "confidence": 0.9999942779541016,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 23190,
+      "end_ms": 23250,
+      "confidence": 0.9999961853027344,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ant",
+      "start_ms": 23310,
+      "end_ms": 23370,
+      "confidence": 0.9999942779541016,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 23370,
+      "end_ms": 23430,
+      "confidence": 0.9993555545806885,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " get",
+      "start_ms": 23490,
+      "end_ms": 23550,
+      "confidence": 0.9999008178710938,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ac",
+      "start_ms": 23610,
+      "end_ms": 23670,
+      "confidence": 0.9999465942382812,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "cess",
+      "start_ms": 23670,
+      "end_ms": 23730,
+      "confidence": 0.9999847412109375,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 23850,
+      "end_ms": 23910,
+      "confidence": 0.9999523162841797,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " a",
+      "start_ms": 24030,
+      "end_ms": 24090,
+      "confidence": 0.9999809265136719,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " l",
+      "start_ms": 24090,
+      "end_ms": 24150,
+      "confidence": 0.9999923706054688,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ittle",
+      "start_ms": 24210,
+      "end_ms": 24270,
+      "confidence": 0.9999866485595703,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bit",
+      "start_ms": 24270,
+      "end_ms": 24330,
+      "confidence": 0.9999847412109375,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " more",
+      "start_ms": 24390,
+      "end_ms": 24450,
+      "confidence": 0.9999847412109375,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " inform",
+      "start_ms": 24510,
+      "end_ms": 24570,
+      "confidence": 0.9999809265136719,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ation.",
+      "start_ms": 25050,
+      "end_ms": 25110,
+      "confidence": 0.946320652961731,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Is",
+      "start_ms": 25230,
+      "end_ms": 25290,
+      "confidence": 0.8045470714569092,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 25350,
+      "end_ms": 25410,
+      "confidence": 0.9999867677688599,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ok",
+      "start_ms": 25530,
+      "end_ms": 25590,
+      "confidence": 0.9997050762176514,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay",
+      "start_ms": 25590,
+      "end_ms": 25650,
+      "confidence": 0.9995313882827759,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 25650,
+      "end_ms": 25710,
+      "confidence": 0.9989584684371948,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " N",
+      "start_ms": 25770,
+      "end_ms": 25830,
+      "confidence": 0.9953160881996155,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o,",
+      "start_ms": 25830,
+      "end_ms": 25890,
+      "confidence": 0.9984644651412964,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 25890,
+      "end_ms": 25950,
+      "confidence": 0.9693077206611633,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'s",
+      "start_ms": 25950,
+      "end_ms": 26010,
+      "confidence": 0.9989216327667236,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " fin",
+      "start_ms": 26010,
+      "end_ms": 26070,
+      "confidence": 0.9962708353996277,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 26070,
+      "end_ms": 26130,
+      "confidence": 0.49988722801208496,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " That",
+      "start_ms": 26190,
+      "end_ms": 26250,
+      "confidence": 0.9968768358230591,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'s",
+      "start_ms": 26250,
+      "end_ms": 26310,
+      "confidence": 0.9887305498123169,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " fin",
+      "start_ms": 26370,
+      "end_ms": 26430,
+      "confidence": 0.9991058707237244,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 26430,
+      "end_ms": 26490,
+      "confidence": 0.9986391067504883,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ok",
+      "start_ms": 26730,
+      "end_ms": 26790,
+      "confidence": 0.9998149871826172,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay,",
+      "start_ms": 26850,
+      "end_ms": 26910,
+      "confidence": 0.9706855416297913,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ye",
+      "start_ms": 26970,
+      "end_ms": 27030,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ah,",
+      "start_ms": 27030,
+      "end_ms": 27090,
+      "confidence": 0.9978165626525879,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 27150,
+      "end_ms": 27210,
+      "confidence": 0.9999580383300781,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 27210,
+      "end_ms": 27270,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ll",
+      "start_ms": 27270,
+      "end_ms": 27330,
+      "confidence": 0.9998912811279297,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " go",
+      "start_ms": 27390,
+      "end_ms": 27450,
+      "confidence": 0.9995843172073364,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " first",
+      "start_ms": 27510,
+      "end_ms": 27570,
+      "confidence": 0.9966924786567688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 27750,
+      "end_ms": 27810,
+      "confidence": 0.9999179840087891,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Can",
+      "start_ms": 27990,
+      "end_ms": 28050,
+      "confidence": 0.9976529479026794,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 28170,
+      "end_ms": 28230,
+      "confidence": 0.9999123215675354,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " g",
+      "start_ms": 28650,
+      "end_ms": 28710,
+      "confidence": 0.9991707801818848,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "rab",
+      "start_ms": 28710,
+      "end_ms": 28770,
+      "confidence": 0.9998321533203125,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 28950,
+      "end_ms": 29010,
+      "confidence": 0.9997730851173401,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "—",
+      "start_ms": 29190,
+      "end_ms": 29250,
+      "confidence": 0.9547532200813293,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Sound",
+      "start_ms": 29310,
+      "end_ms": 29370,
+      "confidence": 0.43684279918670654,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "s",
+      "start_ms": 29490,
+      "end_ms": 29550,
+      "confidence": 0.9918584823608398,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " l",
+      "start_ms": 29610,
+      "end_ms": 29670,
+      "confidence": 0.9998533129692078,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ike",
+      "start_ms": 29670,
+      "end_ms": 29730,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " m",
+      "start_ms": 29850,
+      "end_ms": 29910,
+      "confidence": 0.9967114925384521,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 30030,
+      "end_ms": 30090,
+      "confidence": 0.999885618686676,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Th",
+      "start_ms": 32190,
+      "end_ms": 32250,
+      "confidence": 0.9994969964027405,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "an",
+      "start_ms": 32310,
+      "end_ms": 32370,
+      "confidence": 0.9999001622200012,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ks.",
+      "start_ms": 32430,
+      "end_ms": 32490,
+      "confidence": 0.9999446272850037,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " O",
+      "start_ms": 41370,
+      "end_ms": 41430,
+      "confidence": 0.6566526293754578,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 41490,
+      "end_ms": 41550,
+      "confidence": 0.9927783608436584,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " wh",
+      "start_ms": 41610,
+      "end_ms": 41670,
+      "confidence": 0.8985719680786133,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "at",
+      "start_ms": 41670,
+      "end_ms": 41730,
+      "confidence": 0.9700729250907898,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " do",
+      "start_ms": 41790,
+      "end_ms": 41850,
+      "confidence": 0.7915400862693787,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 41910,
+      "end_ms": 41970,
+      "confidence": 0.9994737505912781,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " have",
+      "start_ms": 41970,
+      "end_ms": 42030,
+      "confidence": 0.9982488751411438,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 42090,
+      "end_ms": 42150,
+      "confidence": 0.9998722672462463,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " press",
+      "start_ms": 42210,
+      "end_ms": 42270,
+      "confidence": 0.9998188614845276,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 42330,
+      "end_ms": 42390,
+      "confidence": 0.9197907447814941,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " O",
+      "start_ms": 42450,
+      "end_ms": 42510,
+      "confidence": 0.9947262406349182,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 42510,
+      "end_ms": 42570,
+      "confidence": 0.9998570084571838,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " F",
+      "start_ms": 42630,
+      "end_ms": 42690,
+      "confidence": 0.9994432330131531,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "8",
+      "start_ms": 42870,
+      "end_ms": 42930,
+      "confidence": 0.9906103014945984,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 43110,
+      "end_ms": 43170,
+      "confidence": 0.9668992757797241,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 44130,
+      "end_ms": 44190,
+      "confidence": 0.9999351501464844,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 44250,
+      "end_ms": 44310,
+      "confidence": 0.9997825622558594,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " F",
+      "start_ms": 44490,
+      "end_ms": 44550,
+      "confidence": 0.9994052052497864,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "N",
+      "start_ms": 44850,
+      "end_ms": 44910,
+      "confidence": 0.42699065804481506,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 45870,
+      "end_ms": 45930,
+      "confidence": 0.751855194568634,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " F",
+      "start_ms": 46050,
+      "end_ms": 46110,
+      "confidence": 0.9996188282966614,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "unc",
+      "start_ms": 46110,
+      "end_ms": 46170,
+      "confidence": 0.9987001419067383,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "tion.",
+      "start_ms": 46410,
+      "end_ms": 46470,
+      "confidence": 0.4137473702430725,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " F",
+      "start_ms": 46770,
+      "end_ms": 46830,
+      "confidence": 0.9959008693695068,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "N",
+      "start_ms": 46890,
+      "end_ms": 46950,
+      "confidence": 0.9660499095916748,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 47010,
+      "end_ms": 47070,
+      "confidence": 0.9752824306488037,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " O",
+      "start_ms": 47130,
+      "end_ms": 47190,
+      "confidence": 0.6740993857383728,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 47190,
+      "end_ms": 47250,
+      "confidence": 0.9996057748794556,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ",
+      "start_ms": 47250,
+      "end_ms": 47310,
+      "confidence": 0.9972912669181824,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "right",
+      "start_ms": 47310,
+      "end_ms": 47370,
+      "confidence": 0.9999958276748657,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 47430,
+      "end_ms": 47490,
+      "confidence": 0.7323625683784485,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ok",
+      "start_ms": 51150,
+      "end_ms": 51210,
+      "confidence": 0.9660274386405945,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay.",
+      "start_ms": 51390,
+      "end_ms": 51450,
+      "confidence": 0.9999186396598816,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " May",
+      "start_ms": 53670,
+      "end_ms": 53730,
+      "confidence": 0.9989572763442993,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "b",
+      "start_ms": 53910,
+      "end_ms": 53970,
+      "confidence": 0.8519399166107178,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 54090,
+      "end_ms": 54150,
+      "confidence": 0.9999575018882751,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Y",
+      "start_ms": 59550,
+      "end_ms": 59610,
+      "confidence": 0.9990582466125488,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ep",
+      "start_ms": 59730,
+      "end_ms": 59790,
+      "confidence": 0.9940041899681091,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 59850,
+      "end_ms": 59910,
+      "confidence": 0.9999980926513672,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Y",
+      "start_ms": 60090,
+      "end_ms": 60150,
+      "confidence": 0.794161319732666,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ep",
+      "start_ms": 60150,
+      "end_ms": 60210,
+      "confidence": 0.9999370574951172,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 60210,
+      "end_ms": 60270,
+      "confidence": 0.7310577630996704,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " there",
+      "start_ms": 60270,
+      "end_ms": 60330,
+      "confidence": 0.9997462034225464,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 60450,
+      "end_ms": 60510,
+      "confidence": 0.9999887347221375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " g",
+      "start_ms": 60570,
+      "end_ms": 60630,
+      "confidence": 0.9999703764915466,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o.",
+      "start_ms": 60690,
+      "end_ms": 60750,
+      "confidence": 0.9999975562095642,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ok",
+      "start_ms": 62610,
+      "end_ms": 62670,
+      "confidence": 0.9999446868896484,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay,",
+      "start_ms": 62730,
+      "end_ms": 62790,
+      "confidence": 0.8933014869689941,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " this",
+      "start_ms": 62910,
+      "end_ms": 62970,
+      "confidence": 0.9999294281005859,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " is",
+      "start_ms": 63150,
+      "end_ms": 63210,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 63390,
+      "end_ms": 63450,
+      "confidence": 0.9984962344169617,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 63450,
+      "end_ms": 63510,
+      "confidence": 0.9999542236328125,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 63570,
+      "end_ms": 63630,
+      "confidence": 0.9999809265136719,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 63630,
+      "end_ms": 63690,
+      "confidence": 0.9928237199783325,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " work",
+      "start_ms": 63810,
+      "end_ms": 63870,
+      "confidence": 0.978552520275116,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 64050,
+      "end_ms": 64110,
+      "confidence": 0.9994813203811646,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " design",
+      "start_ms": 64230,
+      "end_ms": 64290,
+      "confidence": 0.9999504089355469,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " present",
+      "start_ms": 64710,
+      "end_ms": 64770,
+      "confidence": 0.9986181259155273,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ed",
+      "start_ms": 64950,
+      "end_ms": 65010,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " by",
+      "start_ms": 65070,
+      "end_ms": 65130,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " m",
+      "start_ms": 65370,
+      "end_ms": 65430,
+      "confidence": 0.9998989105224609,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 65610,
+      "end_ms": 65670,
+      "confidence": 0.9940857291221619,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 65910,
+      "end_ms": 65970,
+      "confidence": 0.999420702457428,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 66150,
+      "end_ms": 66210,
+      "confidence": 0.9920420050621033,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 66270,
+      "end_ms": 66330,
+      "confidence": 0.9999561309814453,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 66330,
+      "end_ms": 66390,
+      "confidence": 0.9999713897705078,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ind",
+      "start_ms": 66630,
+      "end_ms": 66690,
+      "confidence": 0.6196581125259399,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ustri",
+      "start_ms": 66750,
+      "end_ms": 66810,
+      "confidence": 0.999855101108551,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "al",
+      "start_ms": 66990,
+      "end_ms": 67050,
+      "confidence": 0.9999008178710938,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Des",
+      "start_ms": 67470,
+      "end_ms": 67530,
+      "confidence": 0.9959843158721924,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ign",
+      "start_ms": 67650,
+      "end_ms": 67710,
+      "confidence": 0.9997431635856628,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "er",
+      "start_ms": 67770,
+      "end_ms": 67830,
+      "confidence": 0.8324254155158997,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ex",
+      "start_ms": 67950,
+      "end_ms": 68010,
+      "confidence": 0.9753735661506653,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "tra",
+      "start_ms": 68070,
+      "end_ms": 68130,
+      "confidence": 0.9992220997810364,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ordin",
+      "start_ms": 68190,
+      "end_ms": 68250,
+      "confidence": 0.9994851350784302,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "aire",
+      "start_ms": 68430,
+      "end_ms": 68490,
+      "confidence": 0.9974074959754944,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 68550,
+      "end_ms": 68610,
+      "confidence": 0.9999848008155823,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ok",
+      "start_ms": 70050,
+      "end_ms": 70110,
+      "confidence": 0.9998283386230469,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ay,",
+      "start_ms": 70170,
+      "end_ms": 70230,
+      "confidence": 0.9988276958465576,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " this",
+      "start_ms": 70410,
+      "end_ms": 70470,
+      "confidence": 0.9999408721923828,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " is",
+      "start_ms": 70530,
+      "end_ms": 70590,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " where",
+      "start_ms": 70770,
+      "end_ms": 70830,
+      "confidence": 0.9999866485595703,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 70950,
+      "end_ms": 71010,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 71130,
+      "end_ms": 71190,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ent",
+      "start_ms": 71190,
+      "end_ms": 71250,
+      "confidence": 0.9999732971191406,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " a",
+      "start_ms": 71370,
+      "end_ms": 71430,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bit",
+      "start_ms": 71490,
+      "end_ms": 71550,
+      "confidence": 0.9999790191650391,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " mad",
+      "start_ms": 71730,
+      "end_ms": 71790,
+      "confidence": 0.999380350112915,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " with",
+      "start_ms": 72030,
+      "end_ms": 72090,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Power",
+      "start_ms": 72390,
+      "end_ms": 72450,
+      "confidence": 0.999340295791626,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "P",
+      "start_ms": 72630,
+      "end_ms": 72690,
+      "confidence": 0.9998283386230469,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o",
+      "start_ms": 72690,
+      "end_ms": 72750,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "int",
+      "start_ms": 72810,
+      "end_ms": 72870,
+      "confidence": 0.9839257597923279,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 72930,
+      "end_ms": 72990,
+      "confidence": 0.9968034625053406,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " s",
+      "start_ms": 73050,
+      "end_ms": 73110,
+      "confidence": 0.9873860478401184,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o.",
+      "start_ms": 73230,
+      "end_ms": 73290,
+      "confidence": 0.9996357560157776,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Wh",
+      "start_ms": 75150,
+      "end_ms": 75210,
+      "confidence": 0.9846242070198059,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "at",
+      "start_ms": 75270,
+      "end_ms": 75330,
+      "confidence": 0.923988401889801,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 75450,
+      "end_ms": 75510,
+      "confidence": 0.9790658950805664,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " first",
+      "start_ms": 75570,
+      "end_ms": 75630,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " th",
+      "start_ms": 75750,
+      "end_ms": 75810,
+      "confidence": 0.9999160766601562,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 75930,
+      "end_ms": 75990,
+      "confidence": 0.8517652750015259,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " qu",
+      "start_ms": 76170,
+      "end_ms": 76230,
+      "confidence": 0.9928445816040039,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "es",
+      "start_ms": 76230,
+      "end_ms": 76290,
+      "confidence": 0.9999790191650391,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "tion",
+      "start_ms": 76470,
+      "end_ms": 76530,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 76650,
+      "end_ms": 76710,
+      "confidence": 0.999403178691864,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " as",
+      "start_ms": 76770,
+      "end_ms": 76830,
+      "confidence": 0.9998645782470703,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "k",
+      "start_ms": 76890,
+      "end_ms": 76950,
+      "confidence": 0.9999866485595703,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ed",
+      "start_ms": 76950,
+      "end_ms": 77010,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " was",
+      "start_ms": 77070,
+      "end_ms": 77130,
+      "confidence": 0.9940534830093384,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 77190,
+      "end_ms": 77250,
+      "confidence": 0.9969719052314758,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " wh",
+      "start_ms": 77250,
+      "end_ms": 77310,
+      "confidence": 0.9238861799240112,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "at",
+      "start_ms": 77310,
+      "end_ms": 77370,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " are",
+      "start_ms": 77430,
+      "end_ms": 77490,
+      "confidence": 0.9988086223602295,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 77490,
+      "end_ms": 77550,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " tr",
+      "start_ms": 77610,
+      "end_ms": 77670,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "y",
+      "start_ms": 77670,
+      "end_ms": 77730,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 77730,
+      "end_ms": 77790,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 77790,
+      "end_ms": 77850,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " design",
+      "start_ms": 78030,
+      "end_ms": 78090,
+      "confidence": 0.999969482421875,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 78810,
+      "end_ms": 78870,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " W",
+      "start_ms": 78990,
+      "end_ms": 79050,
+      "confidence": 0.9999275207519531,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ell,",
+      "start_ms": 79050,
+      "end_ms": 79110,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " a",
+      "start_ms": 79290,
+      "end_ms": 79350,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " dev",
+      "start_ms": 79410,
+      "end_ms": 79470,
+      "confidence": 0.9999828934669495,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ice",
+      "start_ms": 79590,
+      "end_ms": 79650,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " which",
+      "start_ms": 79830,
+      "end_ms": 79890,
+      "confidence": 0.9999947547912598,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bas",
+      "start_ms": 80370,
+      "end_ms": 80430,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ic",
+      "start_ms": 80490,
+      "end_ms": 80550,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ally",
+      "start_ms": 80670,
+      "end_ms": 80730,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " just",
+      "start_ms": 80850,
+      "end_ms": 80910,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " send",
+      "start_ms": 81150,
+      "end_ms": 81210,
+      "confidence": 0.9999675750732422,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "s",
+      "start_ms": 81270,
+      "end_ms": 81330,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 81450,
+      "end_ms": 81510,
+      "confidence": 0.9971886873245239,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sign",
+      "start_ms": 81570,
+      "end_ms": 81630,
+      "confidence": 0.9999866485595703,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "al",
+      "start_ms": 81870,
+      "end_ms": 81930,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 82110,
+      "end_ms": 82170,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 82230,
+      "end_ms": 82290,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " T",
+      "start_ms": 82530,
+      "end_ms": 82590,
+      "confidence": 0.9998111724853516,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "V",
+      "start_ms": 82710,
+      "end_ms": 82770,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 82890,
+      "end_ms": 82950,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ch",
+      "start_ms": 83070,
+      "end_ms": 83130,
+      "confidence": 0.9999332427978516,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ange",
+      "start_ms": 83190,
+      "end_ms": 83250,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " its",
+      "start_ms": 83310,
+      "end_ms": 83370,
+      "confidence": 0.9987114667892456,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " stat",
+      "start_ms": 83490,
+      "end_ms": 83550,
+      "confidence": 0.9994146227836609,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 83550,
+      "end_ms": 83610,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " wh",
+      "start_ms": 83670,
+      "end_ms": 83730,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ether",
+      "start_ms": 83730,
+      "end_ms": 83790,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 83850,
+      "end_ms": 83910,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " be",
+      "start_ms": 84030,
+      "end_ms": 84090,
+      "confidence": 0.9999637603759766,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 84090,
+      "end_ms": 84150,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " pow",
+      "start_ms": 84390,
+      "end_ms": 84450,
+      "confidence": 0.9999294281005859,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "er",
+      "start_ms": 84690,
+      "end_ms": 84750,
+      "confidence": 0.9991954565048218,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " or",
+      "start_ms": 85110,
+      "end_ms": 85170,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 85290,
+      "end_ms": 85350,
+      "confidence": 0.9999982118606567,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ch",
+      "start_ms": 85530,
+      "end_ms": 85590,
+      "confidence": 0.9999889135360718,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ann",
+      "start_ms": 85770,
+      "end_ms": 85830,
+      "confidence": 0.9999470710754395,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "el,",
+      "start_ms": 86070,
+      "end_ms": 86130,
+      "confidence": 0.9840890169143677,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " um",
+      "start_ms": 87030,
+      "end_ms": 87090,
+      "confidence": 0.9995023012161255,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 87150,
+      "end_ms": 87210,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " or",
+      "start_ms": 87510,
+      "end_ms": 87570,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 87750,
+      "end_ms": 87810,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " vol",
+      "start_ms": 88050,
+      "end_ms": 88110,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "um",
+      "start_ms": 88290,
+      "end_ms": 88350,
+      "confidence": 0.9999523162841797,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 88410,
+      "end_ms": 88470,
+      "confidence": 0.9989667534828186,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ever",
+      "start_ms": 88530,
+      "end_ms": 88590,
+      "confidence": 0.9999637603759766,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "yth",
+      "start_ms": 88590,
+      "end_ms": 88650,
+      "confidence": 0.9999771118164062,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 88770,
+      "end_ms": 88830,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " is",
+      "start_ms": 88950,
+      "end_ms": 89010,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " just",
+      "start_ms": 89070,
+      "end_ms": 89130,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 89490,
+      "end_ms": 89550,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " um",
+      "start_ms": 89610,
+      "end_ms": 89670,
+      "confidence": 0.9997368454933167,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 89730,
+      "end_ms": 89790,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " some",
+      "start_ms": 90270,
+      "end_ms": 90330,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sort",
+      "start_ms": 90450,
+      "end_ms": 90510,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 90570,
+      "end_ms": 90630,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sign",
+      "start_ms": 90810,
+      "end_ms": 90870,
+      "confidence": 0.9999809265136719,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "al",
+      "start_ms": 91050,
+      "end_ms": 91110,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 91110,
+      "end_ms": 91170,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ch",
+      "start_ms": 91290,
+      "end_ms": 91350,
+      "confidence": 0.9999924302101135,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ange",
+      "start_ms": 91410,
+      "end_ms": 91470,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 91650,
+      "end_ms": 91710,
+      "confidence": 0.9999982118606567,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " state",
+      "start_ms": 92010,
+      "end_ms": 92070,
+      "confidence": 0.9996766448020935,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 92250,
+      "end_ms": 92310,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 92910,
+      "end_ms": 92970,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " T",
+      "start_ms": 93570,
+      "end_ms": 93630,
+      "confidence": 0.9999637603759766,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "V",
+      "start_ms": 93750,
+      "end_ms": 93810,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " or",
+      "start_ms": 94050,
+      "end_ms": 94110,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " other",
+      "start_ms": 94530,
+      "end_ms": 94590,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " app",
+      "start_ms": 94890,
+      "end_ms": 94950,
+      "confidence": 0.986801266670227,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "li",
+      "start_ms": 95070,
+      "end_ms": 95130,
+      "confidence": 0.9999809265136719,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ance",
+      "start_ms": 95130,
+      "end_ms": 95190,
+      "confidence": 0.9982201457023621,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 95250,
+      "end_ms": 95310,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " it",
+      "start_ms": 95610,
+      "end_ms": 95670,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'s",
+      "start_ms": 95670,
+      "end_ms": 95730,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " send",
+      "start_ms": 95850,
+      "end_ms": 95910,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 95970,
+      "end_ms": 96030,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 96090,
+      "end_ms": 96150,
+      "confidence": 0.9999713897705078,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sign",
+      "start_ms": 96210,
+      "end_ms": 96270,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "al",
+      "start_ms": 96450,
+      "end_ms": 96510,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 96630,
+      "end_ms": 96690,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 96930,
+      "end_ms": 96990,
+      "confidence": 0.9999887943267822,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 99270,
+      "end_ms": 99330,
+      "confidence": 0.9997825622558594,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 99390,
+      "end_ms": 99450,
+      "confidence": 0.9999656677246094,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " so",
+      "start_ms": 99630,
+      "end_ms": 99690,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 99870,
+      "end_ms": 99930,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " dec",
+      "start_ms": 99990,
+      "end_ms": 100050,
+      "confidence": 0.9999523162841797,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ided",
+      "start_ms": 100230,
+      "end_ms": 100290,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 100590,
+      "end_ms": 100650,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'d",
+      "start_ms": 100770,
+      "end_ms": 100830,
+      "confidence": 0.9999866485595703,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " have",
+      "start_ms": 100950,
+      "end_ms": 101010,
+      "confidence": 0.9999561309814453,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " a",
+      "start_ms": 101070,
+      "end_ms": 101130,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " lo",
+      "start_ms": 101190,
+      "end_ms": 101250,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ok",
+      "start_ms": 101250,
+      "end_ms": 101310,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " at",
+      "start_ms": 101370,
+      "end_ms": 101430,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " wh",
+      "start_ms": 101610,
+      "end_ms": 101670,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "at",
+      "start_ms": 101730,
+      "end_ms": 101790,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " other",
+      "start_ms": 101910,
+      "end_ms": 101970,
+      "confidence": 0.9996395707130432,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " people",
+      "start_ms": 102030,
+      "end_ms": 102090,
+      "confidence": 0.9999809265136719,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " have",
+      "start_ms": 102330,
+      "end_ms": 102390,
+      "confidence": 0.999079167842865,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " design",
+      "start_ms": 102570,
+      "end_ms": 102630,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ed",
+      "start_ms": 102990,
+      "end_ms": 103050,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " and",
+      "start_ms": 103350,
+      "end_ms": 103410,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " tr",
+      "start_ms": 103470,
+      "end_ms": 103530,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "y",
+      "start_ms": 103530,
+      "end_ms": 103590,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " and",
+      "start_ms": 103650,
+      "end_ms": 103710,
+      "confidence": 0.9999294281005859,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " tak",
+      "start_ms": 103770,
+      "end_ms": 103830,
+      "confidence": 0.999998152256012,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e",
+      "start_ms": 103890,
+      "end_ms": 103950,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " some",
+      "start_ms": 104010,
+      "end_ms": 104070,
+      "confidence": 0.9996278882026672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " insp",
+      "start_ms": 104190,
+      "end_ms": 104250,
+      "confidence": 0.9999675750732422,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ir",
+      "start_ms": 104370,
+      "end_ms": 104430,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ation",
+      "start_ms": 104670,
+      "end_ms": 104730,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " from",
+      "start_ms": 104790,
+      "end_ms": 104850,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 105090,
+      "end_ms": 105150,
+      "confidence": 0.9998512268066406,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 105570,
+      "end_ms": 105630,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " But",
+      "start_ms": 107370,
+      "end_ms": 107430,
+      "confidence": 0.9998703598976135,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 107670,
+      "end_ms": 107730,
+      "confidence": 0.997968852519989,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 107850,
+      "end_ms": 107910,
+      "confidence": 0.9945920705795288,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 107910,
+      "end_ms": 107970,
+      "confidence": 0.9999637603759766,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " alt",
+      "start_ms": 107970,
+      "end_ms": 108030,
+      "confidence": 0.9999198913574219,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "hough",
+      "start_ms": 108090,
+      "end_ms": 108150,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 108270,
+      "end_ms": 108330,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " will",
+      "start_ms": 108450,
+      "end_ms": 108510,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 108870,
+      "end_ms": 108930,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ant",
+      "start_ms": 108930,
+      "end_ms": 108990,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 109050,
+      "end_ms": 109110,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " be",
+      "start_ms": 109170,
+      "end_ms": 109230,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " tak",
+      "start_ms": 109410,
+      "end_ms": 109470,
+      "confidence": 0.9999949932098389,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 109770,
+      "end_ms": 109830,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ide",
+      "start_ms": 111570,
+      "end_ms": 111630,
+      "confidence": 0.999908447265625,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "as",
+      "start_ms": 111810,
+      "end_ms": 111870,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " from",
+      "start_ms": 111930,
+      "end_ms": 111990,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " other",
+      "start_ms": 112110,
+      "end_ms": 112170,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " people",
+      "start_ms": 112290,
+      "end_ms": 112350,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 112530,
+      "end_ms": 112590,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 112650,
+      "end_ms": 112710,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 112770,
+      "end_ms": 112830,
+      "confidence": 0.9986695647239685,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ant",
+      "start_ms": 112830,
+      "end_ms": 112890,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 112890,
+      "end_ms": 112950,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " m",
+      "start_ms": 112950,
+      "end_ms": 113010,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ake",
+      "start_ms": 113070,
+      "end_ms": 113130,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " su",
+      "start_ms": 113130,
+      "end_ms": 113190,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "re",
+      "start_ms": 113190,
+      "end_ms": 113250,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 113310,
+      "end_ms": 113370,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " o",
+      "start_ms": 113730,
+      "end_ms": 113790,
+      "confidence": 0.9999618530273438,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ur",
+      "start_ms": 113850,
+      "end_ms": 113910,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " design",
+      "start_ms": 113970,
+      "end_ms": 114030,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " stand",
+      "start_ms": 114510,
+      "end_ms": 114570,
+      "confidence": 0.9998550415039062,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "s",
+      "start_ms": 114630,
+      "end_ms": 114690,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " out",
+      "start_ms": 114690,
+      "end_ms": 114750,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 115170,
+      "end_ms": 115230,
+      "confidence": 0.754911482334137,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " And",
+      "start_ms": 115290,
+      "end_ms": 115350,
+      "confidence": 0.9999966621398926,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 116070,
+      "end_ms": 116130,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " th",
+      "start_ms": 116190,
+      "end_ms": 116250,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o",
+      "start_ms": 116310,
+      "end_ms": 116370,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ught",
+      "start_ms": 116370,
+      "end_ms": 116430,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 116670,
+      "end_ms": 116730,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " was",
+      "start_ms": 116910,
+      "end_ms": 116970,
+      "confidence": 0.999908447265625,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " som",
+      "start_ms": 117090,
+      "end_ms": 117150,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "eth",
+      "start_ms": 117150,
+      "end_ms": 117210,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 117330,
+      "end_ms": 117390,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 117450,
+      "end_ms": 117510,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 118530,
+      "end_ms": 118590,
+      "confidence": 0.9991878271102905,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 118650,
+      "end_ms": 118710,
+      "confidence": 0.9996224045753479,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ell,",
+      "start_ms": 118710,
+      "end_ms": 118770,
+      "confidence": 0.9998664855957031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " it",
+      "start_ms": 118890,
+      "end_ms": 118950,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " was",
+      "start_ms": 118950,
+      "end_ms": 119010,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "n",
+      "start_ms": 119130,
+      "end_ms": 119190,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'t",
+      "start_ms": 119310,
+      "end_ms": 119370,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " re",
+      "start_ms": 119430,
+      "end_ms": 119490,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ally",
+      "start_ms": 119610,
+      "end_ms": 119670,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " my",
+      "start_ms": 119910,
+      "end_ms": 119970,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " area",
+      "start_ms": 120210,
+      "end_ms": 120270,
+      "confidence": 0.995924711227417,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bec",
+      "start_ms": 120510,
+      "end_ms": 120570,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "a",
+      "start_ms": 120630,
+      "end_ms": 120690,
+      "confidence": 0.999998152256012,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "use",
+      "start_ms": 120750,
+      "end_ms": 120810,
+      "confidence": 0.9999887347221375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 122610,
+      "end_ms": 122670,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 122730,
+      "end_ms": 122790,
+      "confidence": 0.9998664855957031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m",
+      "start_ms": 122790,
+      "end_ms": 122850,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " de",
+      "start_ms": 122850,
+      "end_ms": 122910,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "al",
+      "start_ms": 122970,
+      "end_ms": 123030,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 123030,
+      "end_ms": 123090,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " with",
+      "start_ms": 123090,
+      "end_ms": 123150,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 123210,
+      "end_ms": 123270,
+      "confidence": 0.9999523162841797,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ins",
+      "start_ms": 123510,
+      "end_ms": 123570,
+      "confidence": 0.9987362027168274,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "id",
+      "start_ms": 123750,
+      "end_ms": 123810,
+      "confidence": 0.9944422245025635,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 123870,
+      "end_ms": 123930,
+      "confidence": 0.9999637603759766,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " re",
+      "start_ms": 123990,
+      "end_ms": 124050,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "all",
+      "start_ms": 124110,
+      "end_ms": 124170,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "y.",
+      "start_ms": 124290,
+      "end_ms": 124350,
+      "confidence": 0.9940894842147827,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " S",
+      "start_ms": 125010,
+      "end_ms": 125070,
+      "confidence": 0.9397464394569397,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o,",
+      "start_ms": 125250,
+      "end_ms": 125310,
+      "confidence": 0.9998207092285156,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " um",
+      "start_ms": 126090,
+      "end_ms": 126150,
+      "confidence": 0.6365170478820801,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 126210,
+      "end_ms": 126270,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ye",
+      "start_ms": 126330,
+      "end_ms": 126390,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ah,",
+      "start_ms": 126390,
+      "end_ms": 126450,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 126510,
+      "end_ms": 126570,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ran",
+      "start_ms": 126630,
+      "end_ms": 126690,
+      "confidence": 0.9996472001075745,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " out",
+      "start_ms": 126810,
+      "end_ms": 126870,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 126870,
+      "end_ms": 126930,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " tim",
+      "start_ms": 127410,
+      "end_ms": 127470,
+      "confidence": 0.9998130798339844,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 127590,
+      "end_ms": 127650,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " so",
+      "start_ms": 127650,
+      "end_ms": 127710,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 127710,
+      "end_ms": 127770,
+      "confidence": 0.9999944567680359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " co",
+      "start_ms": 127830,
+      "end_ms": 127890,
+      "confidence": 0.9998016953468323,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "uld",
+      "start_ms": 127890,
+      "end_ms": 127950,
+      "confidence": 0.9999857544898987,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "n",
+      "start_ms": 127950,
+      "end_ms": 128010,
+      "confidence": 0.9999963641166687,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'t",
+      "start_ms": 128010,
+      "end_ms": 128070,
+      "confidence": 0.999760091304779,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " do",
+      "start_ms": 128070,
+      "end_ms": 128130,
+      "confidence": 0.9999198913574219,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " this",
+      "start_ms": 128190,
+      "end_ms": 128250,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " one",
+      "start_ms": 128370,
+      "end_ms": 128430,
+      "confidence": 0.9997177720069885,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " as",
+      "start_ms": 128730,
+      "end_ms": 128790,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " fun",
+      "start_ms": 129090,
+      "end_ms": 129150,
+      "confidence": 0.99981689453125,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " as",
+      "start_ms": 129210,
+      "end_ms": 129270,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 129390,
+      "end_ms": 129450,
+      "confidence": 0.9999732971191406,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " last",
+      "start_ms": 129570,
+      "end_ms": 129630,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " on",
+      "start_ms": 129810,
+      "end_ms": 129870,
+      "confidence": 0.9999217987060547,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 130050,
+      "end_ms": 130110,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 130830,
+      "end_ms": 130890,
+      "confidence": 0.9994508624076843,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 130950,
+      "end_ms": 131010,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " and",
+      "start_ms": 131430,
+      "end_ms": 131490,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 131730,
+      "end_ms": 131790,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 131850,
+      "end_ms": 131910,
+      "confidence": 0.9999561309814453,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 131970,
+      "end_ms": 132030,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 132810,
+      "end_ms": 132870,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " found",
+      "start_ms": 133050,
+      "end_ms": 133110,
+      "confidence": 0.9999122619628906,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " out",
+      "start_ms": 133290,
+      "end_ms": 133350,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 133470,
+      "end_ms": 133530,
+      "confidence": 0.999998152256012,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " most",
+      "start_ms": 133830,
+      "end_ms": 133890,
+      "confidence": 0.999994695186615,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 134370,
+      "end_ms": 134430,
+      "confidence": 0.9617841839790344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 134430,
+      "end_ms": 134490,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 134550,
+      "end_ms": 134610,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " contr",
+      "start_ms": 134790,
+      "end_ms": 134850,
+      "confidence": 0.9999198913574219,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ols",
+      "start_ms": 135090,
+      "end_ms": 135150,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " use",
+      "start_ms": 135390,
+      "end_ms": 135450,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " some",
+      "start_ms": 135990,
+      "end_ms": 136050,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " form",
+      "start_ms": 136170,
+      "end_ms": 136230,
+      "confidence": 0.9999485015869141,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 136350,
+      "end_ms": 136410,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " inf",
+      "start_ms": 136710,
+      "end_ms": 136770,
+      "confidence": 0.9995843172073364,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "rar",
+      "start_ms": 136890,
+      "end_ms": 136950,
+      "confidence": 0.9998970031738281,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ed",
+      "start_ms": 137070,
+      "end_ms": 137130,
+      "confidence": 0.9999237060546875,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 137250,
+      "end_ms": 137310,
+      "confidence": 0.9976167678833008,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " send",
+      "start_ms": 137430,
+      "end_ms": 137490,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sign",
+      "start_ms": 137610,
+      "end_ms": 137670,
+      "confidence": 0.9999771118164062,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "als",
+      "start_ms": 137730,
+      "end_ms": 137790,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 137910,
+      "end_ms": 137970,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 138030,
+      "end_ms": 138090,
+      "confidence": 0.9994927644729614,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " T",
+      "start_ms": 138150,
+      "end_ms": 138210,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "V",
+      "start_ms": 138270,
+      "end_ms": 138330,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 138390,
+      "end_ms": 138450,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " pres",
+      "start_ms": 138510,
+      "end_ms": 138570,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "um",
+      "start_ms": 138630,
+      "end_ms": 138690,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ab",
+      "start_ms": 138750,
+      "end_ms": 138810,
+      "confidence": 0.999969482421875,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ly",
+      "start_ms": 138870,
+      "end_ms": 138930,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bec",
+      "start_ms": 138990,
+      "end_ms": 139050,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "a",
+      "start_ms": 139110,
+      "end_ms": 139170,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "use",
+      "start_ms": 139230,
+      "end_ms": 139290,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 139830,
+      "end_ms": 139890,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 139950,
+      "end_ms": 140010,
+      "confidence": 0.9999995231628418,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " cost",
+      "start_ms": 140250,
+      "end_ms": 140310,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " is",
+      "start_ms": 140610,
+      "end_ms": 140670,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "s",
+      "start_ms": 140730,
+      "end_ms": 140790,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ue",
+      "start_ms": 140790,
+      "end_ms": 140850,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 140910,
+      "end_ms": 140970,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 141330,
+      "end_ms": 141390,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 141450,
+      "end_ms": 141510,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 141510,
+      "end_ms": 141570,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " som",
+      "start_ms": 141570,
+      "end_ms": 141630,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "eth",
+      "start_ms": 141630,
+      "end_ms": 141690,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 141750,
+      "end_ms": 141810,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " lik",
+      "start_ms": 141990,
+      "end_ms": 142050,
+      "confidence": 0.9984886050224304,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 142230,
+      "end_ms": 142290,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " u",
+      "start_ms": 142950,
+      "end_ms": 143010,
+      "confidence": 0.9997806549072266,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "h,",
+      "start_ms": 143010,
+      "end_ms": 143070,
+      "confidence": 0.9999866485595703,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 143130,
+      "end_ms": 143190,
+      "confidence": 0.997803270816803,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " same",
+      "start_ms": 143250,
+      "end_ms": 143310,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " th",
+      "start_ms": 143370,
+      "end_ms": 143430,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 143430,
+      "end_ms": 143490,
+      "confidence": 0.9999675750732422,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 143550,
+      "end_ms": 143610,
+      "confidence": 0.9817100167274475,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " comp",
+      "start_ms": 143850,
+      "end_ms": 143910,
+      "confidence": 0.9990830421447754,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ut",
+      "start_ms": 144150,
+      "end_ms": 144210,
+      "confidence": 0.9996891617774963,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ers",
+      "start_ms": 144330,
+      "end_ms": 144390,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " us",
+      "start_ms": 144570,
+      "end_ms": 144630,
+      "confidence": 0.8309876322746277,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 144810,
+      "end_ms": 144870,
+      "confidence": 0.9999427795410156,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 145050,
+      "end_ms": 145110,
+      "confidence": 0.998263955116272,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ir",
+      "start_ms": 145110,
+      "end_ms": 145170,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "el",
+      "start_ms": 145230,
+      "end_ms": 145290,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ess",
+      "start_ms": 145350,
+      "end_ms": 145410,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 145470,
+      "end_ms": 145530,
+      "confidence": 0.9997406601905823,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " and",
+      "start_ms": 145530,
+      "end_ms": 145590,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " y",
+      "start_ms": 145590,
+      "end_ms": 145650,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ou",
+      "start_ms": 145710,
+      "end_ms": 145770,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " don",
+      "start_ms": 145770,
+      "end_ms": 145830,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'t",
+      "start_ms": 145830,
+      "end_ms": 145890,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ne",
+      "start_ms": 145890,
+      "end_ms": 145950,
+      "confidence": 0.9999948740005493,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ed",
+      "start_ms": 145950,
+      "end_ms": 146010,
+      "confidence": 0.9999966621398926,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 146070,
+      "end_ms": 146130,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " send",
+      "start_ms": 146190,
+      "end_ms": 146250,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " ver",
+      "start_ms": 146310,
+      "end_ms": 146370,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "y",
+      "start_ms": 146430,
+      "end_ms": 146490,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " much",
+      "start_ms": 146490,
+      "end_ms": 146550,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " inform",
+      "start_ms": 146730,
+      "end_ms": 146790,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ation.",
+      "start_ms": 147390,
+      "end_ms": 147450,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 148770,
+      "end_ms": 148830,
+      "confidence": 0.9997920989990234,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 148950,
+      "end_ms": 149010,
+      "confidence": 0.9999294281005859,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " most",
+      "start_ms": 149490,
+      "end_ms": 149550,
+      "confidence": 0.9999771118164062,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 149610,
+      "end_ms": 149670,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " them",
+      "start_ms": 149790,
+      "end_ms": 149850,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " are",
+      "start_ms": 150030,
+      "end_ms": 150090,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " pow",
+      "start_ms": 150210,
+      "end_ms": 150270,
+      "confidence": 0.9994755983352661,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ered",
+      "start_ms": 150330,
+      "end_ms": 150390,
+      "confidence": 0.999119222164154,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " by",
+      "start_ms": 150450,
+      "end_ms": 150510,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " some",
+      "start_ms": 150990,
+      "end_ms": 151050,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " form",
+      "start_ms": 151170,
+      "end_ms": 151230,
+      "confidence": 0.9999790191650391,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 151410,
+      "end_ms": 151470,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bat",
+      "start_ms": 151710,
+      "end_ms": 151770,
+      "confidence": 0.9999428391456604,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ter",
+      "start_ms": 151830,
+      "end_ms": 151890,
+      "confidence": 0.9999854564666748,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "y.",
+      "start_ms": 152010,
+      "end_ms": 152070,
+      "confidence": 0.9992125034332275,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Now",
+      "start_ms": 152550,
+      "end_ms": 152610,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 152730,
+      "end_ms": 152790,
+      "confidence": 0.9999771118164062,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " R",
+      "start_ms": 153210,
+      "end_ms": 153270,
+      "confidence": 0.9784200191497803,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "1",
+      "start_ms": 153510,
+      "end_ms": 153570,
+      "confidence": 0.9980526566505432,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 153810,
+      "end_ms": 153870,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 154110,
+      "end_ms": 154170,
+      "confidence": 0.9998931884765625,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 154230,
+      "end_ms": 154290,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 154290,
+      "end_ms": 154350,
+      "confidence": 0.5926589965820312,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 154410,
+      "end_ms": 154470,
+      "confidence": 0.9999828338623047,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 154470,
+      "end_ms": 154530,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m",
+      "start_ms": 154530,
+      "end_ms": 154590,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " not",
+      "start_ms": 154590,
+      "end_ms": 154650,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " su",
+      "start_ms": 154710,
+      "end_ms": 154770,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "re",
+      "start_ms": 154890,
+      "end_ms": 154950,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " wh",
+      "start_ms": 155130,
+      "end_ms": 155190,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ether",
+      "start_ms": 155250,
+      "end_ms": 155310,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 155370,
+      "end_ms": 155430,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 155610,
+      "end_ms": 155670,
+      "confidence": 0.99993896484375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ant",
+      "start_ms": 155790,
+      "end_ms": 155850,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 155970,
+      "end_ms": 156030,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " lo",
+      "start_ms": 156330,
+      "end_ms": 156390,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ok",
+      "start_ms": 156450,
+      "end_ms": 156510,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " at",
+      "start_ms": 156570,
+      "end_ms": 156630,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 156690,
+      "end_ms": 156750,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " s",
+      "start_ms": 156990,
+      "end_ms": 157050,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ize",
+      "start_ms": 157170,
+      "end_ms": 157230,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " is",
+      "start_ms": 157350,
+      "end_ms": 157410,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "s",
+      "start_ms": 157470,
+      "end_ms": 157530,
+      "confidence": 0.9988276958465576,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ue",
+      "start_ms": 157530,
+      "end_ms": 157590,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bec",
+      "start_ms": 157650,
+      "end_ms": 157710,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "a",
+      "start_ms": 157710,
+      "end_ms": 157770,
+      "confidence": 0.999998152256012,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "use",
+      "start_ms": 157830,
+      "end_ms": 157890,
+      "confidence": 0.9999963045120239,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " most",
+      "start_ms": 158310,
+      "end_ms": 158370,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 158430,
+      "end_ms": 158490,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " them",
+      "start_ms": 158670,
+      "end_ms": 158730,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " are",
+      "start_ms": 158850,
+      "end_ms": 158910,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " pow",
+      "start_ms": 159030,
+      "end_ms": 159090,
+      "confidence": 0.9999732971191406,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ered",
+      "start_ms": 159150,
+      "end_ms": 159210,
+      "confidence": 0.9998931884765625,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " by",
+      "start_ms": 159270,
+      "end_ms": 159330,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " A",
+      "start_ms": 159930,
+      "end_ms": 159990,
+      "confidence": 0.9656460881233215,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "A",
+      "start_ms": 160110,
+      "end_ms": 160170,
+      "confidence": 0.9973161816596985,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "A",
+      "start_ms": 160230,
+      "end_ms": 160290,
+      "confidence": 0.9999103546142578,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bat",
+      "start_ms": 160410,
+      "end_ms": 160470,
+      "confidence": 0.9999523162841797,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "teri",
+      "start_ms": 160530,
+      "end_ms": 160590,
+      "confidence": 0.9966620206832886,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "es,",
+      "start_ms": 160830,
+      "end_ms": 160890,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " but",
+      "start_ms": 161250,
+      "end_ms": 161310,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " th",
+      "start_ms": 161370,
+      "end_ms": 161430,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ose",
+      "start_ms": 161490,
+      "end_ms": 161550,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " can",
+      "start_ms": 161610,
+      "end_ms": 161670,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " be",
+      "start_ms": 161730,
+      "end_ms": 161790,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " qu",
+      "start_ms": 161850,
+      "end_ms": 161910,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ite",
+      "start_ms": 161970,
+      "end_ms": 162030,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bul",
+      "start_ms": 162330,
+      "end_ms": 162390,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "k",
+      "start_ms": 162570,
+      "end_ms": 162630,
+      "confidence": 0.9999637603759766,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "y.",
+      "start_ms": 162690,
+      "end_ms": 162750,
+      "confidence": 0.9859358668327332,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " So",
+      "start_ms": 163110,
+      "end_ms": 163170,
+      "confidence": 0.9999237656593323,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I,",
+      "start_ms": 163590,
+      "end_ms": 163650,
+      "confidence": 0.9324190020561218,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 163770,
+      "end_ms": 163830,
+      "confidence": 0.9999848008155823,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " did",
+      "start_ms": 163830,
+      "end_ms": 163890,
+      "confidence": 0.9998592138290405,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "n",
+      "start_ms": 163950,
+      "end_ms": 164010,
+      "confidence": 0.999997615814209,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'t",
+      "start_ms": 164010,
+      "end_ms": 164070,
+      "confidence": 0.9999690055847168,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " kn",
+      "start_ms": 164070,
+      "end_ms": 164130,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ow",
+      "start_ms": 164190,
+      "end_ms": 164250,
+      "confidence": 0.9999923706054688,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " if",
+      "start_ms": 164250,
+      "end_ms": 164310,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " y",
+      "start_ms": 164370,
+      "end_ms": 164430,
+      "confidence": 0.9999790191650391,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ou",
+      "start_ms": 164490,
+      "end_ms": 164550,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " w",
+      "start_ms": 164550,
+      "end_ms": 164610,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ant",
+      "start_ms": 164670,
+      "end_ms": 164730,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ed",
+      "start_ms": 164790,
+      "end_ms": 164850,
+      "confidence": 0.9999904632568359,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 164850,
+      "end_ms": 164910,
+      "confidence": 0.9999790191650391,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " lo",
+      "start_ms": 164970,
+      "end_ms": 165030,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ok",
+      "start_ms": 165030,
+      "end_ms": 165090,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " at",
+      "start_ms": 165090,
+      "end_ms": 165150,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " som",
+      "start_ms": 165210,
+      "end_ms": 165270,
+      "confidence": 0.9999961853027344,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "eth",
+      "start_ms": 165270,
+      "end_ms": 165330,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 165390,
+      "end_ms": 165450,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " els",
+      "start_ms": 165690,
+      "end_ms": 165750,
+      "confidence": 0.9999065399169922,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e,",
+      "start_ms": 165990,
+      "end_ms": 166050,
+      "confidence": 0.9999141693115234,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " um",
+      "start_ms": 166530,
+      "end_ms": 166590,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 166590,
+      "end_ms": 166650,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " so",
+      "start_ms": 166710,
+      "end_ms": 166770,
+      "confidence": 0.9999847412109375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " we",
+      "start_ms": 166830,
+      "end_ms": 166890,
+      "confidence": 0.9988124370574951,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " co",
+      "start_ms": 166950,
+      "end_ms": 167010,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "uld",
+      "start_ms": 167070,
+      "end_ms": 167130,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " sh",
+      "start_ms": 167370,
+      "end_ms": 167430,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "r",
+      "start_ms": 167490,
+      "end_ms": 167550,
+      "confidence": 0.9999465942382812,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ink",
+      "start_ms": 167550,
+      "end_ms": 167610,
+      "confidence": 0.9999942779541016,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " down",
+      "start_ms": 167670,
+      "end_ms": 167730,
+      "confidence": 0.9999980926513672,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 167850,
+      "end_ms": 167910,
+      "confidence": 1,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " s",
+      "start_ms": 168090,
+      "end_ms": 168150,
+      "confidence": 0.9999927878379822,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ize",
+      "start_ms": 168330,
+      "end_ms": 168390,
+      "confidence": 0.9324260950088501,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " of",
+      "start_ms": 169950,
+      "end_ms": 170010,
+      "confidence": 0.998557448387146,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 170070,
+      "end_ms": 170130,
+      "confidence": 0.9999885559082031,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " contr",
+      "start_ms": 170250,
+      "end_ms": 170310,
+      "confidence": 0.9739031195640564,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ol.",
+      "start_ms": 170430,
+      "end_ms": 170490,
+      "confidence": 0.9996872544288635,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 170490,
+      "end_ms": 170550,
+      "confidence": 0.6174384951591492,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 170610,
+      "end_ms": 170670,
+      "confidence": 0.5925097465515137,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " can",
+      "start_ms": 170670,
+      "end_ms": 170730,
+      "confidence": 0.9992411732673645,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 170730,
+      "end_ms": 170790,
+      "confidence": 0.9999847412109375,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " inter",
+      "start_ms": 170910,
+      "end_ms": 170970,
+      "confidence": 0.9999427795410156,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ject",
+      "start_ms": 171030,
+      "end_ms": 171090,
+      "confidence": 0.9997615814208984,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " to",
+      "start_ms": 171150,
+      "end_ms": 171210,
+      "confidence": 0.5301477313041687,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " as",
+      "start_ms": 171270,
+      "end_ms": 171330,
+      "confidence": 0.9999561309814453,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "k",
+      "start_ms": 171330,
+      "end_ms": 171390,
+      "confidence": 0.9999713897705078,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " a",
+      "start_ms": 171450,
+      "end_ms": 171510,
+      "confidence": 0.9999408721923828,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " qu",
+      "start_ms": 171510,
+      "end_ms": 171570,
+      "confidence": 0.9999656677246094,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "es",
+      "start_ms": 171630,
+      "end_ms": 171690,
+      "confidence": 0.9999790191650391,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "tion",
+      "start_ms": 171750,
+      "end_ms": 171810,
+      "confidence": 0.9871043562889099,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 171810,
+      "end_ms": 171870,
+      "confidence": 0.7832984328269958,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Ye",
+      "start_ms": 171870,
+      "end_ms": 171930,
+      "confidence": 0.6319299340248108,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ah,",
+      "start_ms": 171930,
+      "end_ms": 171990,
+      "confidence": 0.9035677313804626,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " su",
+      "start_ms": 171990,
+      "end_ms": 172050,
+      "confidence": 0.993473470211029,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "re.",
+      "start_ms": 172050,
+      "end_ms": 172110,
+      "confidence": 0.9989324808120728,
+      "speaker": "1",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Is",
+      "start_ms": 172110,
+      "end_ms": 172170,
+      "confidence": 0.9717192053794861,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " that",
+      "start_ms": 172170,
+      "end_ms": 172230,
+      "confidence": 0.999142050743103,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " app",
+      "start_ms": 172290,
+      "end_ms": 172350,
+      "confidence": 0.9999446868896484,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "rop",
+      "start_ms": 172410,
+      "end_ms": 172470,
+      "confidence": 0.9999980926513672,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ri",
+      "start_ms": 172470,
+      "end_ms": 172530,
+      "confidence": 0.9999866485595703,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ate",
+      "start_ms": 172590,
+      "end_ms": 172650,
+      "confidence": 0.9999885559082031,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "?",
+      "start_ms": 172710,
+      "end_ms": 172770,
+      "confidence": 0.9999980926513672,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " Are",
+      "start_ms": 173070,
+      "end_ms": 173130,
+      "confidence": 0.4921813905239105,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " y",
+      "start_ms": 173130,
+      "end_ms": 173130,
+      "confidence": 0.999969482421875,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ou",
+      "start_ms": 173130,
+      "end_ms": 173190,
+      "confidence": 0.9999961853027344,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " say",
+      "start_ms": 173250,
+      "end_ms": 173310,
+      "confidence": 0.9999618530273438,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ing",
+      "start_ms": 173310,
+      "end_ms": 173370,
+      "confidence": 0.9999942779541016,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 173370,
+      "end_ms": 173430,
+      "confidence": 0.9859020113945007,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " A",
+      "start_ms": 173490,
+      "end_ms": 173550,
+      "confidence": 0.9997196793556213,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "A",
+      "start_ms": 173610,
+      "end_ms": 173670,
+      "confidence": 0.999784529209137,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "A",
+      "start_ms": 173730,
+      "end_ms": 173790,
+      "confidence": 0.9998874664306641,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " bat",
+      "start_ms": 173910,
+      "end_ms": 173970,
+      "confidence": 0.9999828338623047,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ter",
+      "start_ms": 173970,
+      "end_ms": 174030,
+      "confidence": 0.999847412109375,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ies",
+      "start_ms": 174090,
+      "end_ms": 174150,
+      "confidence": 0.9995595216751099,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " are",
+      "start_ms": 174270,
+      "end_ms": 174330,
+      "confidence": 0.9999409914016724,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " small",
+      "start_ms": 174390,
+      "end_ms": 174450,
+      "confidence": 0.9996474981307983,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " or",
+      "start_ms": 174630,
+      "end_ms": 174690,
+      "confidence": 0.6620358824729919,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ",",
+      "start_ms": 174750,
+      "end_ms": 174810,
+      "confidence": 0.7680498957633972,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " or",
+      "start_ms": 174870,
+      "end_ms": 174930,
+      "confidence": 0.9956220984458923,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " the",
+      "start_ms": 174990,
+      "end_ms": 175050,
+      "confidence": 0.9902806878089905,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " car",
+      "start_ms": 175230,
+      "end_ms": 175290,
+      "confidence": 0.6812132000923157,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": ".",
+      "start_ms": 175350,
+      "end_ms": 175410,
+      "confidence": 0.3340024948120117,
+      "speaker": "2",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " U",
+      "start_ms": 175710,
+      "end_ms": 175770,
+      "confidence": 0.999763548374176,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "m,",
+      "start_ms": 175830,
+      "end_ms": 175890,
+      "confidence": 0.9998753070831299,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " n",
+      "start_ms": 175950,
+      "end_ms": 176010,
+      "confidence": 0.9999476671218872,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o,",
+      "start_ms": 176010,
+      "end_ms": 176070,
+      "confidence": 0.9999122023582458,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " n",
+      "start_ms": 176130,
+      "end_ms": 176190,
+      "confidence": 0.9999771118164062,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "o.",
+      "start_ms": 176190,
+      "end_ms": 176250,
+      "confidence": 0.9890002608299255,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " I",
+      "start_ms": 176550,
+      "end_ms": 176610,
+      "confidence": 0.8504616618156433,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "f",
+      "start_ms": 176670,
+      "end_ms": 176730,
+      "confidence": 0.9940136671066284,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " y",
+      "start_ms": 176730,
+      "end_ms": 176730,
+      "confidence": 0.6512202620506287,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ou",
+      "start_ms": 176730,
+      "end_ms": 176790,
+      "confidence": 0.8303379416465759,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " lo",
+      "start_ms": 177090,
+      "end_ms": 177150,
+      "confidence": 0.9872682094573975,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ok",
+      "start_ms": 177150,
+      "end_ms": 177210,
+      "confidence": 0.9998779296875,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " at",
+      "start_ms": 177270,
+      "end_ms": 177330,
+      "confidence": 0.9994394183158875,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " if",
+      "start_ms": 177390,
+      "end_ms": 177450,
+      "confidence": 0.7751169204711914,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " y",
+      "start_ms": 177570,
+      "end_ms": 177630,
+      "confidence": 0.9990239143371582,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ou",
+      "start_ms": 177630,
+      "end_ms": 177690,
+      "confidence": 0.9993783831596375,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " lo",
+      "start_ms": 177750,
+      "end_ms": 177810,
+      "confidence": 0.9997920989990234,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ok",
+      "start_ms": 177810,
+      "end_ms": 177870,
+      "confidence": 0.9998455047607422,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " at",
+      "start_ms": 177870,
+      "end_ms": 177930,
+      "confidence": 0.9995976090431213,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " most",
+      "start_ms": 178050,
+      "end_ms": 178110,
+      "confidence": 0.9996605515480042,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " re",
+      "start_ms": 178350,
+      "end_ms": 178410,
+      "confidence": 0.9996815919876099,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "mo",
+      "start_ms": 178470,
+      "end_ms": 178530,
+      "confidence": 0.9999198913574219,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "te",
+      "start_ms": 178530,
+      "end_ms": 178590,
+      "confidence": 0.9999752044677734,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " control",
+      "start_ms": 178650,
+      "end_ms": 178710,
+      "confidence": 0.9926949739456177,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "s,",
+      "start_ms": 178890,
+      "end_ms": 178950,
+      "confidence": 0.9998798370361328,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " they",
+      "start_ms": 179070,
+      "end_ms": 179130,
+      "confidence": 0.999983012676239,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 179130,
+      "end_ms": 179190,
+      "confidence": 0.9999924302101135,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "re",
+      "start_ms": 179250,
+      "end_ms": 179310,
+      "confidence": 0.9999476075172424,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " qu",
+      "start_ms": 179310,
+      "end_ms": 179370,
+      "confidence": 0.9999949932098389,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "ite,",
+      "start_ms": 179430,
+      "end_ms": 179490,
+      "confidence": 0.9857969880104065,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " they",
+      "start_ms": 179490,
+      "end_ms": 179550,
+      "confidence": 0.9242565631866455,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "'",
+      "start_ms": 179550,
+      "end_ms": 179550,
+      "confidence": 0.9994451403617859,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "re",
+      "start_ms": 179550,
+      "end_ms": 179550,
+      "confidence": 0.9966620206832886,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": " qu",
+      "start_ms": 179550,
+      "end_ms": 179550,
+      "confidence": 0.9993823170661926,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "it",
+      "start_ms": 179550,
+      "end_ms": 179550,
+      "confidence": 0.9899325966835022,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    },
+    {
+      "text": "e.",
+      "start_ms": 179550,
+      "end_ms": 179550,
+      "confidence": 0.9999656677246094,
+      "speaker": "3",
+      "language": null,
+      "is_audio_event": null,
+      "translation_status": null
+    }
+  ],
+  "lifecycle": {
+    "status": "completed",
+    "http_requests": 8
+  },
+  "cleanup": {
+    "transcription_deleted": true,
+    "file_deleted": true,
+    "errors": [],
+    "unresolved_transcription": false,
+    "unresolved_file": false
+  },
+  "error": null,
+  "case_id": "long_return_gap",
+  "source_pcm_sha256": "64d1ef63b71dfc78334ec742c8d5c661ca796e02a3b1dd25f494634f71722ef9",
+  "source_wav_sha256": "1ba62d247301030b6b502f21c1becee71aeab9acffb80ab5c652499920b3deab",
+  "wall_time_s": 20.706,
+  "native_artifact_sha256": "04e9ac97fa132fd404ad899c5525afd43b233d4d297bed46e60d90594d733170",
+  "completed": true,
+  "conversion": {
+    "native_tokens": 751,
+    "untimed_tokens": 0,
+    "zero_duration_token_indices": [
+      696,
+      723,
+      746,
+      747,
+      748,
+      749,
+      750
+    ],
+    "unattributed_tokens": 0,
+    "unattributed_provider_intervals_ms": [],
+    "padding_or_omitted_portions": 0,
+    "mapped_token_pieces": 744
+  },
+  "predicted_speaker_ids": [
+    "1",
+    "2",
+    "3"
+  ],
+  "prediction_sha256": "4873ce7a4cfebad0bac8674c8004abd0549bc4941d02834f782b93092dca356e"
+}

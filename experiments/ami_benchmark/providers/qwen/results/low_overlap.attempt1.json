@@ -1,0 +1,77 @@
+{
+  "case_id": "low_overlap",
+  "status": "incomplete",
+  "model": "qwen3.8-livetranslate-flash-realtime",
+  "region": "cn-beijing",
+  "audio": {
+    "pcm_sha256": "262f71c543590dc526b8e33ecd7a7a46bc81f4ea33fbfac04323b7ffe3b3d2fa",
+    "wav_sha256": "c21c55461cf7a5d7c8141df6187cb9fe04112bad20e92369385bd3850a6cb466",
+    "duration_s": 120.0,
+    "bytes": 3840000,
+    "format": "mono signed little-endian PCM16 16000 Hz"
+  },
+  "requested_config": {
+    "output_modalities": [
+      "text"
+    ],
+    "translation_language": "ko",
+    "source_asr": "model default",
+    "turn_detection": {
+      "type": "speaker_detection",
+      "threshold": 0.5
+    },
+    "chunk_ms": 50,
+    "speaker_hints_sent": false
+  },
+  "effective_config": null,
+  "lifecycle": {
+    "connection_attempted": true,
+    "connection_opened": false,
+    "session_created_received": false,
+    "session_updated_received": false,
+    "session_finished_received": false,
+    "websocket_requests_attempted": 1,
+    "websocket_sessions_opened": 0,
+    "session_finished_utc": null
+  },
+  "event_counts": {},
+  "response_done_statuses": [],
+  "errors": [
+    {
+      "type": "TimeoutError",
+      "message": "timed out during opening handshake",
+      "elapsed_s": 30.021013
+    }
+  ],
+  "server_errors": [],
+  "attributed_intervals": [],
+  "unattributed_intervals": [],
+  "boundary_issues": [],
+  "clipped_intervals": [],
+  "offset_policy": "Native audio milliseconds / 1000; clip finite endpoints to [0, case_duration]; exclude nonpositive, malformed, ambiguous or unpaired intervals; preserve all bounded overlaps; no inferred speech or speaker labels.",
+  "native_events": {
+    "path": "events/low_overlap.attempt1.jsonl",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "count": 0
+  },
+  "prediction": {
+    "path": "predictions/low_overlap.rttm",
+    "sha256": null,
+    "rows": null
+  },
+  "timing": {
+    "started_at_utc": "2026-09-29T18:45:31.462918+00:00",
+    "completed_at_utc": "2026-09-29T18:46:01.484499+00:00",
+    "wall_elapsed_s": 30.021058,
+    "audio_stream_wall_s": null,
+    "post_audio_wait_s": null,
+    "received_event_elapsed_s_from_connection": []
+  },
+  "usage": {
+    "submitted_audio_bytes": 0,
+    "submitted_audio_seconds": 0.0,
+    "provider_billed_audio_seconds": null,
+    "billing_amount": null
+  },
+  "interpretation": "Audio offsets are source-local seconds, not event-reception wall time. Unattributed and unpaired items are omitted from RTTM, never assigned a synthetic speaker. Completion does not imply every native turn has a valid attribution. References were not opened during inference."
+}

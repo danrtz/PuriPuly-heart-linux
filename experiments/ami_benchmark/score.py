@@ -31,6 +31,24 @@ def load_rttm(path, case_id, duration):
     return annotation, speakers
 
 
+def score_case(case, predictions):
+    case_id = case["id"]
+    duration = case["duration_s"]
+    ref_path = ROOT / case["reference_rttm"]
+    uem_path = ROOT / case["uem"]
+    if hashlib.sha256(ref_path.read_bytes()).hexdigest() != case["clip_reference_sha256"] or hashlib.sha256(uem_path.read_bytes()).hexdigest() != case["uem_sha256"]:
+        raise ValueError(f"Published reference/UEM digest mismatch: {case_id}")
+    uem_parts = uem_path.read_text(encoding="utf-8").split()
+    if uem_parts != [case_id, "1", "0", str(duration)]:
+        raise ValueError(f"Expected full-duration UEM for {case_id}")
+    reference, ref_speakers = load_rttm(ref_path, case_id, duration)
+    hypothesis, hyp_speakers = load_rttm(predictions / f"{case_id}.rttm", case_id, duration)
+    metric = DiarizationErrorRate(collar=0.0, skip_overlap=False)
+    components = metric(reference, hypothesis, uem=Timeline([Segment(0, duration)], uri=case_id), detailed=True)
+    measures = {key: float(components[key]) for key in ("total", "missed detection", "false alarm", "confusion")}
+    return {"id": case_id, "pair_with": case["pair_with"], "duration_s": duration, "reference_speakers": len(ref_speakers), "predicted_speakers": len(hyp_speakers), "speaker_count_absolute_error": abs(len(ref_speakers) - len(hyp_speakers)), "der": float(components["diarization error rate"]), **measures}
+
+
 def score(manifest_path, predictions):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("benchmark") != "AMItest-derived scenario subset" or len(manifest.get("cases", [])) != 7:
@@ -41,23 +59,7 @@ def score(manifest_path, predictions):
     unexpected = sorted(path.name for path in predictions.glob("*.rttm") if path.stem not in ids)
     if unexpected:
         raise ValueError(f"Unexpected prediction RTTM files: {unexpected}")
-    results = []
-    for case in manifest["cases"]:
-        case_id = case["id"]
-        duration = case["duration_s"]
-        ref_path = ROOT / case["reference_rttm"]
-        uem_path = ROOT / case["uem"]
-        if hashlib.sha256(ref_path.read_bytes()).hexdigest() != case["clip_reference_sha256"] or hashlib.sha256(uem_path.read_bytes()).hexdigest() != case["uem_sha256"]:
-            raise ValueError(f"Published reference/UEM digest mismatch: {case_id}")
-        uem_parts = uem_path.read_text(encoding="utf-8").split()
-        if uem_parts != [case_id, "1", "0", str(duration)]:
-            raise ValueError(f"Expected full-duration UEM for {case_id}")
-        reference, ref_speakers = load_rttm(ref_path, case_id, duration)
-        hypothesis, hyp_speakers = load_rttm(predictions / f"{case_id}.rttm", case_id, duration)
-        metric = DiarizationErrorRate(collar=0.0, skip_overlap=False)
-        components = metric(reference, hypothesis, uem=Timeline([Segment(0, duration)], uri=case_id), detailed=True)
-        measures = {key: float(components[key]) for key in ("total", "missed detection", "false alarm", "confusion")}
-        results.append({"id": case_id, "pair_with": case["pair_with"], "duration_s": duration, "reference_speakers": len(ref_speakers), "predicted_speakers": len(hyp_speakers), "speaker_count_absolute_error": abs(len(ref_speakers) - len(hyp_speakers)), "der": float(components["diarization error rate"]), **measures})
+    results = [score_case(case, predictions) for case in manifest["cases"]]
     def aggregate(rows):
         sums = {key: sum(row[key] for row in rows) for key in ("total", "missed detection", "false alarm", "confusion")}
         return {"cases": len(rows), "der": sum(sums[k] for k in ("missed detection", "false alarm", "confusion")) / sums["total"], "speaker_count_accuracy": sum(row["speaker_count_absolute_error"] == 0 for row in rows) / len(rows), "speaker_count_mae": sum(row["speaker_count_absolute_error"] for row in rows) / len(rows), **sums}

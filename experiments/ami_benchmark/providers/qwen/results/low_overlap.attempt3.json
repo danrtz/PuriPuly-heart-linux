@@ -1,0 +1,84 @@
+{
+  "case_id": "low_overlap",
+  "status": "incomplete",
+  "model": "qwen3.8-livetranslate-flash-realtime",
+  "region": "cn-beijing",
+  "audio": {
+    "pcm_sha256": "262f71c543590dc526b8e33ecd7a7a46bc81f4ea33fbfac04323b7ffe3b3d2fa",
+    "wav_sha256": "c21c55461cf7a5d7c8141df6187cb9fe04112bad20e92369385bd3850a6cb466",
+    "duration_s": 120.0,
+    "bytes": 3840000,
+    "format": "mono signed little-endian PCM16 16000 Hz"
+  },
+  "requested_config": {
+    "output_modalities": [
+      "text"
+    ],
+    "translation_language": "ko",
+    "source_asr": "model default",
+    "turn_detection": {
+      "type": "speaker_detection",
+      "threshold": 0.5
+    },
+    "chunk_ms": 50,
+    "speaker_hints_sent": false
+  },
+  "effective_config": null,
+  "lifecycle": {
+    "connection_attempted": true,
+    "connection_opened": false,
+    "session_created_received": false,
+    "session_updated_received": false,
+    "session_finished_received": false,
+    "websocket_requests_attempted": 1,
+    "websocket_sessions_opened": 0,
+    "session_finished_utc": null
+  },
+  "event_counts": {},
+  "response_done_statuses": [],
+  "errors": [
+    {
+      "type": "ConnectionAbortedError",
+      "message": "SSL handshake is taking longer than 60.0 seconds: aborting the connection",
+      "elapsed_s": 60.140689
+    }
+  ],
+  "server_errors": [],
+  "attributed_intervals": [],
+  "unattributed_intervals": [],
+  "boundary_issues": [],
+  "clipped_intervals": [],
+  "offset_summary": {
+    "native_min_start_s": null,
+    "native_max_end_s": null,
+    "clipped_interval_count": 0,
+    "wholly_outside_interval_count": 0,
+    "clipped_span_s": 0.0
+  },
+  "offset_policy": "Native audio milliseconds / 1000; intersect finite valid intervals with input [0, case_duration]; count and exclude wholly outside and zero-duration intervals; exclude malformed, ambiguous or unpaired intervals; preserve all bounded overlaps; no shift, inferred speech or speaker labels.",
+  "native_events": {
+    "path": "events/low_overlap.attempt3.jsonl",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "count": 0
+  },
+  "prediction": {
+    "path": "predictions/low_overlap.rttm",
+    "sha256": null,
+    "rows": null
+  },
+  "timing": {
+    "started_at_utc": "2026-09-29T19:14:28.957811+00:00",
+    "completed_at_utc": "2026-09-29T19:15:29.099067+00:00",
+    "wall_elapsed_s": 60.14071,
+    "audio_stream_wall_s": null,
+    "post_audio_wait_s": null,
+    "received_event_elapsed_s_from_connection": []
+  },
+  "usage": {
+    "submitted_audio_bytes": 0,
+    "submitted_audio_seconds": 0.0,
+    "provider_billed_audio_seconds": null,
+    "billing_amount": null
+  },
+  "interpretation": "Audio offsets are source-local seconds, not event-reception wall time. Unattributed and unpaired items are omitted from RTTM, never assigned a synthetic speaker. Completion does not imply every native turn has a valid attribution. References were not opened during inference."
+}

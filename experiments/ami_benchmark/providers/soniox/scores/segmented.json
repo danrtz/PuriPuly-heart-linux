@@ -1,0 +1,118 @@
+{
+  "benchmark": "AMItest-derived scenario subset",
+  "metric": "pyannote.metrics DiarizationErrorRate; full-duration UEM; collar=0; skip_overlap=False; optimal speaker mapping; native RTTM time support",
+  "pyannote_metrics_version": "4.0.0",
+  "independent_six": {
+    "cases": 6,
+    "der": 0.8665922540194936,
+    "speaker_count_accuracy": 0.16666666666666666,
+    "speaker_count_mae": 1.0,
+    "total": 1170.0519999998853,
+    "missed detection": 846.5769999999749,
+    "false alarm": 74.91699999997736,
+    "confusion": 92.46399999996491
+  },
+  "paired_far_field": {
+    "cases": 1,
+    "der": 0.8964313421256824,
+    "speaker_count_accuracy": 0.0,
+    "speaker_count_mae": 1.0,
+    "total": 128.899999999996,
+    "missed detection": 95.75899999999899,
+    "false alarm": 8.394999999999246,
+    "confusion": 11.395999999998635
+  },
+  "per_case": [
+    {
+      "id": "low_overlap",
+      "pair_with": null,
+      "duration_s": 120,
+      "reference_speakers": 3,
+      "predicted_speakers": 2,
+      "speaker_count_absolute_error": 1,
+      "der": 0.7086381473765957,
+      "total": 103.20499999999697,
+      "missed detection": 68.54499999999982,
+      "false alarm": 4.267999999999619,
+      "confusion": 0.3219999999999743
+    },
+    {
+      "id": "rapid_turn_taking",
+      "pair_with": null,
+      "duration_s": 120,
+      "reference_speakers": 4,
+      "predicted_speakers": 2,
+      "speaker_count_absolute_error": 2,
+      "der": 0.883481471352394,
+      "total": 146.2599999999954,
+      "missed detection": 112.71999999999858,
+      "false alarm": 6.395999999999459,
+      "confusion": 10.101999999999016
+    },
+    {
+      "id": "overlap_heavy",
+      "pair_with": null,
+      "duration_s": 120,
+      "reference_speakers": 4,
+      "predicted_speakers": 3,
+      "speaker_count_absolute_error": 1,
+      "der": 0.8822653219550103,
+      "total": 128.89999999999583,
+      "missed detection": 94.71299999999896,
+      "false alarm": 8.444999999999295,
+      "confusion": 10.565999999998898
+    },
+    {
+      "id": "long_return_gap",
+      "pair_with": null,
+      "duration_s": 180,
+      "reference_speakers": 4,
+      "predicted_speakers": 3,
+      "speaker_count_absolute_error": 1,
+      "der": 0.8339488739228226,
+      "total": 124.28099999999435,
+      "missed detection": 92.51399999999954,
+      "false alarm": 9.264999999998395,
+      "confusion": 1.8649999999996716
+    },
+    {
+      "id": "brief_interjections",
+      "pair_with": null,
+      "duration_s": 120,
+      "reference_speakers": 4,
+      "predicted_speakers": 3,
+      "speaker_count_absolute_error": 1,
+      "der": 0.9329682570726505,
+      "total": 117.60099999999656,
+      "missed detection": 89.17599999999895,
+      "false alarm": 7.16299999999958,
+      "confusion": 13.378999999999028
+    },
+    {
+      "id": "long_context",
+      "pair_with": null,
+      "duration_s": 600,
+      "reference_speakers": 3,
+      "predicted_speakers": 3,
+      "speaker_count_absolute_error": 0,
+      "der": 0.8812560817017144,
+      "total": 549.8049999999062,
+      "missed detection": 388.9089999999791,
+      "false alarm": 39.37999999998102,
+      "confusion": 56.22999999996833
+    },
+    {
+      "id": "far_field_pair",
+      "pair_with": "overlap_heavy",
+      "duration_s": 120,
+      "reference_speakers": 4,
+      "predicted_speakers": 3,
+      "speaker_count_absolute_error": 1,
+      "der": 0.8964313421256824,
+      "total": 128.899999999996,
+      "missed detection": 95.75899999999899,
+      "false alarm": 8.394999999999246,
+      "confusion": 11.395999999998635
+    }
+  ]
+}
