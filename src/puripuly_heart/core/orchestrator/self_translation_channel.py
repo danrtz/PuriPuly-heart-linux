@@ -478,14 +478,15 @@ class SelfTranslationChannelOwner:
                         channel="self",
                     )
                 )
-                await self.output_projection.publish_ui(
-                    TranslationUiMessage(
-                        event_type=UIEventType.ERROR,
-                        payload=report,
-                        source="Mic",
-                        channel="self",
+                if not event.recovery_pending:
+                    await self.output_projection.publish_ui(
+                        TranslationUiMessage(
+                            event_type=UIEventType.ERROR,
+                            payload=report,
+                            source="Mic",
+                            channel="self",
+                        )
                     )
-                )
         finally:
             self._stt_consumption.retire(event.identity)
             self._scoped_publication_ids.pop(event.identity, None)

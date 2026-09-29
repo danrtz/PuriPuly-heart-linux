@@ -317,6 +317,9 @@ Execution options:
 - Physical CPU/GPU resources remain shared through their runtime owners.
 - `STTSessionEventProjection` defines per-turn scoped updates and terminal receipts (`core/stt/session_projection.py`).
 - `STTScopedTurnNormalizer` assembles text, language runs, and session-scoped speaker runs per identity. Provider updates are not final application transcripts.
+- Soniox adapters classify retryable failures; the engine owns a shared three-failure recovery budget with 0.8/1.6-second backoff. Successful final or empty results reset the budget. Recovery opens a fresh epoch for the next valid utterance without replaying failed audio. Authentication, configuration, protocol, and unknown faults are not retried.
+- Recoverable Soniox terminals preserve self capture intent without publishing a terminal UI error. Permanent or exhausted failures deactivate capture. User abort invalidates pending admission and late results. Retained self capture keeps the source token and ledger generation aligned; already-admitted segments retain their frozen identity.
+- Soniox readiness is bounded at 5 seconds. Final wait is 5 seconds for peer and 20 seconds for self; peer sealed-segment TTL remains 12 seconds. The peer deadline reserves time for queued work but does not guarantee delivery through repeated failures, and later final responses lose authority.
 
 Provider replacement preserves frozen settings for admitted work. Abort invalidates turn and epoch authority before native cleanup.
 
@@ -420,6 +423,8 @@ Behavior tests: `tests/core/test_overlay_presenter.py`.
 - Basic-audience records reach the console and Logs view. Selected technical diagnostics are file-only and metadata-only; accepted conversation uses a separate secret-protected path.
 - Queue pressure prioritizes warning, error, and terminal evidence. Logging does not guarantee complete persistence.
 - The writer retains ownership through stream closure; replacement must not race a retiring writer.
+- Persisted records include calendar date and process ID. Recognition terminals correlate channel, utterance, provider epoch/turn, activation generation, watchdog timing, and recovery decisions. Self capture failures identify the actual active-intent transition; peer expiry records sealed wait and TTL.
+- Soniox file-only turn summaries distinguish finalize enqueue/write, final reception/acceptance, server error codes, transport closure, and local cleanup. A completed write is not a server acknowledgement. Diagnostic fields exclude external error prose, credentials, transcript tokens, speaker identities, and PCM.
 
 Implementation: `core/runtime_logging.py`, `app/services/application_runtime_logging.py`. Behavior tests: `tests/core/test_runtime_logging.py`, `tests/core/test_file_logging.py`.
 

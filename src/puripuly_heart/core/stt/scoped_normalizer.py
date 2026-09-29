@@ -208,6 +208,8 @@ class STTScopedTurnNormalizer:
             text_authority=authority,
             failure_reason=failure_reason,
             epoch_disposition=terminal.epoch_disposition,
+            failure_retryable=terminal.failure_retryable,
+            recovery_pending=terminal.recovery_pending,
             provenance=tuple(self._provenance),
             included_contributions=tuple(self._contributions),
         )
@@ -217,6 +219,7 @@ class STTScopedTurnNormalizer:
         self,
         *,
         reason: str,
+        failure_retryable: bool = False,
         allow_provisional: bool = False,
     ) -> STTProviderTurnTerminal:
         if self._terminal is not None:
@@ -238,6 +241,7 @@ class STTScopedTurnNormalizer:
                 final_speaker_runs=speaker_runs,
                 text_authority="degraded" if outcome == "degraded" else "none",
                 failure_reason=reason,
+                failure_retryable=failure_retryable,
                 epoch_disposition="retire",
                 provenance=tuple(self._provenance),
             )

@@ -345,9 +345,18 @@ class _GenerationGuardedVadSink:
                 self._retire_segment(
                     segment_id,
                     failure_reason="expired_before_recognition",
+                    sealed_at=sealed_at,
+                    now=now,
                 )
 
-    def _retire_segment(self, segment_id: UUID, *, failure_reason: str) -> None:
+    def _retire_segment(
+        self,
+        segment_id: UUID,
+        *,
+        failure_reason: str,
+        sealed_at: float | None = None,
+        now: float | None = None,
+    ) -> None:
         retained: deque[_QueuedVadEvent] = deque()
         removed = False
         for queued in self._queue:
@@ -365,16 +374,27 @@ class _GenerationGuardedVadSink:
             text_authority="none",
             failure_reason=failure_reason,
         )
+        sealed_wait_ms = (
+            max(0, int((now - sealed_at) * 1000))
+            if sealed_at is not None and now is not None
+            else None
+        )
         with contextlib.suppress(Exception):
             logger.info(
-                "[Recognition] terminal channel=peer utterance_id=%s provider=%s "
+                "[Recognition] terminal channel=peer utterance_id=%s generation=%s provider=%s "
                 "epoch=none turn=none outcome=%s cause=%s text_authority=none "
                 "successful_payloads=0 successful_samples=0 successful_bytes=0 "
-                "content_bytes=0 context_bytes=0",
+                "content_bytes=0 context_bytes=0%s",
                 segment_id,
+                receipt.identity.activation_generation,
                 receipt.segment.settings.provider_id,
                 receipt.outcome,
                 failure_reason,
+                (
+                    f" sealed_wait_ms={sealed_wait_ms} ttl_ms={int(self._SEALED_SEGMENT_TTL_S * 1000)}"
+                    if sealed_wait_ms is not None
+                    else ""
+                ),
             )
 
     def _arm_expiry_timer(self) -> None:

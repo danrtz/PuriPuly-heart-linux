@@ -17,6 +17,10 @@ from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
 from puripuly_heart.domain.models import FinalLanguageRun, FinalSpeakerRun
 
 
+class PermanentSTTScopedSessionError(RuntimeError):
+    __slots__ = ()
+
+
 @dataclass(frozen=True, slots=True)
 class STTSessionProjection:
     mode: Literal["legacy", "scoped"] = "legacy"
@@ -97,6 +101,8 @@ class STTProviderTurnTerminal:
     text_authority: Literal["authoritative", "degraded", "none"] = "none"
     failure_reason: str | None = None
     epoch_disposition: Literal["reuse", "retire"] = "reuse"
+    failure_retryable: bool = False
+    recovery_pending: bool = False
     provenance: tuple[STTNativeProvenance, ...] = ()
     included_contributions: tuple[STTTextContribution, ...] = ()
 
@@ -187,6 +193,7 @@ class STTProviderEpochEnded:
     orderly: bool
     reason: str
     provider_turn_id: str | None = None
+    failure_retryable: bool = False
 
 
 STTProviderTurnEvent = STTProviderTurnUpdate | STTProviderTurnTerminal | STTProviderEpochEnded

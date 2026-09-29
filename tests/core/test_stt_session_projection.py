@@ -87,6 +87,7 @@ async def test_scoped_projection_owns_sequences_terminal_and_epoch_end_once() ->
         text_authority="none",
         failure_reason="provider_failed",
         epoch_disposition="retire",
+        failure_retryable=True,
     )
     assert projection.terminal(terminal) is True
     assert projection.terminal(terminal) is False
@@ -95,6 +96,7 @@ async def test_scoped_projection_owns_sequences_terminal_and_epoch_end_once() ->
             orderly=False,
             reason="provider_failed",
             provider_turn_id=request.identity.provider_turn_id,
+            failure_retryable=True,
         )
         is True
     )
@@ -106,6 +108,7 @@ async def test_scoped_projection_owns_sequences_terminal_and_epoch_end_once() ->
     assert isinstance(ended, STTProviderEpochEnded)
     assert ended.provider_epoch_id == "epoch-1"
     assert ended.reason == "provider_failed"
+    assert ended.failure_retryable is True
 
     with pytest.raises(RuntimeError, match="epoch is retired"):
         projection.begin(_request())

@@ -118,6 +118,13 @@ def _main_formatter() -> logging.Formatter:
     return _StableSessionNameFormatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
 
 
+def _file_formatter() -> logging.Formatter:
+    return _StableSessionNameFormatter(
+        "%(asctime)s.%(msecs)03d [%(levelname)s] pid=%(process)d %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class LatencyTracePointContract:
     name: str
@@ -625,7 +632,7 @@ def configure_main_logging(
         )
         file_handler.namer = _main_log_backup_namer
         file_handler.set_name(_MAIN_FILE_HANDLER_NAME)
-        file_handler.setFormatter(_main_formatter())
+        file_handler.setFormatter(_file_formatter())
         _ensure_redaction_filter(file_handler, DIAGNOSTIC_SINK_PERSISTED_LOGS)
         file_queue = _BoundedFileQueue(maxsize=_MAIN_FILE_QUEUE_CAPACITY)
         file_queue_handler = _BoundedQueueHandler(file_queue)
@@ -651,7 +658,7 @@ def configure_main_logging(
             int(getattr(file_queue_handler, _QUEUE_HANDLER_REFCOUNT_ATTR, 1)) + 1,
         )
         file_handler.namer = _main_log_backup_namer
-        file_handler.setFormatter(_main_formatter())
+        file_handler.setFormatter(_file_formatter())
         _ensure_redaction_filter(file_handler, DIAGNOSTIC_SINK_PERSISTED_LOGS)
 
     target_logger.setLevel(logging.INFO)

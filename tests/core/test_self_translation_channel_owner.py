@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -428,6 +429,7 @@ async def test_scoped_readiness_restores_session_state_disclosure_and_failure_st
     callbacks.bind_self(harness.self_owner)
 
     class Capture:
+        snapshot = SimpleNamespace(generation=1)
         terminals: list[STTProviderTurnTerminal] = []
 
         def note_recognition_terminal(self, terminal: STTProviderTurnTerminal) -> None:
@@ -491,6 +493,115 @@ async def test_scoped_readiness_restores_session_state_disclosure_and_failure_st
     await harness.self_owner.submit_text("manual-after-recognition-failure")
     assert harness.peer_runtime.get_or_create_bundle(peer_id) is peer_bundle
     assert any(message.text == "manual-after-recognition-failure" for message in osc.messages)
+
+
+@pytest.mark.asyncio
+async def test_recoverable_self_terminal_restores_streaming_without_user_error() -> None:
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=None,
+        osc=RecordingOscQueue(),
+        ui_queue_maxsize=20,
+    )
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    failed_identity = STTProviderTurnIdentity(
+        AudioSegmentIdentity(1, 1, uuid4(), 1), "failed-epoch", "failed-turn"
+    )
+    await callbacks.self_event_handler(
+        STTProviderTurnTerminal(
+            failed_identity,
+            "failed",
+            failure_reason="soniox_receive_failed",
+            failure_retryable=True,
+            recovery_pending=True,
+            epoch_disposition="retire",
+        )
+    )
+    assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+    transient_events = []
+    while not harness.ui_events.empty():
+        transient_events.append(harness.ui_events.get_nowait())
+    assert not [event for event in transient_events if event.type is UIEventType.ERROR]
+
+    success_id = uuid4()
+    await callbacks.self_event_handler(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(1, 2, success_id, 1), "new-epoch", "new-turn"
+            ),
+            "final",
+            text="later success",
+            text_authority="authoritative",
+        )
+    )
+    assert harness.stt_session_state() is STTSessionState.STREAMING
+    events = []
+    while not harness.ui_events.empty():
+        events.append(harness.ui_events.get_nowait())
+    assert not [event for event in events if event.type is UIEventType.ERROR]
+    assert any(
+        event.type is UIEventType.TRANSCRIPT_FINAL
+        and event.payload.utterance_id == success_id
+        and event.payload.text == "later success"
+        for event in events
+    )
+
+    await callbacks.self_event_handler(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(1, 3, uuid4(), 1), "exhausted-epoch", "last-turn"
+            ),
+            "failed",
+            failure_reason="soniox_receive_failed",
+            failure_retryable=True,
+            epoch_disposition="retire",
+        )
+    )
+    final_events = []
+    while not harness.ui_events.empty():
+        final_events.append(harness.ui_events.get_nowait())
+    assert len([event for event in final_events if event.type is UIEventType.ERROR]) == 1
+
+
+@pytest.mark.asyncio
+async def test_old_self_terminal_cannot_disconnect_reactivated_session_state() -> None:
+    harness = compose_translation_test_harness(
+        stt=None, llm=None, osc=RecordingOscQueue(), ui_queue_maxsize=10
+    )
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+
+    class Capture:
+        snapshot = SimpleNamespace(generation=2)
+        terminals: list[STTProviderTurnTerminal] = []
+
+        def note_recognition_terminal(self, terminal: STTProviderTurnTerminal) -> None:
+            self.terminals.append(terminal)
+
+    capture = Capture()
+    callbacks._self_capture = capture
+    await callbacks.self_event_handler(
+        STTProviderTurnUpdate(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(2, 1, uuid4(), 1), "new-epoch", "new-turn"
+            ),
+            1,
+            "stable",
+            "append",
+            "usable",
+        )
+    )
+    assert harness.stt_session_state() is STTSessionState.STREAMING
+    old_terminal = STTProviderTurnTerminal(
+        STTProviderTurnIdentity(AudioSegmentIdentity(1, 1, uuid4(), 1), "old-epoch", "old-turn"),
+        "failed",
+        failure_reason="soniox_receive_failed",
+        recovery_pending=True,
+    )
+    await callbacks.self_event_handler(old_terminal)
+    assert capture.terminals == [old_terminal]
+    assert harness.stt_session_state() is STTSessionState.STREAMING
 
 
 def test_self_owner_requires_self_runtime() -> None:

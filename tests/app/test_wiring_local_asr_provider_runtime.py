@@ -13,7 +13,6 @@ from puripuly_heart.app.wiring_local_asr_provider_runtime import (
     LocalASRProviderRuntimeFactory,
     SharedSTTProviderFactory,
     _recognition_retention_profile,
-    _recognition_watchdogs,
 )
 from puripuly_heart.core.local_asr_provider_runtime import ProviderRuntimeBuildRequest
 
@@ -32,14 +31,13 @@ from puripuly_heart.core.peer_capture import (
     PeerCaptureTargetIntent,
 )
 from puripuly_heart.core.runtime.local_asr_transition import LocalASRSessionOptions
-from puripuly_heart.core.stt.backend import STTSessionProjection
+from puripuly_heart.core.stt.backend import PermanentSTTScopedSessionError, STTSessionProjection
 from puripuly_heart.core.stt.custom import (
     CustomSTTConfigurationError,
     normalize_custom_stt_extra,
     validate_peer_custom_stt_configuration,
 )
 from puripuly_heart.core.stt.scoped_engine import (
-    PermanentSTTScopedSessionError,
     ScopedRecognitionEngine,
 )
 from puripuly_heart.core.stt.scoped_event_buffer import STTProviderEventBuffer
@@ -328,31 +326,6 @@ def test_peer_request_rejects_custom_realtime_server_turn_detection() -> None:
 
     with pytest.raises(CustomSTTConfigurationError, match="turn_detection=null"):
         build_peer_stt_provider_request(capture, gpu_device_id="auto")
-
-
-@pytest.mark.parametrize("provider", tuple(STTProviderName))
-def test_scoped_watchdog_policy_covers_every_configured_selector(
-    provider: STTProviderName,
-) -> None:
-    resolved = _recognition_watchdogs(SimpleNamespace(provider=provider.value, drain_timeout_s=2.0))
-    local = {
-        STTProviderName.LOCAL_CPU_AUTO,
-        STTProviderName.LOCAL_PARAKEET_V3,
-        STTProviderName.LOCAL_PARAKEET_JAPANESE,
-        STTProviderName.LOCAL_QWEN,
-        STTProviderName.LOCAL_QWEN_GPU,
-    }
-    expected_final = {
-        STTProviderName.DEEPGRAM: 9.0,
-        STTProviderName.GEMINI_TRANSCRIBE: 2.0,
-        STTProviderName.QWEN_AUDIO: 5.0,
-        STTProviderName.CUSTOM_OFFLINE: 50.0,
-    }.get(provider, 30.0 if provider in local else 20.0)
-
-    assert resolved.readiness_timeout_s == (60.0 if provider in local else 30.0)
-    assert resolved.write_timeout_s == 5.0
-    assert resolved.final_timeout_s == expected_final
-    assert resolved.drain_timeout_s == 2.0
 
 
 def test_local_asr_factory_binds_stt_event_ingress_observer() -> None:

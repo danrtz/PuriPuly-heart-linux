@@ -529,8 +529,61 @@ async def test_late_and_stale_generation_callbacks_cannot_reach_self_sink() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutation_status",
+    [
+        None,
+        SelfCaptureProviderMutationStatus.FAILED,
+        SelfCaptureProviderMutationStatus.PENDING,
+    ],
+)
+async def test_retained_capture_handles_failure_from_new_segment_after_rebind(
+    mutation_status: SelfCaptureProviderMutationStatus | None,
+) -> None:
+    owner, _, provider, sources, loop, _ = build_owner()
+    initial = replace(config(), provider_id="deepgram")
+    try:
+        await owner.apply_intent(initial, enabled=True)
+        await loop.started.wait()
+        guarded = loop.calls[0]["sink"]
+        if mutation_status is None:
+            await owner.apply_intent(initial, enabled=True)
+        else:
+            provider.handoff_result = SelfCaptureProviderMutation(
+                mutation_status, reason="provider_readiness_unavailable"
+            )
+            await owner.apply_intent(config("two"), enabled=True)
+        segment_id = uuid4()
+        await guarded.handle_vad_event(
+            SpeechStart(
+                segment_id,
+                pre_roll=np.empty((0,), dtype=np.float32),
+                chunk=np.ones((8,), dtype=np.float32),
+            )
+        )
+        await guarded.handle_vad_event(SpeechEnd(segment_id))
+        identity = guarded.ledger.snapshots[0].identity
+        owner.note_recognition_terminal(
+            STTProviderTurnTerminal(
+                STTProviderTurnIdentity(identity, "failed-epoch", "failed-turn"),
+                "failed",
+                failure_reason="provider_final_timeout",
+                epoch_disposition="retire",
+            )
+        )
+        await wait_until(lambda: owner.snapshot.state is SelfCaptureSessionState.FAULTED)
+        assert not owner.snapshot.desired_active
+        assert not owner.snapshot.effective_active
+        assert sources[0].close_calls == 1
+        assert provider.release_calls[-1] == ("abort", None)
+    finally:
+        await owner.close()
+
+
+@pytest.mark.asyncio
 async def test_scoped_terminals_retire_self_ledgers_and_failure_closes_capture() -> None:
-    owner, _, provider, sources, _, _ = build_owner()
+    diagnostics: list[SelfCaptureDiagnostic] = []
+    owner, _, provider, sources, _, _ = build_owner(diagnostics=diagnostics)
     await owner.apply_intent(config(), enabled=True)
     guarded = owner.guard_vad_sink()
     ledger = guarded.ledger
@@ -612,6 +665,189 @@ async def test_scoped_terminals_retire_self_ledgers_and_failure_closes_capture()
     assert ledger.snapshots == ()
     assert sources[0].close_calls == 1
     assert provider.release_calls[-1] == ("abort", None)
+    failures = [
+        item for item in diagnostics if item.reason is SelfCaptureFailureReason.SESSION_FAILED
+    ]
+    assert len(failures) == 1
+    failure = failures[0]
+    assert failure.recognition_reason == "buffer_exhausted"
+    assert failure.utterance_id == failed_id
+    assert failure.epoch == "epoch"
+    assert failure.turn == "failed-turn"
+    assert failure.activation_generation == 1
+    assert failure.generation == 1
+    assert failure.desired_active_before is True
+    assert failure.desired_active_after is False
+    assert failure.action == "deactivate"
+    assert failure.target_state is SelfCaptureSessionState.FAULTED
+
+
+@pytest.mark.asyncio
+async def test_recoverable_terminal_retires_utterance_without_interrupting_next_capture() -> None:
+    owner, _, provider, sources, _, sink = build_owner()
+    await owner.apply_intent(config(), enabled=True)
+    guarded = owner.guard_vad_sink()
+    first_id = uuid4()
+    await guarded.handle_vad_event(
+        SpeechStart(
+            first_id,
+            pre_roll=np.empty((0,), dtype=np.float32),
+            chunk=np.ones((8,), dtype=np.float32),
+        )
+    )
+    await guarded.handle_vad_event(SpeechEnd(first_id))
+    first_identity = guarded.ledger.snapshots[0].identity
+    owner.note_recognition_terminal(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(first_identity, "failed-epoch", "failed-turn"),
+            "failed",
+            failure_reason="soniox_receive_failed",
+            failure_retryable=True,
+            recovery_pending=True,
+            epoch_disposition="retire",
+        )
+    )
+
+    assert guarded.ledger.snapshots == ()
+    assert guarded.ledger.terminal_receipts[0].failure_reason == "soniox_receive_failed"
+    assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+    assert owner.snapshot.desired_active and owner.snapshot.effective_active
+    assert owner.snapshot.failure_reason is None
+    assert sources[0].close_calls == 0
+    assert provider.release_calls == []
+
+    second_id = uuid4()
+    await guarded.handle_vad_event(
+        SpeechStart(
+            second_id,
+            pre_roll=np.empty((0,), dtype=np.float32),
+            chunk=np.ones((8,), dtype=np.float32),
+        )
+    )
+    await guarded.handle_vad_event(SpeechEnd(second_id))
+    second_identity = guarded.ledger.snapshots[0].identity
+    owner.note_recognition_terminal(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(second_identity, "new-epoch", "final-turn"),
+            "final",
+            text="later success",
+            text_authority="authoritative",
+        )
+    )
+    await wait_until(lambda: len(sink.events) == 4)
+    assert [item.segment.identity.segment_id for item in sink.events] == [
+        first_id,
+        first_id,
+        second_id,
+        second_id,
+    ]
+    assert [item.provider_epoch_id for item in guarded.ledger.terminal_receipts] == [
+        "failed-epoch",
+        "new-epoch",
+    ]
+    assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+    await owner.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_retryable", [False, True])
+async def test_permanent_or_exhausted_terminal_faults_capture(failure_retryable: bool) -> None:
+    owner, _, provider, sources, _, _ = build_owner()
+    await owner.apply_intent(config(), enabled=True)
+    generation = owner.snapshot.generation
+    owner.note_recognition_terminal(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(generation, 1, uuid4(), 1), "epoch", "turn"
+            ),
+            "failed",
+            failure_reason="soniox_receive_failed" if failure_retryable else "soniox_auth_failed",
+            failure_retryable=failure_retryable,
+            recovery_pending=False,
+            epoch_disposition="retire",
+        )
+    )
+    await wait_until(lambda: owner.snapshot.state is SelfCaptureSessionState.FAULTED)
+    assert not owner.snapshot.desired_active
+    assert sources[0].close_calls == 1
+    assert provider.release_calls == [("abort", None)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recovery_pending", [False, True])
+async def test_late_old_generation_terminal_does_not_fault_reactivated_capture(
+    recovery_pending: bool,
+) -> None:
+    owner, _, provider, sources, _, _ = build_owner()
+    await owner.apply_intent(config(), enabled=True)
+    old_generation = owner.snapshot.generation
+    await owner.apply_intent(config(), enabled=False)
+    await owner.apply_intent(config(), enabled=True)
+    owner.note_recognition_terminal(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(old_generation, 1, uuid4(), 1), "old", "old"
+            ),
+            "failed",
+            failure_reason="soniox_receive_failed",
+            recovery_pending=recovery_pending,
+            epoch_disposition="retire",
+        )
+    )
+    assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+    assert owner.snapshot.desired_active
+    assert sources[1].close_calls == 0
+    assert provider.release_calls == [("abort", None)]
+    await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_toggle_off_wins_over_late_recoverable_terminal() -> None:
+    owner, _, provider, _, _, _ = build_owner()
+    await owner.apply_intent(config(), enabled=True)
+    generation = owner.snapshot.generation
+    await owner.apply_intent(config(), enabled=False)
+    owner.note_recognition_terminal(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(AudioSegmentIdentity(generation, 1, uuid4(), 1), "old", "old"),
+            "failed",
+            failure_reason="soniox_receive_failed",
+            recovery_pending=True,
+            epoch_disposition="retire",
+        )
+    )
+    assert owner.snapshot.state is SelfCaptureSessionState.STOPPED
+    assert not owner.snapshot.desired_active
+    assert provider.release_calls == [("abort", None)]
+    await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_superseded_recognition_fault_does_not_deactivate_new_intent() -> None:
+    diagnostics: list[SelfCaptureDiagnostic] = []
+    owner, _, provider, _, _, _ = build_owner(diagnostics=diagnostics)
+    await owner.apply_intent(config(), enabled=True)
+    prior_generation = owner.snapshot.generation
+    owner.note_recognition_terminal(
+        STTProviderTurnTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(prior_generation, 1, uuid4(), 1),
+                "old_epoch",
+                "old_turn",
+            ),
+            "failed",
+            failure_reason="soniox_receive_failed",
+            epoch_disposition="retire",
+        )
+    )
+    owner.invalidate_intent()
+    refreshed = await owner.apply_intent(config(), enabled=True)
+    await asyncio.gather(*tuple(owner._fault_tasks))
+    assert refreshed.desired_active
+    assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+    assert provider.release_calls == []
+    assert not [item for item in diagnostics if item.event.value == "failure"]
+    await owner.close()
 
 
 @pytest.mark.asyncio

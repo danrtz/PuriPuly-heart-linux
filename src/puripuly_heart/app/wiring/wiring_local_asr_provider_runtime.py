@@ -37,11 +37,14 @@ from puripuly_heart.core.runtime.local_asr_provider_runtime import (
 )
 from puripuly_heart.core.runtime_logging import SessionRuntimeLoggingService
 from puripuly_heart.core.storage.secrets import SecretStore
-from puripuly_heart.core.stt.backend import STTScopedTurnSession, STTSessionProjection
+from puripuly_heart.core.stt.backend import (
+    PermanentSTTScopedSessionError,
+    STTScopedTurnSession,
+    STTSessionProjection,
+)
 from puripuly_heart.core.stt.custom import validate_peer_custom_stt_configuration
 from puripuly_heart.core.stt.notifications import FinalTranscriptSuppressedNotification
 from puripuly_heart.core.stt.scoped_engine import (
-    PermanentSTTScopedSessionError,
     ScopedRecognitionEngine,
     STTRecognitionWatchdogs,
     STTRetentionProfile,
@@ -249,6 +252,9 @@ def _recognition_watchdogs(config: object) -> STTRecognitionWatchdogs:
     elif provider_id == STTProviderName.DEEPGRAM.value:
         readiness_timeout_s = 30.0
         final_timeout_s = drain_timeout_s * 2.0 + 5.0
+    elif provider_id == STTProviderName.SONIOX.value:
+        readiness_timeout_s = 5.0
+        final_timeout_s = 5.0 if getattr(config, "channel") == "peer" else 20.0
     else:
         readiness_timeout_s = 30.0
         final_timeout_s = 20.0

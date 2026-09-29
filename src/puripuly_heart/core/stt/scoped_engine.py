@@ -7,7 +7,7 @@ import logging
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 from uuid import uuid4
 
@@ -18,6 +18,7 @@ from puripuly_heart.core.audio.ownership import (
     OwnedVadEvent,
 )
 from puripuly_heart.core.stt.backend import (
+    PermanentSTTScopedSessionError,
     STTProviderEpochEnded,
     STTProviderTurnEvent,
     STTProviderTurnIdentity,
@@ -26,6 +27,7 @@ from puripuly_heart.core.stt.backend import (
     STTProviderTurnUpdate,
     STTScopedTurnSession,
 )
+from puripuly_heart.core.stt.diagnostics import recognition_cause
 from puripuly_heart.core.stt.scoped_event_buffer import STTProviderEventBuffer
 from puripuly_heart.core.stt.scoped_normalizer import (
     STTNormalizationDiagnostic,
@@ -36,50 +38,10 @@ from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart
 
 logger = logging.getLogger(__name__)
 
-_RECOGNITION_CAUSES = frozenset(
-    {
-        "buffer_exhausted",
-        "cancelled",
-        "closed",
-        "provider_epoch_ended",
-        "provider_final_timeout",
-        "provider_result_too_large",
-        "provider_retirement_drain_timeout",
-        "provider_session_lifetime_exceeded",
-        "provider_stable_prefix_inconsistent",
-        "provider_turn_failed_before_terminal",
-        "provider_turn_identity_mismatch",
-        "provider_update_sequence_disorder",
-        "stopped",
-        "toggle_off",
-    }
-)
-
-
-def _recognition_cause(reason: str | None) -> str:
-    if reason is None:
-        return "none"
-    category = reason.partition(":")[0]
-    if category in _RECOGNITION_CAUSES:
-        return category
-    if category == "provider_not_ready" or category == "provider_event_stream_failed":
-        return category
-    if category in {
-        "provider_begin_timeout",
-        "provider_send_timeout",
-        "provider_seal_timeout",
-        "provider_abort_timeout",
-        "provider_begin_failed",
-        "provider_send_failed",
-        "provider_seal_failed",
-        "provider_abort_failed",
-    }:
-        return category
-    return "provider_reported"
-
 
 def _log_recognition_terminal(
     identity: STTProviderTurnIdentity,
+    channel: Literal["self", "peer"],
     provider_id: str,
     terminal: STTProviderTurnTerminal,
     payloads: int,
@@ -87,24 +49,34 @@ def _log_recognition_terminal(
     byte_count: int,
     content_bytes: int,
     context_bytes: int,
+    final_wait_ms: int | None,
+    final_timeout_ms: int | None,
 ) -> None:
     with contextlib.suppress(Exception):
         logger.info(
-            "[Recognition] terminal channel=peer utterance_id=%s provider=%s epoch=%s turn=%s "
+            "[Recognition] terminal channel=%s utterance_id=%s provider=%s epoch=%s turn=%s "
             "outcome=%s cause=%s text_authority=%s successful_payloads=%d "
-            "successful_samples=%d successful_bytes=%d content_bytes=%d context_bytes=%d",
+            "successful_samples=%d successful_bytes=%d content_bytes=%d context_bytes=%d "
+            "activation_generation=%d final_wait_ms=%s final_timeout_ms=%s "
+            "failure_retryable=%d recovery_pending=%d",
+            channel,
             identity.segment.segment_id,
             provider_id,
             identity.provider_epoch_id,
             identity.provider_turn_id,
             terminal.outcome,
-            _recognition_cause(terminal.failure_reason),
+            recognition_cause(terminal.failure_reason),
             terminal.text_authority,
             payloads,
             samples,
             byte_count,
             content_bytes,
             context_bytes,
+            identity.segment.activation_generation,
+            final_wait_ms if final_wait_ms is not None else "none",
+            final_timeout_ms if final_timeout_ms is not None else "none",
+            int(terminal.failure_retryable),
+            int(terminal.recovery_pending),
         )
 
 
@@ -115,10 +87,6 @@ STTScopedSessionFactory = Callable[
 STTScopedTurnEventSink = Callable[[STTProviderTurnEvent], Awaitable[None] | None]
 STTScopedDiagnosticSink = Callable[[object], Awaitable[None] | None]
 STTWatchdogResolver = Callable[[AudioSegmentSettingsSnapshot], "STTRecognitionWatchdogs"]
-
-
-class PermanentSTTScopedSessionError(RuntimeError):
-    __slots__ = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +163,7 @@ class _ActiveTurn:
     retained_bytes: int = 0
     retention_budget: AudioRetentionBudget | None = None
     retention_allocations: list[object] = field(default_factory=list)
+    final_wait_started_at_s: float | None = None
 
 
 @dataclass(slots=True)
@@ -273,6 +242,9 @@ class ScopedRecognitionEngine:
         repr=False,
     )
     _terminal_turn_ids: set[tuple[str, str]] = field(init=False, default_factory=set, repr=False)
+    _failed_terminal_turn_ids: set[tuple[str, str]] = field(
+        init=False, default_factory=set, repr=False
+    )
     _terminal_turn_order: deque[tuple[str, str]] = field(
         init=False,
         default_factory=deque,
@@ -280,6 +252,7 @@ class ScopedRecognitionEngine:
     )
     _terminal_failure_notified: bool = field(init=False, default=False, repr=False)
     _episode_failures: int = field(init=False, default=0, repr=False)
+    _recovery_backoff_pending: bool = field(init=False, default=False, repr=False)
     _closed: bool = field(init=False, default=False, repr=False)
     _deferred_event_sink: STTScopedTurnEventSink | None = field(
         init=False,
@@ -413,10 +386,19 @@ class ScopedRecognitionEngine:
             failure_reason=reason,
             epoch_disposition="retire",
         )
-        if self.channel == "peer":
-            _log_recognition_terminal(
-                identity, owned.segment.settings.provider_id, terminal, 0, 0, 0, 0, 0
-            )
+        _log_recognition_terminal(
+            identity,
+            self.channel,
+            owned.segment.settings.provider_id,
+            terminal,
+            0,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+        )
         await self._emit(terminal)
 
     async def fail_owned_segment(
@@ -467,8 +449,9 @@ class ScopedRecognitionEngine:
                     failure_reason=reason,
                     epoch_disposition="retire",
                 )
-                if not turn.terminal_ready.done():
-                    turn.terminal_ready.set_result(terminal)
+                if turn.terminal_ready.done():
+                    turn.terminal_ready = asyncio.get_running_loop().create_future()
+                turn.terminal_ready.set_result(terminal)
                 if session is not None:
                     task = asyncio.create_task(
                         session.abort_turn(turn.identity, reason=reason),
@@ -545,8 +528,10 @@ class ScopedRecognitionEngine:
         watchdogs = self.watchdog_resolver(settings)
         open_failure: BaseException | None = None
         try:
-            await self._ensure_session(settings, watchdogs)
+            await self._ensure_session(settings, watchdogs, authority_generation)
         except Exception as exc:
+            if authority_generation != self._authority_generation:
+                return
             open_failure = exc
             self._notify_terminal_failure(exc)
         if authority_generation != self._authority_generation:
@@ -810,6 +795,7 @@ class ScopedRecognitionEngine:
         self,
         settings: AudioSegmentSettingsSnapshot,
         watchdogs: STTRecognitionWatchdogs,
+        authority_generation: int,
     ) -> None:
         scope = self._settings_scope(settings)
         if self.accepted_settings_scope is not None and scope != self.accepted_settings_scope:
@@ -827,8 +813,23 @@ class ScopedRecognitionEngine:
             await self._await_cleanup_debt(watchdogs.readiness_timeout_s)
             if self.cleanup_debt:
                 raise RuntimeError("provider_resource_quarantined")
+        if self._closed or authority_generation != self._authority_generation:
+            return
+        if self._recovery_backoff_pending:
+            self._recovery_backoff_pending = False
+            if self._episode_failures < watchdogs.connect_attempts:
+                await self.sleep(
+                    min(
+                        watchdogs.connect_retry_base_s * (2 ** (self._episode_failures - 1)),
+                        watchdogs.connect_retry_max_s,
+                    )
+                )
         last_error: BaseException | None = None
+        if self._closed or authority_generation != self._authority_generation:
+            return
         while self._episode_failures < watchdogs.connect_attempts:
+            if self._closed or authority_generation != self._authority_generation:
+                return
             epoch_id = uuid4().hex
             task = asyncio.create_task(
                 self.session_factory(settings, epoch_id),
@@ -836,6 +837,9 @@ class ScopedRecognitionEngine:
             )
             self._factory_tasks.add(task)
             done, _pending = await asyncio.wait({task}, timeout=watchdogs.readiness_timeout_s)
+            if self._closed or authority_generation != self._authority_generation:
+                self._schedule_late_factory_reclaim(task, watchdogs)
+                return
             if task not in done:
                 self._episode_failures += 1
                 self._schedule_late_factory_reclaim(task, watchdogs)
@@ -882,6 +886,8 @@ class ScopedRecognitionEngine:
                     watchdogs.connect_retry_max_s,
                 )
                 await self.sleep(delay)
+                if self._closed or authority_generation != self._authority_generation:
+                    return
         raise RuntimeError("provider_recovery_exhausted") from last_error
 
     async def _consume_session_events(
@@ -889,8 +895,11 @@ class ScopedRecognitionEngine:
         session: STTScopedTurnSession,
         epoch_id: str,
     ) -> None:
+        authority_generation = self._authority_generation
         try:
             async for event in session.turn_events():
+                if authority_generation != self._authority_generation or self._closed:
+                    continue
                 if (
                     epoch_id != self._provider_epoch_id
                     and epoch_id not in self._retiring_provider_epoch_ids
@@ -899,11 +908,47 @@ class ScopedRecognitionEngine:
                 if isinstance(event, STTProviderEpochEnded):
                     if event.provider_epoch_id != epoch_id:
                         continue
+                    idle_failure = (
+                        epoch_id == self._provider_epoch_id
+                        and not event.orderly
+                        and event.reason not in ("cancelled", "closed", "stopped", "toggle_off")
+                        and not any(
+                            turn.identity.provider_epoch_id == epoch_id
+                            for turn in self._turns.values()
+                        )
+                        and (
+                            event.provider_turn_id is None
+                            or (epoch_id, event.provider_turn_id)
+                            not in self._failed_terminal_turn_ids
+                        )
+                    )
+                    if (
+                        idle_failure
+                        and self._session_watchdogs is not None
+                        and self._session_scope is not None
+                        and self._session_scope[0] == "soniox"
+                    ):
+                        if event.failure_retryable:
+                            self._episode_failures += 1
+                            if self._episode_failures < self._session_watchdogs.connect_attempts:
+                                self._recovery_backoff_pending = True
+                            else:
+                                self._notify_terminal_failure(RuntimeError(event.reason))
+                        else:
+                            self._episode_failures = self._session_watchdogs.connect_attempts
+                            self._notify_terminal_failure(RuntimeError(event.reason))
                     self._ended_provider_epoch_id = epoch_id
                     self._session_retirement_requested = True
                     for turn in tuple(self._turns.values()):
-                        if not turn.terminal_ready.done():
-                            self._set_turn_failure(turn, event.reason or "provider_epoch_ended")
+                        if (
+                            turn.identity.provider_epoch_id == epoch_id
+                            and not turn.terminal_ready.done()
+                        ):
+                            self._set_turn_failure(
+                                turn,
+                                event.reason or "provider_epoch_ended",
+                                failure_retryable=event.failure_retryable,
+                            )
                     await self._drain_completed_turns()
                     await self._emit(event)
                     if not self._turns:
@@ -945,13 +990,50 @@ class ScopedRecognitionEngine:
         except BaseException as exc:
             if epoch_id == self._provider_epoch_id or epoch_id in self._retiring_provider_epoch_ids:
                 self._session_retirement_requested = True
-                for turn in tuple(self._turns.values()):
+                active = tuple(
+                    turn
+                    for turn in self._turns.values()
+                    if turn.identity.provider_epoch_id == epoch_id
+                )
+                if (
+                    not active
+                    and epoch_id == self._provider_epoch_id
+                    and authority_generation == self._authority_generation
+                    and self._session_scope is not None
+                    and self._session_scope[0] == "soniox"
+                    and self._session_watchdogs is not None
+                ):
+                    if isinstance(exc, OSError):
+                        self._episode_failures += 1
+                        if self._episode_failures < self._session_watchdogs.connect_attempts:
+                            self._recovery_backoff_pending = True
+                        else:
+                            self._notify_terminal_failure(
+                                RuntimeError(f"provider_event_stream_failed:{type(exc).__name__}")
+                            )
+                    else:
+                        self._episode_failures = self._session_watchdogs.connect_attempts
+                        self._notify_terminal_failure(
+                            RuntimeError(f"provider_event_stream_failed:{type(exc).__name__}")
+                        )
+                for turn in active:
                     self._set_turn_failure(
-                        turn, f"provider_event_stream_failed:{type(exc).__name__}"
+                        turn,
+                        f"provider_event_stream_failed:{type(exc).__name__}",
+                        failure_retryable=isinstance(exc, OSError),
                     )
                 await self._drain_completed_turns()
+                if (
+                    not self._turns
+                    and self._session_scope is not None
+                    and self._session_scope[0] == "soniox"
+                ):
+                    async with self._input_lock:
+                        if epoch_id == self._provider_epoch_id and not self._turns:
+                            self._retire_current_session()
 
     async def _await_terminal(self, turn: _ActiveTurn) -> None:
+        turn.final_wait_started_at_s = self.monotonic_clock()
         done, _pending = await asyncio.wait(
             {turn.terminal_ready},
             timeout=turn.watchdogs.final_timeout_s,
@@ -967,6 +1049,7 @@ class ScopedRecognitionEngine:
         self._set_turn_failure(
             turn,
             "provider_final_timeout",
+            failure_retryable=True,
             allow_provisional=allow_interim,
         )
 
@@ -1011,7 +1094,11 @@ class ScopedRecognitionEngine:
             return False
         if task not in done:
             if self._has_write_authority(session, turn):
-                self._set_turn_failure(turn, f"provider_{operation}_timeout")
+                self._set_turn_failure(
+                    turn, f"provider_{operation}_timeout", failure_retryable=True
+                )
+                if turn.settings.provider_id == "soniox":
+                    task.cancel()
                 turn.write_failed = True
                 self._retire_current_session(turn.watchdogs)
             return False
@@ -1022,7 +1109,11 @@ class ScopedRecognitionEngine:
             task.result()
         except BaseException as exc:
             if self._has_write_authority(session, turn):
-                self._set_turn_failure(turn, f"provider_{operation}_failed:{type(exc).__name__}")
+                self._set_turn_failure(
+                    turn,
+                    f"provider_{operation}_failed:{type(exc).__name__}",
+                    failure_retryable=isinstance(exc, OSError),
+                )
                 turn.write_failed = True
                 self._retire_current_session(turn.watchdogs)
             return False
@@ -1048,6 +1139,7 @@ class ScopedRecognitionEngine:
         reason: str,
         *,
         allow_provisional: bool = False,
+        failure_retryable: bool = False,
     ) -> None:
         if turn.terminal_ready.done():
             return
@@ -1055,6 +1147,7 @@ class ScopedRecognitionEngine:
             terminal = turn.normalizer.failure_terminal(
                 reason=reason,
                 allow_provisional=allow_provisional,
+                failure_retryable=failure_retryable and turn.settings.provider_id == "soniox",
             )
         except STTNormalizationError:
             terminal = STTProviderTurnTerminal(
@@ -1063,6 +1156,7 @@ class ScopedRecognitionEngine:
                 text_authority="none",
                 failure_reason=reason,
                 epoch_disposition="retire",
+                failure_retryable=failure_retryable and turn.settings.provider_id == "soniox",
             )
         turn.terminal_ready.set_result(terminal)
 
@@ -1099,18 +1193,43 @@ class ScopedRecognitionEngine:
             self._terminal_turn_ids.add(key)
             self._terminal_turn_order.append(key)
             while len(self._terminal_turn_order) > 4096:
-                self._terminal_turn_ids.discard(self._terminal_turn_order.popleft())
+                expired_key = self._terminal_turn_order.popleft()
+                self._terminal_turn_ids.discard(expired_key)
+                self._failed_terminal_turn_ids.discard(expired_key)
         turn.retained_samples = 0
         turn.retained_bytes = 0
         self._turns.pop(turn.identity, None)
         if turn is self._turn:
             self._turn = None
         self._turn_resolved.set()
+        if (
+            turn.authority_generation != self._authority_generation
+            and terminal.outcome != "cancelled"
+        ):
+            terminal = STTProviderTurnTerminal(
+                identity=turn.identity,
+                outcome="cancelled",
+                failure_reason="cancelled",
+                epoch_disposition="retire",
+            )
         if terminal.outcome in ("final", "empty"):
             self._episode_failures = 0
+            self._recovery_backoff_pending = False
             self._terminal_failure_notified = False
         else:
             self._episode_failures += 1
+            if turn.settings.provider_id == "soniox" and terminal.outcome in ("failed", "degraded"):
+                if not terminal.failure_retryable:
+                    self._episode_failures = turn.watchdogs.connect_attempts
+                elif (
+                    self._episode_failures < turn.watchdogs.connect_attempts
+                    and turn.authority_generation == self._authority_generation
+                    and not self._closed
+                ):
+                    terminal = replace(terminal, recovery_pending=True)
+                    self._recovery_backoff_pending = True
+        if should_emit and terminal.outcome in ("failed", "degraded"):
+            self._failed_terminal_turn_ids.add(key)
         if (
             terminal.epoch_disposition == "retire"
             or terminal.outcome in ("failed", "expired", "cancelled")
@@ -1120,18 +1239,34 @@ class ScopedRecognitionEngine:
         if self._session_near_ceiling():
             self._session_retirement_requested = True
         if should_emit:
-            if self.channel == "peer":
-                _log_recognition_terminal(
-                    turn.identity,
-                    turn.settings.provider_id,
-                    terminal,
-                    turn.successful_payloads,
-                    turn.successful_samples,
-                    turn.successful_bytes,
-                    turn.successful_content_bytes,
-                    turn.successful_context_bytes,
-                )
+            started_at = turn.final_wait_started_at_s
+            _log_recognition_terminal(
+                turn.identity,
+                self.channel,
+                turn.settings.provider_id,
+                terminal,
+                turn.successful_payloads,
+                turn.successful_samples,
+                turn.successful_bytes,
+                turn.successful_content_bytes,
+                turn.successful_context_bytes,
+                (
+                    max(0, int((self.monotonic_clock() - started_at) * 1000))
+                    if started_at is not None
+                    else None
+                ),
+                int(turn.watchdogs.final_timeout_s * 1000),
+            )
             await self._emit(terminal)
+            if (
+                turn.settings.provider_id == "soniox"
+                and terminal.outcome in ("failed", "degraded")
+                and not terminal.recovery_pending
+                and turn.authority_generation == self._authority_generation
+            ):
+                self._notify_terminal_failure(
+                    RuntimeError(terminal.failure_reason or "provider_recovery_exhausted")
+                )
         if self._session_retirement_requested and not self._turns:
             self._retire_current_session(turn.watchdogs)
         self._schedule_lifetime_check()
@@ -1278,10 +1413,13 @@ class ScopedRecognitionEngine:
                         text_authority="none",
                         failure_reason="provider_session_lifetime_exceeded",
                         epoch_disposition="retire",
+                        failure_retryable=turn.settings.provider_id == "soniox",
                     )
                 )
             else:
-                self._set_turn_failure(turn, "provider_session_lifetime_exceeded")
+                self._set_turn_failure(
+                    turn, "provider_session_lifetime_exceeded", failure_retryable=True
+                )
             turn.write_failed = True
         for task in self._operation_tasks.get(id(session), ()):
             task.cancel()
@@ -1519,7 +1657,6 @@ class ScopedRecognitionEngine:
 
 
 __all__ = [
-    "PermanentSTTScopedSessionError",
     "STTRecognitionWatchdogs",
     "STTScopedDiagnosticSink",
     "STTScopedSessionFactory",

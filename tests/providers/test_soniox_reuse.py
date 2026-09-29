@@ -139,6 +139,8 @@ async def test_soniox_reuses_one_transport_for_ordered_final_identical_and_empty
     first_terminal = await _next(session)
     assert isinstance(first_terminal, STTProviderTurnTerminal)
     assert (first_terminal.text, first_terminal.epoch_disposition) == ("same", "reuse")
+    assert first_terminal.failure_retryable is False
+    assert first_terminal.recovery_pending is False
     assert [
         (run.text, run.speaker_id, run.session_scope) for run in first_terminal.final_speaker_runs
     ] == [("same", "7", scope)]
@@ -227,6 +229,7 @@ async def test_soniox_detectable_idle_output_retires_reused_epoch_without_seedin
     ended = await _next(session)
     assert isinstance(ended, STTProviderEpochEnded)
     assert ended.reason == reason
+    assert ended.failure_retryable is False
     assert session._pending_tokens == []
     with pytest.raises(RuntimeError, match="epoch is retired"):
         await session.begin_turn(_request(2))
@@ -248,6 +251,7 @@ async def test_soniox_finished_response_retires_idle_reused_epoch_before_next_be
     ended = await _next(session)
     assert isinstance(ended, STTProviderEpochEnded)
     assert (ended.reason, ended.orderly) == ("soniox_stream_finished", True)
+    assert ended.failure_retryable is True
     assert session._event_projection.retired is True
     with pytest.raises(RuntimeError, match="session is closed"):
         await session.begin_turn(_request(2))
@@ -300,6 +304,8 @@ async def test_soniox_finished_response_retires_active_turn_with_preserved_text(
     assert terminal.final_speaker_runs[0].text == "kept"
     assert isinstance(ended, STTProviderEpochEnded)
     assert (ended.reason, ended.orderly) == ("soniox_stream_finished", True)
+    assert terminal.failure_retryable is True
+    assert ended.failure_retryable is True
 
     session._handle_message(json.dumps({"tokens": [{"text": "<fin>", "is_final": True}]}))
     await asyncio.sleep(0)
@@ -342,3 +348,95 @@ async def test_soniox_speaker_scope_is_connection_local() -> None:
     assert first.speaker_session_scope != second.speaker_session_scope
     await first.close()
     await second.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "retryable"),
+    [
+        ({"error_code": 408, "error_type": "request_timeout"}, True),
+        ({"error_code": 413, "error_type": "max_duration_reached"}, True),
+        ({"error_code": 429, "error_type": "limit_exceeded"}, True),
+        ({"error_code": 500, "error_type": "internal_error"}, True),
+        ({"error_code": 503, "error_type": "service_unavailable"}, True),
+        ({"error_code": "503"}, True),
+        ({"error_code": 400, "error_type": "invalid_request"}, False),
+        ({"error_code": 401, "error_type": "unauthenticated"}, False),
+        ({"error_code": 403, "error_type": "permission_denied"}, False),
+        ({"error_code": 503, "error_type": "unauthenticated"}, False),
+        ({"error_code": 503, "error_type": "unknown"}, False),
+        ({"error_code": 503, "error_type": None}, False),
+        ({"error_code": 503, "error": {"code": 401}}, False),
+        ({"error_code": True}, False),
+        ({"error_code": "unavailable"}, False),
+        ({"error": "service_unavailable"}, False),
+        ({"error_type": "service_unavailable"}, False),
+    ],
+)
+@pytest.mark.parametrize("active", [False, True])
+async def test_soniox_server_error_retryability_is_carried_on_turn_and_idle_epoch(
+    error: dict[str, object], retryable: bool, active: bool
+) -> None:
+    session, _ = _session()
+    if active:
+        await session.begin_turn(_request(1))
+    session._handle_message(json.dumps({"tokens": [], **error}))
+    if active:
+        terminal = await _next(session)
+        assert isinstance(terminal, STTProviderTurnTerminal)
+        assert terminal.failure_reason == "soniox_request_failed"
+        assert terminal.failure_retryable is retryable
+        assert terminal.recovery_pending is False
+    ended = await _next(session)
+    assert isinstance(ended, STTProviderEpochEnded)
+    assert ended.reason == "soniox_request_failed"
+    assert ended.failure_retryable is retryable
+    await session.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reason", "retryable"),
+    [
+        ("soniox_write_failed", True),
+        ("soniox_receive_failed", True),
+        ("soniox_keepalive_failed", True),
+        ("soniox_connection_ended", True),
+        ("soniox_stream_finished", True),
+        ("soniox_protocol_ambiguity", False),
+        ("soniox_idle_authoritative_text", False),
+        ("soniox_token_buffer_overflow", False),
+        ("soniox_final_timeout", False),
+    ],
+)
+@pytest.mark.parametrize("active", [False, True])
+async def test_soniox_only_known_transport_reasons_are_retryable(
+    reason: str, retryable: bool, active: bool
+) -> None:
+    session, _ = _session()
+    if active:
+        await session.begin_turn(_request(1))
+    session._scoped_transport_failure(reason, orderly=False)
+    if active:
+        terminal = await _next(session)
+        assert isinstance(terminal, STTProviderTurnTerminal)
+        assert terminal.failure_retryable is retryable
+    ended = await _next(session)
+    assert isinstance(ended, STTProviderEpochEnded)
+    assert ended.failure_retryable is retryable
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_soniox_protocol_close_cannot_turn_transport_failure_into_retry() -> None:
+    session, websocket = _session()
+    websocket.close_code = 1008
+    await session.begin_turn(_request(1))
+    session._scoped_transport_failure("soniox_receive_failed", orderly=False)
+    terminal = await _next(session)
+    ended = await _next(session)
+    assert isinstance(terminal, STTProviderTurnTerminal)
+    assert terminal.failure_retryable is False
+    assert isinstance(ended, STTProviderEpochEnded)
+    assert ended.failure_retryable is False
+    await session.close()

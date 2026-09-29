@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -8,6 +9,7 @@ from puripuly_heart.app.ports.capture_vad_runtime import (
     SelfCaptureVadEventRuntime,
 )
 from puripuly_heart.app.ports.provider_channel_runtime import ProviderChannelResetPort
+from puripuly_heart.config.provider_values import STTProviderName
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core.audio.diagnostics import AudioFaultProfile, FaultInjectingAudioSource
 from puripuly_heart.core.audio.gate import VrcMicAudioGate
@@ -30,6 +32,7 @@ from puripuly_heart.core.self_capture import (
     SelfCaptureSessionConfig,
     SelfCaptureSessionSnapshot,
 )
+from puripuly_heart.core.stt.diagnostics import recognition_cause
 
 from .root import (
     compose_peer_capture_session_owner,
@@ -51,6 +54,20 @@ from .wiring_stt_factory import (
     build_peer_stt_provider_request,
     build_self_stt_provider_request_from_vnext,
 )
+
+_CAPTURE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+_CAPTURE_PROVIDER_IDS = frozenset(provider.value for provider in STTProviderName)
+_CAPTURE_DETAIL_TYPES = frozenset(
+    {"RuntimeError", "OSError", "TimeoutError", "ConnectionError", "ValueError", "TypeError"}
+)
+
+
+def _safe_capture_id(value: str | None, *, allow_admission: bool = False) -> str:
+    if value is not None and (
+        _CAPTURE_ID_RE.fullmatch(value) or (allow_admission and value == "admission")
+    ):
+        return value
+    return "unclassified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,15 +93,20 @@ class CaptureDiagnosticsAdapter:
         fields = [
             "[SelfCapture] failed",
             f"state={diagnostic.state.value}",
+            f"provider={diagnostic.provider_id if diagnostic.provider_id in _CAPTURE_PROVIDER_IDS else 'unclassified'}",
+            f"cause={diagnostic.reason.value if diagnostic.reason is not None else 'none'}",
+            f"detail={diagnostic.detail if diagnostic.detail in _CAPTURE_DETAIL_TYPES else 'none'}",
+            f"recognition_reason={recognition_cause(diagnostic.recognition_reason)}",
+            f"utterance_id={diagnostic.utterance_id if diagnostic.utterance_id is not None else 'none'}",
+            f"epoch={_safe_capture_id(diagnostic.epoch, allow_admission=True) if diagnostic.epoch is not None else 'none'}",
+            f"turn={_safe_capture_id(diagnostic.turn) if diagnostic.turn is not None else 'none'}",
+            f"activation_generation={diagnostic.activation_generation if diagnostic.activation_generation is not None else 'none'}",
+            f"desired_active_before={str(diagnostic.desired_active_before).lower() if diagnostic.desired_active_before is not None else 'none'}",
+            f"desired_active_after={str(diagnostic.desired_active_after).lower() if diagnostic.desired_active_after is not None else 'none'}",
+            f"action={'deactivate' if diagnostic.action == 'deactivate' else 'none'}",
+            f"target_state={diagnostic.target_state.value if diagnostic.target_state is not None else 'none'}",
         ]
-        if diagnostic.provider_id is not None:
-            fields.append(f"provider={diagnostic.provider_id}")
-        if diagnostic.reason is not None:
-            fields.append(f"cause={diagnostic.reason.value}")
-        if diagnostic.detail is not None:
-            fields.append(f"detail={diagnostic.detail}")
         self.log_basic(" ".join(fields))
-        self.log_diagnostic(" ".join(fields))
 
 
 @dataclass(frozen=True, slots=True)
