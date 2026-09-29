@@ -110,8 +110,6 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | 14,380回 | 14,380回 | 3,710回 | 4,820回 |
-| **Gemma 4 31B** | 10,940回 | 10,940回 | 3,430回 | 4,360回 |
 | **Gemini 3.8 Flash** | 1,160回 | 1,160回 | 940回 | 1,000回 |
 | **Qwen 3.8 Flash** | 7,460回 | 7,460回 | 2,990回 | 3,680回 |
 
@@ -130,8 +128,6 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
-| **Gemma 4 31B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 | **Gemini 3.8 Flash** | ~0.13円 | ~0.13円 | ~0.16円 | ~0.15円 |
 | **Qwen 3.8 Flash** | ~0.02円 | ~0.02円 | ~0.05円 | ~0.04円 |
 

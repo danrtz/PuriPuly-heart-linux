@@ -273,7 +273,10 @@ class OscControlRouter:
                 self._project_canonical_state(cast(OscControlPresentationName, message.name))
             self._report_error(f"{message.name}: application_rejected")
             return OscDispatchResult(False, message.name, error="application_rejected")
-        self._publish_canonical_delta()
+        if message.name == "PuriPuly_Translator" and message.value in (1, 2):
+            self._republish_canonical_state()
+        else:
+            self._publish_canonical_delta()
         if (cancelled is not None and cancelled()) or (
             invocation_task is not None and invocation_task.cancelling()
         ):

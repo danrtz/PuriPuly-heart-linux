@@ -20,7 +20,7 @@ from puripuly_heart.core.translation_policy import (
     TranslationRuntimePolicy,
 )
 
-VNEXT_SETTINGS_SCHEMA_VERSION: Final = 49
+VNEXT_SETTINGS_SCHEMA_VERSION: Final = 50
 OSC_DEFAULT_HOST: Final = "127.0.0.1"
 OSC_DEFAULT_SEND_PORT: Final = 9000
 OSC_DEFAULT_RECEIVE_PORT: Final = 9001
@@ -384,7 +384,7 @@ class CustomSTTIntent:
 class STTIntent:
     provider: str = "local_cpu_auto"
     drain_timeout_s: float = 2.0
-    vad_speech_threshold: float = 0.4
+    vad_speech_threshold: float = 0.3
     low_latency_mode: bool = True
     low_latency_vad_hangover_ms: int = 500
     low_latency_merge_gap_ms: int = 600
@@ -627,7 +627,7 @@ class CaptureTargetIntent:
 class DesktopAudioIntent:
     output_device: str = ""
     capture_target: CaptureTargetIntent = field(default_factory=CaptureTargetIntent)
-    vad_speech_threshold: float = 0.5
+    vad_speech_threshold: float = 0.4
     vad_hangover_ms: int = 500
     vad_pre_roll_ms: int = 500
 

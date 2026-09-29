@@ -204,8 +204,8 @@ def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
     }
     assert dict(TRANSLATION_MODEL_IDS) == {
         0: "gemma4_26b_31b",
-        1: "gemma4_31b",
-        2: "gemma4",
+        1: "gemma4_26b_31b",
+        2: "gemma4_26b_31b",
         3: "deepseek_v4_flash",
         5: "gemini_flash",
         6: "gemini_flash",

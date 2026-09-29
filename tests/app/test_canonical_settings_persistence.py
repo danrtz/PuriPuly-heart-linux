@@ -665,6 +665,35 @@ async def test_overlapping_provider_secret_changes_preserve_both_invalidations(
     assert reloaded.settings.state.provider_verification.deepseek.status == "unknown"
 
 
+@pytest.mark.parametrize("stale_alias", [None, "gemma4_31b_managed", "gemma4_byok"])
+def test_managed_gemma_byok_target_retains_combined_pool_policy(
+    tmp_path: Path, stale_alias: str | None
+) -> None:
+    canonical = AppSettingsVNext()
+    translation = replace(
+        canonical.intent.translation,
+        connection="managed",
+        openrouter_model="google/gemma-4-31b-it",
+        openrouter_selection_alias=stale_alias,
+    )
+    owner = SettingsOwner(
+        path=tmp_path / "settings.json",
+        persistence=SettingsVNextCanonicalPersistenceAdapter(),
+        canonical=replace(canonical, intent=replace(canonical.intent, translation=translation)),
+    )
+
+    target = owner.build_managed_openrouter_byok_target()
+
+    assert target is not None
+    assert target.intent.translation.model == "gemma4_26b_31b"
+    assert target.intent.translation.connection == "openrouter"
+    assert target.intent.translation.connection_history["gemma4_26b_31b"] == "openrouter"
+    assert target.intent.translation.openrouter_model == "google/gemma-4-26b-a4b-it"
+    assert target.intent.translation.openrouter_provider_routing == "gemma4_26b_31b_latency"
+    assert target.intent.translation.openrouter_selected_source == "byok"
+    assert target.intent.translation.openrouter_selection_alias == "gemma4_26b_31b_byok"
+
+
 @pytest.mark.parametrize("connection", ["openrouter", "official_byok"])
 def test_luna_materialization_and_roundtrip_ignore_stale_router_alias(connection: str) -> None:
     from puripuly_heart.config.settings_vnext import serialization

@@ -113,7 +113,7 @@ async def test_openrouter_cached_managed_key_translation_smoke(
                 settings.intent.translation,
                 openrouter_model=OpenRouterLLMModel.GEMMA_4_26B_A4B_IT.value,
                 openrouter_selected_source="managed",
-                openrouter_selection_alias=OpenRouterSelectionAlias.GEMMA4_MANAGED.value,
+                openrouter_selection_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value,
             ),
         ),
     )

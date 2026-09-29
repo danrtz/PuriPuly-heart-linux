@@ -227,7 +227,10 @@ def test_vad_threshold_intents_enforce_shared_range_and_independent_values() -> 
         SelfVadSettingsIntent(0.10),
     )
     assert self_updated.intent.stt.vad_speech_threshold == 0.10
-    assert self_updated.intent.desktop_audio.vad_speech_threshold == 0.5
+    assert (
+        self_updated.intent.desktop_audio.vad_speech_threshold
+        == current.intent.desktop_audio.vad_speech_threshold
+    )
 
     peer_updated = materialize_immediate_settings_intent(
         self_updated,
@@ -251,7 +254,7 @@ def test_provider_edit_journal_replays_only_owned_fields_onto_latest_settings() 
         translation=replace(
             AppSettingsVNext().intent.translation,
             connection_history={
-                TranslationModel.GEMMA4.value: TranslationConnection.MANAGED.value,
+                TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED.value,
                 TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED_CHINA.value,
             },
         ),
@@ -269,7 +272,7 @@ def test_provider_edit_journal_replays_only_owned_fields_onto_latest_settings() 
             AppSettingsVNext().intent.translation,
             gpu_device_id="latest-llm-gpu",
             connection_history={
-                TranslationModel.GEMMA4.value: TranslationConnection.OPENROUTER.value,
+                TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER.value,
                 TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.OFFICIAL_BYOK.value,
             },
         ),
@@ -306,7 +309,7 @@ def test_provider_edit_journal_replays_only_owned_fields_onto_latest_settings() 
     assert provider_llm_for_translation(translation.model, translation.connection) == "openrouter"
     assert translation.model == TranslationModel.GEMINI_FLASH.value
     assert translation.connection == TranslationConnection.OPENROUTER.value
-    assert translation.connection_history[TranslationModel.GEMMA4.value] == (
+    assert translation.connection_history[TranslationModel.GEMMA4_26B_31B.value] == (
         TranslationConnection.OPENROUTER.value
     )
     assert translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH.value] == (

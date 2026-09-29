@@ -449,7 +449,7 @@ async def test_httpx_openrouter_client_deepseek_41_model_overrides_stale_route(
         api_key="test-key",
         model="deepseek/deepseek-v4.1-flash",
         base_url="https://example",
-        provider_routing=OpenRouterProviderRouting.GEMMA4_31B_LATENCY,
+        provider_routing=OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY,
     )
     await client.translate(
         text="hello",
@@ -475,7 +475,7 @@ async def test_httpx_openrouter_client_deepseek_40_uses_requested_provider_pool(
         api_key="test-key",
         model="deepseek/deepseek-v4-flash-0731",
         base_url="https://example",
-        provider_routing=OpenRouterProviderRouting.GEMMA4_31B_LATENCY,
+        provider_routing=OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY,
     )
     await client.translate(
         text="hello",

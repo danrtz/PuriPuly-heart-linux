@@ -137,6 +137,37 @@ def test_version_48_migrates_legacy_without_changing_region_or_models(tmp_path) 
     assert migrated.backup_path.read_text(encoding="utf-8") == original_text
 
 
+def test_version_49_gemma_consolidated_settings_gain_shared_connections(tmp_path) -> None:
+    settings = AppSettingsVNext()
+    old = serialization.to_dict(settings)
+    old["settings_version"] = 49
+    old["intent"]["translation"].update(
+        model="gemma4_26b_31b",
+        connection="openrouter",
+        connection_history={"gemma4_26b_31b": "openrouter", "qwen38_flash": "official_byok"},
+        qwen={"region": "singapore", "llm_model": "qwen3.8-flash"},
+    )
+    original_text = json.dumps(old)
+    path = tmp_path / "settings.json"
+    path.write_text(original_text, encoding="utf-8")
+
+    migrated = compat.load_vnext_settings(path)
+
+    assert migrated.ok and migrated.migrated and migrated.backup_path is not None
+    translation = migrated.settings.intent.translation
+    assert (translation.model, translation.connection) == ("gemma4_26b_31b", "openrouter")
+    assert translation.connection_history == {
+        "gemma4_26b_31b": "openrouter",
+        "qwen38_flash": "official_byok",
+    }
+    assert translation.qwen.region == "singapore"
+    assert translation.qwen.beijing == AlibabaRegionalSettings()
+    assert translation.qwen.singapore == AlibabaRegionalSettings()
+    assert json.loads(path.read_text(encoding="utf-8"))["settings_version"] == 50
+    assert compat.load_vnext_settings(path).migrated is False
+    assert migrated.backup_path.read_text(encoding="utf-8") == original_text
+
+
 def test_dedicated_roundtrip_and_region_switch_preserve_other_region(tmp_path) -> None:
     initial = AppSettingsVNext()
     qwen = replace(

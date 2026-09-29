@@ -111,8 +111,6 @@ It works in many environments, including VRChat and Discord.
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | 14,380 | 14,380 | 3,710 | 4,820 |
-| **Gemma 4 31B** | 10,940 | 10,940 | 3,430 | 4,360 |
 | **Gemini 3.8 Flash** | 1,160 | 1,160 | 940 | 1,000 |
 | **Qwen 3.8 Flash** | 7,460 | 7,460 | 2,990 | 3,680 |
 
@@ -131,8 +129,6 @@ It works in many environments, including VRChat and Discord.
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 26B A4B** | ~$0.00007 | ~$0.00007 | ~$0.0003 | ~$0.00021 |
-| **Gemma 4 31B** | ~$0.00009 | ~$0.00009 | ~$0.0003 | ~$0.00023 |
 | **Gemini 3.8 Flash** | ~$0.0009 | ~$0.0009 | ~$0.0011 | ~$0.0010 |
 | **Qwen 3.8 Flash** | ~$0.0001 | ~$0.0001 | ~$0.0003 | ~$0.00027 |
 
@@ -220,7 +216,7 @@ If Soniox/Gemini/Deepgram are blocked in your region, please use the following c
 
 Follow the guide that matches the service you want to use.
 
-For the translation LLM, we recommend using the Gemma 4 model through OpenRouter.
+For the translation LLM, we recommend selecting **Gemma 4 26B A4B + 31B** with the **OpenRouter** connection.
 
 By the way, while you're setting things up, why not configure ASR too?
 PuriPuly delivers the best experience when paired with a cloud STT.
