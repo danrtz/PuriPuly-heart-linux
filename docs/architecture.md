@@ -281,18 +281,6 @@ Includes:
 
 Runtime owners should consume resolved configuration (`config/resolved.py`, `config/runtime_resolution.py`).
 
-### Alibaba workspace connections
-
-`AppSettingsVNext` schema 49 stores separate Beijing and Singapore Qwen endpoint modes (`legacy_shared` or `workspace_dedicated`), normalized API hosts, and connection revisions. Older settings migrate to shared endpoints. Effective credential lookup uses the selected region's saved key, then the legacy saved Alibaba key, then that region's environment variable, generic `ALIBABA_API_KEY`, and `DASHSCOPE_API_KEY`, in that order. A legacy or generic fallback is not proof that the key has access to both regions. Workspace API Host must match its selected region's `*.cn-beijing.maas.aliyuncs.com` or `*.ap-southeast-1.maas.aliyuncs.com` domain; enter the host from the Alibaba workspace management page, not a key, WebSocket URL, or arbitrary endpoint. Both regions retain their valid configured host when switching; explicitly returning to shared mode discards an invalid draft host without changing a secret.
-
-`config/alibaba_connection.py` resolves one immutable region/mode/host/credential/revision snapshot into compatible, native HTTPS, and streaming WebSocket URLs. `config/runtime_resolution.py` supplies that snapshot to Self and Peer Qwen Audio, Qwen translation, signatures, and credential verification; unrelated providers do not inherit an Alibaba endpoint. The Qwen LLM factory requires the resolved native URL instead of falling back silently to a shared endpoint. Secret changes advance the selected region's revision and trigger the existing provider apply lifecycle.
-
-The typed, nonvisual settings boundary is `app/ports/settings_view.py`, `app/ports/ui_application.py`, `app/services/ui_application.py`, and `app/adapters/ui_runtime.py`; `app/services/provider/alibaba_workspace.py` owns the draft. Begin/edit/verify/apply/cancel keep a single draft token, both regional edits, selected-region validation, and independent ASR/translation evidence. An incomplete or mismatched workspace host cannot be probed or applied. ASR verification requires task-started and task-finished on one WebSocket; translation validates the resolved native endpoint and verifies only the selected model through its corresponding compatible-mode `/chat/completions` endpoint. Translation execution uses that compatible-mode endpoint; warmup only initializes its HTTP client and sends no paid probe. Verification may consume provider usage; no model fallback probes run automatically. Classifications distinguish authentication/access, model availability, rate limit, network, and ambiguous failures without exposing keys, host-bearing error messages, or raw provider responses.
-
-Apply merges only intentionally edited regional fields against the latest canonical settings, rejects relevant stale revisions, and preserves unrelated newer regional changes. It uses the existing provider settings transaction and runtime replacement policy, returns committed status and affected consumers, and preserves saved-key verification evidence only while its connection, credential, and capability model remain current. Cancel and stale responses cannot mutate canonical settings. A maintenance announcement is not a service shutdown; this flow does not promise availability during maintenance or manufacture a fallback endpoint. No rendered desktop controls are part of this boundary. Controlled adapter and provider-transport checks are in `tests/app/test_alibaba_workspace.py` and `tests/config/test_alibaba_connection.py`; dedicated-host live acceptance requires an actual workspace host.
-
-Implementation commits, controlled checks, bounded Beijing shared-service results, and untested/blocked rollout criteria are recorded in [Alibaba workspace verification](alibaba-workspace-verification.md).
-
 ### Runtime state
 
 Examples:
@@ -436,7 +424,6 @@ Behavior tests: `tests/core/test_overlay_presenter.py`.
 - The writer retains ownership through stream closure; replacement must not race a retiring writer.
 - Persisted records include calendar date and process ID. Recognition terminals correlate channel, utterance, provider epoch/turn, activation generation, watchdog timing, and recovery decisions. Self capture failures identify the actual active-intent transition; peer expiry records sealed wait and TTL.
 - Soniox file-only turn summaries distinguish finalize enqueue/write, final reception/acceptance, server error codes, transport closure, and local cleanup. A completed write is not a server acknowledgement. Diagnostic fields exclude external error prose, credentials, transcript tokens, speaker identities, and PCM.
-- Qwen Audio file-only startup/failure/close records identify handshake, run-task send, task-start wait, receive, and socket-close timings. Failure causes expose only classified exception names and bounded numeric status/close/provider codes; raw exception text, endpoint host, credentials, task IDs, and speech content are excluded.
 
 Implementation: `core/runtime_logging.py`, `app/services/application_runtime_logging.py`. Behavior tests: `tests/core/test_runtime_logging.py`, `tests/core/test_file_logging.py`.
 
