@@ -78,7 +78,7 @@
   "settings.translation_model.gemma4_26b_31b.description": "Подходит для большинства случаев",
   "settings.translation_model.deepseek_v4_flash.description": "Буквально: интеллект, дешёвый как вода",
   "settings.translation_model.deepseek_v4_flash_41.description": "Хорошо знает китайский",
-  "settings.translation_model.gpt_6_luna.description": "OpenRouter или официальный API OpenAI; уровень рассуждения зафиксирован на «none».",
+  "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "Сильная альтернатива DeepSeek",
   "settings.translation_model.local_llm.description": "Можно также использовать локальную LLM",
   "settings.translation_model.section.recommended_cloud": "Рекомендуемые / Облако",

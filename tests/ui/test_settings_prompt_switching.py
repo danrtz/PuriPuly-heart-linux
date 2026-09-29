@@ -339,6 +339,7 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(monkeypat
     assert TranslationModel.MANAGED_GEMMA.value not in values
 
     managed = {option.value: option for option in options}
+    assert managed[TranslationModel.GPT_6_LUNA.value].description == ""
     assert managed["managed_gemma_cpu"].label == t("provider.managed_gemma_cpu")
     assert managed["managed_gemma_cpu"].description == t(
         "settings.translation_model.managed_gemma_cpu.description"

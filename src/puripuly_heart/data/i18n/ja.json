@@ -78,7 +78,7 @@
   "settings.translation_model.gemma4_26b_31b.description": "ほとんどの場面で優秀です",
   "settings.translation_model.deepseek_v4_flash.description": "まさに水のように安い知能",
   "settings.translation_model.deepseek_v4_flash_41.description": "中国語に強いです",
-  "settings.translation_model.gpt_6_luna.description": "OpenRouterまたはOpenAI公式API。推論レベルは「なし」に固定されます。",
+  "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "DeepSeekの良い代替手段です",
   "settings.translation_model.local_llm.description": "ローカルLLMも使用できます",
   "settings.translation_model.section.recommended_cloud": "おすすめ / クラウド",

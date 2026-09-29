@@ -78,7 +78,7 @@
   "settings.translation_model.gemma4_26b_31b.description": "대부분의 상황에서 좋아요",
   "settings.translation_model.deepseek_v4_flash.description": "말 그대로 물처럼 저렴한 지능",
   "settings.translation_model.deepseek_v4_flash_41.description": "중국어를 잘해요",
-  "settings.translation_model.gpt_6_luna.description": "OpenRouter 또는 OpenAI 공식 API; 추론 수준은 '없음'으로 고정됩니다.",
+  "settings.translation_model.gpt_6_luna.description": "",
   "settings.translation_model.qwen38_flash.description": "딥시크의 좋은 대안이에요",
   "settings.translation_model.local_llm.description": "로컬 LLM도 사용할 수 있어요",
   "settings.translation_model.section.recommended_cloud": "권장 / 클라우드",
