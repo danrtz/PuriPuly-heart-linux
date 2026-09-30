@@ -8,7 +8,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from puripuly_heart.config.resolved import ResolvedSTTConfig
-from puripuly_heart.core.audio.ownership import OwnedVadEvent
+from puripuly_heart.core.audio.ownership import OwnedStreamInput, OwnedVadEvent
 from puripuly_heart.core.gpu_worker import (
     GpuWorkerActivation,
     GpuWorkerDevice,
@@ -16,6 +16,7 @@ from puripuly_heart.core.gpu_worker import (
 )
 from puripuly_heart.core.runtime.local_asr_transition import LocalASRSessionOptions
 from puripuly_heart.core.stt.backend import STTProviderTurnEvent
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity
 
 ProviderRuntimeChannel = Literal["self", "peer"]
 ProviderRuntimeChannelPhase = Literal[
@@ -327,6 +328,17 @@ class LocalASRProviderRuntimePort(Protocol):
         channel: ProviderRuntimeChannel,
         event: OwnedVadEvent,
     ) -> None: ...
+    async def handle_stream_input(
+        self,
+        channel: ProviderRuntimeChannel,
+        event: OwnedStreamInput,
+    ) -> None: ...
+
+    def is_current_recognition_stream(
+        self,
+        channel: ProviderRuntimeChannel,
+        stream: RecognitionStreamIdentity,
+    ) -> bool: ...
 
     async def reject_owned_segment(
         self,

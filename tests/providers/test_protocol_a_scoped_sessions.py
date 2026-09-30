@@ -19,10 +19,12 @@ from puripuly_heart.core.stt.backend import (
     STTContributionConsumptionLedger,
     STTNativeProvenance,
     STTProviderEpochEnded,
+    STTProviderInputTerminal,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
     STTSessionProjection,
 )
 from puripuly_heart.core.stt.scoped_engine import (
@@ -336,14 +338,11 @@ async def test_deepgram_empty_error_abort_and_two_drain_path(monkeypatch) -> Non
 class _FakeGeminiLive:
     def __init__(self) -> None:
         self.sent: list[dict] = []
-        self.send_gate = asyncio.Event()
-        self.send_gate.set()
         self.queue: asyncio.Queue[object] = asyncio.Queue()
         self.closed = False
 
     async def send_realtime_input(self, **kwargs) -> None:
         self.sent.append(kwargs)
-        await self.send_gate.wait()
 
     async def receive(self):
         while True:
@@ -390,7 +389,7 @@ async def _gemini_session(timeout: float = 0.05, *, order: int = 1, epoch: str |
         model="model",
         sample_rate_hz=16000,
         connect_timeout_s=10.0,
-        finalize_timeout_s=timeout,
+        drain_timeout_s=timeout,
         projection=STTSessionProjection(
             mode="scoped",
             provider_epoch_id=epoch or f"epoch-{order}",
@@ -403,149 +402,120 @@ async def _gemini_session(timeout: float = 0.05, *, order: int = 1, epoch: str |
 
 
 @pytest.mark.asyncio
-async def test_gemini_actual_message_shape_reuses_two_part_barrier_and_detects_idle_output() -> (
-    None
-):
-    from google.genai import types
-
-    assert "id" not in types.LiveServerMessage.model_fields
-    assert "event_id" not in types.LiveServerMessage.model_fields
+async def test_gemini_native_results_are_stream_scoped_receipt_units() -> None:
     session, live = await _gemini_session()
-    assert session._send_queue.maxsize == 258
-    request_a = _request("gemini_transcribe")
-    await session.begin_turn(request_a)
-    live.send_gate.clear()
-    send = asyncio.create_task(
-        session.send_turn_audio(
-            request_a.identity,
-            b"pcm-a",
+    first = _request("gemini_transcribe")
+    second = _request_for_epoch("gemini_transcribe", 2)
+    try:
+        await session.begin_turn(first)
+        await session.send_turn_audio(
+            first.identity,
+            b"\x01\x00\x02\x00",
             payload_sequence=1,
             source_ranges=_span(),
             context_only=False,
         )
-    )
-    await _wait(lambda: any(item.get("audio", {}).get("data") == b"pcm-a" for item in live.sent))
-    assert not send.done()
-    live.send_gate.set()
-    await send
-    await session.seal_turn(
-        request_a.identity,
-        sealed_content_ranges=_span(),
-        seal_reason="silence",
-        observed_trailing_silence_ms=224,
-    )
-    live.push(_gemini_message(ack=True))
-    await asyncio.sleep(0)
-    assert session._event_projection.scoped_event_depth == 0
-    live.push(_gemini_message(final="same"))
-    update_a = await _next(session)
-    terminal_a = await _next(session)
-    assert update_a.text == "same"
-    assert (terminal_a.text, terminal_a.epoch_disposition) == ("same", "reuse")
-
-    request_b = _request_for_epoch("gemini_transcribe", 2)
-    await session.begin_turn(request_b)
-    await session.send_turn_audio(
-        request_b.identity,
-        b"pcm-b",
-        payload_sequence=1,
-        source_ranges=_span(),
-        context_only=False,
-    )
-    await session.seal_turn(
-        request_b.identity,
-        sealed_content_ranges=_span(),
-        seal_reason="silence",
-        observed_trailing_silence_ms=0,
-    )
-    live.push(_gemini_message(final="same"))
-    await asyncio.sleep(0)
-    assert (await _next(session)).text == "same"
-    assert session._event_projection.scoped_event_depth == 0
-    live.push(_gemini_message(ack=True))
-    terminal_b = await _next(session)
-    assert (terminal_b.text, terminal_b.epoch_disposition) == ("same", "reuse")
-    assert terminal_a.identity != terminal_b.identity
-    assert live.closed is False
-    assert sum(item.get("activity_start") is not None for item in live.sent) == 2
-    assert sum(item.get("activity_end") is not None for item in live.sent) == 2
-    await session.close()
-    assert live.closed is True
-
-    ambiguous, ambiguous_live = await _gemini_session()
-    ambiguous_live.push(_gemini_message(final="unsolicited"))
-    ended = await _next(ambiguous)
-    assert isinstance(ended, STTProviderEpochEnded)
-    assert ended.reason == "gemini_unsolicited_authoritative"
-    with pytest.raises(RuntimeError, match="session is closed"):
-        await ambiguous.begin_turn(_request("gemini_transcribe"))
-    await ambiguous.close()
+        live.push(_gemini_message(final="before seal"))
+        early = await _next(session)
+        assert isinstance(early, STTRecognitionUnit)
+        await session.seal_turn(
+            first.identity,
+            sealed_content_ranges=_span(),
+            seal_reason="silence",
+            observed_trailing_silence_ms=0,
+        )
+        submitted = await _next(session)
+        assert isinstance(submitted, STTProviderInputTerminal)
+        assert (submitted.outcome, submitted.identity) == ("submitted", first.identity)
+        await session.begin_turn(second)
+        next_span = (
+            replace(
+                _span()[0],
+                source_start_sample=2,
+                source_end_sample=4,
+                normalized_start_sample=2,
+                normalized_end_sample=4,
+                source_start_monotonic_s=2 / 16000,
+                source_end_monotonic_s=4 / 16000,
+            ),
+        )
+        await session.send_turn_audio(
+            second.identity,
+            b"\x03\x00\x04\x00",
+            payload_sequence=1,
+            source_ranges=next_span,
+            context_only=False,
+        )
+        assert session.recognition_source_covers(next_span)
+        live.push(_gemini_message(ack=True, interim="not final"))
+        live.push(_gemini_message(final="same"))
+        live.push(_gemini_message(final="same"))
+        units = [await _next(session), await _next(session)]
+        assert all(isinstance(unit, STTRecognitionUnit) for unit in units)
+        assert [unit.text for unit in units] == ["same", "same"]
+        assert [unit.identity.receipt_sequence for unit in [early, *units]] == [1, 2, 3]
+        assert len({unit.identity.unit_id for unit in [early, *units]}) == 3
+        assert all(unit.identity.stream == early.identity.stream for unit in units)
+        assert [next(iter(item)) for item in live.sent] == ["audio", "audio_stream_end", "audio"]
+        await session.seal_turn(
+            second.identity,
+            sealed_content_ranges=next_span,
+            seal_reason="silence",
+            observed_trailing_silence_ms=0,
+        )
+        assert (await _next(session)).outcome == "submitted"
+        assert live.closed is False
+    finally:
+        await session.close()
 
 
 @pytest.mark.asyncio
-async def test_gemini_empty_timeout_error_and_abort_receipts() -> None:
+async def test_gemini_empty_result_transport_error_and_abort_have_distinct_receipts() -> None:
     empty, empty_live = await _gemini_session()
     request = _request("gemini_transcribe")
-    await empty.begin_turn(request)
-    await empty.seal_turn(
-        request.identity,
-        sealed_content_ranges=_span(),
-        seal_reason="silence",
-        observed_trailing_silence_ms=0,
-    )
-    empty_live.push(_gemini_message(final=""))
-    empty_live.push(_gemini_message(ack=True))
-    await _next(empty)
-    terminal = await _next(empty)
-    assert (terminal.outcome, terminal.text_authority, terminal.epoch_disposition) == (
-        "empty",
-        "authoritative",
-        "reuse",
-    )
-    await empty.close()
-
-    timeout, timeout_live = await _gemini_session(0.01)
-    timeout_request = _request("gemini_transcribe")
-    await timeout.begin_turn(timeout_request)
-    await timeout.seal_turn(
-        timeout_request.identity,
-        sealed_content_ranges=_span(),
-        seal_reason="silence",
-        observed_trailing_silence_ms=0,
-    )
-    timeout_live.push(_gemini_message(final="kept"))
-    await _next(timeout)
-    timed = await _next(timeout)
-    assert (timed.text, timed.failure_reason, timed.epoch_disposition) == (
-        "kept",
-        "gemini_finalize_timeout",
-        "retire",
-    )
-    await timeout.close()
+    try:
+        await empty.begin_turn(request)
+        empty_live.push(_gemini_message(final=""))
+        unit = await _next(empty)
+        assert isinstance(unit, STTRecognitionUnit)
+        assert unit.text == ""
+        await empty.seal_turn(
+            request.identity,
+            sealed_content_ranges=(),
+            seal_reason="silence",
+            observed_trailing_silence_ms=0,
+        )
+        assert (await _next(empty)).outcome == "submitted"
+    finally:
+        await empty.close()
 
     errored, error_live = await _gemini_session()
     error_request = _request("gemini_transcribe")
-    await errored.begin_turn(error_request)
-    error_live.push(RuntimeError("receive failed"))
-    failed = await _next(errored)
-    ended = await _next(errored)
-    assert failed.failure_reason == "gemini_receive_failed"
-    assert isinstance(ended, STTProviderEpochEnded)
-    await errored.close()
+    try:
+        await errored.begin_turn(error_request)
+        error_live.push(RuntimeError("receive failed"))
+        failed = await _next(errored)
+        ended = await _next(errored)
+        assert isinstance(failed, STTProviderInputTerminal)
+        assert failed.failure_reason == "gemini_receive_failed"
+        assert isinstance(ended, STTProviderEpochEnded)
+    finally:
+        await errored.close()
 
     aborted, _ = await _gemini_session()
     abort_request = _request("gemini_transcribe")
-    await aborted.begin_turn(abort_request)
-    await aborted.abort_turn(abort_request.identity, reason="cancelled")
-    aborted_terminal = await _next(aborted)
-    assert (aborted_terminal.outcome, aborted_terminal.failure_reason) == (
-        "cancelled",
-        "cancelled",
-    )
-    assert isinstance(await _next(aborted), STTProviderEpochEnded)
-    with pytest.raises(RuntimeError, match="session is closed"):
-        await aborted.begin_turn(_request("gemini_transcribe", 2))
-    await aborted.close()
+    try:
+        await aborted.begin_turn(abort_request)
+        await aborted.abort_turn(abort_request.identity, reason="cancelled")
+        aborted_terminal = await _next(aborted)
+        assert isinstance(aborted_terminal, STTProviderInputTerminal)
+        assert (aborted_terminal.outcome, aborted_terminal.failure_reason) == (
+            "cancelled",
+            "cancelled",
+        )
+        assert isinstance(await _next(aborted), STTProviderEpochEnded)
+    finally:
+        await aborted.close()
 
 
 class _FakeSonioxWebSocket:
@@ -1273,7 +1243,7 @@ async def test_each_concrete_streaming_protocol_serves_self_and_peer_concurrentl
         *(
             session.send_turn_audio(
                 request.identity,
-                b"pcm",
+                b"\x01\x00\x02\x00" if provider_id == "gemini_transcribe" else b"pcm",
                 payload_sequence=1,
                 source_ranges=_span(),
                 context_only=False,
@@ -1302,7 +1272,6 @@ async def test_each_concrete_streaming_protocol_serves_self_and_peer_concurrentl
             session._build_transcript_event(_deepgram_result(text, from_finalize=True))
         elif provider_id == "gemini_transcribe":
             boundary.push(_gemini_message(final=text))
-            boundary.push(_gemini_message(ack=True))
         elif provider_id == "soniox":
             boundary.push(
                 json.dumps(
@@ -1317,13 +1286,21 @@ async def test_each_concrete_streaming_protocol_serves_self_and_peer_concurrentl
         else:
             session._on_committed(CommittedTranscriptPayload(text=text))
 
-    terminals: list[STTProviderTurnTerminal] = []
+    terminals: list[STTProviderTurnTerminal | STTRecognitionUnit] = []
     for session in sessions:
-        while True:
-            event = await _next(session)
-            if isinstance(event, STTProviderTurnTerminal):
-                terminals.append(event)
-                break
+        if provider_id == "gemini_transcribe":
+            submitted = await _next(session)
+            assert isinstance(submitted, STTProviderInputTerminal)
+            assert submitted.outcome == "submitted"
+            unit = await _next(session)
+            assert isinstance(unit, STTRecognitionUnit)
+            terminals.append(unit)
+        else:
+            while True:
+                event = await _next(session)
+                if isinstance(event, STTProviderTurnTerminal):
+                    terminals.append(event)
+                    break
 
     assert [terminal.text for terminal in terminals] == ["client-1", "client-2"]
     assert [request.channel for request in requests] == ["self", "peer"]

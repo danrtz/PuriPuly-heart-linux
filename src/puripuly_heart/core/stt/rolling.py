@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import AsyncIterator
 
@@ -34,11 +35,18 @@ from puripuly_heart.core.stt.backend import (
     STTBackend,
     STTBackendSession,
     STTBackendTranscriptEvent,
+    STTIndependentRecognitionSession,
     STTProviderTurnEvent,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
+    STTRecognitionUnit,
+    STTRecognitionUnitTerminal,
     STTScopedTurnSession,
     STTSessionProjection,
+)
+from puripuly_heart.domain.recognition import (
+    RecognitionStreamIdentity,
+    RecognitionUnitIdentity,
 )
 
 logger = logging.getLogger(__name__)
@@ -339,6 +347,11 @@ class _RollingSession(STTBackendSession):
     definition: RollingProviderDefinition
     inner: STTBackendSession
     on_session_error: Callable[[RollingProviderDefinition, BaseException], None]
+    _outer_stream: RecognitionStreamIdentity | None = field(default=None, init=False)
+    _last_receipt_sequence: int = field(default=0, init=False)
+    _unit_identities: OrderedDict[RecognitionUnitIdentity, RecognitionUnitIdentity] = field(
+        default_factory=OrderedDict, init=False
+    )
 
     @property
     def max_session_age_s(self) -> float | None:
@@ -358,15 +371,51 @@ class _RollingSession(STTBackendSession):
         return self.definition.name
 
     @property
-    def allows_interim_timeout_fallback(self) -> bool:
-        return bool(getattr(self.inner, "allows_interim_timeout_fallback", False))
+    def accepts_stream_input(self) -> bool:
+        return (
+            isinstance(self.inner, STTIndependentRecognitionSession)
+            and self.inner.accepts_stream_input
+        )
+
+    @property
+    def independent_recognition_units(self) -> bool:
+        return (
+            isinstance(self.inner, STTIndependentRecognitionSession)
+            and self.inner.independent_recognition_units
+        )
 
     def _scoped_inner(self) -> STTScopedTurnSession:
         if not isinstance(self.inner, STTScopedTurnSession):
             raise TypeError(f"rolling member {self.definition.name.value} is not scoped")
         return self.inner
 
+    async def begin_stream(self, stream: RecognitionStreamIdentity) -> None:
+        if not isinstance(self.inner, STTIndependentRecognitionSession):
+            raise TypeError("rolling member does not accept independent stream admission")
+        if self._outer_stream is not None and self._outer_stream != stream:
+            raise RuntimeError("rolling member cannot bind unrelated recognition streams")
+        try:
+            await self.inner.begin_stream(stream)
+        except BaseException as exc:
+            if not isinstance(exc, asyncio.CancelledError):
+                self.on_session_error(self.definition, exc)
+            raise
+        self._outer_stream = stream
+
     async def begin_turn(self, request: STTProviderTurnRequest) -> None:
+        if self.independent_recognition_units:
+            identity = request.identity
+            stream = RecognitionStreamIdentity(
+                channel=request.channel,
+                activation_generation=identity.segment.activation_generation,
+                capture_epoch=identity.segment.capture_epoch,
+                provider_epoch_id=identity.provider_epoch_id,
+                settings_scope=identity.settings_scope,
+            )
+            if self._outer_stream is None:
+                self._outer_stream = stream
+            elif self._outer_stream != stream:
+                raise RuntimeError("rolling member cannot bind unrelated recognition streams")
         try:
             await self._scoped_inner().begin_turn(request)
         except BaseException as exc:
@@ -424,14 +473,77 @@ class _RollingSession(STTBackendSession):
                 self.on_session_error(self.definition, exc)
             raise
 
+    async def send_stream_audio(
+        self, pcm16le: bytes, *, source_ranges: tuple[AudioCaptureSpan, ...]
+    ) -> None:
+        if not isinstance(self.inner, STTIndependentRecognitionSession):
+            raise TypeError("rolling member does not accept independent stream audio")
+        try:
+            await self.inner.send_stream_audio(pcm16le, source_ranges=source_ranges)
+        except BaseException as exc:
+            if not isinstance(exc, asyncio.CancelledError):
+                self.on_session_error(self.definition, exc)
+            raise
+
+    async def end_stream(self, *, reason: str) -> None:
+        if not isinstance(self.inner, STTIndependentRecognitionSession):
+            raise TypeError("rolling member does not accept independent stream fences")
+        try:
+            await self.inner.end_stream(reason=reason)
+        except BaseException as exc:
+            if not isinstance(exc, asyncio.CancelledError):
+                self.on_session_error(self.definition, exc)
+            raise
+
+    def recognition_source_covers(self, ranges: tuple[AudioCaptureSpan, ...]) -> bool:
+        return isinstance(
+            self.inner, STTIndependentRecognitionSession
+        ) and self.inner.recognition_source_covers(ranges)
+
     async def turn_events(self) -> AsyncIterator[STTProviderTurnEvent]:
         try:
             async for event in self._scoped_inner().turn_events():
+                if isinstance(event, (STTRecognitionUnit, STTRecognitionUnitTerminal)):
+                    unit = event if isinstance(event, STTRecognitionUnit) else event.unit
+                    identity = self._remap_recognition_identity(unit.identity)
+                    if identity is None:
+                        continue
+                    unit = replace(unit, identity=identity)
+                    event = (
+                        unit if isinstance(event, STTRecognitionUnit) else replace(event, unit=unit)
+                    )
                 yield event
         except BaseException as exc:
             if not isinstance(exc, asyncio.CancelledError):
                 self.on_session_error(self.definition, exc)
             raise
+
+    def _remap_recognition_identity(
+        self, identity: RecognitionUnitIdentity
+    ) -> RecognitionUnitIdentity | None:
+        outer = self._outer_stream
+        inner = identity.stream
+        if outer is None or (
+            inner.channel != outer.channel
+            or inner.activation_generation != outer.activation_generation
+            or inner.capture_epoch != outer.capture_epoch
+            or inner.provider_epoch_id != outer.provider_epoch_id
+            or inner.settings_scope != outer.settings_scope
+        ):
+            return None
+        remapped = self._unit_identities.get(identity)
+        if remapped is not None:
+            return remapped
+        self._last_receipt_sequence += 1
+        remapped = RecognitionUnitIdentity(
+            stream=outer,
+            unit_id=identity.unit_id,
+            receipt_sequence=self._last_receipt_sequence,
+        )
+        self._unit_identities[identity] = remapped
+        if len(self._unit_identities) > 4096:
+            self._unit_identities.popitem(last=False)
+        return remapped
 
     async def send_audio(self, pcm16le: bytes) -> None:
         await self.inner.send_audio(pcm16le)

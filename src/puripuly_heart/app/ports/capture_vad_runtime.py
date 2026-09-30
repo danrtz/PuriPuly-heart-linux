@@ -3,9 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
+from puripuly_heart.core.audio.ownership import OwnedStreamInput
+
 
 class SelfCaptureVadEventRuntime(Protocol):
     async def handle_vad_event(self, event: object) -> None: ...
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None: ...
     async def observe_source_activity(
         self,
         *,
@@ -27,6 +30,7 @@ class SelfCaptureVadEventRuntime(Protocol):
 
 class PeerCaptureVadEventRuntime(Protocol):
     async def handle_peer_owned_vad_event(self, event: object) -> None: ...
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None: ...
     async def observe_source_activity(
         self,
         *,

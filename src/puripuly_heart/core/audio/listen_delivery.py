@@ -88,7 +88,18 @@ class ListenDeliveryController:
     def current_segment_id(self) -> UUID | None:
         return self._segment_id
 
+    @property
+    def capture_frame_lock(self) -> asyncio.Lock:
+        return self._seal_lock
+
     async def handle_vad_event(self, event: object) -> None:
+        if isinstance(event, SpeechChunk | SpeechEnd) and self._ledger.is_segment_terminal(
+            event.utterance_id
+        ):
+            if isinstance(event, SpeechEnd) and event.utterance_id == self._segment_id:
+                self._clear_active_segment()
+                self._reset_context()
+            return
         owned = self._ledger.observe_vad_event(event, now_monotonic_s=self._monotonic_clock())
         if isinstance(event, SpeechStart):
             self._segment_id = event.utterance_id
@@ -153,6 +164,19 @@ class ListenDeliveryController:
             await self._seal(segment_id, reason="delivery_deadline", rollover=True)
             return
         pause_ms = self._observed_pause_ms()
+        if self._ledger.is_segment_terminal(segment_id):
+            if not speech_observed:
+                receipt = next(
+                    (
+                        item
+                        for item in self._ledger.terminal_receipts
+                        if item.identity.segment_id == segment_id
+                    ),
+                    None,
+                )
+                if receipt is not None and pause_ms >= receipt.segment.settings.vad_hangover_ms:
+                    await self._seal(segment_id, reason="delivery_pause", rollover=False)
+            return
         if not speech_observed and age_s >= self.FIVE_SECOND_AGE_S:
             if pause_ms >= self.FIVE_SECOND_PAUSE_MS:
                 await self._seal(segment_id, reason="delivery_pause", rollover=False)

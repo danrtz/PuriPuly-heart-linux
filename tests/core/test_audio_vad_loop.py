@@ -278,6 +278,112 @@ async def test_listen_continuous_audio_rolls_at_six_seconds_with_context_only_ta
     ]
 
 
+async def test_peer_deadline_waits_for_inflight_frame_before_sealing(monkeypatch):
+    from puripuly_heart.core.audio.listen_delivery import ListenDeliveryController
+
+    mid_frame = asyncio.Event()
+    sealed = asyncio.Event()
+    started = False
+    triggered = False
+    timer_started = False
+    owned_events = []
+    stream_events = []
+
+    async def deadline(controller, segment_id, delay_s):
+        nonlocal timer_started
+        if timer_started:
+            await asyncio.Event().wait()
+        timer_started = True
+        await mid_frame.wait()
+        await controller._seal(segment_id, reason="delivery_deadline", rollover=True)
+        sealed.set()
+
+    monkeypatch.setattr(ListenDeliveryController, "_run_hard_timer", deadline)
+    frames = [
+        AudioFrameF32(
+            np.full(512, 0.25, dtype=np.float32),
+            16000,
+            capture=AudioCaptureSpan(
+                1,
+                index,
+                16000,
+                index * 512,
+                (index + 1) * 512,
+                index * 0.032,
+                (index + 1) * 0.032,
+            ),
+        )
+        for index in range(8)
+    ]
+
+    class Source:
+        async def frames(self):
+            for frame in frames:
+                yield frame
+                if triggered:
+                    await asyncio.wait_for(sealed.wait(), timeout=1)
+
+    class Sink:
+        async def handle_owned_vad_event(self, event):
+            nonlocal started
+            owned_events.append(event)
+            if isinstance(event.event, SpeechStart):
+                started = True
+
+        async def handle_stream_input(self, event):
+            nonlocal triggered
+            stream_events.append(event)
+            if started and not triggered:
+                triggered = True
+                mid_frame.set()
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+
+    vad = create_peer_vad_gating(
+        SequenceVadEngine(probs=[0.9] * len(frames)),
+        sample_rate_hz=16000,
+        ring_buffer_ms=500,
+        speech_threshold=0.5,
+        hangover_ms=500,
+    )
+    ledger = PeerAudioSegmentLedger(
+        activation_generation=1,
+        settings=AudioSegmentSettingsSnapshot(
+            provider_id="gemini_transcribe",
+            provider_signature=("gemini_transcribe",),
+            runtime_signature=("gemini_transcribe",),
+            source_mode="desktop",
+            source_language="en",
+            expected_languages=("en",),
+            target_sample_rate_hz=16000,
+            vad_speech_threshold=0.5,
+            vad_hangover_ms=500,
+            vad_pre_roll_ms=500,
+        ),
+    )
+    await run_audio_vad_loop(
+        source=Source(),
+        vad=vad,
+        sink=Sink(),
+        target_sample_rate_hz=16000,
+        segment_ledger=ledger,
+        monotonic_clock=lambda: 0.0,
+    )
+    assert sealed.is_set()
+    snapshots = ledger.snapshots
+    assert [item.seal_reason for item in snapshots] == ["delivery_deadline", "source_eof"]
+    assert sum(item.content_sample_count for item in snapshots) == 8 * 512
+    assert snapshots[0].content_ranges[-1].normalized_end_sample == (
+        snapshots[1].content_ranges[0].normalized_start_sample
+    )
+    assert [
+        event.capture[-1].normalized_end_sample for event in stream_events if event.capture
+    ] == [(index + 1) * 512 for index in range(8)]
+    assert [
+        event.event.genuine_onset for event in owned_events if isinstance(event.event, SpeechStart)
+    ] == [True, False]
+
+
 async def test_peer_audio_unknown_gap_fails_open_segment_without_turning_loss_into_silence():
     first = AudioFrameF32(
         samples=np.ones((10,), dtype=np.float32),
@@ -891,3 +997,156 @@ async def test_peer_vad_flushes_pending_candidate_before_cancellation_reaches_ca
     assert windows[0]["candidate_pending_chunks"] == "2"
     assert windows[0]["candidate_discarded"] == "0"
     assert windows[0]["committed"] == "0"
+
+
+async def test_stream_input_keeps_real_missed_onset_and_eof_tail_without_vad_admission():
+    class NoOnsetVad:
+        chunk_samples = 8
+
+        def process_chunk(self, _chunk: np.ndarray) -> list[object]:
+            return []
+
+    frames = [
+        AudioFrameF32(
+            samples=np.arange(start, end, dtype=np.float32) / 16,
+            sample_rate_hz=16000,
+            capture=AudioCaptureSpan(
+                capture_epoch=9,
+                callback_sequence=sequence,
+                source_sample_rate_hz=16000,
+                source_start_sample=start,
+                source_end_sample=end,
+                source_start_monotonic_s=start / 16000,
+                source_end_monotonic_s=end / 16000,
+            ),
+        )
+        for sequence, (start, end) in enumerate(((0, 8), (8, 12)))
+    ]
+    sent: list[tuple[np.ndarray, object, str | None]] = []
+
+    class Sink:
+        async def handle_vad_event(self, event: object) -> None:
+            raise AssertionError(f"no local onset expected: {event!r}")
+
+        async def handle_stream_input(self, event) -> None:
+            sent.append((event.chunk.copy(), event.capture, event.boundary_reason))
+
+    await run_audio_vad_loop(
+        source=FakeAudioSource(frames),
+        vad=NoOnsetVad(),
+        sink=Sink(),
+        target_sample_rate_hz=16000,
+    )
+
+    assert [reason for _pcm, _capture, reason in sent] == [None, None, "source_eof"]
+    np.testing.assert_array_equal(
+        np.concatenate([pcm for pcm, _capture, reason in sent if reason is None]),
+        np.arange(12, dtype=np.float32) / 16,
+    )
+    assert [
+        (span.normalized_start_sample, span.normalized_end_sample)
+        for _pcm, capture, reason in sent
+        if reason is None
+        for span in capture
+    ] == [(0, 8), (8, 12)]
+
+
+async def test_capture_epoch_change_fences_before_new_source_pcm():
+    class NoOnsetVad:
+        chunk_samples = 8
+
+        def process_chunk(self, _chunk: np.ndarray) -> list[object]:
+            return []
+
+    frames = [
+        AudioFrameF32(
+            samples=np.full((8,), float(epoch), dtype=np.float32),
+            sample_rate_hz=16000,
+            capture=AudioCaptureSpan(
+                capture_epoch=epoch,
+                callback_sequence=0,
+                source_sample_rate_hz=16000,
+                source_start_sample=0,
+                source_end_sample=8,
+                source_start_monotonic_s=0,
+                source_end_monotonic_s=8 / 16000,
+            ),
+        )
+        for epoch in (3, 4)
+    ]
+    received: list[tuple[int | None, str | None]] = []
+
+    class Sink:
+        async def handle_vad_event(self, event: object) -> None:
+            raise AssertionError(f"no onset expected: {event!r}")
+
+        async def handle_stream_input(self, event) -> None:
+            received.append(
+                (
+                    event.capture[0].capture_epoch if event.capture else None,
+                    event.boundary_reason,
+                )
+            )
+
+    await run_audio_vad_loop(
+        source=FakeAudioSource(frames),
+        vad=NoOnsetVad(),
+        sink=Sink(),
+        target_sample_rate_hz=16000,
+    )
+
+    assert received == [
+        (3, None),
+        (None, "source_discontinuity"),
+        (4, None),
+        (None, "source_eof"),
+    ]
+
+
+async def test_muted_input_fences_stream_without_sending_synthetic_silence():
+    class NoOnsetVad:
+        chunk_samples = 8
+
+        def process_chunk(self, _chunk: np.ndarray) -> list[object]:
+            return []
+
+    class Gate:
+        def process_chunk(self, chunk: np.ndarray) -> np.ndarray:
+            return np.zeros_like(chunk) if chunk[0] == 0.25 else chunk
+
+    events: list[tuple[float | None, str | None]] = []
+
+    class Sink:
+        async def handle_vad_event(self, event: object) -> None:
+            raise AssertionError(f"no onset expected: {event!r}")
+
+        async def handle_stream_input(self, event) -> None:
+            events.append(
+                (
+                    float(event.chunk[0]) if event.chunk.size else None,
+                    event.boundary_reason,
+                )
+            )
+
+    await run_audio_vad_loop(
+        source=FakeAudioSource(
+            [
+                AudioFrameF32(
+                    samples=np.full((8,), sample, dtype=np.float32),
+                    sample_rate_hz=16000,
+                )
+                for sample in (0.125, 0.25, 0.375)
+            ]
+        ),
+        vad=NoOnsetVad(),
+        sink=Sink(),
+        target_sample_rate_hz=16000,
+        audio_gate=Gate(),
+    )
+
+    assert events == [
+        (0.125, None),
+        (None, "source_discontinuity"),
+        (0.375, None),
+        (None, "source_eof"),
+    ]

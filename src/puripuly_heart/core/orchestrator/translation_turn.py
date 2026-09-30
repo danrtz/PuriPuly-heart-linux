@@ -27,6 +27,7 @@ from puripuly_heart.domain.models import (
     Transcript,
     Translation,
 )
+from puripuly_heart.domain.recognition import slice_recognition_origins
 
 logger = logging.getLogger(__name__)
 
@@ -838,6 +839,11 @@ class TranslationTurnLifecycleOwner:
                             or hashlib.sha256(request.transcript.text.encode("utf-8")).hexdigest()[
                                 :16
                             ]
+                        ),
+                        recognition_origins=slice_recognition_origins(
+                            request.transcript.recognition_origins,
+                            segment.source_text_start,
+                            segment.source_text_end,
                         ),
                     ),
                     detected_language=segment.language or None,

@@ -127,14 +127,12 @@ def _backend(
     *,
     language_codes: tuple[str, ...] = ("ko-KR",),
     custom_vocabulary: tuple[str, ...] = (),
-    finalize_timeout_s: float = 2.0,
 ) -> tuple[GeminiTranscribeSTTBackend, _RecordingFactory]:
     factory = _RecordingFactory(session)
     backend = GeminiTranscribeSTTBackend(
         api_key="key",
         language_codes=language_codes,
         custom_vocabulary=custom_vocabulary,
-        finalize_timeout_s=finalize_timeout_s,
         live_connect_factory=factory,
     )
     return backend, factory
@@ -162,7 +160,7 @@ async def test_open_session_rejects_empty_api_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_sends_manual_activity_and_verbatim_config() -> None:
+async def test_session_configures_verbatim_transcription() -> None:
     session = _FakeLiveSession()
     backend, factory = _backend(session)
     stt = await backend.open_session()
@@ -174,7 +172,6 @@ async def test_session_sends_manual_activity_and_verbatim_config() -> None:
         transcription = raw["input_audio_transcription"]
         assert transcription["mode"] == "VERBATIM"
         assert transcription["language_codes"] == ["ko-KR"]
-        assert raw["realtime_input_config"]["automatic_activity_detection"]["disabled"] is True
     finally:
         await stt.close()
 
@@ -198,249 +195,81 @@ async def test_session_maps_custom_vocabulary() -> None:
     backend, factory = _backend(session, custom_vocabulary=("PuriPuly", "Gemini"))
     stt = await backend.open_session()
     try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await _wait_for_sent(session, "audio")
-        first = session.sent[0]
-        assert "activity_start" in first
+        _, config = factory.calls[0]
+        assert _config_dict(config)["input_audio_transcription"]["custom_vocabulary"] == [
+            "PuriPuly",
+            "Gemini",
+        ]
     finally:
         await stt.close()
-    _, config = factory.calls[0]
-    raw = _config_dict(config)
-    assert raw["input_audio_transcription"]["custom_vocabulary"] == ["PuriPuly", "Gemini"]
 
 
 @pytest.mark.asyncio
-async def test_first_audio_sends_activity_start_then_audio() -> None:
+async def test_legacy_audio_end_and_next_audio_do_not_wait_for_native_final() -> None:
     session = _FakeLiveSession()
     backend, _ = _backend(session)
     stt = await backend.open_session()
     try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await _wait_for_sent(session, "audio")
-        assert session.sent[0].get("activity_start") is not None
-        audio = session.sent[1].get("audio")
-        assert audio["mime_type"] == "audio/pcm;rate=16000"
-        assert audio["data"] == b"\x00\x00" * 16
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_activity_end_emits_single_final_per_finalize() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    events_task = asyncio.create_task(_collect(stt, 1))
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        session.push(_final("hello"))
-        session.push(_final("hello again"))
-        await asyncio.sleep(0)
-        assert stt._event_projection._legacy_events.empty()
-        session.push(_activity_end_ack())
-        assert session.sent[-1].get("activity_end") is not None
-        events = await asyncio.wait_for(events_task, timeout=1)
-        assert [event.text for event in events] == ["hello"]
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_empty_final_still_acknowledges_finalize() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    events_task = asyncio.create_task(_collect(stt, 1))
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        session.push(_final(""))
-        session.push(_activity_end_ack())
-        events = await asyncio.wait_for(events_task, timeout=1)
-        assert [event.text for event in events] == [""]
-        assert all(event.is_final for event in events)
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_activity_end_ack_without_transcription_times_out() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session, finalize_timeout_s=0.01)
-    stt = await backend.open_session()
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        session.push(_activity_end_ack())
-        events = stt.events()
-        event = await asyncio.wait_for(anext(events), timeout=1)
-        assert event.text == ""
-        with pytest.raises(Exception, match="finalize timed out"):
-            await asyncio.wait_for(anext(events), timeout=1)
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_activity_end_ack_with_interim_uses_timeout_fallback() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session, finalize_timeout_s=0.01)
-    stt = await backend.open_session()
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await _wait_for_sent(session, "audio")
-        session.push(_interim("first"))
-        session.push(_interim("latest"))
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        session.push(_activity_end_ack())
-        events = stt.events()
-        event = await asyncio.wait_for(anext(events), timeout=1)
-        assert event.text == "latest"
-        with pytest.raises(Exception, match="finalize timed out"):
-            await asyncio.wait_for(anext(events), timeout=1)
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_final_then_activity_end_ack_emits_exactly_once() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        session.push(_final("hello"))
-        session.push(_activity_end_ack())
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        assert stt._event_projection._legacy_events.qsize() == 1
-        event = stt._event_projection._legacy_events.get_nowait()
-        assert event.text == "hello"
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_empty_turn_does_not_shift_following_transcript() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    events_task = asyncio.create_task(_collect(stt, 2))
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        session.push(_activity_end_ack())
-        session.push(_final(""))
-
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end", count=2)
-        session.push(_final("second"))
-        session.push(_activity_end_ack())
-
-        events = await asyncio.wait_for(events_task, timeout=1)
-        assert [event.text for event in events] == ["", "second"]
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_next_activity_waits_for_previous_server_activity_end() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    events_task = asyncio.create_task(_collect(stt, 2))
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-
-        await stt.send_audio(b"\x01\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await asyncio.sleep(0)
-        assert sum("activity_start" in call for call in session.sent) == 1
-
-        session.push(_activity_end_ack())
-        await asyncio.sleep(0)
-        assert sum("activity_start" in call for call in session.sent) == 1
-        session.push(_final("first"))
-        await _wait_for_sent(session, "activity_end", count=2)
-        session.push(_final("second"))
-        session.push(_activity_end_ack())
-
-        events = await asyncio.wait_for(events_task, timeout=1)
-        assert [event.text for event in events] == ["first", "second"]
-        assert sum("activity_start" in call for call in session.sent) == 2
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_finalize_timeout_emits_fallback_then_fails_session() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session, finalize_timeout_s=0.01)
-    stt = await backend.open_session()
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await _wait_for_sent(session, "audio")
-        session.push(_interim("fallback"))
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-        events = stt.events()
-        event = await asyncio.wait_for(anext(events), timeout=1)
-        assert event.text == "fallback"
-        with pytest.raises(Exception, match="finalize timed out"):
-            await asyncio.wait_for(anext(events), timeout=1)
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_final_without_finalize_request_is_not_authoritative() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    try:
-        session.push(_final("spurious"))
-        await asyncio.sleep(0)
-        assert stt._event_projection._legacy_events.empty()
-    finally:
-        await stt.close()
-
-
-@pytest.mark.asyncio
-async def test_many_utterances_in_one_session() -> None:
-    session = _FakeLiveSession()
-    backend, _ = _backend(session)
-    stt = await backend.open_session()
-    events_task = asyncio.create_task(_collect(stt, 2))
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
+        first = b"\x01\x00" * 16
+        second = b"\x02\x00" * 16
+        await stt.send_audio(first)
+        await stt.on_speech_end(reason="silence")
+        await stt.send_audio(second)
+        assert session.sent == [
+            {"audio": {"data": first, "mime_type": "audio/pcm;rate=16000"}},
+            {"audio_stream_end": True},
+            {"audio": {"data": second, "mime_type": "audio/pcm;rate=16000"}},
+        ]
         session.push(_final("one"))
-        session.push(_activity_end_ack())
-
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end", count=2)
         session.push(_final("two"))
-        session.push(_activity_end_ack())
+        assert [event.text for event in await asyncio.wait_for(_collect(stt, 2), 1)] == [
+            "one",
+            "two",
+        ]
+    finally:
+        await stt.close()
 
-        events = await asyncio.wait_for(events_task, timeout=1)
-        assert [event.text for event in events] == ["one", "two"]
-        activity_starts = [call for call in session.sent if "activity_start" in call]
-        activity_ends = [call for call in session.sent if "activity_end" in call]
-        assert len(activity_starts) == 2
-        assert len(activity_ends) == 2
+
+@pytest.mark.asyncio
+async def test_legacy_native_final_before_end_and_multiple_after_end_are_distinct() -> None:
+    session = _FakeLiveSession()
+    backend, _ = _backend(session)
+    stt = await backend.open_session()
+    try:
+        await stt.send_audio(b"\x01\x00" * 16)
+        session.push(_final("early"))
+        first = await asyncio.wait_for(anext(stt.events()), 1)
+        await stt.on_speech_end(reason="silence")
+        session.push(_final("same"))
+        session.push(_final("same"))
+        later = await asyncio.wait_for(_collect(stt, 2), 1)
+        assert [(event.text, event.is_final) for event in [first, *later]] == [
+            ("early", True),
+            ("same", True),
+            ("same", True),
+        ]
+    finally:
+        await stt.close()
+
+
+@pytest.mark.asyncio
+async def test_native_activity_end_and_interim_do_not_promote_or_block_audio() -> None:
+    session = _FakeLiveSession()
+    backend, _ = _backend(session)
+    stt = await backend.open_session()
+    try:
+        await stt.send_audio(b"\x01\x00")
+        session.push(_interim("partial"))
+        session.push(_activity_end_ack())
+        await stt.on_speech_end(reason="silence")
+        await stt.send_audio(b"\x02\x00")
+        assert [call["audio"]["data"] for call in session.sent if "audio" in call] == [
+            b"\x01\x00",
+            b"\x02\x00",
+        ]
+        session.push(_final("actual"))
+        assert (await asyncio.wait_for(anext(stt.events()), 1)).text == "actual"
+        assert stt._event_projection._legacy_events.empty()
     finally:
         await stt.close()
 
@@ -453,25 +282,19 @@ async def test_stop_terminates_events_consumer() -> None:
     try:
         await stt.send_audio(b"\x00\x00" * 16)
         await stt.stop()
-        collected = []
-        async for event in stt.events():
-            collected.append(event)
-        assert collected == []
+        assert [event async for event in stt.events()] == []
     finally:
         await stt.close()
 
 
 @pytest.mark.asyncio
-async def test_close_reports_unresolved_finalizes_and_closes_session() -> None:
+async def test_close_after_unanswered_audio_end_closes_session() -> None:
     session = _FakeLiveSession()
     backend, factory = _backend(session)
     stt = await backend.open_session()
-    try:
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
-    finally:
-        await stt.close()
+    await stt.send_audio(b"\x00\x00" * 16)
+    await stt.on_speech_end(reason="silence")
+    await stt.close()
     assert factory.context is not None
     assert factory.context.exited is True
     assert session.closed is True
@@ -554,27 +377,19 @@ class _ApiFailure(Exception):
 
 
 @pytest.mark.asyncio
-async def test_receive_loop_continues_after_turn_complete() -> None:
+async def test_receive_loop_continues_after_iterator_end() -> None:
     session = _TurnScopedLiveSession()
     backend, _ = _backend(session)
     stt = await backend.open_session()
     events_task = asyncio.create_task(_collect(stt, 2))
     try:
         await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end")
         session.push(_final("one"))
-        session.push(_activity_end_ack())
         session.push(_TURN_COMPLETE)
-        await asyncio.sleep(0)
-
-        await stt.send_audio(b"\x00\x00" * 16)
-        await stt.on_speech_end(trailing_silence_ms=100, reason="silence")
-        await _wait_for_sent(session, "activity_end", count=2)
+        await stt.on_speech_end(reason="silence")
+        await stt.send_audio(b"\x01\x00" * 16)
         session.push(_final("two"))
-        session.push(_activity_end_ack())
         session.push(_TURN_COMPLETE)
-
         events = await asyncio.wait_for(events_task, timeout=1)
         assert [event.text for event in events] == ["one", "two"]
         assert session.receive_calls >= 2
@@ -636,19 +451,6 @@ def _activity_end_ack():
             voice_activity_type=types.VoiceActivityType.ACTIVITY_END,
         )
     )
-
-
-async def _wait_for_sent(
-    session: _FakeLiveSession,
-    key: str,
-    *,
-    count: int = 1,
-) -> None:
-    async def ready() -> None:
-        while sum(key in call for call in session.sent) < count:
-            await asyncio.sleep(0)
-
-    await asyncio.wait_for(ready(), timeout=1)
 
 
 async def _collect(stt, count: int):

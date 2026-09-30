@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import Literal
 from uuid import uuid4
 
 import pytest
@@ -18,14 +19,19 @@ from puripuly_heart.core.orchestrator.translation_request import PreparedTransla
 from puripuly_heart.core.orchestrator.translation_turn import TranslationOutputSubmission
 from puripuly_heart.core.osc.chatbox_paginator import ChatboxPaginator
 from puripuly_heart.core.stt.backend import (
+    STTProviderEpochEnded,
+    STTProviderInputTerminal,
     STTProviderTurnIdentity,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
+    STTRecognitionUnitTerminal,
     STTTextContribution,
 )
 from puripuly_heart.core.vad.gating import SpeechEnd
 from puripuly_heart.domain.events import STTFinalEvent, STTSessionState, UIEventType
 from puripuly_heart.domain.models import OSCMessage, Transcript
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 from tests.core.test_self_translation_low_latency import FakeLLMProvider
 from tests.core.test_translation_owner_branch_coverage import (
     _make_runtime_logging_capture,
@@ -123,6 +129,382 @@ async def test_self_provider_reset_cancels_speech_without_erasing_manual_or_peer
     assert [entry.text for entry in owner.runtime.translation_history] == ["manual"]
     assert peer_id in harness.peer_runtime.utterances
     assert [entry.text for entry in harness.peer_runtime.translation_history] == ["peer"]
+
+
+@pytest.mark.asyncio
+async def test_independent_self_final_in_low_latency_mode_keeps_origin_without_local_turn() -> None:
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=None,
+        osc=RecordingOscQueue(),
+        low_latency_mode=True,
+    )
+    stream = RecognitionStreamIdentity("self", 1, 2, "epoch", ("gemini_transcribe",))
+    unit = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), "early final")
+    try:
+        await harness.start()
+        await harness.self_owner.handle_recognition_unit(unit)
+        await harness.translation_turns.wait_for_idle()
+
+        finals = []
+        while not harness.ui_events.empty():
+            event = harness.ui_events.get_nowait()
+            if event.channel == "self" and event.type is UIEventType.TRANSCRIPT_FINAL:
+                finals.append(event.payload)
+        assert [transcript.text for transcript in finals] == ["early final"]
+        assert finals[0].recognition_origins[0].identity == unit.identity
+        assert harness.self_owner.merge_buffer is None
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_independent_final_admission_rejects_stale_and_duplicate_but_not_repeated_text() -> (
+    None
+):
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=RecordingOscQueue())
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    stream = RecognitionStreamIdentity("self", 1, 2, "epoch", ("gemini_transcribe",))
+    stale = RecognitionStreamIdentity("self", 1, 1, "old", ("gemini_transcribe",))
+    empty = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), "")
+    accepted = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 2), "same words")
+    repeated = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 3), "same words")
+    obsolete = STTRecognitionUnit(RecognitionUnitIdentity(stale, uuid4(), 1), "obsolete")
+    callbacks._self_capture = SimpleNamespace(
+        is_current_recognition_stream=lambda identity: identity == stream,
+    )
+    harness.self_owner.local_asr_runtime = SimpleNamespace(
+        is_current_recognition_stream=lambda _channel, identity: identity == stream,
+    )
+    try:
+        await harness.start()
+        harness.self_owner.mark_promo_eligible()
+        await callbacks.self_event_handler(STTRecognitionUnitTerminal(obsolete, "final"))
+        assert harness.stt_session_state() is None
+        await callbacks.self_event_handler(STTRecognitionUnitTerminal(empty, "empty"))
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+        for unit in (accepted, accepted, repeated):
+            await callbacks.self_event_handler(STTRecognitionUnitTerminal(unit, "final"))
+        await harness.translation_turns.wait_for_idle()
+        finals = []
+        while not harness.ui_events.empty():
+            event = harness.ui_events.get_nowait()
+            if event.channel == "self" and event.type is UIEventType.TRANSCRIPT_FINAL:
+                finals.append(event.payload)
+        assert [transcript.text for transcript in finals] == ["same words", "same words"]
+        assert [transcript.recognition_origins[0].identity for transcript in finals] == [
+            accepted.identity,
+            repeated.identity,
+        ]
+        assert harness.osc.immediate_messages == ["PuriPuly ON!"]
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_self_native_input_failure_disconnects_only_current_stream() -> None:
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=RecordingOscQueue())
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    current = RecognitionStreamIdentity("self", 2, 3, "epoch-a", ("gemini_transcribe",))
+    callbacks._self_capture = SimpleNamespace(
+        snapshot=SimpleNamespace(generation=2),
+        note_input_terminal=lambda _event: None,
+        is_current_recognition_stream=lambda stream: (
+            stream.activation_generation == 2
+            and stream.capture_epoch == 3
+            and stream.settings_scope == current.settings_scope
+        ),
+    )
+    harness.self_owner.local_asr_runtime = SimpleNamespace(
+        is_current_recognition_stream=lambda _channel, stream: stream in (current, newer)
+    )
+    newer = replace(current, provider_epoch_id="epoch-b")
+
+    await callbacks.self_event_handler(
+        STTRecognitionUnitTerminal(
+            STTRecognitionUnit(RecognitionUnitIdentity(current, uuid4(), 1), "ready"),
+            "final",
+        )
+    )
+    assert harness.stt_session_state() is STTSessionState.STREAMING
+    failed = STTProviderInputTerminal(
+        STTProviderTurnIdentity(
+            AudioSegmentIdentity(2, 1, uuid4(), 3), "epoch-a", "input", current.settings_scope
+        ),
+        "failed",
+        "self",
+        "provider_send_failed",
+        "retire",
+    )
+    await callbacks.self_event_handler(failed)
+    assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+
+    await callbacks.self_event_handler(
+        STTRecognitionUnitTerminal(
+            STTRecognitionUnit(RecognitionUnitIdentity(newer, uuid4(), 1), "reconnected"),
+            "final",
+        )
+    )
+    assert harness.stt_session_state() is STTSessionState.STREAMING
+    await callbacks.self_event_handler(failed)
+    await callbacks.self_event_handler(
+        replace(
+            failed,
+            identity=replace(
+                failed.identity,
+                segment=replace(failed.identity.segment, activation_generation=1),
+            ),
+        )
+    )
+    await callbacks.self_event_handler(
+        replace(failed, identity=replace(failed.identity, settings_scope=("other_provider",)))
+    )
+    await callbacks.self_event_handler(
+        replace(
+            failed,
+            identity=replace(
+                failed.identity,
+                segment=replace(failed.identity.segment, capture_epoch=2),
+            ),
+        )
+    )
+    await callbacks.self_event_handler(STTProviderEpochEnded("epoch-a", True, "native_idle_end"))
+    assert harness.stt_session_state() is STTSessionState.STREAMING
+    await callbacks.self_event_handler(STTProviderEpochEnded("epoch-b", True, "native_idle_end"))
+    assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_before_input", [False, True])
+async def test_self_latest_submitted_epoch_end_disconnects_before_its_first_final(
+    native_before_input: bool,
+) -> None:
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=RecordingOscQueue())
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    first = RecognitionStreamIdentity("self", 1, 0, "epoch-a", ("gemini_transcribe",))
+    second = replace(first, provider_epoch_id="epoch-b")
+    third = replace(first, provider_epoch_id="epoch-c")
+    streams = (first, second, third)
+    callbacks._self_capture = SimpleNamespace(
+        snapshot=SimpleNamespace(generation=1),
+        note_input_terminal=lambda _event: None,
+        is_current_recognition_stream=lambda stream: stream in streams,
+    )
+    harness.self_owner.local_asr_runtime = SimpleNamespace(
+        is_current_recognition_stream=lambda _channel, stream: stream in streams
+    )
+
+    def submitted(stream: RecognitionStreamIdentity) -> STTProviderInputTerminal:
+        return STTProviderInputTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(1, 1, uuid4(), 0),
+                stream.provider_epoch_id,
+                uuid4().hex,
+                stream.settings_scope,
+            ),
+            "submitted",
+            "self",
+        )
+
+    def native(
+        stream: RecognitionStreamIdentity, text: str, sequence: int = 1
+    ) -> STTRecognitionUnitTerminal:
+        return STTRecognitionUnitTerminal(
+            STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), sequence), text),
+            "final" if text else "empty",
+        )
+
+    try:
+        await harness.start()
+        await callbacks.self_event_handler(submitted(first))
+        await callbacks.self_event_handler(native(first, "first ready"))
+        if native_before_input:
+            await callbacks.self_event_handler(native(second, ""))
+        await callbacks.self_event_handler(submitted(second))
+        await callbacks.self_event_handler(
+            STTProviderEpochEnded("epoch-a", True, "native_idle_end")
+        )
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+
+        await callbacks.self_event_handler(
+            STTProviderEpochEnded("epoch-b", True, "native_idle_end")
+        )
+        assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+        await callbacks.self_event_handler(native(second, "accepted before epoch end", sequence=2))
+        assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+        await harness.translation_turns.wait_for_idle()
+        finals = []
+        while not harness.ui_events.empty():
+            item = harness.ui_events.get_nowait()
+            if item.channel == "self" and item.type is UIEventType.TRANSCRIPT_FINAL:
+                finals.append(item.payload.text)
+        assert finals == ["first ready", "accepted before epoch end"]
+
+        await callbacks.self_event_handler(native(third, ""))
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+        await callbacks.self_event_handler(
+            STTProviderEpochEnded("epoch-b", True, "native_idle_end")
+        )
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_self_late_accepted_native_finals_preserve_text_without_reviving_old_readiness() -> (
+    None
+):
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=RecordingOscQueue())
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    first = RecognitionStreamIdentity("self", 1, 0, "epoch-a", ("gemini_transcribe",))
+    second = replace(first, provider_epoch_id="epoch-b")
+    callbacks._self_capture = SimpleNamespace(
+        snapshot=SimpleNamespace(generation=1),
+        note_input_terminal=lambda _event: None,
+        is_current_recognition_stream=lambda stream: (
+            stream.activation_generation == 1
+            and stream.capture_epoch == 0
+            and stream.settings_scope == first.settings_scope
+        ),
+    )
+    harness.self_owner.local_asr_runtime = SimpleNamespace(
+        is_current_recognition_stream=lambda _channel, stream: stream in (first, second)
+    )
+
+    def input_terminal(
+        stream: RecognitionStreamIdentity,
+        outcome: Literal["submitted", "failed"],
+    ) -> STTProviderInputTerminal:
+        return STTProviderInputTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(1, 1, uuid4(), 0),
+                stream.provider_epoch_id,
+                uuid4().hex,
+                stream.settings_scope,
+            ),
+            outcome,
+            "self",
+        )
+
+    try:
+        await harness.start()
+        await callbacks.self_event_handler(input_terminal(first, "submitted"))
+        await callbacks.self_event_handler(
+            STTRecognitionUnitTerminal(
+                STTRecognitionUnit(RecognitionUnitIdentity(first, uuid4(), 1), "first ready"),
+                "final",
+            )
+        )
+        await callbacks.self_event_handler(input_terminal(second, "submitted"))
+        await callbacks.self_event_handler(
+            STTRecognitionUnitTerminal(
+                STTRecognitionUnit(RecognitionUnitIdentity(second, uuid4(), 1), "second ready"),
+                "final",
+            )
+        )
+        late_first = STTRecognitionUnit(
+            RecognitionUnitIdentity(first, uuid4(), 2), "late first text"
+        )
+        await callbacks.self_event_handler(STTRecognitionUnitTerminal(late_first, "final"))
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+
+        await callbacks.self_event_handler(input_terminal(second, "failed"))
+        assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+        queued_second = STTRecognitionUnit(
+            RecognitionUnitIdentity(second, uuid4(), 2), "queued after failure"
+        )
+        await callbacks.self_event_handler(STTRecognitionUnitTerminal(queued_second, "final"))
+        assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+        await harness.translation_turns.wait_for_idle()
+        finals = []
+        while not harness.ui_events.empty():
+            item = harness.ui_events.get_nowait()
+            if item.channel == "self" and item.type is UIEventType.TRANSCRIPT_FINAL:
+                finals.append(item.payload)
+        assert [item.text for item in finals] == [
+            "first ready",
+            "second ready",
+            "late first text",
+            "queued after failure",
+        ]
+        assert [item.recognition_origins[0].identity for item in finals[2:]] == [
+            late_first.identity,
+            queued_second.identity,
+        ]
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
+async def test_self_native_input_terminal_retires_only_local_vad_timing() -> None:
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=RecordingOscQueue())
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    stream = RecognitionStreamIdentity("self", 1, 0, "epoch", ("gemini_transcribe",))
+    callbacks._self_capture = SimpleNamespace(
+        snapshot=SimpleNamespace(generation=1),
+        note_input_terminal=lambda _event: None,
+        is_current_recognition_stream=lambda identity: identity == stream,
+    )
+
+    async def accept_vad(_channel: str, _event: object) -> None:
+        return None
+
+    harness.self_owner.local_asr_runtime = SimpleNamespace(
+        handle_vad_event=accept_vad,
+        commit_handoff=lambda _channel: accept_vad(_channel, None),
+        is_current_recognition_stream=lambda _channel, identity: identity == stream,
+    )
+    local_ids = [uuid4() for _ in range(24)]
+    native_units = [
+        STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), index), "same words")
+        for index in (1, 2)
+    ]
+    try:
+        await harness.start()
+        for order, segment_id in enumerate(local_ids, 1):
+            if order != 1:
+                await harness.self_owner.handle_vad_event(SpeechEnd(segment_id))
+                assert segment_id in harness.self_runtime.speech_ended_ids
+            await callbacks.self_event_handler(
+                STTProviderInputTerminal(
+                    STTProviderTurnIdentity(
+                        AudioSegmentIdentity(1, order, segment_id, 0),
+                        "epoch",
+                        f"input-{order}",
+                        stream.settings_scope,
+                    ),
+                    "failed" if order == 1 else "submitted",
+                    "self",
+                )
+            )
+            if order == 1:
+                await harness.self_owner.handle_vad_event(SpeechEnd(segment_id))
+        assert harness.self_runtime.utterance_start_times == {}
+        assert not (set(local_ids) & harness.self_runtime.speech_ended_ids)
+        assert not (
+            set(local_ids)
+            & {key for _, key in harness.self_owner.diagnostics.snapshot().timeline_keys}
+        )
+        for unit in native_units:
+            await callbacks.self_event_handler(STTRecognitionUnitTerminal(unit, "final"))
+        await harness.translation_turns.wait_for_idle()
+        finals = []
+        while not harness.ui_events.empty():
+            item = harness.ui_events.get_nowait()
+            if item.channel == "self" and item.type is UIEventType.TRANSCRIPT_FINAL:
+                finals.append(item.payload)
+        assert [item.text for item in finals] == ["same words", "same words"]
+        assert [item.recognition_origins[0].identity for item in finals] == [
+            unit.identity for unit in native_units
+        ]
+        assert all(unit.identity.unit_id not in local_ids for unit in native_units)
+    finally:
+        await harness.stop()
 
 
 @pytest.mark.asyncio
