@@ -249,7 +249,10 @@ class _GenerationGuardedVadSink:
             is_current=lambda: (
                 self.runtime.is_current_generation(self.capture_generation.value)
                 and self.runtime.segment_ledger is ledger
-                and self.runtime._current_stream_capture_epoch == capture_epoch
+                and (
+                    event.boundary_reason is not None
+                    or self.runtime._current_stream_capture_epoch == capture_epoch
+                )
             ),
         )
         await self._submit(owned)
@@ -1666,7 +1669,11 @@ class PeerCaptureSessionOwner:
                 monotonic_clock=self.clock.now,
                 smart_turn_owner=self._smart_turn_owner,
             )
-            if self._terminal_reason_from_source(source) in {None, "closed"}:
+            drain = self._terminal_reason_from_source(source) in {None, "closed"}
+            if drain and not provider_ingress_ready.is_set():
+                async with self._activation_lock:
+                    drain = provider_ingress_ready.is_set()
+            if drain:
                 await guarded_sink.finish()
             else:
                 await guarded_sink.abort()

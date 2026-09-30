@@ -23,6 +23,7 @@ from puripuly_heart.core.stt.backend import (
     STTContributionConsumptionLedger,
     STTNativeProvenance,
     STTProviderEpochEnded,
+    STTProviderInputTerminal,
     STTProviderTurnEvent,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
@@ -3238,6 +3239,90 @@ def stream_input(
         ledger.activation_generation,
         **kwargs,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["self", "peer"])
+@pytest.mark.parametrize("successor_epoch", [1, 2])
+async def test_queued_capture_discontinuity_retires_stream_after_successor_arrives(
+    channel: str, successor_epoch: int
+) -> None:
+    from types import SimpleNamespace
+
+    from puripuly_heart.core.runtime import peer_channel, self_capture
+
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    start, _, _ = segment_events(ledger, start_sample=0, now=0)
+    session = ControlledStreamSession()
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        channel=channel,
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _: watchdogs(write_timeout_s=1.0),
+    )
+    runtime = SimpleNamespace(
+        segment_ledger=ledger,
+        _current_stream_capture_epoch=None,
+        is_current_generation=lambda generation: generation == 3,
+    )
+    if channel == "self":
+        guard = self_capture._GenerationGuardedVadSink(
+            sink=engine,
+            owner=runtime,
+            capture_generation=self_capture._CaptureGeneration(3),
+            ledger=ledger,
+            retention_budget=AudioRetentionBudget(
+                capacity_bytes=4096, capacity_sample_equivalents=1024
+            ),
+        )
+    else:
+        ready = asyncio.Event()
+        ready.set()
+        guard = peer_channel._GenerationGuardedVadSink(
+            sink=engine,
+            runtime=runtime,
+            capture_generation=peer_channel._CaptureGeneration(3),
+            provider_ingress_ready=ready,
+        )
+    try:
+        await engine.handle_owned_vad_event(start)
+        session.send_gate.clear()
+        session.write_entered.clear()
+        await guard.handle_stream_input(stream_input(ledger, 6, 10).event)
+        await asyncio.wait_for(session.write_entered.wait(), timeout=1.0)
+        await guard.handle_stream_input(
+            CaptureStreamInput(
+                np.empty((0,), dtype=np.float32), (), boundary_reason="source_discontinuity"
+            )
+        )
+        await guard.handle_stream_input(
+            CaptureStreamInput(
+                np.full(4, 0.4, dtype=np.float32),
+                (replace(span(3, 10, 14), capture_epoch=successor_epoch),),
+            )
+        )
+        session.send_gate.set()
+        await asyncio.wait_for(guard.finish(), timeout=1.0)
+        await wait_until(
+            lambda: any(
+                isinstance(event, STTProviderInputTerminal)
+                and event.outcome == "cancelled"
+                and event.failure_reason == "source_discontinuity"
+                for event in emitted
+            )
+        )
+        await wait_until(lambda: ("close",) in session.calls)
+        assert [
+            (capture.capture_epoch, capture.source_start_sample, capture.source_end_sample)
+            for _, ranges in session.audio
+            for capture in ranges
+        ] == [(1, 0, 2), (1, 2, 6), (1, 6, 10)]
+        assert guard.retention_budget.used_bytes == 0
+    finally:
+        session.send_gate.set()
+        await guard.abort()
+        await engine.close()
 
 
 @pytest.mark.asyncio

@@ -3052,6 +3052,57 @@ async def test_provider_pending_failure_and_ingress_failure_publish_truthful_sta
     assert ingress.effective_active is False
 
 
+@pytest.mark.parametrize("terminal_reason", [None, "closed"])
+async def test_source_end_while_provider_pending_releases_queued_audio_and_stops(
+    terminal_reason: str | None,
+) -> None:
+    from puripuly_heart.core.audio.ownership import CaptureStreamInput
+    from tests.core.test_stt_scoped_engine import span
+
+    queued = asyncio.Event()
+    source_done = asyncio.Event()
+    guards = []
+
+    async def run_loop(**kwargs) -> None:
+        guard = kwargs["sink"]
+        guards.append(guard)
+        await guard.handle_stream_input(
+            CaptureStreamInput(np.ones(8, dtype=np.float32), (span(1, 0, 8),))
+        )
+        queued.set()
+        await source_done.wait()
+
+    provider = FakeProvider()
+    provider.replace_result = PeerCaptureProviderMutation(
+        PeerCaptureProviderMutationStatus.PENDING, reason="loading"
+    )
+    source = FakeSource(terminal_reason=terminal_reason)
+    owner, *_ = make_owner(
+        provider=provider,
+        source_factory=lambda _config, _target: source,
+        run_audio_loop=run_loop,
+    )
+    try:
+        pending = await owner.apply_intent(
+            make_config(provider_id="gemini_transcribe"), enabled=True
+        )
+        assert pending.state is PeerCaptureSessionState.PROVIDER_PENDING
+        await asyncio.wait_for(queued.wait(), timeout=1.0)
+        loop_task = owner.loop_task
+        assert loop_task is not None
+        source_done.set()
+        await asyncio.wait_for(asyncio.shield(loop_task), timeout=1.0)
+        assert owner.snapshot.state is PeerCaptureSessionState.STOPPED
+        assert owner.snapshot.desired_active is False
+        assert owner.snapshot.effective_active is False
+        assert source.close_calls == 1
+        assert guards[0].retention_budget.used_bytes == 0
+        assert provider.start_calls == 0
+    finally:
+        source_done.set()
+        await owner.close()
+
+
 async def test_superseded_target_resolution_cannot_open_or_publish_old_generation() -> None:
     resolver = FakeTargetResolver()
     resolver.gate = asyncio.Event()

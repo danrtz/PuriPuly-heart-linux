@@ -171,7 +171,10 @@ class _GenerationGuardedVadSink:
             ),
             is_current=lambda: (
                 self.owner.is_current_generation(self.capture_generation.value)
-                and self.owner._current_stream_capture_epoch == capture_epoch
+                and (
+                    event.boundary_reason is not None
+                    or self.owner._current_stream_capture_epoch == capture_epoch
+                )
             ),
         )
         samples = int(event.chunk.size)
