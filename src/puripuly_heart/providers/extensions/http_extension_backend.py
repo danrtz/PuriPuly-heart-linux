@@ -16,6 +16,7 @@ from puripuly_heart.core.http_extensions.schema import (
     extract_translation_text,
     render_translation_request,
 )
+from puripuly_heart.core.llm.latency import current_request, observe_attempt
 from puripuly_heart.core.messages import (
     DIAGNOSTIC_CATEGORY_AUTH,
     DIAGNOSTIC_CATEGORY_INVALID_RESPONSE,
@@ -92,7 +93,18 @@ class HttpExtensionTranslationBackend(TranslationBackend):
             request,
             secrets=secret_values,
         )
-        async with self._semaphore:
+        request_observation = current_request()
+        queue_started_at = (
+            request_observation.clock() if request_observation is not None else None
+        )
+        try:
+            await self._semaphore.acquire()
+        finally:
+            if request_observation is not None and queue_started_at is not None:
+                request_observation.queue_ms += max(
+                    0, round((request_observation.clock() - queue_started_at) * 1000)
+                )
+        try:
             if self._closed:
                 raise HttpExtensionConfigurationError("translation backend is closed")
             client = await self._get_client()
@@ -105,44 +117,50 @@ class HttpExtensionTranslationBackend(TranslationBackend):
                 request_kwargs["json"] = body
             elif body_type == "form":
                 request_kwargs["data"] = body
-            transport_error_category: str | None = None
-            with suppress_http_client_logs():
-                try:
-                    response = await client.post(url, **request_kwargs)
-                except asyncio.CancelledError:
-                    raise
-                except httpx.TimeoutException:
-                    transport_error_category = "timeout"
-                except httpx.ConnectError as error:
-                    transport_error_category = (
-                        "TLS error" if _is_tls_connect_error(error) else "connect error"
+            with observe_attempt(provider="custom_http", model=None) as observation:
+                transport_error_category: str | None = None
+                with suppress_http_client_logs():
+                    try:
+                        if observation is not None:
+                            observation.transport = "http_json"
+                            observation.mark_sent()
+                        response = await client.post(url, **request_kwargs)
+                    except asyncio.CancelledError:
+                        raise
+                    except httpx.TimeoutException:
+                        transport_error_category = "timeout"
+                    except httpx.ConnectError as error:
+                        transport_error_category = (
+                            "TLS error" if _is_tls_connect_error(error) else "connect error"
+                        )
+                    except httpx.TransportError:
+                        transport_error_category = "transport error"
+                    except httpx.HTTPError:
+                        transport_error_category = "HTTP request error"
+                if transport_error_category is not None:
+                    raise HttpExtensionTranslationError(transport_error_category)
+                if not 200 <= response.status_code < 300:
+                    raise HttpExtensionTranslationError(
+                        "HTTP status error",
+                        status_code=response.status_code,
                     )
-                except httpx.TransportError:
-                    transport_error_category = "transport error"
-                except httpx.HTTPError:
-                    transport_error_category = "HTTP request error"
-            if transport_error_category is not None:
-                raise HttpExtensionTranslationError(transport_error_category)
-            if not 200 <= response.status_code < 300:
-                raise HttpExtensionTranslationError(
-                    "HTTP status error",
-                    status_code=response.status_code,
+                try:
+                    translated = extract_translation_text(self.extension, response.text)
+                except HttpExtensionResponseError:
+                    raise
+                except UnicodeError:
+                    translated = None
+                if translated is None:
+                    raise HttpExtensionTranslationError("response decoding error")
+                return Translation(
+                    utterance_id=request.utterance_id,
+                    text=translated,
+                    source_text=request.text,
+                    source_language=request.source_language,
+                    target_language=request.target_language,
                 )
-            try:
-                translated = extract_translation_text(self.extension, response.text)
-            except HttpExtensionResponseError:
-                raise
-            except UnicodeError:
-                translated = None
-            if translated is None:
-                raise HttpExtensionTranslationError("response decoding error")
-            return Translation(
-                utterance_id=request.utterance_id,
-                text=translated,
-                source_text=request.text,
-                source_language=request.source_language,
-                target_language=request.target_language,
-            )
+        finally:
+            self._semaphore.release()
 
     async def close(self) -> None:
         if self._closed:

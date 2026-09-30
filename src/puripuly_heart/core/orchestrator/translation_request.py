@@ -14,6 +14,7 @@ from puripuly_heart.config.prompts import (
 )
 from puripuly_heart.core.clock import Clock
 from puripuly_heart.core.language import get_llm_language_name, map_detected_language_for_llm
+from puripuly_heart.core.llm.latency import observe_request
 from puripuly_heart.core.managed_openrouter_release import ManagedOpenRouterUserFacingError
 from puripuly_heart.core.messages import (
     SEVERITY_ERROR,
@@ -549,31 +550,51 @@ class TranslationRequestOwner:
         )
         if request.record_latency:
             self._record_latency(request.channel, request.utterance_id, "llm_request_start")
-        try:
-            raw_translation = await backend.translate(
-                TranslationBackendRequest(
-                    utterance_id=request.utterance_id,
-                    text=request.text,
-                    system_prompt=prepared.system_prompt,
-                    source_language=prepared.source_language,
-                    target_language=prepared.target_language,
-                    context=prepared.context,
-                    scene_participant_count=_scene_participant_count(prepared.scene_snapshot),
-                )
-            )
-        except Exception:
-            self._raise_if_stale_provider_request(backend, generation)
-            raise
-        self._raise_if_stale_provider_request(backend, generation)
-        if request.record_latency:
-            self._record_latency(request.channel, request.utterance_id, "llm_done")
-        return self._normalize_translation(
-            raw_translation,
+        with observe_request(
+            sink=self.diagnostics.runtime_logging,
+            utterance_id=request.utterance_id,
             channel=request.channel,
-            text=request.text,
+            kind=request.channel if request.record_latency else "speculative",
             source_language=prepared.source_language,
             target_language=prepared.target_language,
-        )
+            provider_generation=generation,
+            input_chars=len(request.text),
+            prompt_chars=len(prepared.system_prompt),
+            context_chars=len(prepared.context),
+            clock=self.clock.now,
+        ) as observation:
+            try:
+                try:
+                    raw_translation = await backend.translate(
+                        TranslationBackendRequest(
+                            utterance_id=request.utterance_id,
+                            text=request.text,
+                            system_prompt=prepared.system_prompt,
+                            source_language=prepared.source_language,
+                            target_language=prepared.target_language,
+                            context=prepared.context,
+                            scene_participant_count=_scene_participant_count(
+                                prepared.scene_snapshot
+                            ),
+                        )
+                    )
+                except Exception:
+                    self._raise_if_stale_provider_request(backend, generation)
+                    raise
+                self._raise_if_stale_provider_request(backend, generation)
+                if request.record_latency:
+                    self._record_latency(request.channel, request.utterance_id, "llm_done")
+                return self._normalize_translation(
+                    raw_translation,
+                    channel=request.channel,
+                    text=request.text,
+                    source_language=prepared.source_language,
+                    target_language=prepared.target_language,
+                )
+            except StaleProviderCompletion:
+                if observation is not None:
+                    observation.status = "stale"
+                raise
 
     async def process(
         self,
@@ -671,71 +692,52 @@ class TranslationRequestOwner:
                 turn_order=request.turn_order,
                 target_language=request.target_language,
             )
-            provider_started_at = self.clock.now()
-            if request.prestarted:
-                self.diagnostics.emit(
-                    RuntimeDiagnostic(
-                        message=(
-                            "[Diagnostic][Translation] secondary_prestart_provider_started "
-                            "parent_utterance_id=%s target_index=%s target_language=%s "
-                            "provider_generation=%s"
-                        ),
-                        args=(
-                            request.parent_utterance_id,
-                            request.target_index,
-                            request.target_language,
-                            generation,
-                        ),
-                        diagnostic_only=True,
-                    )
-                )
-            try:
-                try:
-                    raw_translation = await backend.translate(
-                        TranslationBackendRequest(
-                            utterance_id=request.utterance_id,
-                            text=request.text,
-                            system_prompt=prepared.system_prompt,
-                            source_language=source_language,
-                            target_language=request.target_language,
-                            context=prepared.context,
-                            scene_participant_count=_scene_participant_count(
-                                prepared.scene_snapshot
-                            ),
-                        )
-                    )
-                finally:
-                    if request.prestarted:
-                        self.diagnostics.emit(
-                            RuntimeDiagnostic(
-                                message=(
-                                    "[Diagnostic][Translation] secondary_prestart_provider_finished "
-                                    "parent_utterance_id=%s target_index=%s target_language=%s "
-                                    "provider_generation=%s elapsed_ms=%s"
-                                ),
-                                args=(
-                                    request.parent_utterance_id,
-                                    request.target_index,
-                                    request.target_language,
-                                    generation,
-                                    int((self.clock.now() - provider_started_at) * 1000),
-                                ),
-                                diagnostic_only=True,
-                            )
-                        )
-            except Exception:
-                self._raise_if_stale_provider_request(backend, generation)
-                raise
-            self._raise_if_stale_provider_request(backend, generation)
-            if cancellation_requested is not None and cancellation_requested():
-                raise asyncio.CancelledError
-            translation = self._normalize_translation(
-                raw_translation,
+            with observe_request(
+                sink=self.diagnostics.runtime_logging,
+                utterance_id=request.utterance_id,
+                parent_utterance_id=request.parent_utterance_id,
                 channel=request.channel,
-                text=request.text,
+                kind=request.turn_kind or request.channel,
                 source_language=source_language,
                 target_language=request.target_language,
-            )
+                provider_generation=generation,
+                input_chars=len(request.text),
+                prompt_chars=len(prepared.system_prompt),
+                context_chars=len(prepared.context),
+                clock=self.clock.now,
+            ) as observation:
+                try:
+                    try:
+                        raw_translation = await backend.translate(
+                            TranslationBackendRequest(
+                                utterance_id=request.utterance_id,
+                                text=request.text,
+                                system_prompt=prepared.system_prompt,
+                                source_language=source_language,
+                                target_language=request.target_language,
+                                context=prepared.context,
+                                scene_participant_count=_scene_participant_count(
+                                    prepared.scene_snapshot
+                                ),
+                            )
+                        )
+                    except Exception:
+                        self._raise_if_stale_provider_request(backend, generation)
+                        raise
+                    self._raise_if_stale_provider_request(backend, generation)
+                    if cancellation_requested is not None and cancellation_requested():
+                        raise asyncio.CancelledError
+                    translation = self._normalize_translation(
+                        raw_translation,
+                        channel=request.channel,
+                        text=request.text,
+                        source_language=source_language,
+                        target_language=request.target_language,
+                    )
+                except StaleProviderCompletion:
+                    if observation is not None:
+                        observation.status = "stale"
+                    raise
             self._record_latency(
                 request.channel,
                 request.utterance_id,

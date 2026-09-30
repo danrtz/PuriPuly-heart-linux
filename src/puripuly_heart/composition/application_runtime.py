@@ -1845,20 +1845,11 @@ def compose_application_runtime(
         owner = pipeline.translation_runtime_configuration
         return owner.snapshot().value.translation_enabled if owner is not None else False
 
-    def capture_desired_active() -> bool:
-        components = getattr(pipeline, "current", None)
-        captures = (
-            getattr(pipeline, "self_capture", None),
-            components.peer_capture if components is not None else None,
-        )
-        return any(capture is not None and capture.snapshot.desired_active for capture in captures)
-
     llm_connection_readiness = LlmConnectionReadinessOwner(
         llm_provider=lambda: (
             pipeline.llm_runtime.provider if pipeline.llm_runtime is not None else None
         ),
         translation_enabled=translation_runtime_enabled,
-        capture_active=capture_desired_active,
     )
 
     provider_runtime: ProviderRuntimeComponents = compose_provider_runtime(

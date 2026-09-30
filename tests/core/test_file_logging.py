@@ -1,12 +1,15 @@
 """Tests for RotatingFileHandler file logging."""
 
-import inspect
 import io
 import logging
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
+from types import SimpleNamespace
 from uuid import uuid4
 
+from puripuly_heart.app.services.application_runtime_logging import ApplicationRuntimeLoggingOwner
+from puripuly_heart.core.llm.latency import observe_attempt, observe_request
+from puripuly_heart.core.runtime.logging import RuntimeLoggingService
 from puripuly_heart.core.runtime_logging import (
     SessionRuntimeLoggingService,
     configure_main_logging,
@@ -39,10 +42,6 @@ class _RealtimeHandler(logging.Handler):
 
 
 def test_session_runtime_logging_service_routes_root_and_session_lines_to_shared_sinks(tmp_path):
-    assert "sinks" in inspect.signature(SessionRuntimeLoggingService).parameters
-    assert callable(getattr(SessionRuntimeLoggingService, "emit_basic", None))
-    assert callable(getattr(SessionRuntimeLoggingService, "emit_diagnostic", None))
-
     stream = io.StringIO()
     log_file = tmp_path / "main.log"
     stream_handler = logging.StreamHandler(stream)
@@ -265,3 +264,69 @@ def test_session_runtime_logging_service_persists_file_only_events_in_basic_mode
     assert log_lines[1].startswith("[Logging] untrusted_record_redacted ")
     assert "race_finished" not in log_lines[1]
     assert "google/gemma" not in log_lines[1]
+
+
+def test_translation_latency_uses_async_file_writer_without_ui_console_or_late_fallback(
+    tmp_path, capsys
+):
+    stream = io.StringIO()
+    root_logger = logging.getLogger(f"test.runtime.latency.root.{uuid4()}")
+    root_logger.propagate = False
+    root_logger.addHandler(logging.StreamHandler(stream))
+    sinks = configure_main_logging(root_logger=root_logger, log_dir=tmp_path)
+    session = SessionRuntimeLoggingService(
+        root_logger=root_logger,
+        session_logger=logging.getLogger(f"test.runtime.latency.session.{uuid4()}"),
+        sinks=sinks,
+        ui_handler_factory=_RealtimeHandler,
+    )
+    runtime_logging = RuntimeLoggingService(session_service=session)
+    live_sink = _RealtimeSink()
+    owner = ApplicationRuntimeLoggingOwner(
+        presentation=SimpleNamespace(
+            attach_runtime_log_sink=lambda service: service.attach_realtime_sink(live_sink),
+        ),
+        service_factory=lambda: runtime_logging,
+        fallback_logger=root_logger,
+    )
+
+    def translate():
+        with observe_request(
+            sink=owner,
+            utterance_id=uuid4(),
+            channel="self",
+            kind="manual",
+            source_language="ko",
+            target_language="en",
+            provider_generation=1,
+            input_chars=12,
+            prompt_chars=30,
+            context_chars=0,
+        ):
+            with observe_attempt(provider="openrouter", model="google/gemma-4"):
+                pass
+
+    try:
+        owner.emit_basic("basic line")
+        translate()
+        assert not owner.emit_translation_latency(
+            "[Diagnostic][LlmLatency] request_end request_id=1 prompt=secret"
+        )
+        runtime_logging.close()
+        content = sinks.log_file.read_text(encoding="utf-8")
+        translate()
+        assert sinks.log_file.read_text(encoding="utf-8") == content
+    finally:
+        session.close()
+        sinks.close()
+
+    latency_lines = [line for line in content.splitlines() if "[LlmLatency]" in line]
+    assert len(latency_lines) == 2
+    assert "attempt_end" in latency_lines[0]
+    assert "model=google/gemma-4" in latency_lines[0]
+    assert "request_end" in latency_lines[1]
+    assert "prompt=secret" not in content
+    assert "[LlmLatency]" not in stream.getvalue()
+    assert live_sink.lines == ["basic line"]
+    captured = capsys.readouterr()
+    assert "[LlmLatency]" not in captured.out + captured.err

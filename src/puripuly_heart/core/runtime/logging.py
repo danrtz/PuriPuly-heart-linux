@@ -82,6 +82,8 @@ class RuntimeLoggingAdapterPort(Protocol):
 
     def emit_diagnostic(self, message: str, *, level: int = logging.INFO) -> bool: ...
 
+    def emit_translation_latency(self, message: str) -> bool: ...
+
     def emit_diagnostic_lazy(
         self,
         build_message: Callable[[], str],
@@ -207,6 +209,14 @@ class RuntimeLoggingService:
             return self._session.emit_diagnostic(message, level=level)
         except Exception:
             return self._emit_delivery_fallback(message, level=level, live=False)
+
+    def emit_translation_latency(self, message: str) -> bool:
+        if self._closed:
+            return False
+        try:
+            return self._session.emit_translation_latency(message)
+        except Exception:
+            return False
 
     def emit_diagnostic_lazy(
         self,

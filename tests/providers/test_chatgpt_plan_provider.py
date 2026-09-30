@@ -261,3 +261,61 @@ async def test_release_closes_idle_connections_and_drains_in_flight_ones() -> No
     assert len(server.sockets) == 3
     assert server.closed == 2
     await provider.close()
+
+
+async def test_cancelled_preparation_closes_partial_connections_and_unblocks_next_request() -> None:
+    server = _FakeServer(_completed("ready"))
+    pending = asyncio.Event()
+    gate = asyncio.Event()
+    calls = 0
+
+    async def connect(url: str, headers: Mapping[str, str]) -> _FakeSocket:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            pending.set()
+            await gate.wait()
+        return await server.connect(url, headers)
+
+    provider = ChatGptPlanLLMProvider(
+        session=_FakeSession(), connector=connect, prepared_connections=3, max_connections=3
+    )
+    try:
+        preparation = asyncio.create_task(provider.prepare_connections())
+        await pending.wait()
+        preparation.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await preparation
+        assert server.closed == 2
+        assert await asyncio.wait_for(_translate(provider), timeout=1) == "ready"
+    finally:
+        await provider.close()
+    assert server.closed == 3
+
+
+async def test_cancelled_release_finishes_closing_every_detached_connection() -> None:
+    server = _FakeServer(_completed("ready"))
+    provider = _provider(server, _FakeSession(), prepared_connections=3)
+    await provider.prepare_connections()
+    started = asyncio.Event()
+    gate = asyncio.Event()
+    for socket in server.sockets:
+        original = socket.close
+
+        async def slow_close(original: Callable = original) -> None:
+            started.set()
+            await gate.wait()
+            await original()
+
+        socket.close = slow_close
+    try:
+        release = asyncio.create_task(provider.release_connections())
+        await started.wait()
+        release.cancel()
+        gate.set()
+        with pytest.raises(asyncio.CancelledError):
+            await release
+        assert [socket.close_code for socket in server.sockets] == [1000, 1000, 1000]
+    finally:
+        gate.set()
+        await provider.close()

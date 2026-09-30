@@ -16,6 +16,7 @@ from puripuly_heart.config.llm_profiles import (
     OPENROUTER_MODEL_GPT_6_LUNA,
 )
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.core.openrouter_credentials import normalize_managed_openrouter_user_identifier
 from puripuly_heart.core.openrouter_metadata import OpenRouterKeyMetadata
@@ -518,6 +519,10 @@ class HttpxOpenRouterClient:
         )
 
         client = await self._get_http_client()
+        observation = current_attempt()
+        if observation is not None:
+            observation.transport = "http_json"
+            observation.mark_sent()
         response = await client.post(
             f"{self.base_url}/chat/completions",
             headers=self._headers(),
@@ -546,6 +551,8 @@ class HttpxOpenRouterClient:
             raise RuntimeError("OpenRouter response was not valid JSON") from None
         if not isinstance(data, dict):
             raise RuntimeError("OpenRouter response did not contain a valid payload")
+        if observation is not None:
+            observation.record_openai_response(data)
         self._last_reasoning_tokens = _reasoning_token_count(data)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:

@@ -15,6 +15,7 @@ from puripuly_heart.config.runtime_resolution import OPENAI_MODEL_GPT_6_LUNA
 from puripuly_heart.core.chatgpt.oauth import ChatGptAuthError, ChatGptReauthRequired
 from puripuly_heart.core.chatgpt.session import ChatGptAccessTokenPort
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.llm.provider import LLMProvider
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.domain.models import Translation
@@ -123,9 +124,18 @@ class ChatGptPlanLLMProvider(LLMProvider):
             self._open_count += missing
         if missing == 0:
             return
-        results = await asyncio.gather(
-            *(self._open() for _ in range(missing)), return_exceptions=True
-        )
+        tasks = [asyncio.create_task(self._open()) for _ in range(missing)]
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            async with self._cond():
+                self._open_count -= missing
+                self._cond().notify_all()
+            await self._discard_detached(
+                [item for item in results if isinstance(item, _PooledConnection)]
+            )
+            raise
         created = [item for item in results if isinstance(item, _PooledConnection)]
         failures = [item for item in results if isinstance(item, BaseException)]
         async with self._cond():
@@ -139,8 +149,7 @@ class ChatGptPlanLLMProvider(LLMProvider):
             self._open_count -= len(stale)
             self._idle.extend(current)
             self._cond().notify_all()
-        for connection in stale:
-            await self._discard(connection)
+        await self._discard_detached(stale)
         if failures:
             self._log_failure("prepare_connections", failures[0])
 
@@ -198,8 +207,7 @@ class ChatGptPlanLLMProvider(LLMProvider):
             self._idle.clear()
             self._open_count -= len(idle)
             self._cond().notify_all()
-        for connection in idle:
-            await self._discard(connection)
+        await self._discard_detached(idle)
 
     async def close(self) -> None:
         async with self._cond():
@@ -208,8 +216,7 @@ class ChatGptPlanLLMProvider(LLMProvider):
             self._idle.clear()
             self._open_count -= len(idle)
             self._cond().notify_all()
-        for connection in idle:
-            await self._discard(connection)
+        await self._discard_detached(idle)
 
     async def _run_with_reauth_retry(self, body: Mapping[str, object]) -> str:
         try:
@@ -220,6 +227,11 @@ class ChatGptPlanLLMProvider(LLMProvider):
         return await self._run(body)
 
     async def _run(self, body: Mapping[str, object]) -> str:
+        observation = current_attempt()
+        if observation is not None:
+            observation.transport = "websocket"
+            observation.connection_reused = None
+            observation.connect_ms = None
         connection = await self._acquire()
         reusable = False
         try:
@@ -237,7 +249,11 @@ class ChatGptPlanLLMProvider(LLMProvider):
             await self._release(connection, reusable=reusable)
 
     async def _exchange(self, connection: _PooledConnection, body: Mapping[str, object]) -> str:
-        await connection.socket.send(json.dumps(body))
+        observation = current_attempt()
+        message = json.dumps(body)
+        if observation is not None:
+            observation.mark_sent()
+        await connection.socket.send(message)
         parts: list[str] = []
         length = 0
         while True:
@@ -248,11 +264,15 @@ class ChatGptPlanLLMProvider(LLMProvider):
             if kind == "response.output_text.delta":
                 delta = event.get("delta")
                 if isinstance(delta, str):
+                    if delta and observation is not None and observation.first_text_at is None:
+                        observation.mark_first_text()
                     parts.append(delta)
                     length += len(delta)
                     if length > self.max_output_chars:
                         raise RuntimeError("ChatGPT plan response was truncated by length limit")
             elif kind == "response.completed":
+                if observation is not None:
+                    observation.record_openai_response(event.get("response"))
                 result = "".join(parts).strip()
                 if not result:
                     raise RuntimeError("ChatGPT plan response contained empty message content")
@@ -261,7 +281,17 @@ class ChatGptPlanLLMProvider(LLMProvider):
                 raise _error_from_event(event)
 
     async def _acquire(self) -> _PooledConnection:
-        token_generation = await self._current_token_generation()
+        observation = current_attempt()
+        auth_started_at = observation.request.clock() if observation is not None else None
+        try:
+            token_generation = await self._current_token_generation()
+        finally:
+            if observation is not None and auth_started_at is not None:
+                observation.auth_ms = (observation.auth_ms or 0) + max(
+                    0, round((observation.request.clock() - auth_started_at) * 1000)
+                )
+        if observation is not None and observation.connection_wait_ms is None:
+            observation.connection_wait_ms = 0
         stale: list[_PooledConnection] = []
         try:
             async with self._cond():
@@ -274,13 +304,28 @@ class ChatGptPlanLLMProvider(LLMProvider):
                             candidate.token_generation == token_generation
                             and candidate.pool_epoch == self._pool_epoch
                         ):
+                            if observation is not None:
+                                observation.connection_reused = True
                             return candidate
                         stale.append(candidate)
                         self._open_count -= 1
                     if self._open_count < self.max_connections:
                         self._open_count += 1
+                        if observation is not None:
+                            observation.connection_reused = False
                         break
-                    await self._cond().wait()
+                    wait_started_at = (
+                        observation.request.clock() if observation is not None else None
+                    )
+                    try:
+                        await self._cond().wait()
+                    finally:
+                        if observation is not None and wait_started_at is not None:
+                            observation.connection_wait_ms = (
+                                observation.connection_wait_ms or 0
+                            ) + max(
+                                0, round((observation.request.clock() - wait_started_at) * 1000)
+                            )
         finally:
             for connection in stale:
                 await self._discard(connection)
@@ -319,8 +364,17 @@ class ChatGptPlanLLMProvider(LLMProvider):
 
     async def _open(self) -> _PooledConnection:
         pool_epoch = self._pool_epoch
-        token = await self.session.access_token()
+        observation = current_attempt()
+        auth_started_at = observation.request.clock() if observation is not None else None
+        try:
+            token = await self.session.access_token()
+        finally:
+            if observation is not None and auth_started_at is not None:
+                observation.auth_ms = (observation.auth_ms or 0) + max(
+                    0, round((observation.request.clock() - auth_started_at) * 1000)
+                )
         generation = self.session.token_generation
+        connect_started_at = observation.request.clock() if observation is not None else None
         try:
             socket = await self.connector(self.url, {"Authorization": f"Bearer {token}"})
         except InvalidStatus as exc:
@@ -328,9 +382,26 @@ class ChatGptPlanLLMProvider(LLMProvider):
             if status == 401:
                 self.session.invalidate_access_token(token)
             raise ChatGptPlanResponseError(status) from exc
+        finally:
+            if observation is not None and connect_started_at is not None:
+                observation.connect_ms = max(
+                    0, round((observation.request.clock() - connect_started_at) * 1000)
+                )
         return _PooledConnection(
             socket=socket, token=token, token_generation=generation, pool_epoch=pool_epoch
         )
+
+    async def _discard_detached(self, connections: list[_PooledConnection]) -> None:
+        if not connections:
+            return
+        closing = asyncio.gather(
+            *(self._discard(connection) for connection in connections), return_exceptions=True
+        )
+        try:
+            await asyncio.shield(closing)
+        except asyncio.CancelledError:
+            await closing
+            raise
 
     async def _discard(self, connection: _PooledConnection) -> None:
         close = getattr(connection.socket, "close", None)

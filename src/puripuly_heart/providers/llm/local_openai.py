@@ -12,6 +12,7 @@ from uuid import UUID
 
 import httpx
 
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.domain.models import Translation
 from puripuly_heart.providers.llm.messages import build_translation_user_message
 
@@ -468,18 +469,25 @@ class HttpxLocalOpenAIClient:
     ) -> str:
         client = await self._get_http_client()
         try:
+            request_body = self._build_request_body(
+                text=text,
+                system_prompt=system_prompt,
+                source_language=source_language,
+                target_language=target_language,
+                context=context,
+                scene_participant_count=scene_participant_count,
+                max_output_tokens=max_output_tokens,
+            )
+            observation = current_attempt()
+            if observation is not None:
+                observation.transport = "http_json"
+                tier = request_body.get("service_tier")
+                observation.requested_tier = tier if isinstance(tier, str) else None
+                observation.mark_sent()
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._headers(),
-                json=self._build_request_body(
-                    text=text,
-                    system_prompt=system_prompt,
-                    source_language=source_language,
-                    target_language=target_language,
-                    context=context,
-                    scene_participant_count=scene_participant_count,
-                    max_output_tokens=max_output_tokens,
-                ),
+                json=request_body,
             )
         except asyncio.CancelledError:
             raise
@@ -516,6 +524,8 @@ class HttpxLocalOpenAIClient:
             raise RuntimeError("Local LLM response was not valid JSON") from exc
         if not isinstance(data, dict):
             raise RuntimeError("Local LLM response was not a JSON object")
+        if observation is not None:
+            observation.record_openai_response(data)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
             raise RuntimeError("Local LLM response did not contain choices")

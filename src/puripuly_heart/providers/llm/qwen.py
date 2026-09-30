@@ -4,12 +4,13 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Mapping, Protocol
 from uuid import UUID
 
 import httpx
 
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.domain.models import Translation
 from puripuly_heart.providers.llm.messages import build_translation_user_message
@@ -313,6 +314,10 @@ class DashScopeQwenClient:
                 compatible_body["max_tokens"] = max_output_tokens
             if _is_qwen_compatible_model(self.model):
                 compatible_base_url = _to_compatible_base_url(self.base_url)
+                observation = current_attempt()
+                if observation is not None:
+                    observation.transport = "http_json"
+                    observation.mark_sent()
                 response = httpx.post(
                     f"{compatible_base_url}/chat/completions",
                     headers={
@@ -339,6 +344,8 @@ class DashScopeQwenClient:
                         f"(status={response.status_code}, message={error_message})"
                     )
                 data = response.json()
+                if observation is not None:
+                    observation.record_openai_response(data)
                 choices = data.get("choices", [])
                 if not choices:
                     raise RuntimeError("DashScope response did not contain choices")
@@ -358,7 +365,29 @@ class DashScopeQwenClient:
             }
             if max_output_tokens is not None:
                 call_kwargs["max_tokens"] = max_output_tokens
+            observation = current_attempt()
+            if observation is not None:
+                observation.transport = "sdk_json"
+                observation.mark_sent()
             response = dashscope.Generation.call(**call_kwargs)
+            if observation is not None:
+                observation.record_openai_response(response)
+                usage = getattr(response, "usage", None)
+                if isinstance(usage, Mapping):
+                    input_tokens = usage.get("input_tokens")
+                    output_tokens = usage.get("output_tokens")
+                    observation.record_usage(
+                        input_tokens=(
+                            input_tokens if isinstance(input_tokens, int) and input_tokens > 0 else None
+                        ),
+                        output_tokens=(
+                            output_tokens
+                            if isinstance(output_tokens, int) and output_tokens > 0
+                            else None
+                        ),
+                        cached_input_tokens=observation.cached_input_tokens,
+                        reasoning_tokens=observation.reasoning_tokens,
+                    )
             output = getattr(response, "output", None)
             if not output:
                 status = getattr(response, "status_code", None)

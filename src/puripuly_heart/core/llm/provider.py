@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from uuid import UUID
 
+from puripuly_heart.core.llm.latency import current_request, observe_attempt
 from puripuly_heart.domain.models import Translation
 
 
@@ -40,6 +41,8 @@ class LLMProvider:
 class SemaphoreLLMProvider(LLMProvider):
     inner: LLMProvider
     semaphore: asyncio.Semaphore
+    provider_name: str = "unknown"
+    model: str | None = None
 
     async def translate(
         self,
@@ -68,11 +71,23 @@ class SemaphoreLLMProvider(LLMProvider):
         # provider resource. Transfer this permit to the race's tracked cleanup.
         from puripuly_heart.core.llm.fallback_racing import FallbackRacingLLMProvider
 
-        if isinstance(self.inner, FallbackRacingLLMProvider):
+        request = current_request()
+        queued_at = request.clock() if request is not None else None
+        try:
             await self.semaphore.acquire()
+        finally:
+            if request is not None and queued_at is not None:
+                request.queue_ms += max(0, round((request.clock() - queued_at) * 1000))
+        if isinstance(self.inner, FallbackRacingLLMProvider):
             return await self.inner._translate(**kwargs, release_permit=self.semaphore.release)
-        async with self.semaphore:
-            return await self.inner.translate(**kwargs)  # type: ignore[arg-type]
+        try:
+            with observe_attempt(provider=self.provider_name, model=self.model):
+                result = await self.inner.translate(**kwargs)  # type: ignore[arg-type]
+                if request is not None:
+                    request.winner_attempt = 0
+                return result
+        finally:
+            self.semaphore.release()
 
     async def close(self) -> None:
         await self.inner.close()

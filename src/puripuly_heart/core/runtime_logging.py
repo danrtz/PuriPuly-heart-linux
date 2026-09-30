@@ -28,6 +28,7 @@ from puripuly_heart.core.diagnostic_validation import (
     validate_diagnostics_for_sink,
 )
 from puripuly_heart.core.language import get_language_info
+from puripuly_heart.core.llm.latency import is_translation_latency_summary
 from puripuly_heart.core.messages import (
     CONTENT_POLICY_METADATA_ONLY,
     CONTENT_POLICY_RAW_USER_TEXT_ALLOWED,
@@ -212,6 +213,8 @@ ObservabilityRunner = Callable[[Awaitable[None]], None]
 def _is_metadata_only_text(message: str) -> bool:
     if "\n" in message or "\r" in message:
         return False
+    if is_translation_latency_summary(message):
+        return True
     prefix = _METADATA_PREFIX_RE.match(message)
     if prefix is None:
         return False
@@ -821,7 +824,15 @@ class SessionRuntimeLoggingService:
             visibility=DIAGNOSTIC_VISIBILITY_BASIC,
         )
 
+    def emit_translation_latency(self, message: str) -> bool:
+        if self._closed or not is_translation_latency_summary(message):
+            return False
+        return self._emit_file_diagnostic(message, level=logging.INFO, structured=False)
+
     def emit_diagnostic(self, message: str, *, level: int = logging.INFO) -> bool:
+        return self._emit_file_diagnostic(message, level=level, structured=True)
+
+    def _emit_file_diagnostic(self, message: str, *, level: int, structured: bool) -> bool:
         if self._closed:
             return False
         if _message_is_definitely_oversized(message):
@@ -841,7 +852,8 @@ class SessionRuntimeLoggingService:
             getattr(self._sinks, "file_queue_handler", None) or self._sinks.file_handler
         )
         file_output_handler.handle(record)
-        self._persist_structured_diagnostic(safe_message, level=level)
+        if structured:
+            self._persist_structured_diagnostic(safe_message, level=level)
         return True
 
     def emit_diagnostic_lazy(

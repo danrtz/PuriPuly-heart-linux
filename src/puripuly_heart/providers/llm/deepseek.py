@@ -9,6 +9,7 @@ from uuid import UUID
 import httpx
 
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.domain.models import Translation
 from puripuly_heart.providers.llm.error_details import extract_provider_error_detail
@@ -274,6 +275,10 @@ class HttpxDeepSeekClient:
         )
 
         client = await self._get_http_client()
+        observation = current_attempt()
+        if observation is not None:
+            observation.transport = "http_json"
+            observation.mark_sent()
         response = await client.post(
             f"{self.base_url}/chat/completions",
             headers=self._headers(),
@@ -291,6 +296,8 @@ class HttpxDeepSeekClient:
             )
 
         data = response.json()
+        if observation is not None:
+            observation.record_openai_response(data)
         choices = data.get("choices", [])
         if not choices:
             raise RuntimeError("DeepSeek response did not contain choices")

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.domain.models import Translation
 from puripuly_heart.providers.llm.messages import build_translation_user_message
@@ -207,17 +208,33 @@ class GoogleGenaiGeminiClient:
 
         client = self._get_client()
         thinking_level = types.ThinkingLevel.LOW
+        config = types.GenerateContentConfig(
+            system_instruction=formatted_system_prompt,
+            temperature=0.6,
+            thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            max_output_tokens=max_output_tokens,
+        )
+        observation = current_attempt()
+        if observation is not None:
+            observation.transport = "sdk_json"
+            observation.mark_sent()
         response = await client.aio.models.generate_content(
             model=self.model,
             contents=user_message,
-            config=types.GenerateContentConfig(
-                system_instruction=formatted_system_prompt,
-                temperature=0.6,
-                thinking_config=types.ThinkingConfig(thinking_level=thinking_level),
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                max_output_tokens=max_output_tokens,
-            ),
+            config=config,
         )
+        if observation is not None:
+            model_version = getattr(response, "model_version", None)
+            observation.actual_model = model_version if isinstance(model_version, str) else None
+            usage = getattr(response, "usage_metadata", None)
+            if usage is not None:
+                observation.record_usage(
+                    input_tokens=getattr(usage, "prompt_token_count", None),
+                    output_tokens=getattr(usage, "candidates_token_count", None),
+                    cached_input_tokens=getattr(usage, "cached_content_token_count", None),
+                    reasoning_tokens=getattr(usage, "thoughts_token_count", None),
+                )
         if getattr(response, "text", None):
             result = str(response.text).strip()
 

@@ -12,6 +12,8 @@ class TranslationRuntimeLoggingPort(Protocol):
 
     def emit_diagnostic(self, message: str, *, level: int = ...) -> bool: ...
 
+    def emit_translation_latency(self, message: str) -> bool: ...
+
     def emit_diagnostic_lazy(
         self,
         build_message: Callable[[], str],

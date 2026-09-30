@@ -70,6 +70,15 @@ class ApplicationRuntimeLoggingOwner:
                 live=True,
             )
 
+    def emit_translation_latency(self, message: str) -> bool:
+        service = self._service
+        if service is None:
+            return False
+        try:
+            return bool(service.emit_translation_latency(message))
+        except Exception:
+            return False
+
     def emit_diagnostic(
         self,
         message: str,

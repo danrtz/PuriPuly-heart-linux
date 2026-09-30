@@ -10,6 +10,7 @@ import httpx
 
 from puripuly_heart.config.runtime_resolution import OPENAI_MODEL_GPT_6_LUNA
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
+from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.domain.models import Translation
 from puripuly_heart.providers.llm.messages import build_translation_user_message
@@ -286,6 +287,10 @@ class HttpxOpenAIClient:
             max_output_tokens=max_output_tokens,
         )
         client = await self._get_http_client()
+        observation = current_attempt()
+        if observation is not None:
+            observation.transport = "http_json"
+            observation.mark_sent()
         response = await client.post(
             f"{self.base_url.rstrip('/')}/chat/completions",
             headers=self._headers(),
@@ -306,6 +311,8 @@ class HttpxOpenAIClient:
             raise RuntimeError("OpenAI response was not valid JSON") from None
         if not isinstance(data, dict):
             raise RuntimeError("OpenAI response did not contain a valid payload")
+        if observation is not None:
+            observation.record_openai_response(data)
         self._last_reasoning_tokens = _reasoning_token_count(data)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:

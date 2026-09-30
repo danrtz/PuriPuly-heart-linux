@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from puripuly_heart.core.llm.latency import current_request, observe_attempt
 from puripuly_heart.core.llm.provider import LLMProvider
 from puripuly_heart.core.observability import ProviderObservationPort
 from puripuly_heart.core.translation_policy import FIXED_TRANSLATION_POLICY
@@ -19,6 +20,8 @@ class LLMProviderAttempt:
     start_after_ms: int = 0
     start_on_primary_error: bool = False
     log_summary: str | None = None
+    provider_name: str = "unknown"
+    model: str | None = None
 
     def __post_init__(self) -> None:
         if self.start_after_ms < 0:
@@ -142,12 +145,19 @@ class FallbackRacingLLMProvider(LLMProvider):
         winner_index: int | None = None
         winner_result: Translation | None = None
 
+        async def run_attempt(index: int) -> Translation:
+            attempt = self.attempts[index]
+            with observe_attempt(
+                provider=attempt.provider_name,
+                model=attempt.model,
+                attempt_index=index,
+            ):
+                return await attempt.provider.translate(**params)
+
         async def start_attempt(index: int, *, trigger_reason: str | None = None) -> None:
             if winner_event.is_set() or index in provider_tasks:
                 return
-            task = await self._create_tracked_task(
-                self.attempts[index].provider.translate(**params)
-            )
+            task = await self._create_tracked_task(run_attempt(index))
             provider_tasks[index] = task
 
         operation = asyncio.current_task()
@@ -197,6 +207,9 @@ class FallbackRacingLLMProvider(LLMProvider):
                     if outcomes[index].result is not None and winner_index is None:
                         winner_index = index
                         winner_result = outcomes[index].result
+                        request = current_request()
+                        if request is not None:
+                            request.winner_attempt = index
                         winner_event.set()
                         if self._winner_selected is not None:
                             with contextlib.suppress(Exception):

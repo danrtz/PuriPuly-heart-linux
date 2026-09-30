@@ -44,12 +44,11 @@ async def release_llm_connections(llm: object | None) -> bool:
 class LlmConnectionReadinessOwner:
     llm_provider: Callable[[], object | None]
     translation_enabled: Callable[[], bool]
-    capture_active: Callable[[], bool]
     _task: asyncio.Task[bool] | None = field(init=False, default=None, repr=False)
     _task_action: str | None = field(init=False, default=None, repr=False)
 
     def sync(self) -> None:
-        action = "prepare" if self.translation_enabled() and self.capture_active() else "release"
+        action = "prepare" if self.translation_enabled() else "release"
         task = self._task
         if task is not None and not task.done() and self._task_action == action:
             return
@@ -68,7 +67,7 @@ class LlmConnectionReadinessOwner:
 
     async def _run(self, action: str, previous: asyncio.Task[bool] | None) -> bool:
         if previous is not None:
-            with contextlib.suppress(asyncio.CancelledError, Exception):
+            with contextlib.suppress(Exception):
                 await previous
         try:
             if action == "prepare":

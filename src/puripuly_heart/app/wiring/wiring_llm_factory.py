@@ -867,7 +867,12 @@ def create_llm_provider_from_resolved_config(
             managed_release_service,
         )
         attempt_providers: list[LLMProviderAttempt] = [
-            LLMProviderAttempt(provider=base, start_after_ms=config.attempts[0].start_after_ms)
+            LLMProviderAttempt(
+                provider=base,
+                start_after_ms=config.attempts[0].start_after_ms,
+                provider_name=config.primary.provider,
+                model=config.primary.model,
+            )
         ]
         for index, attempt_plan in enumerate(config.attempts[1:], start=1):
             force_managed_wrapper = (
@@ -883,6 +888,8 @@ def create_llm_provider_from_resolved_config(
                 attempt_providers.append(
                     LLMProviderAttempt(
                         provider=base,
+                        provider_name=attempt_plan.target.provider,
+                        model=attempt_plan.target.model,
                         start_after_ms=attempt_plan.start_after_ms,
                         start_on_primary_error=attempt_plan.start_on_primary_error,
                         log_summary=_fallback_attempt_log_summary(
@@ -912,6 +919,8 @@ def create_llm_provider_from_resolved_config(
                             )
                         )
                     ),
+                    provider_name=attempt_plan.target.provider,
+                    model=attempt_plan.target.model,
                     start_after_ms=attempt_plan.start_after_ms,
                     start_on_primary_error=attempt_plan.start_on_primary_error,
                     log_summary=_fallback_attempt_log_summary(
@@ -931,6 +940,8 @@ def create_llm_provider_from_resolved_config(
     return SemaphoreLLMProvider(
         inner=base,
         semaphore=asyncio.Semaphore(config.concurrency_limit),
+        provider_name=config.primary.provider,
+        model=config.primary.model,
     )
 
 

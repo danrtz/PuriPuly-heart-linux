@@ -10,6 +10,7 @@ import httpx
 
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
 from puripuly_heart.core.http_client_logging import suppress_http_client_logs
+from puripuly_heart.core.llm.latency import AttemptLatency, current_attempt
 from puripuly_heart.core.local_translation.runtime import (
     ManagedGemmaMetrics,
     ManagedGemmaResponse,
@@ -164,6 +165,7 @@ class HttpxManagedGemmaTransport:
             ),
             slot_id=slot_id,
             max_tokens=max_output_tokens,
+            observation=current_attempt(),
         )
         return ManagedGemmaResponse(
             text=_response_text(payload),
@@ -176,6 +178,7 @@ class HttpxManagedGemmaTransport:
         messages: tuple[dict[str, str], ...],
         slot_id: int,
         max_tokens: int | None = None,
+        observation: AttemptLatency | None = None,
     ) -> object:
         template_response = await self._require_client().post(
             "/apply-template",
@@ -200,9 +203,31 @@ class HttpxManagedGemmaTransport:
         }
         if max_tokens is not None:
             body["n_predict"] = max_tokens
-        response = await self._require_client().post("/completion", json=body)
+        client = self._require_client()
+        if observation is not None:
+            observation.transport = "http_json"
+            observation.mark_sent()
+        response = await client.post("/completion", json=body)
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        if observation is not None and isinstance(payload, dict):
+            timings = payload.get("timings")
+            if isinstance(timings, dict):
+                observation.record_usage(
+                    input_tokens=timings.get("prompt_n"),
+                    output_tokens=timings.get("predicted_n"),
+                    cached_input_tokens=timings.get("cache_n"),
+                )
+                observation.record_server_timings(
+                    prompt_ms=timings.get("prompt_ms"),
+                    generation_ms=timings.get("predicted_ms", timings.get("generation_ms")),
+                    generation_tps=timings.get(
+                        "predicted_per_second", timings.get("generation_tps")
+                    ),
+                )
+            model = payload.get("model")
+            observation.actual_model = model if isinstance(model, str) else None
+        return payload
 
     async def close(self) -> None:
         client = self._client
