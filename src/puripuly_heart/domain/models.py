@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID, uuid4
 
+from puripuly_heart.domain.recognition import RecognitionTextOrigin
+
 ChannelId = Literal["self", "peer"]
 SpeakerAttributionState = Literal[
     "identified",
@@ -112,6 +114,7 @@ class Transcript:
     source_order: int | None = None
     source_text_range: tuple[int, int] | None = None
     source_text_revision: str | None = None
+    recognition_origins: tuple[RecognitionTextOrigin, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_channel(self.channel)
@@ -119,6 +122,8 @@ class Transcript:
             raise ValueError("partial transcripts cannot have final language runs")
         if not self.is_final and self.final_speaker_runs:
             raise ValueError("partial transcripts cannot have final speaker runs")
+        if not self.is_final and self.recognition_origins:
+            raise ValueError("partial transcripts cannot have recognition origins")
         if (self.publication_generation is None) != (self.source_order is None):
             raise ValueError("publication generation and source order must be provided together")
         if self.publication_generation is not None:

@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from puripuly_heart.core.audio.ownership import OwnedVadEvent
+from puripuly_heart.core.audio.ownership import OwnedStreamInput, OwnedVadEvent
 from puripuly_heart.core.clock import Clock
 from puripuly_heart.core.lifecycle import LifecycleScope, start_lifecycle_task
-from puripuly_heart.core.local_asr_provider_runtime import LocalASRProviderRuntimePort
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
+    LocalASRProviderRuntimePort,
+)
 from puripuly_heart.core.messages import UserErrorReport, UserMessageRef
 from puripuly_heart.core.orchestrator.channel_runtime import (
     ChannelRuntime,
@@ -63,7 +66,9 @@ from puripuly_heart.core.stt.backend import (
     STTProviderTurnIdentity,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
 )
+from puripuly_heart.core.stt.recognition_units import recognition_transcript
 from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart, VadEvent
 from puripuly_heart.domain.events import (
     STTErrorEvent,
@@ -123,6 +128,7 @@ class SelfTranslationChannelOwner:
     _scoped_publication_ids: dict[STTProviderTurnIdentity, UUID] = field(default_factory=dict)
     _scoped_publication_text: dict[STTProviderTurnIdentity, str] = field(default_factory=dict)
     _scoped_endpoint_publication_ids: dict[UUID, UUID] = field(default_factory=dict)
+    _retired_local_vad_ids: OrderedDict[UUID, None] = field(default_factory=OrderedDict)
     _task_scope: LifecycleScope = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -154,6 +160,7 @@ class SelfTranslationChannelOwner:
     async def close(self) -> None:
         self._accepting_events = False
         self._admitted_requests.clear()
+        self._retired_local_vad_ids.clear()
         self._clear_scoped_recognition_state()
         await self.runtime.reset_runtime_state()
         await self._task_scope.close()
@@ -181,6 +188,7 @@ class SelfTranslationChannelOwner:
         await self.output_projection.reset_overlay_preview()
         await self.runtime.clear_self_speech_state()
         self._clear_scoped_recognition_state()
+        self._retired_local_vad_ids.clear()
         self.diagnostics.clear_latency_state(channel="self")
 
     async def clear_language_runtime_state(self) -> None:
@@ -189,6 +197,7 @@ class SelfTranslationChannelOwner:
         await self.runtime.clear_live_translation_state()
         self.diagnostics.clear_latency_state(channel="self")
         self._clear_scoped_recognition_state()
+        self._retired_local_vad_ids.clear()
         await self.output_projection.reset_overlay_preview()
 
     def mark_promo_eligible(self) -> None:
@@ -211,6 +220,10 @@ class SelfTranslationChannelOwner:
         self._require_ingress()
         await self.local_asr_runtime.observe_pending_source_work("self", pending=pending)
 
+    async def handle_stream_input(self, owned: OwnedStreamInput) -> None:
+        self._require_ingress()
+        await self.local_asr_runtime.handle_stream_input("self", owned)
+
     async def handle_vad_event(self, event: VadEvent | OwnedVadEvent) -> None:
         self._require_ingress()
         owned = event if isinstance(event, OwnedVadEvent) else None
@@ -223,7 +236,10 @@ class SelfTranslationChannelOwner:
             self._mark_resume_pending(vad_event)
         if isinstance(vad_event, SpeechChunk) and low_latency_mode:
             resume_overlay_resync_buffer = self._maybe_confirm_resume(vad_event)
-        if isinstance(vad_event, SpeechEnd):
+        if (
+            isinstance(vad_event, SpeechEnd)
+            and vad_event.utterance_id not in self._retired_local_vad_ids
+        ):
             speech_end_at = self.clock.now()
             sealed_at = (
                 owned.segment.sealed_at_monotonic_s
@@ -306,6 +322,14 @@ class SelfTranslationChannelOwner:
             reason=reason,
         )
 
+    def release_input_segment(self, segment_id: UUID) -> None:
+        self._clear_runtime_latency_bookkeeping(segment_id)
+        self._scoped_endpoint_publication_ids.pop(segment_id, None)
+        self._retired_local_vad_ids[segment_id] = None
+        self._retired_local_vad_ids.move_to_end(segment_id)
+        if len(self._retired_local_vad_ids) > 4096:
+            self._retired_local_vad_ids.popitem(last=False)
+
     async def submit_text(self, text: str, *, source: str = "You") -> UUID:
         self._require_ingress()
         text = text.strip()
@@ -329,6 +353,25 @@ class SelfTranslationChannelOwner:
             ),
         )
         return utterance_id
+
+    async def handle_recognition_unit(self, unit: STTRecognitionUnit) -> None:
+        self._require_ingress()
+        if unit.identity.stream.channel != "self":
+            raise ValueError("Self translation owner received non-Self recognition unit")
+        transcript = recognition_transcript(unit, created_at=self.clock.now())
+        self._record_latency_stage(
+            utterance_id=transcript.utterance_id,
+            stage="stt_final",
+        )
+        await self._handle_transcript(transcript, is_final=True, source="Mic")
+        await self._ensure_translation(
+            transcript,
+            turn_kind="self",
+            wait_for_parent=(
+                not self.translation_requests.provider_available
+                or not self.translation_requests.translation_enabled_for("self")
+            ),
+        )
 
     async def handle_stt_event(self, event: object) -> None:
         self._require_ingress()

@@ -6,11 +6,13 @@ from collections.abc import AsyncIterator
 from puripuly_heart.core.stt.backend import (
     STTBackendTranscriptEvent,
     STTProviderEpochEnded,
+    STTProviderInputTerminal,
     STTProviderTurnEvent,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
     STTSessionProjection,
 )
 from puripuly_heart.core.stt.scoped_event_buffer import (
@@ -177,7 +179,7 @@ class STTSessionEventProjection:
             self._retire_after_overflow(event.identity)
         return accepted
 
-    def terminal(self, event: STTProviderTurnTerminal) -> bool:
+    def terminal(self, event: STTProviderTurnTerminal | STTProviderInputTerminal) -> bool:
         if not self.can_terminal(event.identity):
             return False
         buffer = self._scoped_buffer()
@@ -195,6 +197,21 @@ class STTSessionEventProjection:
         self._draining_identities.discard(event.identity)
         if self._active_identity == event.identity:
             self._active_identity = None
+        return accepted
+
+    def put_recognition(self, event: STTRecognitionUnit) -> bool:
+        if (
+            self._closed
+            or self._retired
+            or event.identity.stream.provider_epoch_id != self.provider_epoch_id
+        ):
+            return False
+        try:
+            accepted = self._scoped_buffer().put(event)
+        except STTProviderEventBufferClosed:
+            return False
+        if not accepted:
+            self._retired = True
         return accepted
 
     def retire(self) -> None:

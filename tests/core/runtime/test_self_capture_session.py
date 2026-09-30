@@ -12,7 +12,10 @@ from puripuly_heart.app.adapters.self_capture_vad_sink import SelfCaptureVadSink
 
 from puripuly_heart.config.resolved import vad_exit_threshold
 from puripuly_heart.core.audio.format import AudioCaptureSpan
-from puripuly_heart.core.audio.ownership import AudioSegmentIdentity
+from puripuly_heart.core.audio.ownership import (
+    AudioSegmentIdentity,
+    CaptureStreamInput,
+)
 from puripuly_heart.core.runtime.self_capture import SelfCaptureSessionOwner
 from puripuly_heart.core.self_capture import (
     SelfCaptureAdmission,
@@ -26,9 +29,12 @@ from puripuly_heart.core.self_capture import (
     SelfCaptureSessionState,
 )
 from puripuly_heart.core.stt.backend import (
+    STTProviderInputTerminal,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
     STTProviderTurnTerminal,
+    STTRecognitionUnit,
+    STTRecognitionUnitTerminal,
 )
 from puripuly_heart.core.stt.scoped_engine import (
     ScopedRecognitionEngine,
@@ -36,6 +42,7 @@ from puripuly_heart.core.stt.scoped_engine import (
     STTRetentionProfile,
 )
 from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart, VadGating
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 from tests.helpers.fakes import RecordingOscQueue
 from tests.helpers.translation_owners import compose_translation_test_harness
 from tests.helpers.vad import SequenceVadEngine, chunk_samples
@@ -747,6 +754,274 @@ async def test_recoverable_terminal_retires_utterance_without_interrupting_next_
     ]
     assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
     await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_input_terminal_retires_audio_without_faulting_active_self_capture() -> None:
+    owner, _, provider, sources, _, _ = build_owner()
+    await owner.apply_intent(config(), enabled=True)
+    guarded = owner.guard_vad_sink()
+    try:
+        for order, outcome in enumerate(("failed", "submitted"), start=1):
+            segment_id = uuid4()
+            await guarded.handle_vad_event(
+                SpeechStart(
+                    segment_id,
+                    pre_roll=np.empty((0,), dtype=np.float32),
+                    chunk=np.ones((8,), dtype=np.float32),
+                )
+            )
+            if outcome == "submitted":
+                await guarded.handle_vad_event(SpeechEnd(segment_id))
+            identity = guarded.ledger.snapshots[-1].identity
+            owner.note_input_terminal(
+                STTProviderInputTerminal(
+                    STTProviderTurnIdentity(identity, "epoch", f"input-{order}"),
+                    outcome,
+                    channel="self",
+                    failure_reason="provider_input_failed" if outcome == "failed" else None,
+                    recovery_pending=outcome == "failed",
+                )
+            )
+            if outcome == "failed":
+                await guarded.handle_vad_event(
+                    SpeechChunk(segment_id, chunk=np.ones((8,), dtype=np.float32))
+                )
+                await guarded.handle_vad_event(SpeechEnd(segment_id))
+        assert [receipt.outcome for receipt in guarded.ledger.terminal_receipts] == [
+            "failed",
+            "submitted",
+        ]
+        assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+        assert owner.snapshot.desired_active and owner.snapshot.effective_active
+        assert sources[0].close_calls == 0
+        assert provider.release_calls == []
+    finally:
+        await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_same_effective_self_intent_preserves_stream_ownership_for_next_input() -> None:
+    class StreamSink:
+        def __init__(self, engine: ScopedRecognitionEngine) -> None:
+            self.engine = engine
+
+        async def handle_vad_event(self, event: object) -> None:
+            await self.engine.handle_owned_vad_event(event)
+
+        async def handle_stream_input(self, event: object) -> None:
+            await self.engine.handle_stream_input(event)
+
+    class StreamSession(BlockingScopedSession):
+        accepts_stream_input = True
+        independent_recognition_units = True
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.stream: RecognitionStreamIdentity | None = None
+            self.stream_audio: list[bytes] = []
+
+        async def begin_stream(self, stream: RecognitionStreamIdentity) -> None:
+            if self.stream is not None and self.stream != stream:
+                raise RuntimeError("stream ownership changed without retirement")
+            self.stream = stream
+
+        async def begin_turn(self, request: STTProviderTurnRequest) -> None:
+            identity = request.identity
+            stream = RecognitionStreamIdentity(
+                "self",
+                identity.segment.activation_generation,
+                identity.segment.capture_epoch,
+                identity.provider_epoch_id,
+                identity.settings_scope,
+            )
+            if self.stream is not None and self.stream != stream:
+                raise RuntimeError("stream ownership changed without retirement")
+            self.stream = stream
+            self.identities.append(identity)
+
+        async def send_turn_audio(
+            self, _identity: STTProviderTurnIdentity, _pcm: bytes, **_kwargs: object
+        ) -> None:
+            return None
+
+        async def seal_turn(self, identity: STTProviderTurnIdentity, **_kwargs: object) -> None:
+            await self.events.put(STTProviderInputTerminal(identity, "submitted", channel="self"))
+            assert self.stream is not None
+            await self.events.put(
+                STTRecognitionUnit(
+                    RecognitionUnitIdentity(self.stream, uuid4(), len(self.identities)),
+                    f"utterance-{len(self.identities)}",
+                )
+            )
+
+        async def send_stream_audio(
+            self, pcm16le: bytes, *, source_ranges: tuple[AudioCaptureSpan, ...]
+        ) -> None:
+            assert source_ranges
+            self.stream_audio.append(pcm16le)
+
+        async def end_stream(self, *, reason: str) -> None:
+            return None
+
+        def recognition_source_covers(self, _ranges: tuple[AudioCaptureSpan, ...]) -> bool:
+            return False
+
+    session = StreamSession()
+    captured: list[STTRecognitionUnitTerminal] = []
+    capture_box: list[SelfCaptureSessionOwner] = []
+
+    async def on_event(event: object) -> None:
+        if isinstance(event, STTProviderInputTerminal):
+            capture_box[0].note_input_terminal(event)
+        elif isinstance(event, STTRecognitionUnitTerminal):
+            if capture_box[0].is_current_recognition_stream(event.unit.identity.stream):
+                captured.append(event)
+
+    engine = ScopedRecognitionEngine(
+        channel="self",
+        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
+        event_sink=on_event,
+        watchdog_resolver=lambda _settings: STTRecognitionWatchdogs(write_timeout_s=1.0),
+    )
+    owner, _, _, _, loop, _ = build_owner(sink=StreamSink(engine))
+    capture_box.append(owner)
+    session_config = replace(
+        config(),
+        provider_id="gemini_transcribe",
+        provider_signature=("gemini_transcribe",),
+    )
+    try:
+        initial = await owner.apply_intent(session_config, enabled=True)
+        await loop.started.wait()
+        guarded = loop.calls[0]["sink"]
+        initial_loop_task = owner.loop_task
+        now = asyncio.get_running_loop().time()
+        span = AudioCaptureSpan(
+            capture_epoch=1,
+            callback_sequence=1,
+            source_sample_rate_hz=16000,
+            source_start_sample=0,
+            source_end_sample=8,
+            source_start_monotonic_s=now,
+            source_end_monotonic_s=now + 8 / 16000,
+            normalized_sample_rate_hz=16000,
+            normalized_start_sample=0,
+            normalized_end_sample=8,
+        )
+
+        async def submit_utterance(order: int) -> None:
+            segment_id = uuid4()
+            current = replace(
+                span,
+                callback_sequence=order,
+                source_start_sample=order * 8,
+                source_end_sample=(order + 1) * 8,
+                normalized_start_sample=order * 8,
+                normalized_end_sample=(order + 1) * 8,
+            )
+            await guarded.handle_vad_event(
+                SpeechStart(
+                    segment_id,
+                    pre_roll=np.empty((0,), dtype=np.float32),
+                    chunk=np.ones((8,), dtype=np.float32),
+                    chunk_capture=(current,),
+                )
+            )
+            await guarded.handle_stream_input(
+                CaptureStreamInput(np.ones((8,), dtype=np.float32), (current,))
+            )
+            await guarded.handle_vad_event(SpeechEnd(segment_id))
+            await wait_until(lambda: len(captured) == order)
+
+        await submit_utterance(1)
+        applied = await owner.apply_intent(session_config, enabled=True)
+        assert applied.generation == initial.generation
+        assert owner.loop_task is initial_loop_task
+        await submit_utterance(2)
+        assert [event.unit.text for event in captured] == ["utterance-1", "utterance-2"]
+        assert len(session.stream_audio) == 2
+        assert [item.outcome for item in guarded.ledger.terminal_receipts] == [
+            "submitted",
+            "submitted",
+        ]
+        assert session.stream is not None
+        assert owner.is_current_recognition_stream(session.stream)
+        old_stream = session.stream
+        changed = replace(session_config, runtime_signature=("runtime", "changed"))
+        switched = await owner.apply_intent(changed, enabled=True)
+        assert switched.generation > initial.generation
+        assert not owner.is_current_recognition_stream(old_stream)
+        assert all(
+            receipt.identity.activation_generation == initial.generation
+            for receipt in guarded.ledger.terminal_receipts
+        )
+    finally:
+        await owner.close()
+        await engine.close_backend()
+
+
+@pytest.mark.asyncio
+async def test_changed_self_settings_release_exact_old_input_without_reviving_old_stream() -> None:
+    owner, _, _, _, loop, _ = build_owner()
+    first_config = config()
+    try:
+        started = await owner.apply_intent(first_config, enabled=True)
+        await loop.started.wait()
+        guarded = loop.calls[0]["sink"]
+        old_id = uuid4()
+        await guarded.handle_vad_event(
+            SpeechStart(
+                old_id,
+                pre_roll=np.empty((0,), dtype=np.float32),
+                chunk=np.ones((8,), dtype=np.float32),
+            )
+        )
+        old_identity = guarded.ledger.snapshots[0].identity
+        changed = replace(first_config, runtime_signature=("runtime", "new-settings"))
+        switched = await owner.apply_intent(changed, enabled=True)
+        assert switched.generation > started.generation
+        owner.note_input_terminal(
+            STTProviderInputTerminal(
+                STTProviderTurnIdentity(
+                    replace(old_identity, capture_epoch=old_identity.capture_epoch + 1),
+                    "old-epoch",
+                    "wrong-input",
+                ),
+                "failed",
+                channel="self",
+                failure_reason="wrong_input_failed",
+            )
+        )
+        assert guarded.ledger.current_open_segment_id == old_id
+        owner.note_input_terminal(
+            STTProviderInputTerminal(
+                STTProviderTurnIdentity(old_identity, "old-epoch", "old-input"),
+                "failed",
+                channel="self",
+                failure_reason="old_input_failed",
+            )
+        )
+        await guarded.handle_vad_event(SpeechEnd(old_id))
+        assert guarded.ledger.current_open_segment_id is None
+        assert guarded.ledger.terminal_receipts[0].identity == old_identity
+        assert guarded.ledger.terminal_receipts[0].outcome == "failed"
+        assert guarded.ledger.terminal_receipts[0].failure_reason == "old_input_failed"
+
+        next_id = uuid4()
+        await guarded.handle_vad_event(
+            SpeechStart(
+                next_id,
+                pre_roll=np.empty((0,), dtype=np.float32),
+                chunk=np.ones((8,), dtype=np.float32),
+            )
+        )
+        successor = guarded.ledger.snapshots[0]
+        assert successor.identity.activation_generation == switched.generation
+        assert successor.settings.runtime_signature == changed.runtime_signature
+        assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+    finally:
+        await owner.close()
 
 
 @pytest.mark.asyncio

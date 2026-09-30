@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Literal
 from uuid import UUID
+
+import numpy as np
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 
 SegmentTerminalOutcome = Literal[
     "final",
+    "submitted",
     "empty",
     "degraded",
     "suppressed",
@@ -182,6 +186,23 @@ class OwnedVadEvent:
     retention: AudioRetentionBinding | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class CaptureStreamInput:
+    chunk: np.ndarray
+    capture: tuple[AudioCaptureSpan, ...]
+    boundary_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedStreamInput:
+    event: CaptureStreamInput
+    ledger: PeerAudioSegmentLedger
+    settings: AudioSegmentSettingsSnapshot
+    activation_generation: int
+    retention: AudioRetentionBinding | None = None
+    is_current: Callable[[], bool] | None = None
+
+
 @dataclass(slots=True)
 class _MutableSegment:
     identity: AudioSegmentIdentity
@@ -227,6 +248,10 @@ class PeerAudioSegmentLedger:
     ) -> None:
         self._activation_generation = activation_generation
         self._settings = settings
+
+    @property
+    def settings(self) -> AudioSegmentSettingsSnapshot:
+        return self._settings
 
     @property
     def current_open_segment_id(self) -> UUID | None:
@@ -547,6 +572,12 @@ class PeerAudioSegmentLedger:
     def contains_segment(self, segment_id: UUID) -> bool:
         return segment_id in self._segments or segment_id in self._retired_receipts
 
+    def is_segment_terminal(self, segment_id: UUID) -> bool:
+        if segment_id in self._retired_receipts:
+            return True
+        segment = self._segments.get(segment_id)
+        return segment is not None and segment.terminal is not None
+
     def _terminalize_sealed(
         self,
         segment: _MutableSegment,
@@ -659,7 +690,9 @@ __all__ = [
     "AudioSegmentSettingsSnapshot",
     "AudioSegmentSnapshot",
     "AudioSegmentTerminalReceipt",
+    "CaptureStreamInput",
     "OwnedVadEvent",
+    "OwnedStreamInput",
     "PeerAudioSegmentLedger",
     "SELF_RETAINED_AUDIO_CAPACITY_BYTES",
     "SELF_RETAINED_AUDIO_CAPACITY_SAMPLE_EQUIVALENTS",

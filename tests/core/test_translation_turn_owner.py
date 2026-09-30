@@ -29,6 +29,11 @@ from puripuly_heart.core.runtime.output import OutputRuntime
 from puripuly_heart.core.translation_policy import TranslationRuntimePolicy
 from puripuly_heart.domain.events import STTFinalEvent, UIEvent, UIEventType
 from puripuly_heart.domain.models import FinalLanguageRun, FinalSpeakerRun, Transcript, Translation
+from puripuly_heart.domain.recognition import (
+    RecognitionStreamIdentity,
+    RecognitionTextOrigin,
+    RecognitionUnitIdentity,
+)
 from tests.helpers.fakes import RecordingOscQueue
 from tests.helpers.translation_owners import compose_translation_test_harness
 
@@ -133,6 +138,40 @@ def test_language_and_speaker_boundaries_segment_without_punctuation_occupants()
     assert [child.detected_language for child in children] == ["en", "ja"]
     assert [child.transcript.final_speaker_runs[0].speaker_id for child in children] == ["1", "1"]
     assert "".join(child.transcript.text for child in children) == request.transcript.text
+
+
+def test_recognition_origins_follow_language_and_speaker_text_slices() -> None:
+    stream = RecognitionStreamIdentity("peer", 1, 2, "epoch", ("gemini",))
+    unit = RecognitionUnitIdentity(stream, uuid4(), 1)
+    text = "one two"
+    request = TranslationTurnRequest(
+        transcript=Transcript(
+            uuid4(),
+            text,
+            True,
+            channel="peer",
+            final_language_runs=(FinalLanguageRun("one ", "en"), FinalLanguageRun("two", "ja")),
+            final_speaker_runs=(
+                FinalSpeakerRun("one ", "A", "native"),
+                FinalSpeakerRun("two", "B", "native"),
+            ),
+            publication_generation=1,
+            source_order=1,
+            recognition_origins=(RecognitionTextOrigin(unit, 0, len(text)),),
+        ),
+        source="Peer",
+        turn_kind="peer",
+        target_languages=("ko",),
+        config_snapshot=TranslationRuntimeConfigSnapshot(0, TranslationRuntimeConfig()),
+    )
+
+    children = _owner()._build_children(request, turn_generation=0, turn_order=0)
+
+    assert [child.transcript.text for child in children] == ["one ", "two"]
+    assert [child.transcript.recognition_origins for child in children] == [
+        (RecognitionTextOrigin(unit, 0, 4),),
+        (RecognitionTextOrigin(unit, 0, 3),),
+    ]
 
 
 @pytest.mark.parametrize(

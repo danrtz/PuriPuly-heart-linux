@@ -215,7 +215,7 @@ def _direct_session(factory, *, connect_timeout_s=10.0):
         model=GEMINI_TRANSCRIBE_STT_MODEL,
         sample_rate_hz=GEMINI_TRANSCRIBE_SAMPLE_RATE_HZ,
         connect_timeout_s=connect_timeout_s,
-        finalize_timeout_s=2.0,
+        drain_timeout_s=2.0,
         live_connect_factory=factory,
     )
 
@@ -251,13 +251,12 @@ async def test_offline_sdk_construction_and_dual_close() -> None:
         assert raw["response_modalities"] == ["TEXT"]
         assert raw["input_audio_transcription"]["mode"] == "VERBATIM"
         assert raw["input_audio_transcription"]["language_codes"] == ["ko-KR"]
-        assert raw["realtime_input_config"]["automatic_activity_detection"]["disabled"] is True
         resources = stt._client_resources
         assert isinstance(resources.client, Client)
         assert isinstance(resources.sync_transport, httpx.Client)
         assert isinstance(resources.async_transport, httpx.AsyncClient)
         await stt.send_audio(b"\x00\x00" * 160)
-        await _wait_for_predicate(lambda: any("activity_start" in call for call in live.sent))
+        await _wait_for_predicate(lambda: any("audio" in call for call in live.sent))
     finally:
         await stt.close()
     assert factory.context is not None

@@ -6,6 +6,7 @@ from puripuly_heart.app.ports.capture_vad_runtime import (
     PeerCaptureVadEventRuntime,
     PeerCaptureVadEventRuntimeProvider,
 )
+from puripuly_heart.core.audio.ownership import OwnedStreamInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +18,12 @@ class PeerCaptureVadSinkAdapter:
         if runtime is None:
             raise RuntimeError("Peer VAD sink requires the Peer translation owner")
         await runtime.handle_peer_owned_vad_event(event)
+
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None:
+        runtime = self.runtime_provider()
+        if runtime is None:
+            raise RuntimeError("Peer VAD sink requires the Peer translation owner")
+        await runtime.handle_stream_input(event)
 
     async def observe_source_activity(
         self,

@@ -15,6 +15,11 @@ from puripuly_heart.core.audio.ownership import (
 from puripuly_heart.core.runtime.local_asr_transition import LocalASRSessionOptions
 from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
 from puripuly_heart.domain.models import FinalLanguageRun, FinalSpeakerRun
+from puripuly_heart.domain.recognition import (
+    NativeTranscriptionEvidence,
+    RecognitionStreamIdentity,
+    RecognitionUnitIdentity,
+)
 
 
 class PermanentSTTScopedSessionError(RuntimeError):
@@ -63,6 +68,7 @@ class STTNativeProvenance:
     native_task_id: str | None = None
     barrier: str | None = None
     from_finalize: bool | None = None
+    transcription: NativeTranscriptionEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +202,59 @@ class STTProviderEpochEnded:
     failure_retryable: bool = False
 
 
-STTProviderTurnEvent = STTProviderTurnUpdate | STTProviderTurnTerminal | STTProviderEpochEnded
+@dataclass(frozen=True, slots=True)
+class STTProviderInputTerminal:
+    identity: STTProviderTurnIdentity
+    outcome: Literal["submitted", "failed", "expired", "cancelled"]
+    channel: Literal["self", "peer"]
+    failure_reason: str | None = None
+    epoch_disposition: Literal["reuse", "retire"] = "reuse"
+    recovery_pending: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class STTRecognitionUnit:
+    identity: RecognitionUnitIdentity
+    text: str
+    provenance: STTNativeProvenance = STTNativeProvenance()
+    final_language_runs: tuple[FinalLanguageRun, ...] = ()
+    final_speaker_runs: tuple[FinalSpeakerRun, ...] = ()
+
+    @property
+    def retained_bytes(self) -> int:
+        size = len(self.text.encode("utf-8"))
+        native = self.provenance.transcription
+        if native is not None:
+            size += len(native.words) * 64
+            size += sum(
+                len(value.encode("utf-8"))
+                for value in (native.language_code, native.speaker_label)
+                if value is not None
+            )
+            size += sum(
+                len(value.encode("utf-8"))
+                for word in native.words
+                for value in word
+                if value is not None
+            )
+        return size
+
+
+@dataclass(frozen=True, slots=True)
+class STTRecognitionUnitTerminal:
+    unit: STTRecognitionUnit
+    outcome: Literal["final", "empty", "failed", "cancelled"]
+    failure_reason: str | None = None
+
+
+STTProviderTurnEvent = (
+    STTProviderTurnUpdate
+    | STTProviderTurnTerminal
+    | STTProviderEpochEnded
+    | STTProviderInputTerminal
+    | STTRecognitionUnit
+    | STTRecognitionUnitTerminal
+)
 
 
 @runtime_checkable
@@ -223,6 +281,20 @@ class STTScopedTurnSession(Protocol):
     async def turn_events(self) -> AsyncIterator[STTProviderTurnEvent]: ...
     async def stop(self) -> None: ...
     async def close(self) -> None: ...
+
+
+@runtime_checkable
+class STTIndependentRecognitionSession(Protocol):
+    @property
+    def accepts_stream_input(self) -> bool: ...
+    @property
+    def independent_recognition_units(self) -> bool: ...
+    async def begin_stream(self, stream: RecognitionStreamIdentity) -> None: ...
+    async def send_stream_audio(
+        self, pcm16le: bytes, *, source_ranges: tuple[AudioCaptureSpan, ...]
+    ) -> None: ...
+    async def end_stream(self, *, reason: str) -> None: ...
+    def recognition_source_covers(self, ranges: tuple[AudioCaptureSpan, ...]) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)

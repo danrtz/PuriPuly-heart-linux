@@ -6,6 +6,7 @@ from puripuly_heart.app.ports.capture_vad_runtime import (
     SelfCaptureVadEventRuntime,
     SelfCaptureVadEventRuntimeProvider,
 )
+from puripuly_heart.core.audio.ownership import OwnedStreamInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +16,9 @@ class SelfCaptureVadSinkAdapter:
     async def handle_vad_event(self, event: object) -> None:
         runtime = self._require_runtime()
         await runtime.handle_vad_event(event)
+
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None:
+        await self._require_runtime().handle_stream_input(event)
 
     async def observe_source_activity(
         self,

@@ -7,6 +7,8 @@ from puripuly_heart.core.clock import FakeClock
 from puripuly_heart.core.overlay.presenter import OverlayPresenter
 from puripuly_heart.core.overlay.sink import OverlayEventAdapter
 from puripuly_heart.core.speaker_identity import PeerSpeakerIdentityAllocator
+from puripuly_heart.core.stt.backend import STTRecognitionUnit
+from puripuly_heart.core.stt.recognition_units import recognition_transcript
 from puripuly_heart.domain.models import (
     FinalSpeakerRun,
     SpeakerAssignment,
@@ -14,6 +16,7 @@ from puripuly_heart.domain.models import (
     SpeakerKey,
     Transcript,
 )
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 from puripuly_heart.ui.overlay_calibration import OverlayCalibration
 
 
@@ -79,6 +82,39 @@ async def test_non_diarized_gold_does_not_block_identified_speaker_scope() -> No
         _peer_event(adapter, unknown, "unknown", _assignment("new", None, 3, None))
     )
     assert [block.speaker_style for block in presenter.snapshot().blocks] == ["gold", "gray"]
+    await presenter.close()
+
+
+@pytest.mark.asyncio
+async def test_stream_scoped_peer_without_speaker_stays_gray_after_readable_update() -> None:
+    clock = FakeClock(_now=26.0)
+    adapter = OverlayEventAdapter(clock=clock)
+    presenter = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    allocator = PeerSpeakerIdentityAllocator()
+    stream = RecognitionStreamIdentity("peer", 1, 1, "epoch", ("gemini",))
+    unit = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), "stream words")
+    transcript = recognition_transcript(unit, created_at=clock.now(), publication_order=1)
+    assignment = allocator.observe(transcript, child_sequence=0)
+
+    await presenter.emit(
+        adapter.transcript_final(
+            transcript,
+            source_language="en",
+            target_language="ko",
+            speaker_assignment=assignment,
+        )
+    )
+    await presenter.emit(
+        _peer_event(
+            adapter,
+            transcript.utterance_id,
+            "translation",
+            SpeakerAssignment(SpeakerAttribution("non_diarized"), (1, 1, 0)),
+        )
+    )
+
+    assert assignment.attribution.state == "uncertain"
+    assert presenter.snapshot().blocks[0].speaker_style == "gray"
     await presenter.close()
 
 

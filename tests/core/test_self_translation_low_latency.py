@@ -790,7 +790,9 @@ async def test_ready_spec_result_is_invalidated_by_provider_replacement_during_g
 
     await harness.replace_llm_provider(new_llm)
     assert attempt.provider_generation != harness.llm_runtime.generation
-    await asyncio.sleep(0.1)
+    if buffer.finalize_wait_task is not None:
+        await asyncio.wait_for(buffer.finalize_wait_task, timeout=1.0)
+    await asyncio.wait_for(harness.translation_turns.wait_for_idle(), timeout=1.0)
 
     assert harness.self_owner.merge_buffer is None
     assert len(old_llm.calls) == 1

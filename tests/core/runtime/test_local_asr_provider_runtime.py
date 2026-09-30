@@ -1537,7 +1537,11 @@ async def test_retained_scoped_engine_receives_pending_fact_from_blocked_peer_gu
 
     ready = asyncio.Event()
 
+    queued_ledger = PeerAudioSegmentLedger(activation_generation=1, settings=old_settings)
+
     class CaptureRuntime:
+        segment_ledger = queued_ledger
+
         def is_current_generation(self, generation: int) -> bool:
             return generation == 1
 
@@ -1554,7 +1558,6 @@ async def test_retained_scoped_engine_receives_pending_fact_from_blocked_peer_gu
         capture_generation=_CaptureGeneration(1),
         provider_ingress_ready=ready,
     )
-    queued_ledger = PeerAudioSegmentLedger(activation_generation=1, settings=old_settings)
     queued_id = uuid4()
     queued_start = queued_ledger.observe_vad_event(
         SpeechStart(

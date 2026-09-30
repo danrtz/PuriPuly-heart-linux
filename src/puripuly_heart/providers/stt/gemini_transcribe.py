@@ -6,72 +6,52 @@ import asyncio
 import concurrent.futures
 import contextlib
 import logging
-from collections import deque
+import math
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, ClassVar, Sequence
+from uuid import uuid4
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
 from puripuly_heart.core.stt.backend import (
     LEGACY_STT_SESSION_PROJECTION,
-    RecoverableSTTSessionError,
     STTBackend,
     STTBackendSession,
     STTBackendTranscriptEvent,
     STTNativeProvenance,
+    STTProviderInputTerminal,
     STTProviderTurnIdentity,
     STTProviderTurnRequest,
-    STTProviderTurnTerminal,
-    STTProviderTurnUpdate,
+    STTRecognitionUnit,
     STTSessionProjection,
 )
 from puripuly_heart.core.stt.session_projection import STTSessionEventProjection
+from puripuly_heart.core.stt.stream_input import STTStreamInputMap
+from puripuly_heart.domain.recognition import (
+    NativeTranscriptionEvidence,
+    RecognitionStreamIdentity,
+    RecognitionUnitIdentity,
+)
 
 logger = logging.getLogger(__name__)
 
 GEMINI_TRANSCRIBE_STT_MODEL = "gemini-3.5-transcribe-live"
 GEMINI_TRANSCRIBE_SAMPLE_RATE_HZ = 16000
-GEMINI_TRANSCRIBE_FINALIZE_TIMEOUT_S = 2.0
+GEMINI_TRANSCRIBE_DRAIN_TIMEOUT_S = 2.0
 GEMINI_TRANSCRIBE_MAX_SESSION_AGE_S = 9.0 * 60.0
 
 
-class GeminiTranscribeFinalizeTimeout(RecoverableSTTSessionError):
-    pass
-
-
-@dataclass(slots=True, eq=False)
-class _PendingTurn:
-    identity: STTProviderTurnIdentity | None = None
-    latest_interim: str = ""
-    final_emitted: bool = False
-    authoritative_received: bool = False
-    authoritative_text: str = ""
-    activity_end_received: bool = False
-    activity_end_ack: asyncio.Event = field(default_factory=asyncio.Event)
-    timeout_task: asyncio.Task[None] | None = None
-    provenance: list[STTNativeProvenance] = field(default_factory=list)
-
-
 @dataclass(frozen=True, slots=True)
-class _StartTurn:
-    turn: _PendingTurn
-    completion: asyncio.Future[None] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _EndTurn:
-    turn: _PendingTurn
-    completion: asyncio.Future[None] | None = None
+class _EndStream:
+    reason: str
+    completion: asyncio.Future[None]
 
 
 @dataclass(frozen=True, slots=True)
 class _AudioWrite:
-    turn: _PendingTurn
     pcm16le: bytes
+    source_ranges: tuple[AudioCaptureSpan, ...]
     completion: asyncio.Future[None]
-
-
-_STOP = object()
 
 
 @dataclass(slots=True)
@@ -94,7 +74,10 @@ def _build_live_config_sync(language_codes: Sequence[str], custom_vocabulary: Se
         response_modalities=["TEXT"],
         input_audio_transcription=types.AudioTranscriptionConfig(**transcription_config_kwargs),
         realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(disabled=True),
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                prefix_padding_ms=500,
+                silence_duration_ms=400,
+            ),
         ),
     )
 
@@ -194,7 +177,7 @@ class GeminiTranscribeSTTBackend(STTBackend):
     model: str = GEMINI_TRANSCRIBE_STT_MODEL
     sample_rate_hz: int = GEMINI_TRANSCRIBE_SAMPLE_RATE_HZ
     connect_timeout_s: float = 10.0
-    finalize_timeout_s: float = GEMINI_TRANSCRIBE_FINALIZE_TIMEOUT_S
+    drain_timeout_s: float = GEMINI_TRANSCRIBE_DRAIN_TIMEOUT_S
     live_connect_factory: Callable[[str, Any], Any] | None = None
 
     async def open_session(
@@ -210,8 +193,8 @@ class GeminiTranscribeSTTBackend(STTBackend):
             raise ValueError("api_key must be non-empty")
         if self.connect_timeout_s <= 0:
             raise ValueError("connect_timeout_s must be > 0")
-        if self.finalize_timeout_s <= 0:
-            raise ValueError("finalize_timeout_s must be > 0")
+        if self.drain_timeout_s <= 0:
+            raise ValueError("drain_timeout_s must be > 0")
         session = _GeminiTranscribeLiveSession(
             api_key=self.api_key,
             language_codes=list(self.language_codes),
@@ -219,7 +202,7 @@ class GeminiTranscribeSTTBackend(STTBackend):
             model=self.model,
             sample_rate_hz=self.sample_rate_hz,
             connect_timeout_s=self.connect_timeout_s,
-            finalize_timeout_s=self.finalize_timeout_s,
+            drain_timeout_s=self.drain_timeout_s,
             live_connect_factory=self.live_connect_factory,
             projection=projection,
         )
@@ -265,34 +248,38 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
     model: str
     sample_rate_hz: int
     connect_timeout_s: float
-    finalize_timeout_s: float
+    drain_timeout_s: float
     live_connect_factory: Callable[[str, Any], Any] | None = None
     projection: STTSessionProjection = LEGACY_STT_SESSION_PROJECTION
     max_session_age_s: ClassVar[float] = GEMINI_TRANSCRIBE_MAX_SESSION_AGE_S
 
     _event_projection: STTSessionEventProjection = field(init=False, repr=False)
-    _send_queue: asyncio.Queue[_StartTurn | _EndTurn | _AudioWrite | bytes | object] = field(
-        init=False, repr=False
-    )
+    _send_queue: asyncio.Queue[_EndStream | _AudioWrite] = field(init=False, repr=False)
     _live_context: Any = field(init=False, default=None, repr=False)
     _live_session: Any = field(init=False, default=None, repr=False)
     _send_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
     _recv_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
     _stopped: bool = field(init=False, default=False)
-    _capture_turn: _PendingTurn | None = field(init=False, default=None, repr=False)
-    _streaming_turn: _PendingTurn | None = field(init=False, default=None, repr=False)
-    _pending_turns: deque[_PendingTurn] = field(init=False, default_factory=deque, repr=False)
+    _stream: RecognitionStreamIdentity | None = field(init=False, default=None, repr=False)
+    _input_map: STTStreamInputMap = field(init=False, default_factory=STTStreamInputMap)
+    _receipt_sequence: int = field(init=False, default=0)
+    _queued_audio_bytes: int = field(init=False, default=0)
+    _audio_since_fence: bool = field(init=False, default=False)
     _protocol_failed: bool = field(init=False, default=False)
-    _retirement_due: bool = field(init=False, default=False)
-    _retirement_reason: str | None = field(init=False, default=None, repr=False)
     _client_resources: _GeminiClientResources | None = field(init=False, default=None, repr=False)
+    _connected_at_s: float | None = field(init=False, default=None, repr=False)
+    _go_away_timer: asyncio.TimerHandle | None = field(init=False, default=None, repr=False)
+    _go_away_active: bool = field(init=False, default=False)
     _setup_future: Any = field(init=False, default=None, repr=False)
     _setup_executor: Any = field(init=False, default=None, repr=False)
     _handshake_task: asyncio.Task[Any] | None = field(init=False, default=None, repr=False)
     _teardown_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
     _teardown_done: bool = field(init=False, default=False)
-    _scoped_turn: _PendingTurn | None = field(init=False, default=None, repr=False)
-    allows_interim_timeout_fallback: bool = field(init=False, default=True)
+    _scoped_request: STTProviderTurnRequest | None = field(init=False, default=None, repr=False)
+    _sealing: bool = field(init=False, default=False)
+    allows_sealed_turn_overlap: ClassVar[bool] = True
+    accepts_stream_input: ClassVar[bool] = True
+    independent_recognition_units: ClassVar[bool] = True
 
     def __post_init__(self) -> None:
         self._event_projection = STTSessionEventProjection(self.projection)
@@ -368,17 +355,18 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
                 pass
             raise RuntimeError("Gemini Transcribe Live session closed during connect")
         self._live_session = live_session
+        self._connected_at_s = asyncio.get_running_loop().time()
         self._send_task = asyncio.create_task(self._send_loop())
         self._recv_task = asyncio.create_task(self._recv_loop())
 
+    def _start_teardown(self) -> asyncio.Task[None] | None:
+        if self._teardown_task is None and not self._teardown_done:
+            self._teardown_task = asyncio.create_task(self._teardown_body())
+        return self._teardown_task
+
     async def _teardown(self) -> None:
-        task = self._teardown_task
+        task = self._start_teardown()
         if task is None:
-            if self._teardown_done:
-                return
-            task = asyncio.create_task(self._teardown_body())
-            self._teardown_task = task
-        if task is asyncio.current_task():
             return
         while not task.done():
             try:
@@ -387,6 +375,7 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
                 continue
 
     async def _teardown_body(self) -> None:
+        self._cancel_go_away_timer()
         raw = self._setup_future
         if raw is not None and not raw.done():
             try:
@@ -456,93 +445,46 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
         await self._close_resources(resources)
 
     async def _send_loop(self) -> None:
-        item: _StartTurn | _EndTurn | _AudioWrite | bytes | object = _STOP
+        item: _EndStream | _AudioWrite | None = None
         try:
             while not self._stopped:
                 item = await self._send_queue.get()
-                if item is _STOP:
+                if self._protocol_failed:
+                    self._resolve_write(item.completion, RuntimeError("Gemini writer retired"))
                     return
-                if isinstance(item, _StartTurn):
-                    from google.genai import types
-
-                    turn = item.turn
-                    if not self._turn_can_write(turn):
-                        self._resolve_write(
-                            item.completion,
-                            RuntimeError("Gemini Transcribe Live turn is no longer active"),
-                        )
-                        continue
-                    self._streaming_turn = turn
-                    await self._send_realtime(activity_start=types.ActivityStart())
-                    if not self._turn_can_write(turn):
-                        self._resolve_write(
-                            item.completion,
-                            RuntimeError("Gemini Transcribe Live turn was retired during write"),
-                        )
-                        continue
-                    self._resolve_write(item.completion, None)
+                if item.completion.cancelled():
+                    if isinstance(item, _AudioWrite):
+                        self._queued_audio_bytes -= len(item.pcm16le)
                     continue
-                if isinstance(item, _EndTurn):
-                    from google.genai import types
-
-                    turn = item.turn
-                    if not self._turn_can_write(turn):
-                        self._resolve_write(
-                            item.completion,
-                            RuntimeError("Gemini Transcribe Live turn is no longer active"),
+                if isinstance(item, _EndStream):
+                    if self._audio_since_fence:
+                        await self._send_realtime(audio_stream_end=True)
+                        self._audio_since_fence = False
+                else:
+                    self._queued_audio_bytes -= len(item.pcm16le)
+                    pcm, mapped = (
+                        self._input_map.prepare(
+                            item.pcm16le,
+                            item.source_ranges,
                         )
-                        continue
-                    self._pending_turns.append(turn)
-                    await self._send_realtime(activity_end=types.ActivityEnd())
-                    completed = turn.authoritative_received and turn.activity_end_received
-                    if self._protocol_failed and not completed:
-                        if turn in self._pending_turns:
-                            self._pending_turns.remove(turn)
-                        self._resolve_write(
-                            item.completion,
-                            RuntimeError("Gemini Transcribe Live turn was retired during finalize"),
-                        )
-                        return
-                    self._resolve_write(item.completion, None)
-                    if turn in self._pending_turns:
-                        turn.timeout_task = asyncio.create_task(self._finalize_timeout(turn))
-                    await turn.activity_end_ack.wait()
-                    if self._streaming_turn is turn:
-                        self._streaming_turn = None
-                    if self._retirement_due and not self._has_active_turn():
-                        self._fail_idle_protocol(self._retirement_reason or "gemini_retirement_due")
-                    if self._protocol_failed:
-                        return
-                    continue
-                if isinstance(item, _AudioWrite):
-                    if not self._turn_can_write(item.turn):
-                        self._resolve_write(
-                            item.completion,
-                            RuntimeError("Gemini Transcribe Live turn is no longer active"),
-                        )
-                        continue
-                    await self._send_realtime(
-                        audio={
-                            "data": item.pcm16le,
-                            "mime_type": f"audio/pcm;rate={self.sample_rate_hz}",
-                        },
+                        if self._event_projection.is_scoped
+                        else (item.pcm16le, None)
                     )
-                    if not self._turn_can_write(item.turn):
-                        self._resolve_write(
-                            item.completion,
-                            RuntimeError("Gemini Transcribe Live turn was retired during write"),
+                    if pcm:
+                        await self._send_realtime(
+                            audio={
+                                "data": pcm,
+                                "mime_type": f"audio/pcm;rate={self.sample_rate_hz}",
+                            }
                         )
-                        continue
-                    self._resolve_write(item.completion, None)
-                    continue
-                if isinstance(item, bytes):
-                    await self._send_realtime(
-                        audio={
-                            "data": item,
-                            "mime_type": f"audio/pcm;rate={self.sample_rate_hz}",
-                        },
-                    )
+                        self._audio_since_fence = True
+                        if mapped is not None:
+                            self._input_map.commit(mapped)
+                self._resolve_write(item.completion, None)
         except asyncio.CancelledError:
+            self._resolve_write(
+                getattr(item, "completion", None), RuntimeError("Gemini writer cancelled")
+            )
             raise
         except Exception as exc:
             self._resolve_write(getattr(item, "completion", None), exc)
@@ -552,21 +494,16 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
         finally:
             self._fail_pending_writes()
 
-    def _turn_can_write(self, turn: _PendingTurn) -> bool:
-        if self._stopped or self._protocol_failed:
-            return False
-        if turn.identity is None:
-            return True
-        return self._scoped_turn is turn
-
     async def _recv_loop(self) -> None:
         try:
-            while not self._stopped:
+            while not self._stopped and not self._protocol_failed:
                 live_session = self._live_session
                 if live_session is None:
                     return
                 async for message in live_session.receive():
                     self._handle_message(message)
+                    if self._protocol_failed:
+                        return
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -580,198 +517,96 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
                 message_kind,
             )
             self._put_event(exc)
-            self._scoped_transport_failure("gemini_receive_failed", orderly=False)
+            self._scoped_transport_failure("gemini_receive_failed")
         finally:
             self._put_event(None)
-            self._scoped_transport_failure("gemini_connection_ended", orderly=True)
+            if not self._stopped:
+                self._scoped_transport_failure(
+                    "gemini_go_away" if self._go_away_active else "gemini_connection_ended"
+                )
+                if self._go_away_active:
+                    self._start_teardown()
 
     def _handle_message(self, message: Any) -> None:
-        if self._protocol_failed:
+        if self._protocol_failed or self._stopped:
             return
-        if getattr(message, "go_away", None) is not None:
-            self._mark_retirement_due("gemini_go_away")
-            if not self._has_active_turn():
-                self._fail_idle_protocol("gemini_go_away")
-                return
-        provenance = self._message_provenance(message)
-        content = message.server_content
-        if content is not None:
-            interim = content.interim_input_transcription
-            if interim is not None and interim.text:
-                text = str(interim.text)
-                turn = self._turn_for_interim()
-                if turn is not None:
-                    turn.latest_interim = text
-                    if turn.identity is not None:
-                        sequence = self._event_projection.next_update_sequence(turn.identity)
-                        if sequence is not None:
-                            self._event_projection.put_update(
-                                STTProviderTurnUpdate(
-                                    identity=turn.identity,
-                                    sequence=sequence,
-                                    stability="provisional",
-                                    assembly="replace",
-                                    text=text,
-                                    provenance=provenance,
+        content = getattr(message, "server_content", None)
+        final = getattr(content, "input_transcription", None)
+        if final is not None:
+            text = str(getattr(final, "text", None) or "")
+            if self._event_projection.is_legacy:
+                self._put_event(STTBackendTranscriptEvent(text=text, is_final=True))
+            elif self._stream is not None:
+                self._receipt_sequence += 1
+                unit = STTRecognitionUnit(
+                    identity=RecognitionUnitIdentity(self._stream, uuid4(), self._receipt_sequence),
+                    text=text,
+                    provenance=STTNativeProvenance(
+                        transcription=NativeTranscriptionEvidence(
+                            finished=getattr(final, "finished", None),
+                            language_code=getattr(final, "language_code", None),
+                            speaker_label=getattr(final, "speaker_label", None),
+                            words=tuple(
+                                (
+                                    getattr(word, "word", None),
+                                    (
+                                        str(word.start_offset)
+                                        if getattr(word, "start_offset", None) is not None
+                                        else None
+                                    ),
+                                    (
+                                        str(word.end_offset)
+                                        if getattr(word, "end_offset", None) is not None
+                                        else None
+                                    ),
                                 )
-                            )
-            final = content.input_transcription
-            if final is not None:
-                self._handle_final(str(final.text or ""), provenance)
-
-        voice_activity = getattr(message, "voice_activity", None)
-        activity_type = getattr(voice_activity, "voice_activity_type", None)
-        activity_value = getattr(activity_type, "value", activity_type)
-        if str(activity_value or "").upper() == "ACTIVITY_END":
-            self._handle_activity_end_ack(self._message_provenance(message, barrier="activity_end"))
-
-    def _has_active_turn(self) -> bool:
-        return (
-            self._scoped_turn is not None
-            or self._capture_turn is not None
-            or self._streaming_turn is not None
-            or bool(self._pending_turns)
-        )
-
-    def _mark_retirement_due(self, reason: str) -> None:
-        self._retirement_due = True
-        if self._retirement_reason is None:
-            self._retirement_reason = reason
-
-    def _fail_idle_protocol(self, reason: str) -> None:
-        if self._protocol_failed:
-            return
-        self._protocol_failed = True
-        self._mark_retirement_due(reason)
-        self._event_projection.end_epoch(orderly=False, reason=reason)
-
-    @staticmethod
-    def _message_provenance(
-        message: Any,
-        *,
-        barrier: str | None = None,
-    ) -> STTNativeProvenance:
-        _ = message
-        return STTNativeProvenance(barrier=barrier)
-
-    def _turn_for_interim(self) -> _PendingTurn | None:
-        return self._streaming_turn
-
-    def _handle_final(self, text: str, provenance: STTNativeProvenance) -> None:
-        turn = next(
-            (item for item in self._pending_turns if not item.authoritative_received),
-            None,
-        )
-        if turn is None:
-            if not self._has_active_turn():
-                self._fail_idle_protocol("gemini_unsolicited_authoritative")
-            return
-        turn.authoritative_received = True
-        turn.authoritative_text = text
-        turn.provenance.append(provenance)
-        if turn.identity is not None:
-            sequence = self._event_projection.next_update_sequence(turn.identity)
-            if sequence is not None:
-                self._event_projection.put_update(
-                    STTProviderTurnUpdate(
-                        identity=turn.identity,
-                        sequence=sequence,
-                        stability="stable",
-                        assembly="replace",
-                        text=text,
-                        provenance=provenance,
-                    )
+                                for word in (getattr(final, "words", None) or ())
+                            ),
+                        )
+                    ),
                 )
-        if turn.activity_end_received:
-            self._complete_turn(turn)
-
-    def _handle_activity_end_ack(self, provenance: STTNativeProvenance) -> None:
-        if not self._pending_turns:
-            if not self._has_active_turn():
-                self._fail_idle_protocol("gemini_unsolicited_activity_end")
-            return
-        turn = self._pending_turns[0]
-        if not turn.activity_end_received:
-            turn.activity_end_received = True
-            turn.provenance.append(provenance)
-        if turn.authoritative_received:
-            self._complete_turn(turn)
-
-    def _complete_turn(self, turn: _PendingTurn) -> None:
-        if turn.identity is None:
-            if turn not in self._pending_turns:
+                if not self._event_projection.put_recognition(unit):
+                    self._scoped_transport_failure("gemini_recognition_buffer_overflow")
+        go_away = getattr(message, "go_away", None)
+        if go_away is not None and not self._go_away_active:
+            self._go_away_active = True
+            time_left = getattr(go_away, "time_left", None)
+            try:
+                grace_s = float(time_left[:-1]) if time_left and time_left.endswith("s") else 0.0
+            except ValueError, TypeError:
+                grace_s = 0.0
+            if not math.isfinite(grace_s) or grace_s <= 0:
+                self._scoped_transport_failure("gemini_go_away")
+                self._start_teardown()
                 return
-            self._pending_turns.remove(turn)
-            self._cancel_turn_timeout(turn)
-            self._emit_turn_final(turn, turn.authoritative_text)
-            if self._retirement_due:
-                self._protocol_failed = True
-            turn.activity_end_ack.set()
-            return
-        self._complete_scoped_turn(turn)
-
-    def _complete_scoped_turn(self, turn: _PendingTurn) -> None:
-        identity = turn.identity
-        if identity is None or self._scoped_turn is not turn:
-            return
-        if turn in self._pending_turns:
-            self._pending_turns.remove(turn)
-        self._cancel_turn_timeout(turn)
-        text = turn.authoritative_text
-        disposition = "retire" if self._retirement_due else "reuse"
-        self._event_projection.terminal(
-            STTProviderTurnTerminal(
-                identity=identity,
-                outcome="final" if text else "empty",
-                text=text,
-                text_authority="authoritative",
-                failure_reason=self._retirement_reason,
-                epoch_disposition=disposition,
-                provenance=tuple(turn.provenance),
+            if self._connected_at_s is not None:
+                grace_s = min(
+                    grace_s,
+                    max(
+                        0.0,
+                        self.max_session_age_s
+                        - (asyncio.get_running_loop().time() - self._connected_at_s),
+                    ),
+                )
+            if grace_s <= 0:
+                self._scoped_transport_failure("gemini_go_away")
+                self._start_teardown()
+                return
+            self._go_away_timer = asyncio.get_running_loop().call_later(
+                grace_s, self._expire_go_away
             )
-        )
-        self._scoped_turn = None
-        if disposition == "retire":
-            self._protocol_failed = True
-        turn.activity_end_ack.set()
 
-    def _emit_turn_final(self, turn: _PendingTurn, text: str) -> None:
-        if turn.final_emitted:
-            return
-        turn.final_emitted = True
-        if turn.identity is None:
-            self._event_projection.put_legacy(STTBackendTranscriptEvent(text=text, is_final=True))
+    def _cancel_go_away_timer(self) -> None:
+        timer, self._go_away_timer = self._go_away_timer, None
+        if timer is not None:
+            timer.cancel()
 
-    def _cancel_turn_timeout(self, turn: _PendingTurn) -> None:
-        task = turn.timeout_task
-        turn.timeout_task = None
-        if task is not None and task is not asyncio.current_task():
-            task.cancel()
-
-    async def _finalize_timeout(self, turn: _PendingTurn) -> None:
-        try:
-            await asyncio.sleep(self.finalize_timeout_s)
-        except asyncio.CancelledError:
+    def _expire_go_away(self) -> None:
+        self._go_away_timer = None
+        if self._stopped or self._protocol_failed:
             return
-        if self._stopped or self._protocol_failed or turn not in self._pending_turns:
-            return
-        self._protocol_failed = True
-        self._pending_turns.remove(turn)
-        if turn.identity is None:
-            text = turn.authoritative_text if turn.authoritative_received else turn.latest_interim
-            self._emit_turn_final(turn, text)
-        else:
-            self._timeout_scoped_turn(turn)
-        turn.activity_end_ack.set()
-        logger.warning(
-            "[STT] Gemini Transcribe Live finalize timed out after %.2fs; recycling session",
-            self.finalize_timeout_s,
-        )
-        self._put_event(
-            GeminiTranscribeFinalizeTimeout(
-                f"Gemini Transcribe Live finalize timed out after {self.finalize_timeout_s:.2f}s"
-            )
-        )
+        self._scoped_transport_failure("gemini_go_away")
+        self._start_teardown()
 
     @staticmethod
     def _resolve_write(
@@ -787,6 +622,7 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
 
     def _fail_pending_writes(self) -> None:
         error = RuntimeError("Gemini Transcribe Live writer stopped")
+        self._queued_audio_bytes = 0
         while not self._send_queue.empty():
             try:
                 item = self._send_queue.get_nowait()
@@ -794,89 +630,74 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
                 return
             self._resolve_write(getattr(item, "completion", None), error)
 
-    def _timeout_scoped_turn(self, turn: _PendingTurn) -> None:
-        identity = turn.identity
-        if identity is None or self._scoped_turn is not turn:
-            return
-        if turn.authoritative_received:
-            text = turn.authoritative_text
-            outcome = "final" if text else "empty"
-            authority = "authoritative"
-        elif turn.latest_interim:
-            text = turn.latest_interim
-            outcome = "degraded"
-            authority = "degraded"
-        else:
-            text = ""
-            outcome = "failed"
-            authority = "none"
-        self._event_projection.terminal(
-            STTProviderTurnTerminal(
-                identity=identity,
-                outcome=outcome,
-                text=text,
-                text_authority=authority,
-                failure_reason="gemini_finalize_timeout",
-                epoch_disposition="retire",
-                provenance=tuple(turn.provenance),
-            )
-        )
-        self._scoped_turn = None
-
     def _scoped_transport_failure(self, reason: str, *, orderly: bool = False) -> None:
+        self._cancel_go_away_timer()
         if self._protocol_failed:
             return
         self._protocol_failed = True
-        self._mark_retirement_due(reason)
-        turn = self._scoped_turn
-        identity = turn.identity if turn is not None else None
-        provider_turn_id = identity.provider_turn_id if identity is not None else None
-        if turn is not None and identity is not None:
-            if turn in self._pending_turns:
-                self._pending_turns.remove(turn)
-            self._cancel_turn_timeout(turn)
-            text = turn.authoritative_text if turn.authoritative_received else turn.latest_interim
+        request, self._scoped_request = self._scoped_request, None
+        if request is not None:
             self._event_projection.terminal(
-                STTProviderTurnTerminal(
-                    identity=identity,
-                    outcome="degraded" if text else "failed",
-                    text=text,
-                    text_authority="degraded" if text else "none",
-                    failure_reason=reason,
-                    epoch_disposition="retire",
-                    provenance=tuple(turn.provenance),
+                STTProviderInputTerminal(
+                    request.identity, "failed", request.channel, reason, "retire"
                 )
             )
-            self._scoped_turn = None
-            turn.activity_end_ack.set()
-        self._capture_turn = None
-        if self._streaming_turn is not None:
-            self._streaming_turn.activity_end_ack.set()
         self._event_projection.end_epoch(
             orderly=orderly,
             reason=reason,
-            provider_turn_id=provider_turn_id,
+            provider_turn_id=request.identity.provider_turn_id if request else None,
         )
+        self._fail_pending_writes()
 
-    def _require_scoped_turn(self, identity: STTProviderTurnIdentity) -> _PendingTurn:
+    def _require_scoped_turn(self, identity: STTProviderTurnIdentity) -> STTProviderTurnRequest:
         self._event_projection.require_open(identity)
-        turn = self._scoped_turn
-        if turn is None or turn.identity != identity:
-            raise RuntimeError("Gemini scoped turn identity mismatch")
-        return turn
+        request = self._scoped_request
+        if request is None or request.identity != identity:
+            raise RuntimeError("Gemini scoped input identity mismatch")
+        return request
+
+    async def begin_stream(self, stream: RecognitionStreamIdentity) -> None:
+        if self._stopped or self._protocol_failed:
+            raise RuntimeError("Gemini Transcribe Live session is closed")
+        if not self._event_projection.is_scoped:
+            raise RuntimeError("Scoped Gemini stream requires source ownership")
+        if self._stream is not None and self._stream != stream:
+            raise RuntimeError("Gemini stream ownership changed without retirement")
+        if stream.provider_epoch_id != self._event_projection.provider_epoch_id:
+            raise RuntimeError("Gemini stream belongs to a different provider epoch")
+        self._stream = stream
 
     async def begin_turn(self, request: STTProviderTurnRequest) -> None:
-        if self._stopped or self._protocol_failed or self._retirement_due:
-            raise RuntimeError("Gemini Transcribe Live session is closed")
-        if self._scoped_turn is not None or self._capture_turn is not None:
-            raise RuntimeError("Gemini allows one unresolved scoped turn")
+        identity = request.identity
+        stream = RecognitionStreamIdentity(
+            request.channel,
+            identity.segment.activation_generation,
+            identity.segment.capture_epoch,
+            identity.provider_epoch_id,
+            identity.settings_scope,
+        )
+        await self.begin_stream(stream)
         self._event_projection.begin(request)
-        completion = asyncio.get_running_loop().create_future()
-        turn = _PendingTurn(identity=request.identity)
-        self._scoped_turn = turn
-        self._capture_turn = turn
-        await self._send_queue.put(_StartTurn(turn, completion))
-        await completion
+        self._scoped_request = request
+
+    async def _enqueue(self, item: _AudioWrite | _EndStream) -> None:
+        if self._stopped or self._protocol_failed:
+            raise RuntimeError("Gemini Transcribe Live session is closed")
+        if self._send_queue.full():
+            raise RuntimeError("Gemini Transcribe Live audio queue overflow")
+        if isinstance(item, _AudioWrite):
+            if self._queued_audio_bytes + len(item.pcm16le) > 4 * 1024 * 1024:
+                raise RuntimeError("Gemini Transcribe Live audio byte capacity exceeded")
+            self._queued_audio_bytes += len(item.pcm16le)
+        self._send_queue.put_nowait(item)
+        try:
+            await item.completion
+        except asyncio.CancelledError:
+            self._scoped_transport_failure("gemini_write_cancelled")
+            if self._send_task is not None:
+                self._send_task.cancel()
+            self._start_teardown()
+            raise
 
     async def send_turn_audio(
         self,
@@ -887,15 +708,30 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
         source_ranges: tuple[AudioCaptureSpan, ...],
         context_only: bool,
     ) -> None:
-        turn = self._require_scoped_turn(identity)
-        if self._capture_turn is not turn:
-            raise RuntimeError("Gemini scoped turn is sealed")
+        self._require_scoped_turn(identity)
+        if self._sealing:
+            raise RuntimeError("Gemini scoped input is sealing")
         self._event_projection.validate_payload(identity, payload_sequence)
-        _ = source_ranges, context_only
-        completion = asyncio.get_running_loop().create_future()
-        await self._send_queue.put(_AudioWrite(turn, pcm16le, completion))
-        await completion
+        await self._enqueue(
+            _AudioWrite(
+                pcm16le,
+                source_ranges,
+                asyncio.get_running_loop().create_future(),
+            )
+        )
         self._event_projection.payload_written(identity, payload_sequence)
+
+    async def send_stream_audio(
+        self, pcm16le: bytes, *, source_ranges: tuple[AudioCaptureSpan, ...]
+    ) -> None:
+        if self._stream is None:
+            raise RuntimeError("Gemini stream has no admitted source")
+        await self._enqueue(
+            _AudioWrite(pcm16le, source_ranges, asyncio.get_running_loop().create_future())
+        )
+
+    def recognition_source_covers(self, ranges: tuple[AudioCaptureSpan, ...]) -> bool:
+        return self._input_map.covers(ranges)
 
     async def seal_turn(
         self,
@@ -905,54 +741,41 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
         seal_reason: str,
         observed_trailing_silence_ms: int | None,
     ) -> None:
-        turn = self._require_scoped_turn(identity)
-        if self._capture_turn is not turn:
-            raise RuntimeError("Gemini scoped turn is already sealed")
-        _ = sealed_content_ranges, seal_reason, observed_trailing_silence_ms
+        request = self._require_scoped_turn(identity)
+        if self._sealing:
+            raise RuntimeError("Gemini scoped input is already sealing")
+        self._sealing = True
+        await self._enqueue(_EndStream(seal_reason, asyncio.get_running_loop().create_future()))
+        if sealed_content_ranges and not self._input_map.covers(sealed_content_ranges):
+            raise RuntimeError("Gemini sealed input contains unsubmitted audio")
         self._event_projection.seal(identity)
-        self._capture_turn = None
-        completion = asyncio.get_running_loop().create_future()
-        await self._send_queue.put(_EndTurn(turn, completion))
-        await completion
+        self._event_projection.terminal(
+            STTProviderInputTerminal(identity, "submitted", request.channel)
+        )
+        self._scoped_request = None
+        self._sealing = False
+
+    async def end_stream(self, *, reason: str) -> None:
+        await self._enqueue(_EndStream(reason, asyncio.get_running_loop().create_future()))
+        if reason == "source_eof":
+            await asyncio.sleep(self.drain_timeout_s)
 
     async def abort_turn(self, identity: STTProviderTurnIdentity, *, reason: str) -> None:
-        turn = self._require_scoped_turn(identity)
-        self._protocol_failed = True
-        if turn in self._pending_turns:
-            self._pending_turns.remove(turn)
-        self._cancel_turn_timeout(turn)
-        turn.activity_end_ack.set()
-        self._capture_turn = None
-        self._streaming_turn = None
-        self._scoped_turn = None
+        request = self._require_scoped_turn(identity)
         self._event_projection.terminal(
-            STTProviderTurnTerminal(
-                identity=identity,
-                outcome="cancelled",
-                text_authority="none",
-                failure_reason=reason,
-                epoch_disposition="retire",
-            )
+            STTProviderInputTerminal(identity, "cancelled", request.channel, reason, "retire")
         )
-        self._event_projection.end_epoch(
-            orderly=False,
-            reason=reason,
-            provider_turn_id=identity.provider_turn_id,
-        )
+        self._scoped_request = None
+        self._scoped_transport_failure(reason)
 
     async def turn_events(self):
         async for event in self._event_projection.turn_events():
             yield event
 
     async def send_audio(self, pcm16le: bytes) -> None:
-        if self._stopped or self._protocol_failed:
-            return
-        if self._send_queue.qsize() >= 256:
-            raise RuntimeError("Gemini Transcribe Live audio queue overflow")
-        if self._capture_turn is None:
-            self._capture_turn = _PendingTurn()
-            await self._send_queue.put(_StartTurn(self._capture_turn))
-        self._send_queue.put_nowait(pcm16le)
+        if not self._event_projection.is_legacy:
+            raise RuntimeError("Scoped Gemini audio requires source ownership")
+        await self._enqueue(_AudioWrite(pcm16le, (), asyncio.get_running_loop().create_future()))
 
     async def on_speech_end(
         self,
@@ -960,35 +783,32 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
         trailing_silence_ms: int | None = None,
         reason: SpeechBoundaryReason | None = None,
     ) -> None:
-        if self._stopped:
-            return
-        if self._capture_turn is not None:
-            turn = self._capture_turn
-            self._capture_turn = None
-            await self._send_queue.put(_EndTurn(turn))
+        await self._enqueue(
+            _EndStream(str(reason or "local_end"), asyncio.get_running_loop().create_future())
+        )
 
     async def _send_realtime(self, **kwargs: Any) -> None:
         live_session = self._live_session
         if live_session is None:
-            return
+            raise RuntimeError("Gemini Transcribe Live transport is unavailable")
         await live_session.send_realtime_input(**kwargs)
 
     async def stop(self) -> None:
         if self._stopped:
             return
-        self._stopped = True
-        await self._send_queue.put(_STOP)
-        if self._pending_turns:
-            logger.warning(
-                "[STT] Gemini Transcribe Live session closed with unresolved finalize requests count=%s",
-                len(self._pending_turns),
+        self._cancel_go_away_timer()
+        request, self._scoped_request = self._scoped_request, None
+        if request is not None:
+            self._event_projection.terminal(
+                STTProviderInputTerminal(
+                    request.identity, "cancelled", request.channel, "stopped", "retire"
+                )
             )
-        for turn in self._pending_turns:
-            self._cancel_turn_timeout(turn)
-            turn.activity_end_ack.set()
-        self._pending_turns.clear()
-        self._capture_turn = None
-        self._streaming_turn = None
+        self._event_projection.end_epoch(orderly=True, reason="stopped")
+        self._stopped = True
+        self._fail_pending_writes()
+        if self._send_task is not None:
+            self._send_task.cancel()
         self._put_event(None)
 
     async def close(self) -> None:
