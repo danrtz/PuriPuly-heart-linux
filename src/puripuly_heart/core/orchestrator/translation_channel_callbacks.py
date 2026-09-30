@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Callable
 from uuid import UUID
 
@@ -21,14 +22,29 @@ from puripuly_heart.core.runtime.self_capture import SelfCaptureSessionOwner
 from puripuly_heart.core.runtime.stt_session_projection import SttSessionStateProjection
 from puripuly_heart.core.stt.backend import (
     STTProviderEpochEnded,
+    STTProviderInputTerminal,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnitTerminal,
 )
+from puripuly_heart.core.stt.recognition_units import RecognitionConsumptionLedger
 from puripuly_heart.domain.events import STTSessionState, STTSessionStateEvent
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity
 
 
 class TranslationChannelOwnerCallbacks:
-    __slots__ = ("_peer", "_peer_capture", "_self", "_self_capture", "_stt_sessions")
+    __slots__ = (
+        "_peer",
+        "_peer_capture",
+        "_self",
+        "_self_capture",
+        "_stt_sessions",
+        "_recognition_consumption",
+        "_recognition_locks",
+        "_self_ready_stream",
+        "_self_last_input_stream",
+        "_self_obsolete_streams",
+    )
 
     def __init__(self, stt_sessions: SttSessionStateProjection) -> None:
         self._self: SelfTranslationChannelOwner | None = None
@@ -36,6 +52,11 @@ class TranslationChannelOwnerCallbacks:
         self._peer_capture: PeerCaptureSessionOwner | None = None
         self._self_capture: SelfCaptureSessionOwner | None = None
         self._stt_sessions = stt_sessions
+        self._recognition_consumption = RecognitionConsumptionLedger()
+        self._recognition_locks = {"self": asyncio.Lock(), "peer": asyncio.Lock()}
+        self._self_ready_stream: RecognitionStreamIdentity | None = None
+        self._self_last_input_stream: RecognitionStreamIdentity | None = None
+        self._self_obsolete_streams: OrderedDict[RecognitionStreamIdentity, None] = OrderedDict()
 
     def bind_self(self, owner: SelfTranslationChannelOwner) -> None:
         if self._self is not None and self._self is not owner:
@@ -58,6 +79,20 @@ class TranslationChannelOwnerCallbacks:
         self._self_capture = owner
 
     async def self_event_handler(self, event: object) -> None:
+        if isinstance(event, STTProviderInputTerminal):
+            if event.channel != "self":
+                raise ValueError("Self input terminal belongs to another channel")
+            if self._self_capture is not None:
+                self._self_capture.note_input_terminal(event)
+            self._require_self().release_input_segment(event.identity.segment.segment_id)
+            await self._after_self_input_terminal(event)
+            return
+        if isinstance(event, STTProviderEpochEnded):
+            await self._after_self_epoch_ended(event)
+            return
+        if isinstance(event, STTRecognitionUnitTerminal):
+            await self._admit_recognition_unit(event, channel="self")
+            return
         await self._before_self_event(event)
         self._stt_sessions.record(event)
         await self._require_self().handle_stt_event(event)
@@ -102,22 +137,156 @@ class TranslationChannelOwnerCallbacks:
         self._stt_sessions.record(event)
         await self._require_self().handle_stt_event(event)
 
+    def _self_input_stream(self, event: STTProviderInputTerminal) -> RecognitionStreamIdentity:
+        identity = event.identity
+        return RecognitionStreamIdentity(
+            "self",
+            identity.segment.activation_generation,
+            identity.segment.capture_epoch,
+            identity.provider_epoch_id,
+            identity.settings_scope,
+        )
+
+    def _self_stream_scope_is_current(self, stream: RecognitionStreamIdentity) -> bool:
+        capture = self._self_capture
+        if capture is None:
+            return True
+        if stream.activation_generation != capture.snapshot.generation:
+            return False
+        is_current = getattr(capture, "is_current_recognition_stream", None)
+        return not callable(is_current) or is_current(stream)
+
+    def _supersede_self_stream(self, stream: RecognitionStreamIdentity | None) -> None:
+        if stream is None:
+            return
+        self._self_obsolete_streams[stream] = None
+        self._self_obsolete_streams.move_to_end(stream)
+        if len(self._self_obsolete_streams) > 4096:
+            self._self_obsolete_streams.popitem(last=False)
+
+    async def _after_self_input_terminal(self, event: STTProviderInputTerminal) -> None:
+        stream = self._self_input_stream(event)
+        if not self._self_stream_scope_is_current(stream) or stream in self._self_obsolete_streams:
+            return
+        if event.outcome == "submitted":
+            if self._self_last_input_stream != stream:
+                self._supersede_self_stream(self._self_last_input_stream)
+                if self._self_ready_stream != stream:
+                    self._supersede_self_stream(self._self_ready_stream)
+                self._self_last_input_stream = stream
+            return
+        if event.outcome in ("failed", "expired", "cancelled") or event.failure_reason:
+            self._supersede_self_stream(stream)
+            await self._publish_self_session_state(STTSessionState.DISCONNECTED)
+
+    async def _after_self_epoch_ended(self, event: STTProviderEpochEnded) -> None:
+        stream = self._self_ready_stream
+        if (
+            stream is not None
+            and stream.provider_epoch_id == event.provider_epoch_id
+            and stream not in self._self_obsolete_streams
+            and self._self_stream_scope_is_current(stream)
+        ):
+            await self._publish_self_session_state(STTSessionState.DISCONNECTED)
+            self._supersede_self_stream(stream)
+
+    async def _admit_recognition_unit(
+        self,
+        event: STTRecognitionUnitTerminal,
+        *,
+        channel: str,
+    ) -> None:
+        stream = event.unit.identity.stream
+        if stream.channel != channel:
+            raise ValueError("Recognition unit belongs to another channel")
+        async with self._recognition_locks[channel]:
+            if not self._recognition_consumption.consume(event):
+                return
+            if not self._recognition_stream_is_current(stream):
+                return
+            if (
+                channel == "self"
+                and event.outcome in ("final", "empty")
+                and stream not in self._self_obsolete_streams
+            ):
+                if self._self_ready_stream != stream:
+                    self._supersede_self_stream(self._self_ready_stream)
+                    if self._self_last_input_stream != stream:
+                        self._supersede_self_stream(self._self_last_input_stream)
+                    self._self_ready_stream = stream
+                await self._publish_self_session_state(STTSessionState.STREAMING)
+            if event.outcome != "final" or not event.unit.text:
+                return
+            if channel == "self":
+                await self._require_self().handle_recognition_unit(event.unit)
+            else:
+                await self._require_peer().handle_recognition_unit(event.unit)
+
+    def _recognition_stream_is_current(self, stream: RecognitionStreamIdentity) -> bool:
+        if stream.channel == "self":
+            capture = self._self_capture
+            owner = self._require_self()
+        else:
+            capture = self._peer_capture
+            owner = self._require_peer()
+        return (
+            capture is not None
+            and capture.is_current_recognition_stream(stream)
+            and owner.local_asr_runtime.is_current_recognition_stream(stream.channel, stream)
+        )
+
     async def peer_event_handler(self, event: object) -> None:
+        if isinstance(event, STTProviderInputTerminal):
+            if event.channel != "peer":
+                raise ValueError("Peer input terminal belongs to another channel")
+            admissions = self._require_peer_capture().note_input_terminal(event)
+            self._require_peer().release_input_segment(event.identity.segment.segment_id)
+            if not admissions:
+                return
+            async with self._recognition_locks["peer"]:
+                peer = self._require_peer()
+                for receipt, terminal in admissions:
+                    await peer.handle_provider_turn_terminal(receipt, terminal)
+            return
+        if isinstance(event, STTRecognitionUnitTerminal):
+            await self._admit_recognition_unit(event, channel="peer")
+            return
         if isinstance(event, STTProviderTurnUpdate):
             return
         if isinstance(event, STTProviderEpochEnded):
             return
         if isinstance(event, STTProviderTurnTerminal):
-            source_owner = self._require_peer_capture()
-            admissions = source_owner.admit_provider_terminal(event)
-            peer = self._require_peer()
-            for receipt, terminal in admissions:
-                await peer.handle_provider_turn_terminal(receipt, terminal)
+            async with self._recognition_locks["peer"]:
+                admissions = self._require_peer_capture().admit_provider_terminal(event)
+                peer = self._require_peer()
+                for receipt, terminal in admissions:
+                    await peer.handle_provider_turn_terminal(receipt, terminal)
             return
         self._stt_sessions.record(event)
         await self._require_peer().handle_stt_event(event)
 
     async def retired_event_handler(self, event: object) -> None:
+        if isinstance(event, STTProviderInputTerminal):
+            if event.channel == "self":
+                if self._self_capture is not None:
+                    self._self_capture.note_input_terminal(event)
+                self._require_self().release_input_segment(event.identity.segment.segment_id)
+                await self._after_self_input_terminal(event)
+            else:
+                admissions = self._require_peer_capture().note_input_terminal(event)
+                self._require_peer().release_input_segment(event.identity.segment.segment_id)
+                if not admissions:
+                    return
+                async with self._recognition_locks["peer"]:
+                    for receipt, terminal in admissions:
+                        await self._require_peer().handle_provider_turn_terminal(receipt, terminal)
+            return
+        if isinstance(event, STTRecognitionUnitTerminal):
+            await self._admit_recognition_unit(event, channel=event.unit.identity.stream.channel)
+            return
+        if isinstance(event, STTProviderEpochEnded):
+            await self._after_self_epoch_ended(event)
+            return
         self._stt_sessions.record(event)
         if getattr(event, "channel", None) == "self" or isinstance(
             event,

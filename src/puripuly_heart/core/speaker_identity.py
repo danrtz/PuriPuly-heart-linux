@@ -27,11 +27,14 @@ class PeerSpeakerIdentityAllocator:
 
     def observe(self, transcript: Transcript, *, child_sequence: int) -> SpeakerAssignment:
         run = transcript.final_speaker_runs[0] if len(transcript.final_speaker_runs) == 1 else None
-        attribution = (
-            run.attribution
-            if run is not None
-            else SpeakerAttribution("mixed" if transcript.final_speaker_runs else "non_diarized")
-        )
+        if run is not None:
+            attribution = run.attribution
+        elif transcript.final_speaker_runs:
+            attribution = SpeakerAttribution("mixed")
+        elif transcript.recognition_origins:
+            attribution = SpeakerAttribution("uncertain")
+        else:
+            attribution = SpeakerAttribution("non_diarized")
         order = (
             transcript.publication_generation or 0,
             transcript.source_order or 0,

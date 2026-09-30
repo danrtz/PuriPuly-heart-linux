@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 
 from puripuly_heart.config.provider_values import STTProviderName
+from puripuly_heart.core.audio.ownership import AudioSegmentIdentity, AudioSegmentSettingsSnapshot
 from puripuly_heart.core.clock import FakeClock
 from puripuly_heart.core.stt.backend import (
     LEGACY_STT_SESSION_PROJECTION,
     STTBackendTranscriptEvent,
+    STTProviderTurnIdentity,
+    STTProviderTurnRequest,
+    STTRecognitionUnit,
+    STTRecognitionUnitTerminal,
     STTSessionProjection,
 )
 from puripuly_heart.core.stt.rolling import (
@@ -20,6 +27,7 @@ from puripuly_heart.core.stt.rolling import (
     classify_gemini_error,
     classify_scribe_error,
 )
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 
 
 class _ScriptedSession:
@@ -695,3 +703,105 @@ async def test_rolling_session_preserves_scoped_member_protocol() -> None:
 
     assert [call[0] for call in inner.scoped_calls] == ["begin", "audio", "seal"]
     assert events == ["scoped terminal"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream_only", [False, True])
+async def test_rolling_gemini_preserves_independent_stream_units_across_local_turns(
+    stream_only: bool,
+) -> None:
+    class IndependentSession(_ScopedScriptedSession):
+        accepts_stream_input = True
+        independent_recognition_units = True
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.units: list[object] = []
+            self.audio: list[tuple[bytes, object]] = []
+            self.fences: list[str] = []
+            self.stream = None
+
+        async def begin_stream(self, stream):
+            self.stream = stream
+
+        async def send_stream_audio(self, pcm16le, *, source_ranges):
+            self.audio.append((pcm16le, source_ranges))
+
+        async def end_stream(self, *, reason):
+            self.fences.append(reason)
+
+        def recognition_source_covers(self, ranges):
+            return False
+
+        async def turn_events(self):
+            for unit in self.units:
+                yield unit
+
+    inner = IndependentSession()
+    definition, _backend = _definition(STTProviderName.GEMINI_TRANSCRIBE, inner)
+    session = await _make(definition).open_session(
+        projection=STTSessionProjection(mode="scoped", provider_epoch_id="outer-epoch")
+    )
+    settings = AudioSegmentSettingsSnapshot(
+        provider_id="rolling",
+        provider_signature=("rolling",),
+        runtime_signature=("capture",),
+        source_mode="microphone",
+        source_language="en",
+        expected_languages=("en",),
+        target_sample_rate_hz=16000,
+        vad_speech_threshold=0.5,
+        vad_hangover_ms=200,
+        vad_pre_roll_ms=320,
+    )
+    first = STTProviderTurnIdentity(
+        segment=AudioSegmentIdentity(3, 1, uuid4(), 7),
+        provider_epoch_id="outer-epoch",
+        provider_turn_id="local-A",
+        settings_scope=("rolling", ("rolling",), ("capture",)),
+    )
+    second = replace(
+        first,
+        segment=AudioSegmentIdentity(3, 2, uuid4(), 7),
+        provider_turn_id="local-B",
+    )
+    stream = RecognitionStreamIdentity("peer", 3, 7, "outer-epoch", first.settings_scope)
+    if stream_only:
+        await session.begin_stream(stream)
+    else:
+        await session.begin_turn(STTProviderTurnRequest(first, settings, channel="peer"))
+        await session.begin_turn(STTProviderTurnRequest(second, settings, channel="peer"))
+    original = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), "first")
+    later = STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), "second")
+    stale = STTRecognitionUnit(
+        RecognitionUnitIdentity(replace(stream, provider_epoch_id="retired"), uuid4(), 2),
+        "not owned",
+    )
+    inner.units = [
+        original,
+        STTRecognitionUnitTerminal(original, outcome="final"),
+        later,
+        STTRecognitionUnitTerminal(later, outcome="final"),
+        stale,
+    ]
+    await session.send_stream_audio(b"\x00\x01", source_ranges=())
+    await session.end_stream(reason="source_eof")
+    events = [event async for event in session.turn_events()]
+
+    assert session.accepts_stream_input and session.independent_recognition_units
+    assert inner.audio == [(b"\x00\x01", ())]
+    assert inner.fences == ["source_eof"]
+    assert [
+        item.identity.receipt_sequence for item in events if isinstance(item, STTRecognitionUnit)
+    ] == [1, 2]
+    assert [
+        item.unit.identity for item in events if isinstance(item, STTRecognitionUnitTerminal)
+    ] == [
+        events[0].identity,
+        events[2].identity,
+    ]
+    assert [item.text for item in events if isinstance(item, STTRecognitionUnit)] == [
+        "first",
+        "second",
+    ]
+    await session.close()

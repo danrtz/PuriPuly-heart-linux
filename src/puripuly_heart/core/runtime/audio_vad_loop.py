@@ -16,11 +16,11 @@ from puripuly_heart.core.audio.format import (
 )
 from puripuly_heart.core.audio.gate import VrcMicAudioGate
 from puripuly_heart.core.audio.listen_delivery import ListenDeliveryController
-from puripuly_heart.core.audio.ownership import PeerAudioSegmentLedger
+from puripuly_heart.core.audio.ownership import CaptureStreamInput, PeerAudioSegmentLedger
 from puripuly_heart.core.audio.smart_turn import SmartTurnInferenceOwner
 from puripuly_heart.core.audio.source import AudioSource
 from puripuly_heart.core.audio.streaming_resampler import CaptureMappedStreamingResampler
-from puripuly_heart.core.vad.gating import SpeechEnd, SpeechStart, VadGating
+from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart, VadGating
 from puripuly_heart.core.vad.sink import VadEventSink
 
 logger = logging.getLogger(__name__)
@@ -147,8 +147,10 @@ async def run_audio_vad_loop(
     normalizer: CaptureMappedStreamingResampler | None = None
     source_format: tuple[int, int] | None = None
     synthetic_source_next_sample = 0
+    last_capture_epoch: int | None = None
     synthetic_sequence = 0
     delivery_controller: ListenDeliveryController | None = None
+    gate_stream_blocked = False
     progress_audio_ms = 0.0
     progress_speech_observed = False
     last_progress_state: str | None = None
@@ -285,6 +287,14 @@ async def run_audio_vad_loop(
                     getattr(vad, "start_commit_chunks", "unknown"),
                 )
         _log_vad_activity(event)
+        if (
+            segment_ledger is not None
+            and isinstance(event, SpeechChunk | SpeechEnd)
+            and segment_ledger.is_segment_terminal(event.utterance_id)
+        ):
+            if delivery_controller is not None:
+                await delivery_controller.handle_vad_event(event)
+            return
         if segment_ledger is None:
             await sink.handle_vad_event(event)
             return
@@ -298,6 +308,7 @@ async def run_audio_vad_loop(
         await _emit_owned(owned)
 
     async def _process_buffered_chunks() -> None:
+        nonlocal gate_stream_blocked
         nonlocal buffer
         nonlocal progress_audio_ms, progress_speech_observed, last_progress_state
         nonlocal window_samples, window_square_sum, window_max_probability
@@ -308,8 +319,11 @@ async def run_audio_vad_loop(
             chunk = buffer[:chunk_samples]
             buffer = buffer[chunk_samples:]
             chunk_capture = _capture_prefix(capture_buffer, chunk_samples)
+            permitted = True
             if audio_gate is not None:
-                chunk = audio_gate.process_chunk(chunk)
+                gated = audio_gate.process_chunk(chunk)
+                permitted = gated is chunk
+                chunk = gated
             if peer_diagnostics:
                 generation = getattr(vad, "diagnostic_generation", None)
                 if generation != window_generation:
@@ -322,58 +336,83 @@ async def run_audio_vad_loop(
                         getattr(vad, "start_debounce_chunks", "unknown"),
                         getattr(vad, "start_commit_chunks", "unknown"),
                     )
-            process_owned = getattr(vad, "process_owned_chunk", None)
-            events = (
-                process_owned(chunk, chunk_capture)
-                if callable(process_owned)
-                else vad.process_chunk(chunk)
-            )
-            speech_observed = bool(getattr(vad, "last_observation_was_speech", False))
-            if peer_diagnostics:
-                window_samples += chunk.size
-                window_square_sum += float(np.dot(chunk, chunk))
-                probability = getattr(vad, "last_probability", None)
-                threshold = getattr(vad, "last_applied_threshold", None)
-                if probability is not None:
-                    window_max_probability = (
-                        probability
-                        if window_max_probability is None
-                        else max(window_max_probability, probability)
-                    )
-                if threshold is not None:
-                    window_threshold_min = (
-                        threshold
-                        if window_threshold_min is None
-                        else min(window_threshold_min, threshold)
-                    )
-                    window_threshold_max = (
-                        threshold
-                        if window_threshold_max is None
-                        else max(window_threshold_max, threshold)
-                    )
-                window_threshold_hits += speech_observed
-                discarded_count = getattr(vad, "discarded_candidate_count", last_discarded_count)
-                if discarded_count > last_discarded_count:
-                    window_discarded += discarded_count - last_discarded_count
-                    window_max_discarded_chunks = max(
-                        window_max_discarded_chunks,
-                        getattr(vad, "last_discarded_candidate_chunks", 0),
-                    )
-                    last_discarded_count = discarded_count
-                for event in events:
-                    if isinstance(event, SpeechStart):
-                        window_committed += 1
-                        window_rollovers += not event.genuine_onset
-                if getattr(vad, "diagnostic_generation", None) != window_generation:
-                    _flush_peer_window("settings_change")
-            observe_source_activity = getattr(sink, "observe_source_activity", None)
-            if callable(observe_source_activity):
-                await observe_source_activity(
-                    speech_observed=speech_observed,
-                    observed_at_monotonic_s=monotonic_clock(),
+            async with (
+                delivery_controller.capture_frame_lock
+                if delivery_controller is not None
+                else contextlib.nullcontext()
+            ):
+                process_owned = getattr(vad, "process_owned_chunk", None)
+                events = (
+                    process_owned(chunk, chunk_capture)
+                    if callable(process_owned)
+                    else vad.process_chunk(chunk)
                 )
-            for event in events:
-                await _dispatch(event)
+                speech_observed = bool(getattr(vad, "last_observation_was_speech", False))
+                if peer_diagnostics:
+                    window_samples += chunk.size
+                    window_square_sum += float(np.dot(chunk, chunk))
+                    probability = getattr(vad, "last_probability", None)
+                    threshold = getattr(vad, "last_applied_threshold", None)
+                    if probability is not None:
+                        window_max_probability = (
+                            probability
+                            if window_max_probability is None
+                            else max(window_max_probability, probability)
+                        )
+                    if threshold is not None:
+                        window_threshold_min = (
+                            threshold
+                            if window_threshold_min is None
+                            else min(window_threshold_min, threshold)
+                        )
+                        window_threshold_max = (
+                            threshold
+                            if window_threshold_max is None
+                            else max(window_threshold_max, threshold)
+                        )
+                    window_threshold_hits += speech_observed
+                    discarded_count = getattr(
+                        vad, "discarded_candidate_count", last_discarded_count
+                    )
+                    if discarded_count > last_discarded_count:
+                        window_discarded += discarded_count - last_discarded_count
+                        window_max_discarded_chunks = max(
+                            window_max_discarded_chunks,
+                            getattr(vad, "last_discarded_candidate_chunks", 0),
+                        )
+                        last_discarded_count = discarded_count
+                    for event in events:
+                        if isinstance(event, SpeechStart):
+                            window_committed += 1
+                            window_rollovers += not event.genuine_onset
+                    if getattr(vad, "diagnostic_generation", None) != window_generation:
+                        _flush_peer_window("settings_change")
+                observe_source_activity = getattr(sink, "observe_source_activity", None)
+                if callable(observe_source_activity):
+                    await observe_source_activity(
+                        speech_observed=speech_observed,
+                        observed_at_monotonic_s=monotonic_clock(),
+                    )
+                handle_stream_input = getattr(sink, "handle_stream_input", None)
+                if callable(handle_stream_input):
+                    if not permitted:
+                        if not gate_stream_blocked:
+                            await handle_stream_input(
+                                CaptureStreamInput(
+                                    chunk=chunk[:0],
+                                    capture=(),
+                                    boundary_reason="source_discontinuity",
+                                )
+                            )
+                        gate_stream_blocked = True
+                    elif chunk_capture:
+                        gate_stream_blocked = False
+                        real_samples = sum(span.normalized_sample_count for span in chunk_capture)
+                        await handle_stream_input(
+                            CaptureStreamInput(chunk=chunk[:real_samples], capture=chunk_capture)
+                        )
+                for event in events:
+                    await _dispatch(event)
             chunk_ms = chunk.size * 1000.0 / float(target_sample_rate_hz)
             progress_audio_ms += chunk_ms
             progress_speech_observed = progress_speech_observed or speech_observed
@@ -415,6 +454,17 @@ async def run_audio_vad_loop(
         discarded_capture: tuple[AudioCaptureSpan, ...] = (),
     ) -> None:
         nonlocal buffer, capture_buffer
+        nonlocal gate_stream_blocked
+        gate_stream_blocked = False
+        handle_stream_input = getattr(sink, "handle_stream_input", None)
+        if callable(handle_stream_input):
+            await handle_stream_input(
+                CaptureStreamInput(
+                    chunk=np.empty((0,), dtype=np.float32),
+                    capture=(),
+                    boundary_reason="source_discontinuity",
+                )
+            )
         segment_id = segment_ledger.current_open_segment_id if segment_ledger is not None else None
         if segment_ledger is not None:
             segment_ledger.claim_open_content_for_failure((*capture_buffer, *discarded_capture))
@@ -469,6 +519,13 @@ async def run_audio_vad_loop(
             capture = frame.capture
             if capture is None and frame.samples.size:
                 capture = _source_capture(frame)
+            epoch_changed = (
+                capture is not None
+                and last_capture_epoch is not None
+                and capture.capture_epoch != last_capture_epoch
+            )
+            if capture is not None:
+                last_capture_epoch = capture.capture_epoch
             frame_format = (frame.sample_rate_hz, frame.channels)
             if source_format is None:
                 source_format = frame_format
@@ -493,7 +550,7 @@ async def run_audio_vad_loop(
                 capture.discontinuity_before if capture is not None else None
             )
             discarded = (*frame.discarded_capture_before, *normalizer_discarded)
-            if discontinuity is not None:
+            if discontinuity is not None or epoch_changed:
                 await _handle_discontinuity(discarded)
             elif discarded and segment_ledger is not None:
                 segment_ledger.claim_open_content_for_failure(discarded)
@@ -522,6 +579,16 @@ async def run_audio_vad_loop(
             capture_buffer.append(tail_capture)
         await _process_buffered_chunks()
 
+        if buffer.size and not (
+            getattr(vad, "in_speech", False) or getattr(vad, "continuation_pending", False)
+        ):
+            handle_stream_input = getattr(sink, "handle_stream_input", None)
+            if callable(handle_stream_input):
+                tail_chunk = audio_gate.process_chunk(buffer) if audio_gate is not None else buffer
+                if tail_chunk is buffer:
+                    await handle_stream_input(
+                        CaptureStreamInput(chunk=buffer, capture=tuple(capture_buffer))
+                    )
         if buffer.size and (
             getattr(vad, "in_speech", False) or getattr(vad, "continuation_pending", False)
         ):
@@ -541,6 +608,15 @@ async def run_audio_vad_loop(
         _flush_peer_window("eof")
         if delivery_controller is not None:
             await delivery_controller.close()
+        handle_stream_input = getattr(sink, "handle_stream_input", None)
+        if callable(handle_stream_input):
+            await handle_stream_input(
+                CaptureStreamInput(
+                    chunk=np.empty((0,), dtype=np.float32),
+                    capture=(),
+                    boundary_reason="source_eof",
+                )
+            )
     except asyncio.CancelledError:
         _flush_peer_window("cancel")
         raise

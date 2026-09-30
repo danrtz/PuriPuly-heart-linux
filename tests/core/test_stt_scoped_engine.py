@@ -14,6 +14,8 @@ from puripuly_heart.core.audio.ownership import (
     AudioRetentionBinding,
     AudioRetentionBudget,
     AudioSegmentSettingsSnapshot,
+    CaptureStreamInput,
+    OwnedStreamInput,
     OwnedVadEvent,
     PeerAudioSegmentLedger,
 )
@@ -26,6 +28,8 @@ from puripuly_heart.core.stt.backend import (
     STTProviderTurnRequest,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
+    STTRecognitionUnitTerminal,
 )
 from puripuly_heart.core.stt.diagnostics import recognition_cause
 from puripuly_heart.core.stt.scoped_engine import (
@@ -40,6 +44,7 @@ from puripuly_heart.core.stt.scoped_normalizer import (
 )
 from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart
 from puripuly_heart.domain.models import FinalLanguageRun
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 
 
 @dataclass(slots=True)
@@ -51,7 +56,6 @@ class ControlledScopedSession:
     seal_gate: asyncio.Event
     calls: list[tuple[object, ...]]
     terminal_on_seal: tuple[str, str] | None = None
-    allows_interim_timeout_fallback: bool = False
     allows_sealed_turn_overlap: bool = False
 
     def __init__(self) -> None:
@@ -65,7 +69,6 @@ class ControlledScopedSession:
         self.requests = []
         self.calls = []
         self.terminal_on_seal = None
-        self.allows_interim_timeout_fallback = False
         self.allows_sealed_turn_overlap = False
 
     async def begin_turn(self, request: STTProviderTurnRequest) -> None:
@@ -844,6 +847,140 @@ def test_event_buffer_coalesces_provisional_and_fails_stable_overflow() -> None:
     assert failed.epoch_disposition == "retire"
 
 
+def test_independent_final_byte_pressure_is_explicit_and_releases_on_consumption() -> None:
+    from puripuly_heart.core.stt.backend import STTRecognitionUnit, STTRecognitionUnitTerminal
+    from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
+
+    stream = RecognitionStreamIdentity("peer", 1, 1, "epoch", ())
+    buffer = STTProviderEventBuffer()
+    text = "가" * (buffer.MAX_RECOGNITION_BYTES // 3)
+    first = STTRecognitionUnitTerminal(
+        STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), text), "final"
+    )
+    second = STTRecognitionUnitTerminal(
+        STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 2), text), "final"
+    )
+    rejected = STTRecognitionUnitTerminal(
+        STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 3), "overflow"), "final"
+    )
+    assert buffer.put(first)
+    assert asyncio.run(buffer.get()) == first
+    assert buffer.put(second)
+    assert not buffer.put(rejected)
+    assert not buffer.put(rejected)
+    assert buffer.depth == 2
+    assert asyncio.run(buffer.get()) == second
+    terminal = asyncio.run(buffer.get())
+    assert terminal == STTProviderEpochEnded(
+        "epoch", orderly=False, reason="provider_event_buffer_overflow"
+    )
+    assert buffer.depth == 0
+    assert not buffer.put(STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 4), "late"))
+
+
+def test_independent_final_count_pressure_preserves_order_and_other_epoch() -> None:
+    from puripuly_heart.core.stt.backend import STTRecognitionUnit, STTRecognitionUnitTerminal
+    from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
+
+    stream = RecognitionStreamIdentity("peer", 1, 1, "epoch", ())
+    other_stream = RecognitionStreamIdentity("peer", 1, 1, "other", ())
+    buffer = STTProviderEventBuffer(max_events=2)
+    first = STTRecognitionUnitTerminal(
+        STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 1), "first"), "final"
+    )
+    other = STTRecognitionUnitTerminal(
+        STTRecognitionUnit(RecognitionUnitIdentity(other_stream, uuid4(), 1), "other"), "final"
+    )
+    rejected = STTRecognitionUnitTerminal(
+        STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), 2), "rejected"), "final"
+    )
+    assert buffer.put(first)
+    assert buffer.put(other)
+    assert not buffer.put(rejected)
+    assert not buffer.put(rejected)
+    assert buffer.depth == 3
+    assert [asyncio.run(buffer.get()) for _ in range(3)] == [
+        first,
+        other,
+        STTProviderEpochEnded("epoch", orderly=False, reason="provider_event_buffer_overflow"),
+    ]
+    assert not buffer.put(rejected)
+    assert buffer.put(STTProviderEpochEnded("other", orderly=True, reason="completed"))
+    assert asyncio.run(buffer.get()) == STTProviderEpochEnded(
+        "other", orderly=True, reason="completed"
+    )
+
+
+def test_stream_source_overlap_never_replays_already_submitted_samples() -> None:
+    from puripuly_heart.core.stt.stream_input import STTStreamInputMap
+
+    mapping = STTStreamInputMap()
+    first, write = mapping.prepare(b"aabbccdd", (span(1, 0, 4),))
+    assert first == b"aabbccdd" and write is not None
+    mapping.commit(write)
+    second, write = mapping.prepare(b"ccddeeff", (span(2, 2, 6),))
+    assert second == b"eeff" and write is not None
+    mapping.commit(write)
+    assert mapping.covers((span(3, 0, 6),))
+    assert mapping.prepare(b"aabb", (span(4, 0, 2),)) == (b"", None)
+    with pytest.raises(ValueError, match="discontinuity"):
+        mapping.prepare(b"zz", (span(5, 7, 8),))
+    assert mapping.sent_samples == 6
+
+
+@pytest.mark.parametrize("start,end", [(0, 2), (2, 5), (1, 4)])
+def test_context_overlap_submits_only_unseen_suffix(start: int, end: int) -> None:
+    from puripuly_heart.core.stt.stream_input import STTStreamInputMap
+
+    mapping = STTStreamInputMap()
+    original = b"aabbccddeeff"
+    payload, initial = mapping.prepare(original[:8], (span(1, 0, 4),))
+    assert payload == original[:8] and initial is not None
+    mapping.commit(initial)
+    payload, context = mapping.prepare(original[start * 2 : end * 2], (span(2, start, end),))
+    assert payload == original[max(4, start) * 2 : end * 2]
+    if context is not None:
+        mapping.commit(context)
+    frontier = max(4, end)
+    assert mapping.covers((span(3, 0, frontier),))
+    remaining, write = mapping.prepare(original[6:12], (span(4, 3, 6),))
+    assert remaining == original[frontier * 2 : 12] and write is not None
+    mapping.commit(write)
+    assert mapping.sent_samples == 6
+
+
+def test_initial_context_is_retained_but_later_prefix_is_not_replayed() -> None:
+    from puripuly_heart.core.stt.stream_input import STTStreamInputMap
+
+    mapping = STTStreamInputMap()
+    payload, initial = mapping.prepare(b"aabb", (span(1, 4, 6),))
+    assert payload == b"aabb" and initial is not None
+    mapping.commit(initial)
+    assert mapping.prepare(b"zzzz", (span(2, 0, 2),)) == (b"", None)
+    for ranges in (
+        (span(3, 7, 9),),
+        (span(4, 6, 7), span(5, 8, 9)),
+        (replace(span(6, 4, 6), capture_epoch=2),),
+    ):
+        with pytest.raises(ValueError, match="discontinuity|epoch"):
+            mapping.prepare(b"ccdd", ranges)
+    assert mapping.sent_samples == 2
+    assert not mapping.covers((span(7, 0, 2),))
+
+
+def test_stream_source_history_does_not_expire_continuous_input_at_two_minutes() -> None:
+    from puripuly_heart.core.stt.stream_input import STTStreamInputMap
+
+    mapping = STTStreamInputMap()
+    pcm = b"\x01\x00" * 16000
+    for second in range(180):
+        payload, write = mapping.prepare(pcm, (span(second, second * 16000, (second + 1) * 16000),))
+        assert payload == pcm and write is not None
+        mapping.commit(write)
+    assert mapping.sent_samples == 180 * 16000
+    assert mapping.covers((span(180, 0, 180 * 16000),))
+
+
 def test_normalizer_enforces_text_and_language_run_bounds() -> None:
     identity = STTProviderTurnIdentity(
         segment=segment_events(
@@ -1365,54 +1502,6 @@ async def test_interruptible_cloud_cleanup_releases_within_drain_and_resumes() -
     assert [item.outcome for item in terminals] == ["failed", "empty"]
     assert provider_failures == []
     assert sessions == []
-    await engine.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("provider_id", "expected_outcome", "expected_text"),
-    [
-        ("gemini_transcribe", "degraded", "interim only"),
-        ("deepgram", "failed", ""),
-        ("soniox", "failed", ""),
-        ("elevenlabs_scribe", "failed", ""),
-    ],
-)
-async def test_interim_timeout_fallback_is_gemini_adapter_declared_only(
-    provider_id: str,
-    expected_outcome: str,
-    expected_text: str,
-) -> None:
-    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings(provider_id))
-    start, _chunk, end = segment_events(ledger, start_sample=700, now=7.0)
-    session = ControlledScopedSession()
-    session.allows_interim_timeout_fallback = True
-    emitted: list[object] = []
-    engine = ScopedRecognitionEngine(
-        session_factory=lambda _settings, _epoch: asyncio.sleep(0, result=session),
-        event_sink=lambda event: emitted.append(event),
-        watchdog_resolver=lambda _settings: watchdogs(final_timeout_s=0.01),
-    )
-
-    await engine.handle_owned_vad_event(start)
-    identity = session.calls[0][1]
-    session.emit(
-        STTProviderTurnUpdate(
-            identity=identity,
-            sequence=1,
-            stability="provisional",
-            assembly="replace",
-            text="interim only",
-        )
-    )
-    await wait_until(lambda: any(isinstance(item, STTProviderTurnUpdate) for item in emitted))
-    await engine.handle_owned_vad_event(end)
-
-    terminal = next(item for item in emitted if isinstance(item, STTProviderTurnTerminal))
-    assert terminal.outcome == expected_outcome
-    assert terminal.text == expected_text
-    assert terminal.failure_reason == "provider_final_timeout"
-    assert terminal.epoch_disposition == "retire"
     await engine.close()
 
 
@@ -3073,3 +3162,340 @@ def test_recognition_cause_exposes_only_owned_reason_prefixes(
     expected: str,
 ) -> None:
     assert recognition_cause(reason) == expected
+
+
+class ControlledStreamSession(ControlledScopedSession):
+    accepts_stream_input = True
+    independent_recognition_units = True
+
+    def __init__(self) -> None:
+        from puripuly_heart.core.stt.stream_input import STTStreamInputMap
+
+        super().__init__()
+        self.mapping = STTStreamInputMap()
+        self.stream: RecognitionStreamIdentity | None = None
+        self.audio: list[tuple[bytes, tuple[AudioCaptureSpan, ...]]] = []
+        self.failure: Exception | None = None
+        self.write_entered = asyncio.Event()
+        self.write_cancelled = asyncio.Event()
+
+    async def begin_stream(self, stream: RecognitionStreamIdentity) -> None:
+        self.stream = stream
+
+    async def begin_turn(self, request: STTProviderTurnRequest) -> None:
+        await super().begin_turn(request)
+        await self.begin_stream(
+            RecognitionStreamIdentity(
+                request.channel,
+                request.identity.segment.activation_generation,
+                request.identity.segment.capture_epoch,
+                request.identity.provider_epoch_id,
+                request.identity.settings_scope,
+            )
+        )
+
+    async def send_turn_audio(
+        self,
+        identity: STTProviderTurnIdentity,
+        pcm16le: bytes,
+        *,
+        payload_sequence: int,
+        source_ranges: tuple[AudioCaptureSpan, ...],
+        context_only: bool,
+    ) -> None:
+        await self.send_stream_audio(pcm16le, source_ranges=source_ranges)
+
+    async def send_stream_audio(
+        self, pcm16le: bytes, *, source_ranges: tuple[AudioCaptureSpan, ...]
+    ) -> None:
+        self.write_entered.set()
+        try:
+            await self.send_gate.wait()
+        except asyncio.CancelledError:
+            self.write_cancelled.set()
+            raise
+        if self.failure is not None:
+            raise self.failure
+        pcm, write = self.mapping.prepare(pcm16le, source_ranges)
+        if write is not None:
+            self.mapping.commit(write)
+            self.audio.append((pcm, source_ranges))
+
+    def recognition_source_covers(self, ranges: tuple[AudioCaptureSpan, ...]) -> bool:
+        return self.mapping.covers(ranges)
+
+    async def end_stream(self, *, reason: str) -> None:
+        self.calls.append(("end_stream", reason))
+
+
+def stream_input(
+    ledger: PeerAudioSegmentLedger, start: int, end: int, **kwargs: Any
+) -> OwnedStreamInput:
+    return OwnedStreamInput(
+        CaptureStreamInput(np.full(end - start, 0.4, dtype=np.float32), (span(start, start, end),)),
+        ledger,
+        ledger.settings,
+        ledger.activation_generation,
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "error"])
+async def test_continuous_stream_write_failure_recovers_unsent_frames_and_new_finals(
+    failure: str,
+) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    first_start, _, _ = segment_events(ledger, start_sample=0, now=0)
+    sessions: list[ControlledStreamSession] = []
+    emitted: list[object] = []
+
+    async def factory(_settings, _epoch):
+        session = ControlledStreamSession()
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        channel="self",
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _: watchdogs(write_timeout_s=0.01),
+    )
+    try:
+        await engine.handle_owned_vad_event(first_start)
+        old_stream = sessions[0].stream
+        assert old_stream is not None
+        sessions[0].write_entered.clear()
+        if failure == "timeout":
+            sessions[0].send_gate.clear()
+        else:
+            sessions[0].failure = OSError("wire failed")
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        if failure == "timeout":
+            await wait_until(sessions[0].write_cancelled.is_set)
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        assert len(sessions) == 1
+        await engine.handle_stream_input(stream_input(ledger, 8, 14))
+        assert len(sessions) == 2
+        recovered = sessions[1]
+        assert recovered.requests == []
+        assert [
+            (s.normalized_start_sample, s.normalized_end_sample)
+            for _, ranges in recovered.audio
+            for s in ranges
+        ] == [(10, 14)]
+        new_stream = recovered.stream
+        assert new_stream is not None and new_stream != old_stream
+        assert not engine.is_current_recognition_stream(old_stream)
+        assert engine.is_current_recognition_stream(new_stream)
+        recovered.emit(
+            STTRecognitionUnit(RecognitionUnitIdentity(old_stream, uuid4(), 1), "stale final")
+        )
+        recovered.emit(
+            STTRecognitionUnit(RecognitionUnitIdentity(new_stream, uuid4(), 1), "recovered final")
+        )
+        await wait_until(lambda: any(isinstance(e, STTRecognitionUnitTerminal) for e in emitted))
+        finals = [e for e in emitted if isinstance(e, STTRecognitionUnitTerminal)]
+        assert [e.unit.text for e in finals] == ["recovered final"]
+        assert finals[0].unit.identity.stream == new_stream
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_stream_recovery_connection_failure_exhausts_once_not_on_every_frame() -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    start, _, _ = segment_events(ledger, start_sample=0, now=0)
+    session = ControlledStreamSession()
+    opens = 0
+    failures: list[Exception] = []
+
+    async def factory(_settings, _epoch):
+        nonlocal opens
+        opens += 1
+        if opens > 1:
+            raise OSError("connection unavailable")
+        return session
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        channel="self",
+        watchdog_resolver=lambda _: watchdogs(write_timeout_s=0.01),
+        terminal_failure_sink=failures.append,
+    )
+    try:
+        await engine.handle_owned_vad_event(start)
+        session.send_gate.clear()
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        for left in range(10, 34, 4):
+            await engine.handle_stream_input(stream_input(ledger, left, left + 4))
+        await wait_until(lambda: len(failures) == 1)
+        assert opens == 3
+        assert str(failures[0]) == "provider_recovery_exhausted"
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalidation",
+    [
+        "stopped",
+        "toggle_off",
+        "muted",
+        "source_discontinuity",
+        "settings",
+        "activation",
+        "capture",
+        "cancelled",
+    ],
+)
+async def test_inflight_stream_recovery_cannot_revive_invalidated_capture(
+    invalidation: str,
+) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    start, _, _ = segment_events(ledger, start_sample=0, now=0)
+    sessions = [ControlledStreamSession(), ControlledStreamSession()]
+    opening = asyncio.Event()
+    release = asyncio.Event()
+    capture_current = True
+    opens = 0
+
+    async def factory(_settings, _epoch):
+        nonlocal opens
+        opens += 1
+        if opens == 2:
+            opening.set()
+            await release.wait()
+        return sessions[opens - 1]
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        channel="self",
+        watchdog_resolver=lambda _: watchdogs(write_timeout_s=0.01),
+    )
+    try:
+        await engine.handle_owned_vad_event(start)
+        sessions[0].send_gate.clear()
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        pending = asyncio.create_task(
+            engine.handle_stream_input(
+                stream_input(ledger, 10, 14, is_current=lambda: capture_current)
+            )
+        )
+        await opening.wait()
+        if invalidation == "settings":
+            ledger.rebind(
+                activation_generation=3, settings=settings("gemini_transcribe", signature="b")
+            )
+        elif invalidation == "activation":
+            ledger.rebind(activation_generation=4, settings=ledger.settings)
+        elif invalidation == "capture":
+            capture_current = False
+        elif invalidation == "cancelled":
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        else:
+            await engine.abort(reason=invalidation)
+        release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await wait_until(lambda: ("close",) in sessions[1].calls)
+        assert sessions[1].stream is None
+        assert sessions[1].audio == []
+        assert sessions[1].requests == []
+        await engine.handle_stream_input(stream_input(ledger, 14, 18))
+        assert opens == 2
+    finally:
+        release.set()
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_continuous_stream_recovery_waits_for_physical_cleanup_and_stops_if_quarantined() -> (
+    None
+):
+    class QuarantinedStreamSession(ControlledStreamSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.release = asyncio.Event()
+
+        async def stop(self) -> None:
+            self.calls.append(("stop",))
+            while not self.release.is_set():
+                try:
+                    await self.release.wait()
+                except asyncio.CancelledError:
+                    pass
+
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    start, _, _ = segment_events(ledger, start_sample=0, now=0)
+    session = QuarantinedStreamSession()
+    opens = 0
+    failures: list[Exception] = []
+
+    async def factory(_settings, _epoch):
+        nonlocal opens
+        opens += 1
+        return session
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        channel="self",
+        watchdog_resolver=lambda _: watchdogs(write_timeout_s=0.01, readiness_timeout_s=0.01),
+        terminal_failure_sink=failures.append,
+    )
+    try:
+        await engine.handle_owned_vad_event(start)
+        session.send_gate.clear()
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        await engine.handle_stream_input(stream_input(ledger, 10, 14))
+        await engine.handle_stream_input(stream_input(ledger, 14, 18))
+        assert opens == 1
+        assert [str(failure) for failure in failures] == ["provider_resource_quarantined"]
+        session.release.set()
+        await wait_until(lambda: engine.cleanup_debt == 0)
+        await engine.handle_stream_input(stream_input(ledger, 18, 22))
+        assert opens == 1
+    finally:
+        session.release.set()
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_independent_scoped_context_deduplicates_seen_audio_and_retains_initial_context() -> (
+    None
+):
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    first, _, end = segment_events(ledger, start_sample=0, now=0)
+    session = ControlledStreamSession()
+
+    async def factory(_settings, _epoch):
+        return session
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        channel="self",
+        watchdog_resolver=lambda _: watchdogs(),
+    )
+    try:
+        await engine.handle_owned_vad_event(first)
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        await engine.handle_owned_vad_event(end)
+        successor = ledger.observe_vad_event(
+            SpeechStart(
+                uuid4(),
+                np.full(2, 0.1, dtype=np.float32),
+                np.full(4, 0.2, dtype=np.float32),
+                pre_roll_capture=(span(10, 4, 6),),
+                chunk_capture=(span(11, 10, 14),),
+            ),
+            now_monotonic_s=1,
+        )
+        await engine.handle_owned_vad_event(successor)
+        assert [
+            (s.normalized_start_sample, s.normalized_end_sample)
+            for _, ranges in session.audio
+            for s in ranges
+        ] == [(0, 2), (2, 6), (6, 10), (10, 14)]
+    finally:
+        await engine.close()

@@ -2,19 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Callable
 
+import numpy as np
 import pytest
 
 from puripuly_heart.app.wiring.wiring_local_asr_provider_runtime import _recognition_watchdogs
 from puripuly_heart.config.provider_values import STTProviderName
-from puripuly_heart.core.audio.ownership import PeerAudioSegmentLedger
+from puripuly_heart.core.audio.ownership import (
+    CaptureStreamInput,
+    OwnedStreamInput,
+    PeerAudioSegmentLedger,
+)
 from puripuly_heart.core.runtime.peer_channel import _CaptureGeneration, _GenerationGuardedVadSink
 from puripuly_heart.core.stt.backend import (
+    STTProviderInputTerminal,
     STTProviderTurnTerminal,
-    STTProviderTurnUpdate,
+    STTRecognitionUnitTerminal,
     STTSessionProjection,
 )
 from puripuly_heart.core.stt.rolling import RollingProviderDefinition, RollingSTTBackend
@@ -70,7 +76,10 @@ class _ControlledSleeper:
         return delay
 
 
+@dataclass
 class _CurrentPeerGeneration:
+    segment_ledger: PeerAudioSegmentLedger
+
     def is_current_generation(self, generation: int) -> bool:
         return generation == 1
 
@@ -84,7 +93,6 @@ async def _complete_native_turn(
         return
     if member is STTProviderName.GEMINI_TRANSCRIBE:
         boundary.push(_gemini_message(final=text))
-        boundary.push(_gemini_message(ack=True))
         return
     if member is STTProviderName.SONIOX:
         boundary.push(
@@ -110,10 +118,8 @@ async def _complete_native_turn(
     [
         (STTProviderName.SONIOX, False),
         (STTProviderName.ELEVENLABS_SCRIBE, False),
-        (STTProviderName.GEMINI_TRANSCRIBE, False),
         (STTProviderName.DEEPGRAM, False),
         (STTProviderName.ELEVENLABS_SCRIBE, True),
-        (STTProviderName.GEMINI_TRANSCRIBE, True),
         (STTProviderName.DEEPGRAM, True),
     ],
 )
@@ -209,10 +215,6 @@ async def test_actual_adapter_reuses_one_epoch_for_final_and_empty(
     if member is STTProviderName.DEEPGRAM:
         assert all(owner is session for owner, _payload in deepgram_writes)
         assert _CLOSE_STREAM not in [payload for _owner, payload in deepgram_writes]
-    elif member is STTProviderName.GEMINI_TRANSCRIBE:
-        assert sum(item.get("activity_start") is not None for item in boundary.sent) == 2
-        assert sum(item.get("activity_end") is not None for item in boundary.sent) == 2
-        assert boundary.closed is False
     elif member is STTProviderName.SONIOX:
         finalize_count = sum(
             isinstance(payload, str) and payload and json.loads(payload).get("type") == "finalize"
@@ -230,25 +232,32 @@ async def test_actual_adapter_reuses_one_epoch_for_final_and_empty(
 
 
 @pytest.mark.asyncio
-async def test_rolling_gemini_preserves_interim_on_outer_final_timeout() -> None:
-    async def open_gemini(epoch: str):
-        return await _gemini_session(timeout=1.0, epoch=epoch)
-
-    prepared = _PreparedMemberBackend(open_gemini)
-    rolling = RollingSTTBackend(
-        providers=(
-            RollingProviderDefinition(
-                name=STTProviderName.GEMINI_TRANSCRIBE,
-                build_backend=lambda: prepared,
-                is_configured=lambda: True,
-            ),
+@pytest.mark.parametrize("rolling_route", [False, True])
+async def test_gemini_engine_reuses_stream_for_receipt_units_across_local_inputs(
+    rolling_route: bool,
+) -> None:
+    prepared = _PreparedMemberBackend(lambda epoch: _gemini_session(epoch=epoch))
+    rolling = (
+        RollingSTTBackend(
+            providers=(
+                RollingProviderDefinition(
+                    name=STTProviderName.GEMINI_TRANSCRIBE,
+                    build_backend=lambda: prepared,
+                    is_configured=lambda: True,
+                ),
+            )
         )
+        if rolling_route
+        else None
     )
     emitted: list[object] = []
 
     async def open_session(_settings, provider_epoch_id: str):
-        return await rolling.open_session(
-            projection=STTSessionProjection("scoped", provider_epoch_id)
+        projection = STTSessionProjection("scoped", provider_epoch_id)
+        return await (
+            rolling.open_session(projection=projection)
+            if rolling is not None
+            else prepared.open_session(projection=projection)
         )
 
     engine = ScopedRecognitionEngine(
@@ -261,31 +270,277 @@ async def test_rolling_gemini_preserves_interim_on_outer_final_timeout() -> None
             drain_timeout_s=0.1,
         ),
     )
-    settings = _request("rolling_free").settings
-    start, chunks, end = _owned_deepgram_events(
-        PeerAudioSegmentLedger(activation_generation=1, settings=settings),
-        start_sample=1000,
+    ledger = PeerAudioSegmentLedger(
+        activation_generation=1,
+        settings=_request("rolling_free" if rolling_route else "gemini_transcribe").settings,
     )
+    try:
+        start_a, chunks_a, end_a = _owned_deepgram_events(ledger, start_sample=1000)
+        await engine.handle_owned_vad_event(start_a)
+        for chunk in chunks_a:
+            await engine.handle_owned_vad_event(chunk)
+        wire = prepared.boundaries[0]
+        wire.push(_gemini_message(final="early"))
+        await _wait(lambda: any(isinstance(event, STTRecognitionUnitTerminal) for event in emitted))
+        await engine.handle_owned_vad_event(end_a)
+        await _wait(lambda: any(isinstance(event, STTProviderInputTerminal) for event in emitted))
+        assert [
+            event.outcome for event in emitted if isinstance(event, STTProviderInputTerminal)
+        ] == ["submitted"]
+        assert [call.get("audio_stream_end") for call in wire.sent].count(True) == 1
 
-    await engine.handle_owned_vad_event(start)
-    for chunk in chunks:
-        await engine.handle_owned_vad_event(chunk)
-    end_task = asyncio.create_task(engine.handle_owned_vad_event(end))
-    await _wait(lambda: prepared.sessions[0]._event_projection.sealed)
-    prepared.boundaries[0].push(_gemini_message(interim="interim only"))
-    await _wait(lambda: any(isinstance(event, STTProviderTurnUpdate) for event in emitted))
-    await end_task
+        start_b, chunks_b, end_b = _owned_deepgram_events(ledger, start_sample=1084)
+        await engine.handle_owned_vad_event(start_b)
+        for chunk in chunks_b:
+            await engine.handle_owned_vad_event(chunk)
+        assert [call.get("audio_stream_end") for call in wire.sent].count(True) == 1
+        wire.push(_gemini_message(interim="not final", ack=True))
+        await engine.handle_owned_vad_event(end_b)
+        wire.push(_gemini_message(final="same"))
+        wire.push(_gemini_message(final="same"))
+        await _wait(
+            lambda: sum(isinstance(event, STTRecognitionUnitTerminal) for event in emitted) == 3
+        )
+        finals = [event for event in emitted if isinstance(event, STTRecognitionUnitTerminal)]
+        assert [(event.outcome, event.unit.text) for event in finals] == [
+            ("final", "early"),
+            ("final", "same"),
+            ("final", "same"),
+        ]
+        assert [event.unit.identity.receipt_sequence for event in finals] == [1, 2, 3]
+        assert len({event.unit.identity.unit_id for event in finals}) == 3
+        assert len({event.unit.identity.stream for event in finals}) == 1
+        assert [
+            event.outcome for event in emitted if isinstance(event, STTProviderInputTerminal)
+        ] == ["submitted", "submitted"]
+        assert [next(iter(call)) for call in wire.sent].count("audio_stream_end") == 2
+        assert prepared.opens == 1
+        stream = finals[0].unit.identity.stream
+        assert engine.is_current_recognition_stream(stream)
+        last_capture = chunks_b[-1].event.chunk_capture[0]
+        source_end = last_capture.normalized_end_sample
+        assert source_end is not None
+        next_capture = replace(
+            last_capture,
+            source_start_sample=source_end,
+            source_end_sample=source_end + 4,
+            normalized_start_sample=source_end,
+            normalized_end_sample=source_end + 4,
+            source_start_monotonic_s=source_end / 16000,
+            source_end_monotonic_s=(source_end + 4) / 16000,
+        )
+        writes_before = len(wire.sent)
+        await engine.handle_stream_input(
+            OwnedStreamInput(
+                event=CaptureStreamInput(np.ones(4, dtype=np.float32), (next_capture,)),
+                ledger=ledger,
+                settings=ledger.settings,
+                activation_generation=0,
+            )
+        )
+        assert len(wire.sent) == writes_before
+        before_abort = len(finals)
+        await engine.abort(reason="generation_retired")
+        assert not engine.is_current_recognition_stream(stream)
+        wire.push(_gemini_message(final="stale"))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert (
+            sum(isinstance(event, STTRecognitionUnitTerminal) for event in emitted) == before_abort
+        )
+    finally:
+        await engine.close()
 
-    terminal = next(event for event in emitted if isinstance(event, STTProviderTurnTerminal))
-    assert (terminal.outcome, terminal.text, terminal.text_authority) == (
-        "degraded",
-        "interim only",
-        "degraded",
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rolling_route", [False, True])
+async def test_native_stream_reopens_for_new_capture_generation_with_same_settings(
+    rolling_route: bool,
+) -> None:
+    prepared = _PreparedMemberBackend(lambda epoch: _gemini_session(epoch=epoch))
+    backend = (
+        RollingSTTBackend(
+            providers=(
+                RollingProviderDefinition(
+                    name=STTProviderName.GEMINI_TRANSCRIBE,
+                    build_backend=lambda: prepared,
+                    is_configured=lambda: True,
+                ),
+            )
+        )
+        if rolling_route
+        else prepared
     )
-    assert terminal.failure_reason == "provider_final_timeout"
-    assert terminal.epoch_disposition == "retire"
-    assert prepared.opens == 1
-    await engine.close()
+    emitted = []
+    engine = ScopedRecognitionEngine(
+        channel="self",
+        session_factory=lambda _settings, epoch: backend.open_session(
+            projection=STTSessionProjection("scoped", epoch)
+        ),
+        event_sink=emitted.append,
+    )
+    ledger = PeerAudioSegmentLedger(
+        activation_generation=1,
+        settings=_request("rolling_free" if rolling_route else "gemini_transcribe").settings,
+    )
+    try:
+        for generation in (1, 2):
+            ledger.rebind(activation_generation=generation, settings=ledger.settings)
+            start, chunks, end = _owned_deepgram_events(
+                ledger, start_sample=1000 + (generation - 1) * 84
+            )
+            await engine.handle_owned_vad_event(start)
+            for chunk in chunks:
+                await engine.handle_owned_vad_event(chunk)
+            await engine.handle_owned_vad_event(end)
+            assert [
+                event.outcome for event in emitted if isinstance(event, STTProviderInputTerminal)
+            ] == ["submitted"] * generation
+            prepared.boundaries[-1].push(_gemini_message(final=f"generation-{generation}"))
+            await _wait(
+                lambda: sum(isinstance(event, STTRecognitionUnitTerminal) for event in emitted)
+                == generation
+            )
+        finals = [event for event in emitted if isinstance(event, STTRecognitionUnitTerminal)]
+        assert [event.unit.text for event in finals] == ["generation-1", "generation-2"]
+        assert [event.unit.identity.stream.activation_generation for event in finals] == [1, 2]
+        assert len({event.unit.identity.stream.provider_epoch_id for event in finals}) == 2
+        assert prepared.opens == 2
+        assert prepared.boundaries[0].closed
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_gemini_input_release_does_not_wait_for_recognition_consumer() -> None:
+    prepared = _PreparedMemberBackend(lambda epoch: _gemini_session(epoch=epoch))
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, epoch: prepared.open_session(
+            projection=STTSessionProjection("scoped", epoch)
+        ),
+    )
+    ledger = PeerAudioSegmentLedger(
+        activation_generation=1,
+        settings=_request("gemini_transcribe").settings,
+    )
+    consuming = asyncio.Event()
+    release = asyncio.Event()
+    finals = []
+
+    async def consume(event):
+        if isinstance(event, STTRecognitionUnitTerminal):
+            consuming.set()
+            await release.wait()
+            finals.append(event.unit.text)
+        elif isinstance(event, STTProviderInputTerminal):
+            ledger.terminalize(
+                event.identity.segment.segment_id,
+                outcome=event.outcome,
+                now_monotonic_s=0.0,
+            )
+
+    engine.bind_event_sink(consume)
+    try:
+        start, chunks, end = _owned_deepgram_events(ledger, start_sample=1000)
+        await engine.handle_owned_vad_event(start)
+        for chunk in chunks:
+            await engine.handle_owned_vad_event(chunk)
+        prepared.boundaries[0].push(_gemini_message(final="accepted final"))
+        await asyncio.wait_for(consuming.wait(), timeout=1)
+        await engine.handle_owned_vad_event(end)
+        assert [receipt.outcome for receipt in ledger.terminal_receipts] == ["submitted"]
+        assert finals == []
+        release.set()
+        await engine.wait_for_event_ingress_drain()
+        assert finals == ["accepted final"]
+    finally:
+        release.set()
+        await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rolling_route", [False, True])
+async def test_gemini_silent_stream_retires_without_native_completion_and_reopens_on_demand(
+    rolling_route: bool,
+) -> None:
+    prepared = _PreparedMemberBackend(lambda epoch: _gemini_session(epoch=epoch))
+    backend = (
+        RollingSTTBackend(
+            providers=(
+                RollingProviderDefinition(
+                    name=STTProviderName.GEMINI_TRANSCRIBE,
+                    build_backend=lambda: prepared,
+                    is_configured=lambda: True,
+                ),
+            )
+        )
+        if rolling_route
+        else prepared
+    )
+    clock = ControlledMonotonicClock()
+    emitted: list[object] = []
+    engine = ScopedRecognitionEngine(
+        session_factory=lambda _settings, epoch: backend.open_session(
+            projection=STTSessionProjection("scoped", epoch)
+        ),
+        event_sink=emitted.append,
+        monotonic_clock=clock.now,
+        sleep=clock.sleep,
+    )
+    ledger = PeerAudioSegmentLedger(
+        activation_generation=1,
+        settings=_request("rolling_free" if rolling_route else "gemini_transcribe").settings,
+    )
+    try:
+        start, chunks, end = _owned_deepgram_events(ledger, start_sample=1000)
+        await engine.observe_source_activity(speech_observed=True)
+        await engine.handle_owned_vad_event(start)
+        for chunk in chunks:
+            await engine.handle_owned_vad_event(chunk)
+        await engine.handle_owned_vad_event(end)
+        await engine.observe_source_activity(speech_observed=False)
+        await _wait(lambda: any(isinstance(event, STTProviderInputTerminal) for event in emitted))
+        last_capture = chunks[-1].event.chunk_capture[0]
+        source_end = last_capture.normalized_end_sample
+        assert source_end is not None
+        silent_capture = replace(
+            last_capture,
+            source_start_sample=source_end,
+            source_end_sample=source_end + 4,
+            normalized_start_sample=source_end,
+            normalized_end_sample=source_end + 4,
+            source_start_monotonic_s=source_end / 16000,
+            source_end_monotonic_s=(source_end + 4) / 16000,
+        )
+        silence = OwnedStreamInput(
+            CaptureStreamInput(np.zeros(4, dtype=np.float32), (silent_capture,)),
+            ledger,
+            ledger.settings,
+            1,
+        )
+        await clock.advance_to(59.9)
+        await engine.handle_stream_input(silence)
+        assert not prepared.boundaries[0].closed
+        await clock.advance_to(60.0)
+        await _wait(lambda: prepared.boundaries[0].closed)
+        await engine.handle_stream_input(silence)
+        assert prepared.opens == 1
+        assert not any(isinstance(event, STTRecognitionUnitTerminal) for event in emitted)
+        next_start, next_chunks, next_end = _owned_deepgram_events(ledger, start_sample=2000)
+        await engine.observe_source_activity(speech_observed=True)
+        await engine.handle_owned_vad_event(next_start)
+        for chunk in next_chunks:
+            await engine.handle_owned_vad_event(chunk)
+        await engine.handle_owned_vad_event(next_end)
+        prepared.boundaries[0].push(_gemini_message(final="retired"))
+        prepared.boundaries[1].push(_gemini_message(final="fresh"))
+        await _wait(lambda: any(isinstance(event, STTRecognitionUnitTerminal) for event in emitted))
+        assert prepared.opens == 2
+        assert [
+            event.unit.text for event in emitted if isinstance(event, STTRecognitionUnitTerminal)
+        ] == ["fresh"]
+    finally:
+        await engine.close()
 
 
 @pytest.mark.asyncio
@@ -375,14 +630,14 @@ async def test_peer_production_dispatch_blocks_queued_b_before_soniox_a_terminal
     )
     ingress_ready = asyncio.Event()
     ingress_ready.set()
+    settings = _request("soniox").settings
+    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings)
     dispatch = _GenerationGuardedVadSink(
         sink=engine,
-        runtime=_CurrentPeerGeneration(),
+        runtime=_CurrentPeerGeneration(ledger),
         capture_generation=_CaptureGeneration(1),
         provider_ingress_ready=ingress_ready,
     )
-    settings = _request("soniox").settings
-    ledger = PeerAudioSegmentLedger(activation_generation=1, settings=settings)
     a_events = _owned_deepgram_events(ledger, start_sample=1000)
     b_events = _owned_deepgram_events(ledger, start_sample=2000)
 
@@ -486,25 +741,48 @@ async def test_rolling_connection_lifetime_follows_selected_provider(
         activation_generation=1, settings=_request("rolling_free").settings
     )
     try:
-        for sample, instant in ((1000, 0.0), (2000, second_turn_at)):
+        for index, (sample, instant) in enumerate(((1000, 0.0), (2000, second_turn_at)), start=1):
             now = instant
             await engine.observe_source_activity(speech_observed=True)
             start, chunks, end = _owned_deepgram_events(ledger, start_sample=sample)
             await engine.handle_owned_vad_event(start)
             for chunk in chunks:
                 await engine.handle_owned_vad_event(chunk)
-            end_task = asyncio.create_task(engine.handle_owned_vad_event(end))
-            await _wait(lambda: prepared.sessions[-1]._event_projection.sealed)
-            await _complete_native_turn(
-                member, prepared.sessions[-1], prepared.boundaries[-1], str(sample)
+            if member is STTProviderName.GEMINI_TRANSCRIBE:
+                await engine.handle_owned_vad_event(end)
+                await _complete_native_turn(
+                    member, prepared.sessions[-1], prepared.boundaries[-1], str(sample)
+                )
+                await _wait(
+                    lambda: sum(isinstance(event, STTRecognitionUnitTerminal) for event in emitted)
+                    == index
+                )
+            else:
+                end_task = asyncio.create_task(engine.handle_owned_vad_event(end))
+                await _wait(lambda: prepared.sessions[-1]._event_projection.sealed)
+                await _complete_native_turn(
+                    member, prepared.sessions[-1], prepared.boundaries[-1], str(sample)
+                )
+                await end_task
+        if member is STTProviderName.GEMINI_TRANSCRIBE:
+            submitted = [event for event in emitted if isinstance(event, STTProviderInputTerminal)]
+            await _wait(
+                lambda: sum(isinstance(event, STTRecognitionUnitTerminal) for event in emitted) == 2
             )
-            await end_task
-        terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
-        assert [event.text for event in terminals] == ["1000", "2000"]
+            finals = [event for event in emitted if isinstance(event, STTRecognitionUnitTerminal)]
+            assert [event.outcome for event in submitted] == ["submitted", "submitted"]
+            assert [event.unit.text for event in finals] == ["1000", "2000"]
+            assert (
+                finals[0].unit.identity.stream.provider_epoch_id
+                == finals[1].unit.identity.stream.provider_epoch_id
+            ) is (expected_connections == 1)
+        else:
+            terminals = [event for event in emitted if isinstance(event, STTProviderTurnTerminal)]
+            assert [event.text for event in terminals] == ["1000", "2000"]
+            assert (
+                terminals[0].identity.provider_epoch_id == terminals[1].identity.provider_epoch_id
+            ) is (expected_connections == 1)
         assert prepared.opens == expected_connections
-        assert (
-            terminals[0].identity.provider_epoch_id == terminals[1].identity.provider_epoch_id
-        ) is (expected_connections == 1)
     finally:
         await engine.close()
 

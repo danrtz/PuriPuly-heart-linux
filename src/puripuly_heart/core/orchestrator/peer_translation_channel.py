@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from uuid import UUID
 
-from puripuly_heart.core.audio.ownership import AudioSegmentTerminalReceipt, OwnedVadEvent
+from puripuly_heart.core.audio.ownership import (
+    AudioSegmentTerminalReceipt,
+    OwnedStreamInput,
+    OwnedVadEvent,
+)
 from puripuly_heart.core.clock import Clock, SystemClock
-from puripuly_heart.core.local_asr_provider_runtime import LocalASRProviderRuntimePort
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
+    LocalASRProviderRuntimePort,
+)
 from puripuly_heart.core.orchestrator.channel_runtime import (
     ChannelRuntime,
 )
@@ -44,7 +51,8 @@ from puripuly_heart.core.orchestrator.translation_turn import (
     TranslationTurnRequest,
 )
 from puripuly_heart.core.speaker_identity import PeerSpeakerIdentityAllocator
-from puripuly_heart.core.stt.backend import STTProviderTurnTerminal
+from puripuly_heart.core.stt.backend import STTProviderTurnTerminal, STTRecognitionUnit
+from puripuly_heart.core.stt.recognition_units import recognition_transcript
 from puripuly_heart.core.vad.gating import SpeechEnd
 from puripuly_heart.domain.events import (
     STTErrorEvent,
@@ -79,6 +87,8 @@ class PeerTranslationChannelOwner:
     _speaker_identities: PeerSpeakerIdentityAllocator = field(
         default_factory=PeerSpeakerIdentityAllocator
     )
+    _publication_order_by_generation: dict[int, int] = field(default_factory=dict)
+    _retired_local_vad_ids: OrderedDict[UUID, None] = field(default_factory=OrderedDict)
     _accepting_events: bool = field(init=False, default=True)
 
     def __post_init__(self) -> None:
@@ -105,6 +115,8 @@ class PeerTranslationChannelOwner:
         self._prepared_requests.clear()
         self._speaker_identities.reset()
         self._clear_peer_logical_turn_state()
+        self._retired_local_vad_ids.clear()
+        self._publication_order_by_generation.clear()
         self.diagnostics.clear_latency_state(channel="peer")
 
     def translation_runtime_config_snapshot(self) -> TranslationRuntimeConfigSnapshot:
@@ -288,6 +300,13 @@ class PeerTranslationChannelOwner:
             preserve_parent_speech_end_time=preserve_parent_speech_end_time,
         )
 
+    def release_input_segment(self, segment_id: UUID) -> None:
+        self._clear_peer_parent_vad_bookkeeping(segment_id)
+        self._retired_local_vad_ids[segment_id] = None
+        self._retired_local_vad_ids.move_to_end(segment_id)
+        if len(self._retired_local_vad_ids) > 4096:
+            self._retired_local_vad_ids.popitem(last=False)
+
     def _emit_exception_summary(
         self,
         message: str,
@@ -324,6 +343,7 @@ class PeerTranslationChannelOwner:
         await self.translation_turns.cancel_pending(channel="peer")
         await self.runtime.reset_runtime_state()
         self._clear_peer_logical_turn_state()
+        self._retired_local_vad_ids.clear()
         self._clear_latency_state(channel="peer")
 
     def _remember_context_entry(
@@ -363,6 +383,23 @@ class PeerTranslationChannelOwner:
         self._require_ingress()
         await self.local_asr_runtime.observe_pending_source_work("peer", pending=pending)
 
+    async def handle_stream_input(self, owned: OwnedStreamInput) -> None:
+        self._require_ingress()
+        await self.local_asr_runtime.handle_stream_input("peer", owned)
+
+    def _allocate_publication_order(
+        self,
+        activation_generation: int,
+        *,
+        source_order: int | None = None,
+    ) -> int:
+        order = max(
+            self._publication_order_by_generation.get(activation_generation, 0) + 1,
+            source_order or 1,
+        )
+        self._publication_order_by_generation = {activation_generation: order}
+        return order
+
     async def handle_peer_owned_vad_event(self, owned: object) -> None:
         self._record_peer_owned_vad_event(owned)
         await self.local_asr_runtime.handle_owned_vad_event("peer", owned)
@@ -374,8 +411,10 @@ class PeerTranslationChannelOwner:
             raise TypeError("peer owned VAD event must use OwnedVadEvent")
         self._require_ingress()
         event = owned.event
-        if not isinstance(event, SpeechEnd) or self.translation_turns.is_parent_closed(
-            event.utterance_id
+        if (
+            not isinstance(event, SpeechEnd)
+            or event.utterance_id in self._retired_local_vad_ids
+            or self.translation_turns.is_parent_closed(event.utterance_id)
         ):
             return
         speech_end_at = owned.segment.sealed_at_monotonic_s
@@ -411,6 +450,21 @@ class PeerTranslationChannelOwner:
             )
         if event.utterance_id in self._peer_parent_turn_ids:
             self._maybe_clear_completed_peer_parent(event.utterance_id)
+
+    async def handle_recognition_unit(self, unit: STTRecognitionUnit) -> None:
+        self._require_ingress()
+        stream = unit.identity.stream
+        if stream.channel != "peer":
+            raise ValueError("Peer translation owner received non-Peer recognition unit")
+        order = self._allocate_publication_order(stream.activation_generation)
+        transcript = recognition_transcript(
+            unit,
+            created_at=self.clock.now(),
+            publication_order=order,
+        )
+        await self.handle_stt_event(
+            STTFinalEvent(utterance_id=transcript.utterance_id, transcript=transcript)
+        )
 
     async def handle_provider_turn_terminal(
         self,
@@ -449,7 +503,10 @@ class PeerTranslationChannelOwner:
             final_language_runs=terminal.final_language_runs,
             final_speaker_runs=terminal.final_speaker_runs,
             publication_generation=receipt.identity.activation_generation,
-            source_order=receipt.identity.segment_order,
+            source_order=self._allocate_publication_order(
+                receipt.identity.activation_generation,
+                source_order=receipt.identity.segment_order,
+            ),
         )
         event = STTFinalEvent(
             utterance_id=receipt.identity.segment_id,
@@ -464,6 +521,7 @@ class PeerTranslationChannelOwner:
         await self.translation_turns.cancel_pending(channel="peer")
         await self.runtime.clear_live_translation_state()
         self._clear_peer_logical_turn_state()
+        self._retired_local_vad_ids.clear()
         self._clear_latency_state(channel="peer")
 
     async def handle_stt_event_loop_exception(

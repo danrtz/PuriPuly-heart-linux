@@ -6,9 +6,12 @@ from collections.abc import AsyncIterator
 
 from puripuly_heart.core.stt.backend import (
     STTProviderEpochEnded,
+    STTProviderInputTerminal,
     STTProviderTurnEvent,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
+    STTRecognitionUnitTerminal,
 )
 
 
@@ -18,12 +21,14 @@ class STTProviderEventBufferClosed(RuntimeError):
 
 class STTProviderEventBuffer:
     MAX_EVENTS = 256
+    MAX_RECOGNITION_BYTES = 1024 * 1024
 
     def __init__(self, *, max_events: int = MAX_EVENTS) -> None:
         if max_events <= 0 or max_events > self.MAX_EVENTS:
             raise ValueError(f"max_events must be between 1 and {self.MAX_EVENTS}")
         self._max_events = max_events
         self._events: deque[STTProviderTurnEvent] = deque()
+        self._recognition_bytes = 0
         self._wake = asyncio.Event()
         self._closed = False
         self._retired_epochs: set[str] = set()
@@ -43,6 +48,10 @@ class STTProviderEventBuffer:
         epoch_id = _event_epoch_id(event)
         if epoch_id in self._retired_epochs:
             return False
+        size = _recognition_bytes(event)
+        if size + self._recognition_bytes > self.MAX_RECOGNITION_BYTES:
+            self._fail_epoch(epoch_id)
+            return False
         if _is_provisional_snapshot(event):
             self._remove_matching_provisional_snapshots(event)
         if len(self._events) >= self._max_events:
@@ -53,13 +62,15 @@ class STTProviderEventBuffer:
             if isinstance(event, (STTProviderTurnUpdate, STTProviderTurnTerminal)):
                 self._fail_scoped_turn(event)
                 return False
+            if isinstance(
+                event, (STTProviderInputTerminal, STTRecognitionUnit, STTRecognitionUnitTerminal)
+            ):
+                self._fail_epoch(epoch_id)
+                return False
             if isinstance(event, STTProviderEpochEnded):
-                self._events.clear()
-                self._events.append(event)
-                self._retire_epoch(event.provider_epoch_id)
-                self._wake.set()
-                return True
+                return self._append_retirement(event, event.provider_epoch_id)
         self._events.append(event)
+        self._recognition_bytes += size
         self._wake.set()
         return True
 
@@ -71,6 +82,7 @@ class STTProviderEventBuffer:
         while True:
             if self._events:
                 event = self._events.popleft()
+                self._recognition_bytes -= _recognition_bytes(event)
                 if not self._events:
                     self._wake.clear()
                 return event
@@ -112,18 +124,38 @@ class STTProviderEventBuffer:
         event: STTProviderTurnUpdate | STTProviderTurnTerminal,
     ) -> None:
         identity = event.identity
-        self._events.clear()
-        self._events.append(
+        self._append_retirement(
             STTProviderTurnTerminal(
                 identity=identity,
                 outcome="failed",
                 text_authority="none",
                 failure_reason="provider_event_buffer_overflow",
                 epoch_disposition="retire",
+            ),
+            identity.provider_epoch_id,
+        )
+
+    def _fail_epoch(self, epoch_id: str) -> None:
+        self._append_retirement(
+            STTProviderEpochEnded(epoch_id, orderly=False, reason="provider_event_buffer_overflow"),
+            epoch_id,
+        )
+
+    def _append_retirement(self, event: STTProviderTurnEvent, epoch_id: str) -> bool:
+        retained = deque(
+            queued
+            for queued in self._events
+            if not (
+                _event_epoch_id(queued) == epoch_id and isinstance(queued, STTProviderTurnUpdate)
             )
         )
-        self._retire_epoch(identity.provider_epoch_id)
+        if len(retained) >= self._max_events + 1:
+            return False
+        self._events = retained
+        self._events.append(event)
+        self._retire_epoch(epoch_id)
         self._wake.set()
+        return True
 
     def _retire_epoch(self, epoch_id: str) -> None:
         if epoch_id in self._retired_epochs:
@@ -145,7 +177,19 @@ def _is_provisional_snapshot(event: STTProviderTurnEvent) -> bool:
 def _event_epoch_id(event: STTProviderTurnEvent) -> str:
     if isinstance(event, STTProviderEpochEnded):
         return event.provider_epoch_id
+    if isinstance(event, STTRecognitionUnitTerminal):
+        return event.unit.identity.stream.provider_epoch_id
+    if isinstance(event, STTRecognitionUnit):
+        return event.identity.stream.provider_epoch_id
     return event.identity.provider_epoch_id
+
+
+def _recognition_bytes(event: STTProviderTurnEvent) -> int:
+    if isinstance(event, STTRecognitionUnitTerminal):
+        return event.unit.retained_bytes
+    if isinstance(event, STTRecognitionUnit):
+        return event.retained_bytes
+    return 0
 
 
 __all__ = [

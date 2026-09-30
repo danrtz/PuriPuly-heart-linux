@@ -54,6 +54,7 @@ from puripuly_heart.core.runtime.audio_vad_loop import run_audio_vad_loop
 from puripuly_heart.core.runtime.peer_channel import PeerCaptureSessionOwner
 from puripuly_heart.core.runtime.stt_session_projection import SttSessionStateProjection
 from puripuly_heart.core.stt.backend import (
+    STTProviderInputTerminal,
     STTProviderTurnIdentity,
     STTProviderTurnTerminal,
     STTSessionProjection,
@@ -350,6 +351,118 @@ async def test_peer_session_owner_exposes_segment_identity_from_actual_audio_loo
     await wait_until(lambda: owner.snapshot.state is PeerCaptureSessionState.STOPPED)
 
     await owner.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external_delivery_boundaries", [False, True])
+async def test_open_peer_input_failure_retires_slot_before_late_vad_and_admits_next(
+    external_delivery_boundaries: bool,
+) -> None:
+    class ControlledSource:
+        terminal_reason = None
+
+        def __init__(self) -> None:
+            self.frames_ready: asyncio.Queue[AudioFrameF32] = asyncio.Queue()
+            self.sequence = 0
+
+        async def frames(self):
+            while True:
+                yield await self.frames_ready.get()
+
+        async def close(self) -> None:
+            return None
+
+        async def feed(self, *probabilities: float) -> None:
+            for probability in probabilities:
+                sequence = self.sequence
+                self.sequence += 1
+                await self.frames_ready.put(
+                    AudioFrameF32(
+                        samples=np.full((512,), probability, dtype=np.float32),
+                        sample_rate_hz=16000,
+                        capture=AudioCaptureSpan(
+                            capture_epoch=1,
+                            callback_sequence=sequence + 1,
+                            source_sample_rate_hz=16000,
+                            source_start_sample=sequence * 512,
+                            source_end_sample=(sequence + 1) * 512,
+                            source_start_monotonic_s=sequence * 0.032,
+                            source_end_monotonic_s=(sequence + 1) * 0.032,
+                        ),
+                    )
+                )
+
+    source = ControlledSource()
+    sink = FakeVadSink()
+    remaining = (
+        (0.9, *(0.0,) * 30, 0.9, 0.9, *(0.0,) * 30)
+        if external_delivery_boundaries
+        else (0.9, 0.0, 0.0, 0.9, 0.9, 0.0, 0.0)
+    )
+    owner, *_ = make_owner(
+        source_factory=lambda _config, _target: source,
+        vad_factory=lambda _config: VadGating(
+            SequenceVadEngine(probs=[0.9, 0.9, *remaining]),
+            sample_rate_hz=16000,
+            chunk_samples=512,
+            ring_buffer_ms=32,
+            hangover_ms=0,
+            external_delivery_boundaries=external_delivery_boundaries,
+        ),
+        run_audio_loop=run_audio_vad_loop,
+        sink=sink,
+    )
+    try:
+        await owner.apply_intent(make_config(), enabled=True)
+        ledger = owner.segment_ledger
+        assert ledger is not None
+        await source.feed(0.9, 0.9)
+        await wait_until(lambda: bool(sink.events))
+        first = ledger.snapshots[0]
+        first_id = first.identity.segment_id
+
+        assert (
+            owner.note_input_terminal(
+                STTProviderInputTerminal(
+                    STTProviderTurnIdentity(first.identity, "epoch", "first"),
+                    "failed",
+                    channel="peer",
+                    failure_reason="input_write_failed",
+                )
+            )
+            == ()
+        )
+        assert ledger.terminal_receipts[0].identity == first.identity
+        assert ledger.terminal_receipts[0].outcome == "failed"
+        first_event_count = len(sink.events)
+
+        await source.feed(*remaining)
+        await wait_until(
+            lambda: any(
+                isinstance(item.event, SpeechEnd) and item.segment.identity.segment_id != first_id
+                for item in sink.events
+            )
+        )
+        assert all(
+            item.segment.identity.segment_id != first_id for item in sink.events[first_event_count:]
+        )
+        second = ledger.snapshots[0]
+        assert second.identity.segment_order == first.identity.segment_order + 1
+        assert second.state == "sealed"
+        owner.note_input_terminal(
+            STTProviderInputTerminal(
+                STTProviderTurnIdentity(second.identity, "epoch", "second"),
+                "submitted",
+                channel="peer",
+            )
+        )
+        assert [receipt.outcome for receipt in ledger.terminal_receipts] == [
+            "failed",
+            "submitted",
+        ]
+        assert owner.snapshot.state is PeerCaptureSessionState.RUNNING
+    finally:
+        await owner.close()
 
 
 @pytest.mark.asyncio

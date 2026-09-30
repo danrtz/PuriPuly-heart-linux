@@ -16,8 +16,13 @@ from puripuly_heart.config.resolved import (
 )
 from puripuly_heart.core.audio.listen_delivery import LISTEN_MAX_WHOLE_UNSENT_SEGMENTS
 from puripuly_heart.core.audio.ownership import (
+    AudioRetentionBinding,
+    AudioRetentionBudget,
     AudioSegmentSettingsSnapshot,
     AudioSegmentTerminalReceipt,
+    CaptureStreamInput,
+    OwnedStreamInput,
+    OwnedVadEvent,
     PeerAudioSegmentLedger,
     SegmentTerminalOutcome,
 )
@@ -56,8 +61,9 @@ from puripuly_heart.core.runtime.local_asr_transition import (
     LocalASRTransitionRequest,
     PreparedLocalASRTransition,
 )
-from puripuly_heart.core.stt.backend import STTProviderTurnTerminal
+from puripuly_heart.core.stt.backend import STTProviderInputTerminal, STTProviderTurnTerminal
 from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity
 
 _LOCAL_ASR_PROVIDERS = frozenset(
     {
@@ -152,6 +158,7 @@ class SpeechChannelRuntime(Protocol):
 
 class _VadSink(Protocol):
     async def handle_owned_vad_event(self, event: object) -> None: ...
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None: ...
     async def observe_source_activity(
         self,
         *,
@@ -196,6 +203,10 @@ class _GenerationGuardedVadSink:
         self.sink = sink
         self.runtime = runtime
         self.capture_generation = capture_generation
+        self.retention_budget = AudioRetentionBudget(
+            capacity_bytes=11_520_000,
+            capacity_sample_equivalents=2_880_000,
+        )
         self.provider_ingress_ready = provider_ingress_ready
         self._queue: deque[_QueuedVadEvent] = deque()
         self._wake = asyncio.Event()
@@ -207,10 +218,41 @@ class _GenerationGuardedVadSink:
         self._queued_content_samples = 0
         self._queued_context_samples = 0
         self._queued_control_events = 0
+        self._stream_drop_pending = False
         self._started_segment_ids: set[UUID] = set()
 
     async def handle_owned_vad_event(self, event: object) -> None:
         await self._submit(event)
+
+    async def handle_stream_input(self, event: CaptureStreamInput) -> None:
+        if not self.runtime.is_current_generation(self.capture_generation.value):
+            return
+        ledger = self.runtime.segment_ledger
+        if ledger is None:
+            return
+        if ledger.settings.provider_id not in {"gemini_transcribe", "rolling_free"}:
+            return
+        if event.capture:
+            self.runtime._current_stream_capture_epoch = event.capture[-1].capture_epoch
+        elif event.boundary_reason == "source_discontinuity":
+            self.runtime._current_stream_capture_epoch = None
+        capture_epoch = self.runtime._current_stream_capture_epoch
+        owned = OwnedStreamInput(
+            event=event,
+            ledger=ledger,
+            settings=ledger.settings,
+            activation_generation=self.capture_generation.value,
+            retention=AudioRetentionBinding(
+                budget=self.retention_budget,
+                dispatcher_owner=object(),
+            ),
+            is_current=lambda: (
+                self.runtime.is_current_generation(self.capture_generation.value)
+                and self.runtime.segment_ledger is ledger
+                and self.runtime._current_stream_capture_epoch == capture_epoch
+            ),
+        )
+        await self._submit(owned)
 
     async def observe_source_activity(
         self,
@@ -250,9 +292,18 @@ class _GenerationGuardedVadSink:
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
         await self._cancel_expiry()
+        while self._queue:
+            self._release_event_accounting(self._queue.popleft())
 
     async def _submit(self, event: object) -> None:
         if not self.runtime.is_current_generation(self.capture_generation.value):
+            return
+        ledger = self.runtime.segment_ledger
+        if (
+            isinstance(event, OwnedVadEvent)
+            and ledger is not None
+            and ledger.is_segment_terminal(event.segment.identity.segment_id)
+        ):
             return
         worker = self._worker
         if worker is None:
@@ -261,6 +312,42 @@ class _GenerationGuardedVadSink:
         elif worker.done():
             await worker
             raise RuntimeError("peer VAD dispatch worker stopped")
+        if isinstance(event, OwnedVadEvent) and isinstance(event.event, SpeechStart):
+            if ledger is not None:
+                for segment_id in tuple(self._started_segment_ids):
+                    if ledger.is_segment_terminal(segment_id):
+                        self._started_segment_ids.discard(segment_id)
+            self._stream_drop_pending = False
+        if (
+            isinstance(event, OwnedStreamInput)
+            and event.event.chunk.size
+            and self._stream_drop_pending
+        ):
+            return
+        if isinstance(event, OwnedStreamInput) and event.event.chunk.size:
+            binding = event.retention
+            if binding is None:
+                raise RuntimeError("peer stream audio requires owned retention")
+            if not binding.budget.try_reserve(
+                binding.dispatcher_owner,
+                int(event.event.chunk.nbytes),
+                sample_equivalents=int(event.event.chunk.size),
+            ):
+                self._stream_drop_pending = True
+                await self._submit(
+                    OwnedStreamInput(
+                        event=CaptureStreamInput(
+                            chunk=event.event.chunk[:0],
+                            capture=(),
+                            boundary_reason="source_discontinuity",
+                        ),
+                        ledger=event.ledger,
+                        settings=event.settings,
+                        activation_generation=event.activation_generation,
+                        retention=event.retention,
+                    )
+                )
+                return
 
         queued = self._describe_event(event)
         self._queue.append(queued)
@@ -277,7 +364,9 @@ class _GenerationGuardedVadSink:
         if self._queued_control_events > self._MAX_RESERVED_CONTROL_EVENTS:
             raise RuntimeError("peer VAD dispatch exceeded the control event budget")
         self._arm_expiry_timer()
-        await self._observe_pending_source_work(bool(self._queue))
+        await self._observe_pending_source_work(
+            any(not isinstance(item.event, OwnedStreamInput) for item in self._queue)
+        )
         self._wake.set()
         await asyncio.sleep(0)
 
@@ -293,17 +382,30 @@ class _GenerationGuardedVadSink:
                 await self._wake.wait()
                 continue
             queued = self._queue.popleft()
-            if queued.opens_segment and queued.segment_id is not None:
-                self._started_segment_ids.add(queued.segment_id)
             try:
                 if not self.runtime.is_current_generation(self.capture_generation.value):
                     continue
-                await cast(_VadSink, self.sink).handle_owned_vad_event(queued.event)
+                ledger = self.runtime.segment_ledger
+                if (
+                    not isinstance(queued.event, OwnedStreamInput)
+                    and ledger is not None
+                    and queued.segment_id is not None
+                    and ledger.is_segment_terminal(queued.segment_id)
+                ):
+                    continue
+                if queued.opens_segment and queued.segment_id is not None:
+                    self._started_segment_ids.add(queued.segment_id)
+                if isinstance(queued.event, OwnedStreamInput):
+                    await cast(_VadSink, self.sink).handle_stream_input(queued.event)
+                else:
+                    await cast(_VadSink, self.sink).handle_owned_vad_event(queued.event)
             finally:
                 self._release_event_accounting(queued)
                 if queued.closes_segment and queued.segment_id is not None:
                     self._started_segment_ids.discard(queued.segment_id)
-                await self._observe_pending_source_work(bool(self._queue))
+                await self._observe_pending_source_work(
+                    any(not isinstance(item.event, OwnedStreamInput) for item in self._queue)
+                )
 
     def _enforce_segment_budget(self) -> None:
         candidates = self._whole_unsent_sealed_segments()
@@ -449,9 +551,25 @@ class _GenerationGuardedVadSink:
         self._queued_context_samples -= queued.context_pcm_samples
         if queued.pcm_samples == 0:
             self._queued_control_events -= 1
+        if isinstance(queued.event, OwnedStreamInput) and queued.event.retention is not None:
+            binding = queued.event.retention
+            binding.budget.release(binding.dispatcher_owner)
 
     @staticmethod
     def _describe_event(event: object) -> _QueuedVadEvent:
+        if isinstance(event, OwnedStreamInput):
+            samples = int(event.event.chunk.size)
+            return _QueuedVadEvent(
+                event=event,
+                pcm_samples=samples,
+                segment_id=None,
+                segment_order=None,
+                content_pcm_samples=samples,
+                context_pcm_samples=0,
+                opens_segment=False,
+                closes_segment=False,
+                sealed_at_dispatch_s=None,
+            )
         raw_event = getattr(event, "event")
         segment = getattr(event, "segment")
         identity = getattr(segment, "identity", None)
@@ -557,6 +675,7 @@ class PeerCaptureSessionOwner:
         self._audio_source: object | None = None
         self._vad: object | None = None
         self._loop_task: asyncio.Task[None] | None = None
+        self._current_stream_capture_epoch: int | None = None
         self._signature: tuple[object, ...] | None = None
         self._provider_signature: tuple[object, ...] | None = None
         self._provider_attachment_token: object | None = None
@@ -688,6 +807,22 @@ class PeerCaptureSessionOwner:
     def segment_ledgers(self) -> tuple[PeerAudioSegmentLedger, ...]:
         return tuple(self._segment_ledgers)
 
+    def is_current_recognition_stream(self, stream: RecognitionStreamIdentity) -> bool:
+        ledger = self._segment_ledger
+        return (
+            stream.channel == "peer"
+            and self.is_current_generation(stream.activation_generation)
+            and ledger is not None
+            and ledger.activation_generation == stream.activation_generation
+            and self._current_stream_capture_epoch == stream.capture_epoch
+            and stream.settings_scope
+            == (
+                ledger.settings.provider_id,
+                ledger.settings.provider_signature,
+                ledger.settings.runtime_signature,
+            )
+        )
+
     def bind_publication_generation_observer(
         self,
         *,
@@ -756,6 +891,43 @@ class PeerCaptureSessionOwner:
             if event is not None:
                 admitted.append((receipt, event))
         return tuple(admitted)
+
+    def note_input_terminal(
+        self, terminal: STTProviderInputTerminal
+    ) -> tuple[tuple[AudioSegmentTerminalReceipt, STTProviderTurnTerminal], ...]:
+        segment = terminal.identity.segment
+        for ledger in reversed(self._segment_ledgers):
+            if not ledger.contains_segment(segment.segment_id):
+                continue
+            if not any(item.identity == segment for item in ledger.snapshots) and not any(
+                receipt.identity == segment for receipt in ledger.terminal_receipts
+            ):
+                continue
+            if terminal.outcome == "submitted":
+                ledger.terminalize(
+                    segment.segment_id,
+                    outcome=terminal.outcome,
+                    now_monotonic_s=self.clock.now(),
+                    provider_epoch_id=terminal.identity.provider_epoch_id,
+                    provider_turn_id=terminal.identity.provider_turn_id,
+                    failure_reason=terminal.failure_reason,
+                )
+            else:
+                ledger.terminalize_for_failure(
+                    segment.segment_id,
+                    outcome=terminal.outcome,
+                    now_monotonic_s=self.clock.now(),
+                    provider_epoch_id=terminal.identity.provider_epoch_id,
+                    provider_turn_id=terminal.identity.provider_turn_id,
+                    failure_reason=terminal.failure_reason or terminal.outcome,
+                )
+            admitted: list[tuple[AudioSegmentTerminalReceipt, STTProviderTurnTerminal]] = []
+            for receipt in ledger.take_ready_terminal_receipts():
+                legacy = self._provider_terminal_events.pop(receipt.identity.segment_id, None)
+                if legacy is not None:
+                    admitted.append((receipt, legacy))
+            return tuple(admitted)
+        return ()
 
     def record_segment_terminal(
         self,
@@ -1494,7 +1666,7 @@ class PeerCaptureSessionOwner:
                 monotonic_clock=self.clock.now,
                 smart_turn_owner=self._smart_turn_owner,
             )
-            if self._terminal_reason_from_source(source) is None:
+            if self._terminal_reason_from_source(source) in {None, "closed"}:
                 await guarded_sink.finish()
             else:
                 await guarded_sink.abort()
@@ -1510,7 +1682,7 @@ class PeerCaptureSessionOwner:
             )
             return
         terminal_reason = self._terminal_reason_from_source(source)
-        if terminal_reason is not None:
+        if terminal_reason not in {None, "closed"}:
             await self._fault_current_generation(
                 capture_generation.value,
                 config=self._config,

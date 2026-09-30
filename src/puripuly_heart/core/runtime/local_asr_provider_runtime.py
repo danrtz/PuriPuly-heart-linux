@@ -7,9 +7,13 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Protocol, cast
 
-from puripuly_heart.core.audio.ownership import OwnedVadEvent
+from puripuly_heart.core.audio.ownership import (
+    AudioSegmentSettingsSnapshot,
+    OwnedStreamInput,
+    OwnedVadEvent,
+)
 from puripuly_heart.core.lifecycle import LifecycleScope, start_lifecycle_task
-from puripuly_heart.core.local_asr_provider_runtime import (
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
     LocalASRProviderRuntimeSnapshot,
     ProviderGpuRuntimePort,
     ProviderRuntimeBuildRequest,
@@ -32,6 +36,7 @@ from puripuly_heart.core.local_asr_provider_runtime import (
 from puripuly_heart.core.local_asr_provisioning import LocalASRProvisioningPort
 from puripuly_heart.core.runtime.gpu_asr import GpuASRDiagnostic
 from puripuly_heart.core.runtime.provider_handle import ProviderRuntimeHandle
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity
 
 ProviderRuntimeStateChanged = Callable[
     [LocalASRProviderRuntimeSnapshot],
@@ -53,6 +58,8 @@ _COMPLETED_NO_GPU_FAILURE_CODES = frozenset({"unsupported_capability"})
 
 class _ScopedRecognitionProvider(Protocol):
     async def handle_owned_vad_event(self, event: OwnedVadEvent) -> None: ...
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None: ...
+    def is_current_recognition_stream(self, stream: RecognitionStreamIdentity) -> bool: ...
 
     async def reject_owned_segment(
         self,
@@ -770,6 +777,31 @@ class LocalASRProviderRuntimeOwner:
             target = await self._scoped_provider_for_owned_event(channel, event)
             await target.handle_owned_vad_event(event)
 
+    async def handle_stream_input(
+        self,
+        channel: ProviderRuntimeChannel,
+        event: OwnedStreamInput,
+    ) -> None:
+        self._require_open("dispatch scoped provider stream input")
+        self._validate_channel(channel)
+        async with self._operation():
+            target = await self._scoped_provider_for_settings(channel, event.settings)
+            await target.handle_stream_input(event)
+
+    def is_current_recognition_stream(
+        self,
+        channel: ProviderRuntimeChannel,
+        stream: RecognitionStreamIdentity,
+    ) -> bool:
+        if self._closed or channel != stream.channel:
+            return False
+        self._validate_channel(channel)
+        return any(
+            callable(method := getattr(target, "is_current_recognition_stream", None))
+            and method(stream)
+            for target in self._source_fact_targets(self._handles[channel])
+        )
+
     async def reject_owned_segment(
         self,
         channel: ProviderRuntimeChannel,
@@ -802,12 +834,19 @@ class LocalASRProviderRuntimeOwner:
         channel: ProviderRuntimeChannel,
         event: OwnedVadEvent,
     ) -> _ScopedRecognitionProvider:
+        return await self._scoped_provider_for_settings(channel, event.segment.settings)
+
+    async def _scoped_provider_for_settings(
+        self,
+        channel: ProviderRuntimeChannel,
+        settings: AudioSegmentSettingsSnapshot,
+    ) -> _ScopedRecognitionProvider:
         handle = self._handles[channel]
         current, _generation = handle.current_provider_generation()
         scope = (
-            event.segment.settings.provider_id,
-            event.segment.settings.provider_signature,
-            event.segment.settings.runtime_signature,
+            settings.provider_id,
+            settings.provider_signature,
+            settings.runtime_signature,
         )
         target = next(
             (

@@ -15,6 +15,8 @@ from puripuly_heart.core.audio.ownership import (
     AudioRetentionBinding,
     AudioRetentionBudget,
     AudioSegmentSettingsSnapshot,
+    CaptureStreamInput,
+    OwnedStreamInput,
     OwnedVadEvent,
     PeerAudioSegmentLedger,
 )
@@ -32,9 +34,10 @@ from puripuly_heart.core.self_capture import (
     SelfCaptureSessionState,
     SelfCaptureTerminalFailureHandler,
 )
-from puripuly_heart.core.stt.backend import STTProviderTurnTerminal
+from puripuly_heart.core.stt.backend import STTProviderInputTerminal, STTProviderTurnTerminal
 from puripuly_heart.core.stt.diagnostics import recognition_cause
 from puripuly_heart.core.vad.gating import SpeechEnd, SpeechStart
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity
 
 SelfCaptureProviderRequestFactory = Callable[[SelfCaptureSessionConfig, bool], object]
 SelfCaptureSourceFactory = Callable[[SelfCaptureSessionConfig], Awaitable[object] | object]
@@ -46,6 +49,7 @@ SelfCaptureDiagnosticSink = Callable[[SelfCaptureDiagnostic], object]
 
 class _VadSink(Protocol):
     async def handle_vad_event(self, event: object) -> None: ...
+    async def handle_stream_input(self, event: OwnedStreamInput) -> None: ...
     async def observe_source_activity(
         self,
         *,
@@ -102,9 +106,10 @@ class _GenerationGuardedVadSink:
         self.capture_generation = capture_generation
         self.ledger = ledger
         self.retention_budget = retention_budget
-        self._queue: deque[OwnedVadEvent] = deque()
+        self._queue: deque[OwnedVadEvent | OwnedStreamInput] = deque()
         self._retained_samples = 0
         self._control_events = 0
+        self._stream_drop_pending = False
         self._wake = asyncio.Event()
         self._worker: asyncio.Task[None] | None = None
         self._closing = False
@@ -140,6 +145,69 @@ class _GenerationGuardedVadSink:
         if callable(observe):
             await observe(pending=pending)
 
+    async def handle_stream_input(self, event: CaptureStreamInput) -> None:
+        if not self.owner.is_current_generation(self.capture_generation.value):
+            return
+        if self.ledger.settings.provider_id not in {"gemini_transcribe", "rolling_free"}:
+            return
+        if self._worker is None:
+            self._worker = asyncio.create_task(self._run(), name="self-vad-dispatch")
+        elif self._worker.done():
+            await self._worker
+            raise RuntimeError("self VAD dispatch worker stopped")
+        if event.capture:
+            self.owner._current_stream_capture_epoch = event.capture[-1].capture_epoch
+        elif event.boundary_reason == "source_discontinuity":
+            self.owner._current_stream_capture_epoch = None
+        capture_epoch = self.owner._current_stream_capture_epoch
+        owned = OwnedStreamInput(
+            event=event,
+            ledger=self.ledger,
+            settings=self.ledger.settings,
+            activation_generation=self.capture_generation.value,
+            retention=AudioRetentionBinding(
+                budget=self.retention_budget,
+                dispatcher_owner=object(),
+            ),
+            is_current=lambda: (
+                self.owner.is_current_generation(self.capture_generation.value)
+                and self.owner._current_stream_capture_epoch == capture_epoch
+            ),
+        )
+        samples = int(event.chunk.size)
+        if samples and self._stream_drop_pending:
+            return
+        if samples:
+            if (
+                self._retained_samples + samples > self.max_retained_samples
+                or not self.retention_budget.try_reserve(
+                    owned.retention.dispatcher_owner,
+                    int(event.chunk.nbytes),
+                    sample_equivalents=samples,
+                )
+            ):
+                self._stream_drop_pending = True
+                await self.handle_stream_input(
+                    CaptureStreamInput(
+                        chunk=event.chunk[:0],
+                        capture=(),
+                        boundary_reason="source_discontinuity",
+                    )
+                )
+                return
+            self._retained_samples += samples
+        else:
+            self._control_events += 1
+            if self._control_events > self.max_control_events:
+                self._control_events -= 1
+                return
+        self._queue.append(owned)
+        await self._observe_pending_source_work(
+            any(isinstance(item, OwnedVadEvent) for item in self._queue)
+        )
+        self._wake.set()
+        await asyncio.sleep(0)
+
     async def handle_vad_event(self, event: object) -> None:
         if not self.owner.is_current_generation(self.capture_generation.value):
             return
@@ -150,6 +218,8 @@ class _GenerationGuardedVadSink:
         if event_segment_id in self._rejected_segment_ids:
             if isinstance(event, SpeechEnd):
                 self._rejected_segment_ids.discard(event_segment_id)
+            return
+        if self.ledger.is_segment_terminal(event_segment_id):
             return
         observed = self.ledger.observe_vad_event(
             event,
@@ -165,6 +235,7 @@ class _GenerationGuardedVadSink:
         retained_bytes = self._event_retained_bytes(event)
         retained_sample_equivalents = self._event_retained_sample_equivalents(event)
         if isinstance(event, SpeechStart):
+            self._stream_drop_pending = False
             await self._admit_unsent_segment(owned)
         if retained_sample_equivalents:
             await self._reclaim_unsent_for_samples(retained_sample_equivalents)
@@ -332,10 +403,13 @@ class _GenerationGuardedVadSink:
             and not expiry_task.done()
         ):
             expiry_task.cancel()
-        retained: deque[OwnedVadEvent] = deque()
+        retained: deque[OwnedVadEvent | OwnedStreamInput] = deque()
         while self._queue:
             queued = self._queue.popleft()
-            if queued.segment.identity.segment_id == segment_id:
+            if (
+                isinstance(queued, OwnedVadEvent)
+                and queued.segment.identity.segment_id == segment_id
+            ):
                 self._release_queue_charge(queued)
             else:
                 retained.append(queued)
@@ -370,7 +444,7 @@ class _GenerationGuardedVadSink:
         )
         self.owner.note_recognition_failure(reason)
 
-    def _release_queue_charge(self, owned: OwnedVadEvent) -> None:
+    def _release_queue_charge(self, owned: OwnedVadEvent | OwnedStreamInput) -> None:
         event = owned.event
         retained_sample_equivalents = self._event_retained_sample_equivalents(event)
         if retained_sample_equivalents:
@@ -400,10 +474,15 @@ class _GenerationGuardedVadSink:
                         expiry_task.cancel()
             try:
                 if self.owner.is_current_generation(self.capture_generation.value):
-                    await cast(_VadSink, self.sink).handle_vad_event(owned)
+                    if isinstance(owned, OwnedStreamInput):
+                        await cast(_VadSink, self.sink).handle_stream_input(owned)
+                    else:
+                        await cast(_VadSink, self.sink).handle_vad_event(owned)
             finally:
                 self._release_queue_charge(owned)
-                await self._observe_pending_source_work(bool(self._queue))
+                await self._observe_pending_source_work(
+                    any(isinstance(item, OwnedVadEvent) for item in self._queue)
+                )
 
 
 class SelfCaptureSessionOwner:
@@ -470,6 +549,7 @@ class SelfCaptureSessionOwner:
         self._capture_generation: _CaptureGeneration | None = None
         self._vad_dispatch: _GenerationGuardedVadSink | None = None
         self._segment_ledgers: deque[PeerAudioSegmentLedger] = deque(maxlen=16)
+        self._current_stream_capture_epoch: int | None = None
         self._transition_task: asyncio.Task[None] | None = None
         self._fault_tasks: set[asyncio.Task[None]] = set()
         self._retired_sources: list[object] = []
@@ -547,6 +627,22 @@ class SelfCaptureSessionOwner:
             and self._loop_task is not None
         )
 
+    def is_current_recognition_stream(self, stream: RecognitionStreamIdentity) -> bool:
+        config = self._config
+        if config is None or stream.channel != "self":
+            return False
+        settings = self._segment_settings(config)
+        return (
+            self.is_current_generation(stream.activation_generation)
+            and self._current_stream_capture_epoch == stream.capture_epoch
+            and stream.settings_scope
+            == (
+                settings.provider_id,
+                settings.provider_signature,
+                settings.runtime_signature,
+            )
+        )
+
     def invalidate_intent(self) -> SelfCaptureSessionSnapshot:
         self._desired_active = False
         self._generation += 1
@@ -572,6 +668,35 @@ class SelfCaptureSessionOwner:
             ledger=ledger,
             retention_budget=self._retention_budget,
         )
+
+    def note_input_terminal(self, terminal: STTProviderInputTerminal) -> None:
+        segment = terminal.identity.segment
+        for ledger in reversed(self._segment_ledgers):
+            if not ledger.contains_segment(segment.segment_id):
+                continue
+            if not any(item.identity == segment for item in ledger.snapshots) and not any(
+                receipt.identity == segment for receipt in ledger.terminal_receipts
+            ):
+                continue
+            if terminal.outcome == "submitted":
+                ledger.terminalize(
+                    segment.segment_id,
+                    outcome=terminal.outcome,
+                    now_monotonic_s=asyncio.get_running_loop().time(),
+                    provider_epoch_id=terminal.identity.provider_epoch_id,
+                    provider_turn_id=terminal.identity.provider_turn_id,
+                    failure_reason=terminal.failure_reason,
+                )
+            else:
+                ledger.terminalize_for_failure(
+                    segment.segment_id,
+                    outcome=terminal.outcome,
+                    now_monotonic_s=asyncio.get_running_loop().time(),
+                    provider_epoch_id=terminal.identity.provider_epoch_id,
+                    provider_turn_id=terminal.identity.provider_turn_id,
+                    failure_reason=terminal.failure_reason or terminal.outcome,
+                )
+            return
 
     def note_recognition_terminal(self, terminal: STTProviderTurnTerminal) -> None:
         segment_id = terminal.identity.segment.segment_id
@@ -656,6 +781,21 @@ class SelfCaptureSessionOwner:
         async with self._state_lock:
             if self._closed:
                 raise RuntimeError("SelfCaptureSessionOwner is closed")
+            if (
+                enabled
+                and not restart
+                and self._desired_active
+                and (self._transition_task is None or self._transition_task.done())
+                and self._state is SelfCaptureSessionState.RUNNING
+                and self._config is not None
+                and self._config.capture_signature == config.capture_signature
+                and self._config.runtime_signature == config.runtime_signature
+                and self._segment_settings(self._config) == self._segment_settings(config)
+                and self._capture_generation is not None
+                and self._capture_generation.value == self._generation
+            ):
+                self._config = config
+                return self.snapshot
             self._generation += 1
             generation = self._generation
             self._desired_active = enabled
@@ -954,11 +1094,6 @@ class SelfCaptureSessionOwner:
                 and self._config is not None
             ):
                 self._rebind_capture_generation(generation)
-                if self._config.runtime_signature == config.runtime_signature:
-                    self._config = config
-                    self._failure_reason = None
-                    self._notify_state_changed()
-                    return
                 if self._config.capture_signature == config.capture_signature:
                     await self._transition_provider(generation, config)
                     return

@@ -86,8 +86,8 @@ Ownership may span several processing stages. Do not assume one owner per pipeli
 ```text
 microphone
 → normalized audio frames
-→ owned VAD events
-→ scoped recognition events
+→ owned VAD boundaries and permitted stream input
+→ scoped turn results or independent recognition units
 → self translation turns
 → publication intents
 → output runtime
@@ -116,8 +116,8 @@ Manual text bypasses capture and STT.
 ```text
 loopback or process audio
 → peer capture and segmentation
-→ scoped recognition events
-→ source-ordered peer translation
+→ scoped turn results or independent recognition units
+→ ordered peer translation admission
 → publication intents
 → output runtime
 → UI / overlays
@@ -129,12 +129,21 @@ Peer output must not reach the VRChat chatbox.
 
 - Capture preserves source order and timing. Audio loss is explicit, not silence.
 - Capture owners retain generation-bound segment ledgers and freeze provider and endpoint settings for admitted segments (`core/audio/ownership.py`).
-- `OwnedVadEvent` carries segment identity into recognition. Only scoped recognition terminals retire source slots or admit final transcripts.
-- `ListenDeliveryController` owns peer segmentation independently of provider readiness (`core/audio/listen_delivery.py`).
+- `OwnedVadEvent` carries local segment identity; Gemini and its Rolling member also receive generation-owned `OwnedStreamInput` from the same permitted normalized frames. All scoped PCM, including VAD pre-roll, deduplicates by source range within its recognition stream. Initial unseen context and unseen suffixes are preserved; already-submitted context is not replayed.
+- Gemini `STTProviderInputTerminal` retires an audio slot after submission, without claiming a transcript or server completion. Independently received `STTRecognitionUnitTerminal` supplies text with channel, capture/activation generation, provider epoch, settings scope, and receipt identity.
+- Input terminal metadata goes directly to the bound capture callback, independently of deferred recognition delivery, so a slow text consumer cannot retain audio slots or lose their retirement on text-buffer overflow.
+- Input retirement also clears that exact local segment's VAD/timing bookkeeping; native unit identities are never used to guess a local segment. Failed open inputs are failure-sealed, and later VAD events cannot reopen their retired slots.
+- A failed independent audio write retires its provider epoch before recovery. The next valid retained source frame can admit a replacement recognition stream through `begin_stream`, without inventing a local speech segment or waiting for a new `SpeechStart`. Recovery excludes the failed write's entire source range because remote delivery is unknown, then forwards only definitely-unsent audio under the existing capture retention budget.
+- Recovery opening and stream admission are bounded and recheck live capture authority after awaits. Generation, settings, capture-epoch, mute, stop, and discontinuity invalidation prevent stale recovery; exhausted connection or physical cleanup failure does not trigger a new attempt for every queued frame. Capture owners supply live `OwnedStreamInput.is_current` guards, and Rolling preserves the same stream ownership contract.
+- `ListenDeliveryController` owns peer segmentation independently of provider readiness (`core/audio/listen_delivery.py`). Deadline seals serialize with the current frame's VAD processing, continuous-input enqueue, and owned-event dispatch, so a timer cannot seal a segment before its already-produced frame is accounted for and queued.
 - Self and peer share `VadGating` but retain separate onset and endpoint policies. Delivery rollover preserves acoustic continuity.
 - `SmartTurnInferenceOwner` owns peer endpoint inference for supported languages and rejects retired results (`core/audio/smart_turn.py`).
 
 Orderly capture completion drains recognition. Stop or discontinuity invalidates affected work.
+Gemini requests automatic server activity detection with `prefix_padding_ms=500` and `silence_duration_ms=400`. These provider settings do not alter local VAD/SmartTurn policies, capture pre-roll, continuous PCM coverage, or native-final-only text admission; no artificial silence or repeated audio is added.
+Gemini local endpoints enqueue `audio_stream_end` through the same ordered writer as audio; they do not stop the receiver or block subsequent input waiting for text. Mute, discontinuity, source change, and explicit stop retire the affected stream. Stream-only queued audio does not count as pending local speech for idle lifetime extension.
+Consecutive fences without newly written audio are coalesced by that writer. A server GoAway notice with positive `timeLeft` leaves audio and final reception live until the first bounded deadline or socket closure; duplicate notices cannot extend the deadline. Event pressure preserves already-accepted finals and reserves one bounded retirement-control slot rather than clearing accepted text.
+An unchanged effective SELF intent preserves its active capture generation. A new capture generation or capture epoch starts a fresh native stream even when provider settings are unchanged. SELF readiness is tracked separately from text authority: current input failure or epoch end disconnects readiness, while already-accepted finals may still drain without reviving an ended or superseded stream.
 
 ### Managed translation
 
@@ -315,8 +324,10 @@ Execution options:
 
 - Channels retain separate provider epochs, bounded buffers, cancellation, and retention policies.
 - Physical CPU/GPU resources remain shared through their runtime owners.
-- `STTSessionEventProjection` defines per-turn scoped updates and terminal receipts (`core/stt/session_projection.py`).
-- `STTScopedTurnNormalizer` assembles text, language runs, and session-scoped speaker runs per identity. Provider updates are not final application transcripts.
+- `STTSessionEventProjection` defines scoped turn receipts and independent recognition events (`core/stt/session_projection.py`). `STTScopedTurnNormalizer` remains the turn-bound provider path; it does not attach Gemini text to a local turn.
+- Gemini uses automatic server VAD with locally led `audio_stream_end` fences, 16-kHz mono PCM16LE, and unchanged 32-ms packetization. Manual activity controls, final-plus-ACK matching, and interim-to-final timeout promotion are absent.
+- Gemini finals are consumed exactly once in provider receipt order through the existing translation owners, including Rolling. This is an explicitly approved output policy, not a guarantee of original-audio ordering. Activity offsets and receive time do not establish local segment, word, or speaker correspondence.
+- Currentness requires both capture and provider-runtime ownership. Missing text is not empty success; only explicit native finals become independent recognition units. Bounded event/audio buffers and finite EOF observation constrain resource retention without asserting that every source sample has a result.
 - Soniox adapters classify retryable failures; the engine owns a shared three-failure recovery budget with 0.8/1.6-second backoff. Successful final or empty results reset the budget. Recovery opens a fresh epoch for the next valid utterance without replaying failed audio. Authentication, configuration, protocol, and unknown faults are not retried.
 - Recoverable Soniox terminals preserve self capture intent without publishing a terminal UI error. Permanent or exhausted failures deactivate capture. User abort invalidates pending admission and late results. Retained self capture keeps the source token and ledger generation aligned; already-admitted segments retain their frozen identity.
 - Soniox readiness is bounded at 5 seconds. Final wait is 5 seconds for peer and 20 seconds for self; peer sealed-segment TTL remains 12 seconds. The peer deadline reserves time for queued work but does not guarantee delivery through repeated failures, and later final responses lose authority.
@@ -375,7 +386,8 @@ Delivery boundaries:
 - Peer UI and overlay destinations have independent bounded queues and writers.
 - Self chatbox delivery owns its bounded admission and expiry policy.
 - Output handoff releases translation ordering without waiting for display. Sink failure does not replay recognition or translation.
-- Peer publications retain activation generation and source order through output. Retiring an activation cancels its deliveries and rejects late work.
+- Peer publications retain activation generation and `source_order` through output. For turn-bound providers this follows segment order; independent Gemini finals use receipt-ordered admission into the same monotonic publication sequence. Retiring an activation cancels its deliveries and rejects late work.
+- Independent Hybrid peer text without speaker evidence is `uncertain` and uses the existing gray fallback, without a speaker hold or guessed identity. Legacy non-diarized providers keep their existing gold style; first-readable presentation remains pinned.
 - Destination admission and presenter application receipts are explicit; neither is a remote display acknowledgement.
 
 Caption and overlay settings control destinations, not peer capture. Conversation errors share publication identity; runtime session status uses a separate path.
