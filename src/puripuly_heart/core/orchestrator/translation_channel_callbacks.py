@@ -180,15 +180,15 @@ class TranslationChannelOwnerCallbacks:
             await self._publish_self_session_state(STTSessionState.DISCONNECTED)
 
     async def _after_self_epoch_ended(self, event: STTProviderEpochEnded) -> None:
-        stream = self._self_ready_stream
-        if (
-            stream is not None
-            and stream.provider_epoch_id == event.provider_epoch_id
-            and stream not in self._self_obsolete_streams
-            and self._self_stream_scope_is_current(stream)
-        ):
-            await self._publish_self_session_state(STTSessionState.DISCONNECTED)
-            self._supersede_self_stream(stream)
+        for stream in (self._self_ready_stream, self._self_last_input_stream):
+            if (
+                stream is not None
+                and stream.provider_epoch_id == event.provider_epoch_id
+                and stream not in self._self_obsolete_streams
+                and self._self_stream_scope_is_current(stream)
+            ):
+                self._supersede_self_stream(stream)
+                await self._publish_self_session_state(STTSessionState.DISCONNECTED)
 
     async def _admit_recognition_unit(
         self,

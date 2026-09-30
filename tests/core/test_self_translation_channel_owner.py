@@ -277,6 +277,83 @@ async def test_self_native_input_failure_disconnects_only_current_stream() -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("native_before_input", [False, True])
+async def test_self_latest_submitted_epoch_end_disconnects_before_its_first_final(
+    native_before_input: bool,
+) -> None:
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=RecordingOscQueue())
+    callbacks = TranslationChannelOwnerCallbacks(harness.stt_sessions)
+    callbacks.bind_self(harness.self_owner)
+    first = RecognitionStreamIdentity("self", 1, 0, "epoch-a", ("gemini_transcribe",))
+    second = replace(first, provider_epoch_id="epoch-b")
+    third = replace(first, provider_epoch_id="epoch-c")
+    streams = (first, second, third)
+    callbacks._self_capture = SimpleNamespace(
+        snapshot=SimpleNamespace(generation=1),
+        note_input_terminal=lambda _event: None,
+        is_current_recognition_stream=lambda stream: stream in streams,
+    )
+    harness.self_owner.local_asr_runtime = SimpleNamespace(
+        is_current_recognition_stream=lambda _channel, stream: stream in streams
+    )
+
+    def submitted(stream: RecognitionStreamIdentity) -> STTProviderInputTerminal:
+        return STTProviderInputTerminal(
+            STTProviderTurnIdentity(
+                AudioSegmentIdentity(1, 1, uuid4(), 0),
+                stream.provider_epoch_id,
+                uuid4().hex,
+                stream.settings_scope,
+            ),
+            "submitted",
+            "self",
+        )
+
+    def native(
+        stream: RecognitionStreamIdentity, text: str, sequence: int = 1
+    ) -> STTRecognitionUnitTerminal:
+        return STTRecognitionUnitTerminal(
+            STTRecognitionUnit(RecognitionUnitIdentity(stream, uuid4(), sequence), text),
+            "final" if text else "empty",
+        )
+
+    try:
+        await harness.start()
+        await callbacks.self_event_handler(submitted(first))
+        await callbacks.self_event_handler(native(first, "first ready"))
+        if native_before_input:
+            await callbacks.self_event_handler(native(second, ""))
+        await callbacks.self_event_handler(submitted(second))
+        await callbacks.self_event_handler(
+            STTProviderEpochEnded("epoch-a", True, "native_idle_end")
+        )
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+
+        await callbacks.self_event_handler(
+            STTProviderEpochEnded("epoch-b", True, "native_idle_end")
+        )
+        assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+        await callbacks.self_event_handler(native(second, "accepted before epoch end", sequence=2))
+        assert harness.stt_session_state() is STTSessionState.DISCONNECTED
+        await harness.translation_turns.wait_for_idle()
+        finals = []
+        while not harness.ui_events.empty():
+            item = harness.ui_events.get_nowait()
+            if item.channel == "self" and item.type is UIEventType.TRANSCRIPT_FINAL:
+                finals.append(item.payload.text)
+        assert finals == ["first ready", "accepted before epoch end"]
+
+        await callbacks.self_event_handler(native(third, ""))
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+        await callbacks.self_event_handler(
+            STTProviderEpochEnded("epoch-b", True, "native_idle_end")
+        )
+        assert harness.stt_session_state() is STTSessionState.STREAMING
+    finally:
+        await harness.stop()
+
+
+@pytest.mark.asyncio
 async def test_self_late_accepted_native_finals_preserve_text_without_reviving_old_readiness() -> (
     None
 ):
@@ -334,7 +411,6 @@ async def test_self_late_accepted_native_finals_preserve_text_without_reviving_o
         )
         await callbacks.self_event_handler(STTRecognitionUnitTerminal(late_first, "final"))
         assert harness.stt_session_state() is STTSessionState.STREAMING
-        assert callbacks._self_ready_stream == second
 
         await callbacks.self_event_handler(input_terminal(second, "failed"))
         assert harness.stt_session_state() is STTSessionState.DISCONNECTED
