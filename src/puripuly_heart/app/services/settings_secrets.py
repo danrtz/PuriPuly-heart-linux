@@ -60,6 +60,10 @@ class SettingsSecretsOwner:
             )
             snapshot = replace(
                 snapshot,
+                openai_api_key=store.get("openai_api_key") or "",
+            )
+            snapshot = replace(
+                snapshot,
                 deepseek_api_key=store.get("deepseek_api_key") or "",
             )
             snapshot = replace(

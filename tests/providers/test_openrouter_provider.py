@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from puripuly_heart.config.llm_profiles import OPENROUTER_MODEL_GPT_6_LUNA
 from puripuly_heart.config.runtime_resolution import (
     OpenRouterRuntimeIntent,
     RuntimeResolutionInput,
@@ -317,6 +318,35 @@ async def test_httpx_openrouter_client_builds_reasoning_disabled_request_with_la
 
 
 @pytest.mark.asyncio
+async def test_httpx_openrouter_luna_disables_reasoning_and_omits_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = FakeAsyncClient()
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: fake_client)
+    client = HttpxOpenRouterClient(
+        api_key="test-key",
+        model=OPENROUTER_MODEL_GPT_6_LUNA,
+        base_url="https://example",
+    )
+
+    result = await client.translate(
+        text="조금만 더 기다려 주세요.",
+        system_prompt="Translate {source_language} to {target_language}.",
+        source_language="Korean",
+        target_language="English",
+        context="At a station, someone asks a companion to wait.",
+        max_output_tokens=37,
+    )
+
+    assert result == "OK"
+    assert fake_client.last_request["json"]["model"] == OPENROUTER_MODEL_GPT_6_LUNA
+    assert fake_client.last_request["json"]["reasoning"] == {"effort": "none"}
+    assert fake_client.last_request["json"]["max_tokens"] == 37
+    assert "temperature" not in fake_client.last_request["json"]
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_httpx_openrouter_client_gemma_uses_cloudflare_dekallm_nextbit_makora_routing(
     monkeypatch,
 ) -> None:
@@ -419,7 +449,7 @@ async def test_httpx_openrouter_client_deepseek_41_model_overrides_stale_route(
         api_key="test-key",
         model="deepseek/deepseek-v4.1-flash",
         base_url="https://example",
-        provider_routing=OpenRouterProviderRouting.GEMMA4_31B_LATENCY,
+        provider_routing=OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY,
     )
     await client.translate(
         text="hello",
@@ -445,7 +475,7 @@ async def test_httpx_openrouter_client_deepseek_40_uses_requested_provider_pool(
         api_key="test-key",
         model="deepseek/deepseek-v4-flash-0731",
         base_url="https://example",
-        provider_routing=OpenRouterProviderRouting.GEMMA4_31B_LATENCY,
+        provider_routing=OpenRouterProviderRouting.GEMMA4_26B_31B_LATENCY,
     )
     await client.translate(
         text="hello",

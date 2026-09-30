@@ -88,7 +88,7 @@
         "tests/config/public_compatibility_surfaces_snapshot.json::provider_aliases"
       ],
       "fixture_or_guard_refs": [
-        "tests/config/test_public_compatibility_surfaces.py::test_provider_alias_snapshot_matches_current_aliases_and_legacy_acceptance",
+        "tests/config/test_config_and_secrets.py::test_legacy_gemini_byok_alias_is_compatibility_only",
         "tests/config/test_config_and_secrets.py::test_openrouter_alias_for_fields_does_not_expose_deepseek_v4_pro",
         "tests/config/test_runtime_resolution.py::test_legacy_openrouter_selection_aliases_normalize_before_resolved_runtime"
       ],
@@ -108,7 +108,7 @@
         "tests/config/test_runtime_resolution.py::test_old_openrouter_credential_source_keys_normalize_through_settings_to_resolved_dto",
         "tests/config/test_runtime_resolution.py::test_runtime_resolution_resolved_llm_path_has_no_legacy_alias_literals",
         "tests/app/test_wiring_providers.py",
-        "tests/config/test_public_compatibility_surfaces.py::test_provider_alias_snapshot_matches_current_aliases_and_legacy_acceptance"
+        "tests/config/test_config_and_secrets.py::test_luna_is_byok_only_and_defaults_to_openrouter"
       ],
       "detail_owner_work_ref": "freeze-provider-config-prompt-and-i18n-fixtures"
     },
@@ -120,7 +120,7 @@
         "tests/config/public_compatibility_surfaces_snapshot.json::prompts"
       ],
       "fixture_or_guard_refs": [
-        "tests/config/test_public_compatibility_surfaces.py::test_prompt_loader_snapshot_freezes_fallback_order_and_translation_prompt_requirement",
+        "tests/config/test_public_compatibility_surfaces.py::test_prompt_loader_prefers_named_files_then_defaults",
         "tests/config/test_prompt_loader.py"
       ],
       "detail_owner_work_ref": "freeze-provider-config-prompt-and-i18n-fixtures"

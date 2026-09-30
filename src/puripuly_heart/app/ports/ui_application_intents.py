@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol
+from typing import Literal, Protocol
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
 from puripuly_heart.app.ports.settings_view import (
+    AlibabaConnectionApplyResult,
+    AlibabaConnectionDraftSnapshot,
     GeneralSettingsSnapshot,
     ImmediateSettingsIntent,
     OpenRouterPkceTarget,
@@ -17,6 +19,7 @@ from puripuly_heart.app.ports.ui_models import (
     ManagedGemmaNoticeAction,
     OverlayPeerPresentationState,
 )
+from puripuly_heart.config.alibaba_connection import AlibabaEndpointMode, AlibabaRegion
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 
 
@@ -116,6 +119,29 @@ class UiProviderRuntimePort(Protocol):
     def reopen_openrouter_pkce_authorization_url(self) -> object: ...
 
     def build_managed_openrouter_byok_target(self) -> OpenRouterPkceTarget | None: ...
+
+    async def begin_alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot: ...
+    async def alibaba_connection_draft(self) -> AlibabaConnectionDraftSnapshot: ...
+    async def alibaba_active_connection(self) -> AlibabaConnectionDraftSnapshot: ...
+    async def edit_alibaba_connection_draft(
+        self,
+        *,
+        token: str,
+        region: AlibabaRegion | None = None,
+        endpoint_mode: AlibabaEndpointMode | None = None,
+        api_host: str | None = None,
+    ) -> AlibabaConnectionDraftSnapshot: ...
+    async def verify_alibaba_connection_draft(
+        self,
+        *,
+        token: str,
+        capability: Literal["asr", "translation", "both"],
+        api_key: str | None = None,
+    ) -> AlibabaConnectionDraftSnapshot: ...
+    async def apply_alibaba_connection_draft(
+        self, *, token: str
+    ) -> AlibabaConnectionApplyResult: ...
+    def cancel_alibaba_connection_draft(self, *, token: str) -> None: ...
 
     async def verify_api_key(self, provider: str, key: str) -> tuple[bool, str]: ...
 

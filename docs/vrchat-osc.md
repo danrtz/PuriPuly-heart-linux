@@ -97,8 +97,6 @@
 | ID | Model |
 | ---: | --- |
 | 0 | Gemma 4 26B + 31B |
-| 1 | Gemma 4 31B |
-| 2 | Gemma 4 26B A4B |
 | 3 | DeepSeek V4 Flash |
 | 5 | Gemini 3.8 Flash |
 | 7 | Qwen 3.8 Flash |
@@ -107,6 +105,7 @@
 | 10 | Gemma 4 E4B CPU |
 | 11 | Gemma 4 E4B GPU |
 | 13 | DeepSeek V4.1 Flash |
+| 14 | GPT 6 Luna |
 
 - Used by: `PuriPuly_Translator`
 

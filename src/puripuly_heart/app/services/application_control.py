@@ -44,7 +44,9 @@ from puripuly_heart.app.ports.settings_view import (
     PeerVadSpeechThresholdIntent,
     PromptApplyIntent,
     ProviderApplyIntent,
+    QwenBeijingApiHostEdit,
     QwenRegionEdit,
+    QwenSingaporeApiHostEdit,
     SelfSttProviderEdit,
     SelfVadSettingsIntent,
     SonioxSpeakerDiarizationEdit,
@@ -215,6 +217,8 @@ PROVIDER_EDITS = {
     "stt.gpu_device_id": SttGpuDeviceEdit,
     "translation.gpu_device_id": LlmGpuDeviceEdit,
     "translation.qwen.region": QwenRegionEdit,
+    "translation.qwen.beijing.api_host": QwenBeijingApiHostEdit,
+    "translation.qwen.singapore.api_host": QwenSingaporeApiHostEdit,
     "translation.http_extension_id": TranslationHttpExtensionEdit,
     "local_llm.base_url": LocalLlmBaseUrlEdit,
     "local_llm.model": LocalLlmModelEdit,
@@ -303,6 +307,7 @@ def _extension_ids(application: UiApplicationBoundary) -> tuple[str, ...]:
 _VERIFIABLE_SECRET_PROVIDERS = {
     "google_api_key": "google",
     "openrouter_api_key": "openrouter",
+    "openai_api_key": "openai",
     "deepseek_api_key": "deepseek",
     "deepgram_api_key": "deepgram",
     "gemini_transcribe_api_key": "gemini_transcribe",
@@ -2103,15 +2108,17 @@ class ApplicationControlOwner:
                 model = TranslationModel(value) if key == "translation.model" else selection.model
                 if key == "translation.connection":
                     connection = TranslationConnection(value)
-                elif (
-                    key == "translation.model"
-                    and selection.connection not in supported_translation_connections(model)
-                ):
+                elif key == "translation.model" and model != selection.model:
                     from puripuly_heart.config.translation_values import (
                         default_translation_connection,
                     )
 
-                    connection = default_translation_connection(model)
+                    saved = dict(selection.connection_history).get(model)
+                    connection = (
+                        saved
+                        if saved in supported_translation_connections(model)
+                        else default_translation_connection(model)
+                    )
                 else:
                     connection = selection.connection
                 if connection not in supported_translation_connections(model):
@@ -2589,6 +2596,11 @@ def _validate_settings_field(
         )
     elif name == "translation.qwen.region":
         valid = value in {item.value for item in QwenRegion}
+    elif name in {"translation.qwen.beijing.api_host", "translation.qwen.singapore.api_host"}:
+        from puripuly_heart.config.alibaba_connection import workspace_api_host_region
+
+        parsed = workspace_api_host_region(value)
+        valid = value == "" or (parsed is not None and parsed[0] == name.split(".")[2])
     elif name == "overlay.target":
         valid = value in OVERLAY_TARGETS
     elif name == "overlay.desktop_size":

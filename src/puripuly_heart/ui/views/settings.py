@@ -12,7 +12,7 @@ import math
 import re
 from dataclasses import fields, replace
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Awaitable, Callable, Mapping
 
 import flet as ft
 from puripuly_heart.app.services.local_asr_selection import resolve_local_asr_selection
@@ -64,7 +64,9 @@ from puripuly_heart.app.ports.settings_view import (
     ProviderApplyIntent,
     ProviderSettingsEdit,
     ProviderSettingsSnapshot,
+    QwenBeijingApiHostEdit,
     QwenRegionEdit,
+    QwenSingaporeApiHostEdit,
     SelfSttProviderEdit,
     SelfVadSettingsIntent,
     SonioxSpeakerDiarizationEdit,
@@ -79,6 +81,7 @@ from puripuly_heart.app.ports.ui_models import OscControlPresentationState
 from puripuly_heart.app.services.http_extension_registry import (
     HttpExtensionRegistryService,
 )
+from puripuly_heart.config.alibaba_connection import workspace_api_host_region
 from puripuly_heart.config.desktop_overlay_values import (
     DESKTOP_FLET_DEFAULT_BACKGROUND_ALPHA,
     DESKTOP_FLET_SIZE_PRESET_DISPLAY_ORDER,
@@ -185,6 +188,7 @@ from puripuly_heart.ui.theme import (
     COLOR_PRIMARY,
     COLOR_SECONDARY,
     COLOR_WARNING,
+    text_field_outline_border,
 )
 
 logger = logging.getLogger(__name__)
@@ -195,6 +199,8 @@ _DRAFT_PROVIDER_FIELDS: dict[type, str] = {
     SonioxSpeakerDiarizationEdit: "soniox_speaker_diarization_enabled",
     SttGpuDeviceEdit: "stt_gpu_device_id",
     QwenRegionEdit: "qwen_region",
+    QwenBeijingApiHostEdit: "qwen_api_host_beijing",
+    QwenSingaporeApiHostEdit: "qwen_api_host_singapore",
     LocalLlmBaseUrlEdit: "local_llm_base_url",
     LocalLlmModelEdit: "local_llm_model",
     LocalLlmExtraBodyEdit: "local_llm_extra_body_json",
@@ -281,10 +287,9 @@ _STT_SECTION_BY_PROVIDER: dict[STTProviderName, str] = {
 _TRANSLATION_MODEL_LABEL_KEYS = {
     TranslationModel.MANAGED_GEMMA: "provider.managed_gemma",
     TranslationModel.GEMMA4_26B_31B: "provider.gemma4_26b_31b",
-    TranslationModel.GEMMA4_31B: "provider.gemma4_31b",
-    TranslationModel.GEMMA4: "provider.gemma4_26b_a4b_it",
     TranslationModel.DEEPSEEK_V4_FLASH: "provider.deepseek_v4_flash",
     TranslationModel.DEEPSEEK_V4_FLASH_41: "provider.deepseek_v4_flash_41",
+    TranslationModel.GPT_6_LUNA: "provider.gpt_6_luna",
     TranslationModel.GEMINI_FLASH: "provider.gemini_flash",
     TranslationModel.QWEN_38_FLASH: "provider.qwen38_flash",
     TranslationModel.LOCAL_LLM: "provider.local_llms",
@@ -303,10 +308,9 @@ _TRANSLATION_CONNECTION_LABEL_KEYS = {
 _TRANSLATION_MODELS = (
     TranslationModel.MANAGED_GEMMA,
     TranslationModel.GEMMA4_26B_31B,
-    TranslationModel.GEMMA4,
-    TranslationModel.GEMMA4_31B,
     TranslationModel.DEEPSEEK_V4_FLASH,
     TranslationModel.DEEPSEEK_V4_FLASH_41,
+    TranslationModel.GPT_6_LUNA,
     TranslationModel.LOCAL_LLM,
     TranslationModel.CUSTOM_HTTP,
     TranslationModel.GEMINI_FLASH,
@@ -322,10 +326,9 @@ _TRANSLATION_MODEL_SECTION_ORDER = (
 _TRANSLATION_MODEL_SECTION_BY_MODEL: dict[TranslationModel, str] = {
     TranslationModel.MANAGED_GEMMA: "settings.translation_model.section.recommended_local",
     TranslationModel.GEMMA4_26B_31B: "settings.translation_model.section.recommended_cloud",
-    TranslationModel.GEMMA4: "settings.translation_model.section.others",
-    TranslationModel.GEMMA4_31B: "settings.translation_model.section.others",
-    TranslationModel.DEEPSEEK_V4_FLASH: "settings.translation_model.section.recommended_cloud",
+    TranslationModel.DEEPSEEK_V4_FLASH: "settings.translation_model.section.others",
     TranslationModel.DEEPSEEK_V4_FLASH_41: "settings.translation_model.section.recommended_cloud",
+    TranslationModel.GPT_6_LUNA: "settings.translation_model.section.recommended_cloud",
     TranslationModel.LOCAL_LLM: "settings.translation_model.section.user_settings",
     TranslationModel.CUSTOM_HTTP: "settings.translation_model.section.user_settings",
     TranslationModel.GEMINI_FLASH: "settings.translation_model.section.others",
@@ -411,6 +414,8 @@ def _derive_openrouter_selection_alias(
     llm_model: OpenRouterLLMModel,
     selected_source: OpenRouterCredentialSource,
 ) -> OpenRouterSelectionAlias:
+    if llm_model == OpenRouterLLMModel.GPT_6_LUNA:
+        return OpenRouterSelectionAlias.GPT_6_LUNA_BYOK
     if llm_model == OpenRouterLLMModel.QWEN_35_FLASH_02_23:
         if selected_source == OpenRouterCredentialSource.MANAGED:
             return OpenRouterSelectionAlias.QWEN35_FLASH_MANAGED
@@ -420,8 +425,8 @@ def _derive_openrouter_selection_alias(
             return OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED
         return OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK
     if selected_source == OpenRouterCredentialSource.MANAGED:
-        return OpenRouterSelectionAlias.GEMMA4_MANAGED
-    return OpenRouterSelectionAlias.GEMMA4_BYOK
+        return OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED
+    return OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK
 
 
 class SettingsView(ft.Column):
@@ -479,13 +484,12 @@ class SettingsView(ft.Column):
         self._http_extension_selected_id: str | None = None
         self._http_extension_snapshot = self._http_extensions.snapshot
         self._http_extension_runtime_reload_pending = False
+        self._pending_alibaba_key_verification: QwenRegion | None = None
 
         # State
         self._provider_snapshot: ProviderSettingsSnapshot | None = None
         self._provider_draft: ProviderSettingsSnapshot | None = None
         self._provider_edits: dict[type, ProviderSettingsEdit] = {}
-        self.external_settings_conflict: bool = False
-        self._external_conflict_dialog: ft.AlertDialog | None = None
         self._general_snapshot: GeneralSettingsSnapshot | None = None
         self._prompt_snapshot: PromptSettingsSnapshot | None = None
         self._overlay_snapshot: OverlaySettingsSnapshot | None = None
@@ -1247,6 +1251,22 @@ class SettingsView(ft.Column):
                 self.show_snackbar(msg, bg) if self.show_snackbar else None
             ),
         )
+        self._openai_key = ApiKeyField(
+            "settings.openai_api_key",
+            "openai_api_key",
+            "openai",
+            on_verify=self._verify_key,
+            on_save=self._on_secret_change,
+            show_snackbar=lambda msg, bg: (
+                self.show_snackbar(msg, bg) if self.show_snackbar else None
+            ),
+        )
+        self._openai_verification_notice = ft.Text(
+            t("settings.openai_verification_charge"),
+            size=15,
+            color=COLOR_SECONDARY,
+            max_lines=2,
+        )
         self._openrouter_pkce_button = self._build_action_button(
             t("settings.openrouter_authenticate"),
             self._on_openrouter_pkce_click,
@@ -1351,6 +1371,26 @@ class SettingsView(ft.Column):
                 self.show_snackbar(msg, bg) if self.show_snackbar else None
             ),
         )
+        self._qwen_api_host = ft.TextField(
+            label=t("settings.qwen_api_host"),
+            border=text_field_outline_border(border_radius=12),
+            expand=True,
+            text_size=24,
+            color=COLOR_NEUTRAL_DARK,
+            label_style=ft.TextStyle(size=20, weight=ft.FontWeight.BOLD, color=COLOR_NEUTRAL_DARK),
+            on_change=self._on_qwen_api_host_change,
+            on_blur=self._on_qwen_api_host_change_end,
+            on_submit=self._on_qwen_api_host_change_end,
+        )
+        self._qwen_api_host_status = "idle"
+        self._qwen_api_host_rejected_value: str | None = None
+        self._qwen_api_host_status_icon = ft.Icon(ft.Icons.HELP_OUTLINE_ROUNDED, size=36)
+        self._set_qwen_api_host_status("idle")
+        self._qwen_api_host_row = ft.Row(
+            controls=[self._qwen_api_host, self._qwen_api_host_status_icon],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            visible=False,
+        )
 
         self._api_keys_column = ft.Column(
             [
@@ -1361,6 +1401,8 @@ class SettingsView(ft.Column):
                 self._soniox_key,
                 self._google_key,
                 self._deepseek_key,
+                self._openai_key,
+                self._qwen_api_host_row,
                 self._alibaba_key_beijing,
                 self._alibaba_key_singapore,
                 self._openrouter_key,
@@ -1395,7 +1437,11 @@ class SettingsView(ft.Column):
         api_header = ft.Row(
             controls=[
                 self._api_title,
-                ft.Container(expand=True),
+                ft.Container(
+                    content=self._openai_verification_notice,
+                    expand=True,
+                    padding=ft.Padding.symmetric(horizontal=12),
+                ),
                 self._api_guide_btn,
                 self._qwen_region_btn,
             ],
@@ -2963,11 +3009,13 @@ class SettingsView(ft.Column):
         stored_alias = self._stored_openrouter_selection_alias(settings)
         if stored_alias is not None:
             return stored_alias
+        if settings.openrouter_llm_model == OpenRouterLLMModel.GPT_6_LUNA:
+            return OpenRouterSelectionAlias.GPT_6_LUNA_BYOK
         if settings.openrouter_llm_model == OpenRouterLLMModel.QWEN_35_FLASH_02_23:
             return OpenRouterSelectionAlias.QWEN35_FLASH_MANAGED
         if settings.openrouter_llm_model == OpenRouterLLMModel.DEEPSEEK_V4_FLASH:
             return OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED
-        return OpenRouterSelectionAlias.GEMMA4_MANAGED
+        return OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED
 
     def _openrouter_selection_profile(self, settings: ProviderSettingsSnapshot | None):
         if settings is None:
@@ -3021,6 +3069,8 @@ class SettingsView(ft.Column):
             return "gemini"
         if settings.llm_provider == LLMProviderName.OPENROUTER:
             return "openrouter"
+        if settings.llm_provider == LLMProviderName.OPENAI:
+            return "openai"
         if settings.llm_provider == LLMProviderName.DEEPSEEK:
             return "deepseek"
         if settings.llm_provider == LLMProviderName.LOCAL_LLM:
@@ -3597,9 +3647,6 @@ class SettingsView(ft.Column):
         return self._build_provider_apply_intent()
 
     def acknowledge_provider_apply_settings(self, intent: ProviderApplyIntent) -> None:
-        if self.external_settings_conflict:
-            self._show_external_conflict()
-            return
         snapshot = self._provider_snapshot
         if snapshot is None:
             return
@@ -3644,91 +3691,33 @@ class SettingsView(ft.Column):
             self._provider_draft = None
 
     def acknowledge_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
-        if self.external_settings_conflict:
-            self._show_external_conflict()
-            return
         if self._prompt_snapshot is None:
             return
         self._prompt_snapshot = replace(self._prompt_snapshot, system_prompt=intent.value)
         self._stage_prompt_draft(self._prompt_editor.value)
 
-    def _show_external_conflict(self) -> None:
-        if not self.external_settings_conflict or self.page is None:
+    def _rebase_provider_draft(self, provider: ProviderSettingsSnapshot) -> None:
+        if self._provider_draft is None:
             return
-        if self._external_conflict_dialog is not None:
-            return
-
-        def resolve(keep_draft: bool) -> None:
-            dialog = self._external_conflict_dialog
-            if dialog is not None:
-                self.page.pop_dialog()
-            self._external_conflict_dialog = None
-            self.external_settings_conflict = False
-            if not keep_draft:
-                self._provider_draft = None
-                self._provider_edits.clear()
-                self.has_provider_changes = False
-                self.has_pending_prompt_changes = False
-                if all(
-                    (
-                        self._provider_snapshot,
-                        self._general_snapshot,
-                        self._prompt_snapshot,
-                        self._overlay_snapshot,
-                        self._config_path,
-                    )
-                ):
-                    self.load_from_settings(
-                        provider=self._provider_snapshot,
-                        general=self._general_snapshot,
-                        prompt=self._prompt_snapshot,
-                        overlay=self._overlay_snapshot,
-                        config_path=self._config_path,
-                    )
-
-        self._external_conflict_dialog = ft.AlertDialog(
-            title=ft.Text("Settings changed externally"),
-            content=ft.Text(
-                "Your staged changes are preserved. Choose whether to keep your draft and overwrite conflicting fields on the next apply, or discard your draft and use the latest settings."
-            ),
-            actions=[
-                ft.TextButton("Use latest", on_click=lambda _: resolve(False)),
-                ft.TextButton("Keep my draft", on_click=lambda _: resolve(True)),
-            ],
-        )
-        self.page.show_dialog(self._external_conflict_dialog)
-
-    def _rebase_provider_draft(self, provider: ProviderSettingsSnapshot) -> bool:
-        old = self._provider_snapshot
-        draft = self._provider_draft
-        if old is None or draft is None:
-            return False
         updates: dict[str, object] = {}
         translation_updates: dict[str, object] = {}
-        conflict = False
-        for edit_type in self._provider_edits:
+        for edit_type, edit in self._provider_edits.items():
             field_name = _DRAFT_PROVIDER_FIELDS.get(edit_type)
-            if field_name == "translation":
-                for name in ("model", "connection", "connection_history", "previous_llm_model"):
-                    previous = getattr(old.translation, name)
-                    staged = getattr(draft.translation, name)
-                    incoming = getattr(provider.translation, name)
-                    if previous != staged:
-                        conflict |= previous != incoming and staged != incoming
-                        translation_updates[name] = staged
+            if edit_type is TranslationSelectionEdit:
+                selection = edit.selection
+                history = dict(provider.translation.connection_history)
+                history.update(edit.history_updates)
+                translation_updates.update(
+                    model=selection.model,
+                    connection=selection.connection,
+                    connection_history=tuple(history.items()),
+                    previous_llm_model=selection.previous_llm_model,
+                )
             elif field_name is not None:
-                previous = getattr(old, field_name)
-                staged = getattr(draft, field_name)
-                incoming = getattr(provider, field_name)
-                conflict |= previous != incoming and staged != incoming
-                updates[field_name] = staged
+                updates[field_name] = getattr(edit, fields(edit)[0].name)
             translation_field = _DRAFT_TRANSLATION_FIELDS.get(edit_type)
             if translation_field is not None:
-                previous = getattr(old.translation, translation_field)
-                staged = getattr(draft.translation, translation_field)
-                incoming = getattr(provider.translation, translation_field)
-                conflict |= previous != incoming and staged != incoming
-                translation_updates[translation_field] = staged
+                translation_updates[translation_field] = getattr(edit, fields(edit)[0].name)
         if translation_updates:
             updates["translation"] = replace(provider.translation, **translation_updates)
         self._provider_draft = replace(provider, **updates)
@@ -3736,10 +3725,6 @@ class SettingsView(ft.Column):
             self._provider_draft = self._provider_snapshot_with_translation(
                 self._provider_draft, self._provider_draft.translation
             )
-            self._provider_edits[TranslationSelectionEdit] = self._translation_selection_edit(
-                self._provider_draft.translation
-            )
-        return conflict
 
     # --- Load Settings ---
     def load_from_settings(
@@ -3753,16 +3738,9 @@ class SettingsView(ft.Column):
         preserve_custom_vocab_draft: bool = False,
     ) -> None:
         """Load current settings into the UI."""
-        conflict = self._rebase_provider_draft(provider)
+        self._rebase_provider_draft(provider)
         draft = self._provider_draft
         prompt_draft = self._prompt_editor.value if self.has_pending_prompt_changes else None
-        previous_prompt = self._prompt_snapshot
-        if prompt_draft is not None and previous_prompt is not None:
-            conflict |= (
-                previous_prompt.system_prompt != prompt.system_prompt
-                and prompt_draft != prompt.system_prompt
-            )
-        self.external_settings_conflict |= conflict
         self._provider_snapshot = provider
         self._general_snapshot = general
         self._prompt_snapshot = prompt
@@ -3818,8 +3796,7 @@ class SettingsView(ft.Column):
         self._clear_local_llm_extra_body_error()
         self._sync_custom_stt_card(display_provider)
 
-        region_label = t(f"region.{display_provider.qwen_region.value}")
-        _set_text_button_label(self._qwen_region_btn, f"{t('settings.qwen_region')} {region_label}")
+        self._sync_qwen_connection_controls(display_provider)
 
         # Audio Settings
         self._audio_settings.host_api = general.input_host_api
@@ -4116,6 +4093,8 @@ class SettingsView(ft.Column):
             self._google_key.value = snapshot.google_api_key
         if snapshot.openrouter_api_key is not None:
             self._openrouter_key.value = snapshot.openrouter_api_key
+        if snapshot.openai_api_key is not None:
+            self._openai_key.value = snapshot.openai_api_key
         if snapshot.deepseek_api_key is not None:
             self._deepseek_key.value = snapshot.deepseek_api_key
         if snapshot.deepgram_api_key is not None:
@@ -4179,6 +4158,7 @@ class SettingsView(ft.Column):
             (self._soniox_key, self._soniox_key.value, verified.soniox),
             (self._google_key, self._google_key.value, verified.google),
             (self._openrouter_key, self._openrouter_key.value, verified.openrouter),
+            (self._openai_key, self._openai_key.value, verified.openai),
             (self._deepseek_key, self._deepseek_key.value, verified.deepseek),
             (self._alibaba_key_beijing, self._alibaba_key_beijing.value, verified.alibaba_beijing),
             (
@@ -4307,6 +4287,8 @@ class SettingsView(ft.Column):
         )
         self._openrouter_key.visible = bool(not is_custom_http and openrouter_byok_selected)
         self._openrouter_pkce_button_row.visible = openrouter_byok_selected
+        self._openai_key.visible = bool(not is_custom_http and llm == LLMProviderName.OPENAI)
+        self._openai_verification_notice.visible = self._openai_key.visible
         self._deepseek_key.visible = bool(not is_custom_http and llm == LLMProviderName.DEEPSEEK)
         self._sync_openrouter_pkce_button_state(settings)
         self._translation_connection_row.visible = (
@@ -4338,6 +4320,9 @@ class SettingsView(ft.Column):
         )
         self._alibaba_key_beijing.visible = QwenRegion.BEIJING in qwen_regions
         self._alibaba_key_singapore.visible = QwenRegion.SINGAPORE in qwen_regions
+        qwen_api_host_row = getattr(self, "_qwen_api_host_row", None)
+        if qwen_api_host_row is not None:
+            qwen_api_host_row.visible = self._qwen_region_btn.visible
         api_keys_card = getattr(self, "_api_keys_card", None)
         if api_keys_card is not None:
             api_keys_card.visible = any(
@@ -4349,10 +4334,12 @@ class SettingsView(ft.Column):
                     self._soniox_key,
                     self._google_key,
                     self._deepseek_key,
+                    self._openai_key,
                     self._alibaba_key_beijing,
                     self._alibaba_key_singapore,
                     self._openrouter_pkce_button_row,
                     self._qwen_region_btn,
+                    qwen_api_host_row,
                     getattr(self, "_http_extension_credentials", None),
                 )
                 if control is not None
@@ -4747,7 +4734,7 @@ class SettingsView(ft.Column):
         current = (
             self._get_llm_modal_value(display_settings)
             if display_settings is not None
-            else TranslationModel.GEMMA4.value
+            else TranslationModel.GEMMA4_26B_31B.value
         )
         modal = SettingsModal(
             self.page,
@@ -4791,7 +4778,17 @@ class SettingsView(ft.Column):
         openrouter_model = settings.openrouter_llm_model
         openrouter_source = settings.openrouter_selected_source
         openrouter_alias = settings.openrouter_selection_alias
-        if model == TranslationModel.GEMMA4_26B_31B:
+        if model == TranslationModel.GPT_6_LUNA:
+            if connection == TranslationConnection.OFFICIAL_BYOK:
+                llm_provider = LLMProviderName.OPENAI
+                openrouter_source = OpenRouterCredentialSource.NONE
+                openrouter_alias = None
+            else:
+                llm_provider = LLMProviderName.OPENROUTER
+                openrouter_model = OpenRouterLLMModel.GPT_6_LUNA
+                openrouter_source = OpenRouterCredentialSource.BYOK
+                openrouter_alias = OpenRouterSelectionAlias.GPT_6_LUNA_BYOK
+        elif model == TranslationModel.GEMMA4_26B_31B:
             llm_provider = LLMProviderName.OPENROUTER
             openrouter_model = OpenRouterLLMModel.GEMMA_4_26B_A4B_IT
             openrouter_source = (
@@ -4803,32 +4800,6 @@ class SettingsView(ft.Column):
                 OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED
                 if openrouter_source == OpenRouterCredentialSource.MANAGED
                 else OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK
-            )
-        elif model == TranslationModel.GEMMA4_31B:
-            llm_provider = LLMProviderName.OPENROUTER
-            openrouter_model = OpenRouterLLMModel.GEMMA_4_31B_IT
-            openrouter_source = (
-                OpenRouterCredentialSource.MANAGED
-                if connection == TranslationConnection.MANAGED
-                else OpenRouterCredentialSource.BYOK
-            )
-            openrouter_alias = (
-                OpenRouterSelectionAlias.GEMMA4_31B_MANAGED
-                if openrouter_source == OpenRouterCredentialSource.MANAGED
-                else OpenRouterSelectionAlias.GEMMA4_31B_BYOK
-            )
-        elif model == TranslationModel.GEMMA4:
-            llm_provider = LLMProviderName.OPENROUTER
-            openrouter_model = OpenRouterLLMModel.GEMMA_4_26B_A4B_IT
-            openrouter_source = (
-                OpenRouterCredentialSource.MANAGED
-                if connection == TranslationConnection.MANAGED
-                else OpenRouterCredentialSource.BYOK
-            )
-            openrouter_alias = (
-                OpenRouterSelectionAlias.GEMMA4_MANAGED
-                if openrouter_source == OpenRouterCredentialSource.MANAGED
-                else OpenRouterSelectionAlias.GEMMA4_BYOK
             )
         elif model == TranslationModel.DEEPSEEK_V4_FLASH:
             llm_provider = LLMProviderName.OPENROUTER
@@ -4991,7 +4962,7 @@ class SettingsView(ft.Column):
                 model = TranslationModel(value)
             except TypeError, ValueError:
                 if value == LLMProviderName.OPENROUTER.value:
-                    model = TranslationModel.GEMMA4
+                    model = TranslationModel.GEMMA4_26B_31B
                 else:
                     return
             connection = None
@@ -5014,7 +4985,7 @@ class SettingsView(ft.Column):
         model = (
             display_settings.translation.model
             if display_settings is not None
-            else TranslationModel.GEMMA4
+            else TranslationModel.GEMMA4_26B_31B
         )
         if model == TranslationModel.MANAGED_GEMMA:
             return
@@ -5122,17 +5093,138 @@ class SettingsView(ft.Column):
         self._record_provider_edit(QwenRegionEdit(self._provider_draft.qwen_region))
         self.has_provider_changes = True
 
-        # Update text
-        _set_text_button_label(
-            self._qwen_region_btn,
-            f"{t('settings.qwen_region')} {t(f'region.{value}')}",
-        )
+        self._sync_qwen_connection_controls(self._provider_draft)
         if is_control_mounted(self):
             self._qwen_region_btn.update()
+            self._qwen_api_host.update()
 
         self._update_api_visibility()
         if is_control_mounted(self):
             self._api_keys_column.update()
+
+    def _qwen_api_host_for(self, settings: ProviderSettingsSnapshot, region: QwenRegion) -> str:
+        return getattr(settings, f"qwen_api_host_{region.value}", "")
+
+    def _sync_qwen_connection_controls(
+        self,
+        settings: ProviderSettingsSnapshot,
+        *,
+        reset_host: bool = True,
+    ) -> None:
+        region = settings.qwen_region
+        host = self._qwen_api_host_for(settings, region)
+        _set_text_button_label(
+            self._qwen_region_btn,
+            f"{t('settings.qwen_region')} {t(f'region.{region.value}')}",
+        )
+        self._qwen_region_btn.disabled = bool(host)
+        host_field = getattr(self, "_qwen_api_host", None)
+        if host_field is not None and reset_host:
+            host_field.value = host
+            self._qwen_api_host_rejected_value = None
+            self._set_qwen_api_host_status("success" if host else "idle")
+
+    def _set_qwen_api_host_status(self, status: str) -> None:
+        self._qwen_api_host_status = status
+        icon, color, tooltip_key = {
+            "idle": (
+                ft.Icons.HELP_OUTLINE_ROUNDED,
+                COLOR_SECONDARY,
+                "settings.qwen_api_host.status.idle",
+            ),
+            "success": (
+                ft.Icons.CHECK_CIRCLE_ROUNDED,
+                COLOR_PRIMARY,
+                "settings.qwen_api_host.status.success",
+            ),
+            "error": (
+                ft.Icons.WARNING_ROUNDED,
+                COLOR_WARNING,
+                "settings.qwen_api_host.status.error",
+            ),
+        }[status]
+        self._qwen_api_host_status_icon.icon = icon
+        self._qwen_api_host_status_icon.color = color
+        self._qwen_api_host_status_icon.tooltip = t(tooltip_key)
+        _update_control_if_mounted(self._qwen_api_host_status_icon)
+
+    def _on_qwen_api_host_change(self, e) -> None:
+        _ = e
+        self._qwen_api_host_rejected_value = None
+
+    def _on_qwen_api_host_change_end(self, e) -> None:
+        _ = e
+        if self._provider_snapshot is None:
+            return
+        current = self._build_settings_with_provider_draft()
+        assert current is not None
+        raw_value = (self._qwen_api_host.value or "").strip()
+        if raw_value:
+            parsed = workspace_api_host_region(raw_value)
+            if parsed is None:
+                self._set_qwen_api_host_status("error")
+                if self._qwen_api_host_rejected_value != raw_value:
+                    self._qwen_api_host_rejected_value = raw_value
+                    if self.show_snackbar is not None:
+                        self.show_snackbar(t("settings.qwen_api_host.invalid"), ft.Colors.RED_400)
+                return
+            region, host = QwenRegion(parsed[0]), parsed[1]
+        else:
+            region, host = current.qwen_region, ""
+        self._qwen_api_host_rejected_value = None
+        self._qwen_api_host.value = host
+        self._set_qwen_api_host_status("success" if host else "idle")
+        if region == current.qwen_region and self._qwen_api_host_for(current, region) == host:
+            _update_control_if_mounted(self._qwen_api_host)
+            return
+
+        draft = self._ensure_provider_settings_draft()
+        self._provider_draft = replace(
+            draft,
+            qwen_region=region,
+            **{f"qwen_api_host_{region.value}": host},
+        )
+        if region != current.qwen_region:
+            self._record_provider_edit(QwenRegionEdit(region))
+        host_edit = (
+            QwenBeijingApiHostEdit if region == QwenRegion.BEIJING else QwenSingaporeApiHostEdit
+        )
+        self._record_provider_edit(host_edit(host))
+        self.has_provider_changes = True
+
+        key_field = self._alibaba_key_field(region)
+        key_field.controller.last_verified_hash = ""
+        key_field.controller.force_status("idle")
+        self._pending_alibaba_key_verification = region
+
+        self._sync_qwen_connection_controls(self._provider_draft)
+        self._update_api_visibility()
+        if is_control_mounted(self):
+            self._qwen_region_btn.update()
+            self._qwen_api_host.update()
+            self._api_keys_column.update()
+        if self.on_providers_changed is not None:
+            self.on_providers_changed()
+
+    def _alibaba_key_field(self, region: QwenRegion) -> ApiKeyField:
+        if region == QwenRegion.BEIJING:
+            return self._alibaba_key_beijing
+        return self._alibaba_key_singapore
+
+    def consume_alibaba_key_verification(self) -> Callable[[], Awaitable[None]] | None:
+        region = self._pending_alibaba_key_verification
+        self._pending_alibaba_key_verification = None
+        if region is None:
+            return None
+        key_field = self._alibaba_key_field(region)
+        key = key_field.value
+        if not key:
+            return None
+
+        async def verify_alibaba_key() -> None:
+            await key_field.controller.verify_direct(key)
+
+        return verify_alibaba_key
 
     def _on_openrouter_pkce_click(self, _e) -> None:
         settings = self._build_settings_with_provider_draft()
@@ -6421,9 +6513,6 @@ class SettingsView(ft.Column):
         self._stage_prompt_draft(value)
         if self.has_provider_changes:
             return
-        if self.external_settings_conflict:
-            self._show_external_conflict()
-            return
         if self.has_pending_prompt_changes:
             self._emit_prompt_apply_settings(PromptApplyIntent(value))
 
@@ -6715,11 +6804,9 @@ class SettingsView(ft.Column):
 
         # Qwen Region label
         if display_settings:
-            region_val = display_settings.qwen_region.value
-            _set_text_button_label(
-                self._qwen_region_btn,
-                f"{t('settings.qwen_region')} {t(f'region.{region_val}')}",
-            )
+            self._sync_qwen_connection_controls(display_settings, reset_host=False)
+        self._qwen_api_host.label = t("settings.qwen_api_host")
+        self._set_qwen_api_host_status(self._qwen_api_host_status)
 
         # Components
         self._deepgram_key.apply_locale()
@@ -6729,6 +6816,8 @@ class SettingsView(ft.Column):
         self._google_key.apply_locale()
         self._managed_trial_usage_bar.apply_locale()
         self._openrouter_key.apply_locale()
+        self._openai_key.apply_locale()
+        self._openai_verification_notice.value = t("settings.openai_verification_charge")
         self._deepseek_key.apply_locale()
         self._alibaba_key_beijing.apply_locale()
         self._alibaba_key_singapore.apply_locale()

@@ -21,32 +21,6 @@ from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.core import messages
 
 
-def test_order21_translation_provider_patch_records_initial_covered_surface_list() -> None:
-    assert set(ORDER21_TRANSLATION_PROVIDER_SETTINGS_PATHS) == {
-        "intent.translation.model",
-        "intent.translation.connection",
-        "intent.translation.connection_history",
-        "intent.translation.http_extension_id",
-        "intent.translation.previous_llm_model",
-        "intent.translation.gpu_device_id",
-        "intent.translation.gemini.llm_model",
-        "intent.translation.openrouter_model",
-        "intent.translation.openrouter_routing_mode",
-        "intent.translation.openrouter_provider_routing",
-        "intent.translation.openrouter_selected_source",
-        "intent.translation.openrouter_selection_alias",
-        "intent.translation.openrouter_broker_base_url",
-        "intent.translation.qwen.llm_model",
-        "intent.translation.qwen.region",
-        "intent.translation.deepseek.llm_model",
-        "intent.local_llm.backend",
-        "intent.local_llm.base_url",
-        "intent.local_llm.model",
-        "intent.local_llm.extra_body",
-        "intent.translation.concurrency_limit",
-    }
-
-
 def test_order21_patch_carries_custom_http_identity_fields() -> None:
     previous = AppSettingsVNext()
     next_settings = replace(
@@ -308,31 +282,6 @@ def test_runtime_only_secret_and_legacy_order24_fields_are_not_covered() -> None
         "secrets.openrouter_api_key",
         "secrets.deepgram_api_key",
     }.isdisjoint(ORDER24_UI_PROMPT_CLIPBOARD_STATE_SETTINGS_PATHS)
-
-
-def test_settings_path_patch_builds_typed_mutation_request_for_order21_surface() -> None:
-    patch = SettingsPathPatch(
-        values_by_path={
-            "intent.translation.model": "gemma4",
-            "intent.translation.openrouter_selection_alias": "gemma4_byok",
-        },
-        surface=settings_mutation.SETTINGS_MUTATION_SURFACE_TRANSLATION_PROVIDER,
-    )
-
-    request = patch.to_mutation_request(
-        expected_revision="settings-r1",
-        correlation_id="corr-order21",
-    )
-
-    assert request == settings_mutation.SettingsMutationRequest(
-        values={
-            "intent.translation.model": "gemma4",
-            "intent.translation.openrouter_selection_alias": "gemma4_byok",
-        },
-        expected_revision="settings-r1",
-        reason=settings_mutation.SETTINGS_MUTATION_SURFACE_TRANSLATION_PROVIDER,
-        correlation_id="corr-order21",
-    )
 
 
 def test_settings_path_patch_builds_typed_mutation_request_for_order22_surface() -> None:

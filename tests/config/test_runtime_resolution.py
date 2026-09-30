@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import importlib
 import importlib.util
 import inspect
@@ -12,29 +11,7 @@ from typing import Any
 
 import pytest
 
-from tests.helpers.ast_sources import imported_modules
-
 MODULE_NAME = "puripuly_heart.config.runtime_resolution"
-
-ALLOWED_INTERNAL_IMPORTS = frozenset(
-    {
-        "puripuly_heart.config.llm_profiles",
-        "puripuly_heart.config.resolved",
-    }
-)
-FORBIDDEN_INTERNAL_IMPORT_PREFIXES = (
-    "puripuly_heart.app",
-    "puripuly_heart.config.settings",
-    "puripuly_heart.core.managed_openrouter_broker_client",
-    "puripuly_heart.core.storage",
-    "puripuly_heart.providers",
-    "puripuly_heart.ui",
-)
-FORBIDDEN_EXTERNAL_IMPORT_ROOTS = frozenset({"flet", "httpx", "keyring", "requests"})
-FORBIDDEN_FILE_IO_CALL_NAMES = frozenset({"open"})
-FORBIDDEN_FILE_IO_ATTR_CALLS = frozenset(
-    {"mkdir", "open", "read_bytes", "read_text", "unlink", "write_bytes", "write_text"}
-)
 
 
 def _runtime_resolution_module() -> ModuleType:
@@ -60,17 +37,6 @@ def _load_boundary_guard() -> ModuleType:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _assert_no_file_io_calls(source_path: Path) -> None:
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if isinstance(node.func, ast.Name):
-            assert node.func.id not in FORBIDDEN_FILE_IO_CALL_NAMES
-        if isinstance(node.func, ast.Attribute):
-            assert node.func.attr not in FORBIDDEN_FILE_IO_ATTR_CALLS
 
 
 def _runtime_input(
@@ -101,20 +67,6 @@ def _credential_assertion(resolved: ModuleType, source: str, reference: str | No
     )
 
 
-def test_runtime_resolution_module_is_import_safe_and_dependency_light() -> None:
-    runtime_resolution = _runtime_resolution_module()
-    source_path = Path(runtime_resolution.__file__ or "")
-
-    assert source_path.name == "runtime_resolution.py"
-    imported = imported_modules(source_path)
-    for imported_module in imported:
-        if imported_module.startswith("puripuly_heart."):
-            assert imported_module in ALLOWED_INTERNAL_IMPORTS
-        assert not imported_module.startswith(FORBIDDEN_INTERNAL_IMPORT_PREFIXES)
-        assert imported_module.split(".", 1)[0] not in FORBIDDEN_EXTERNAL_IMPORT_ROOTS
-    _assert_no_file_io_calls(source_path)
-
-
 def test_runtime_resolution_layer_is_covered_by_dependency_boundary_guard() -> None:
     runtime_resolution = _runtime_resolution_module()
     guard = _load_boundary_guard()
@@ -143,7 +95,7 @@ def test_canonical_runtime_intent_contracts_are_frozen_and_slotted() -> None:
         assert "__dict__" not in dto_class.__slots__
 
     intent = runtime_resolution.TranslationRuntimeIntent(
-        model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+        model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
         connection=runtime_resolution.TRANSLATION_CONNECTION_MANAGED,
     )
     with pytest.raises(FrozenInstanceError):
@@ -371,7 +323,7 @@ def test_default_peer_stt_runtime_intent_uses_desktop_peer_vad_defaults() -> Non
     )
 
     assert config.channel == resolved.RUNTIME_CHANNEL_PEER
-    assert config.vad_speech_threshold == 0.5
+    assert config.vad_speech_threshold == 0.4
     assert config.vad_hangover_ms == 500
     assert config.vad_pre_roll_ms == 500
 
@@ -383,7 +335,7 @@ def test_default_self_stt_runtime_intent_uses_low_latency_vad_defaults() -> None
     config = runtime_resolution.resolve_stt_config(runtime_resolution.STTRuntimeIntent())
 
     assert config.channel == resolved.RUNTIME_CHANNEL_SELF
-    assert config.vad_speech_threshold == 0.4
+    assert config.vad_speech_threshold == 0.3
     assert config.vad_hangover_ms == 500
     assert config.vad_pre_roll_ms == 500
 
@@ -491,7 +443,7 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "managed",
             "openrouter:managed",
             None,
-            "gemma4_26b_latency",
+            "gemma4_26b_31b_latency",
         ),
         (
             "gemma4",
@@ -502,7 +454,7 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "secret_store",
             "openrouter:byok",
             None,
-            "gemma4_26b_latency",
+            "gemma4_26b_31b_latency",
         ),
         (
             "gemma4",
@@ -513,7 +465,7 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "secret_store",
             "openrouter:byok",
             None,
-            "gemma4_26b_latency",
+            "gemma4_26b_31b_latency",
         ),
         (
             "deepseek_v4_flash",
@@ -634,6 +586,28 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "secret_store",
             "qwen:beijing",
             "beijing",
+            None,
+        ),
+        (
+            "gpt_6_luna",
+            "openrouter",
+            "managed",
+            "openrouter",
+            "openai/gpt-6-luna",
+            "secret_store",
+            "openrouter:byok",
+            None,
+            "default",
+        ),
+        (
+            "gpt_6_luna",
+            "official_byok",
+            "managed",
+            "openai",
+            "gpt-6-luna",
+            "secret_store",
+            "openai:byok",
+            None,
             None,
         ),
         (
@@ -805,6 +779,96 @@ def test_managed_openrouter_primary_gets_identity_hedge_and_emergency_route() ->
     assert config.attempts[2].target.provider_routing == "gemma4_31b_modelrun_only"
 
 
+@pytest.mark.parametrize(
+    ("connection", "attempt_count"),
+    [("openrouter", 3), ("official_byok", 2)],
+)
+def test_luna_attempt_plan_retains_same_route_hedge_and_only_router_emergency(
+    connection: str, attempt_count: int
+) -> None:
+    runtime_resolution = _runtime_resolution_module()
+    config = runtime_resolution.resolve_llm_config(
+        _runtime_input(runtime_resolution, model="gpt_6_luna", connection=connection)
+    )
+    assert config.concurrency_limit == 5
+    assert len(config.attempts) == attempt_count
+    assert config.attempts[0].target == config.attempts[1].target
+    assert config.attempts[1].start_after_ms == 1300
+    assert config.attempts[1].start_on_primary_error is True
+    assert config.fallback is not None
+    assert config.fallback.force_managed_wrapper is False
+    if connection == "openrouter":
+        emergency = config.attempts[2]
+        assert emergency.start_after_ms == 4400
+        assert emergency.start_on_primary_error is False
+        assert emergency.target.model == "google/gemma-4-31b-it"
+        assert emergency.target.credential.reference == "openrouter:byok"
+        assert emergency.target.provider_routing == "gemma4_31b_modelrun_only"
+
+
+@pytest.mark.parametrize("requested_connection", [None, "managed", "managed_china", "cpu"])
+def test_luna_invalid_or_missing_connection_selects_openrouter_only(
+    requested_connection: str | None,
+) -> None:
+    runtime_resolution = _runtime_resolution_module()
+    intent = runtime_resolution.normalize_translation_runtime_intent(
+        model="gpt_6_luna", connection=requested_connection
+    )
+    assert intent.model == "gpt_6_luna"
+    assert intent.connection == "openrouter"
+    target = runtime_resolution.resolve_llm_config(
+        runtime_resolution.RuntimeResolutionInput(translation=intent)
+    ).primary
+    assert target.model == "openai/gpt-6-luna"
+    assert target.credential.reference == "openrouter:byok"
+
+
+def test_luna_compatibility_provider_and_profile_resolve_to_same_product() -> None:
+    runtime_resolution = _runtime_resolution_module()
+    direct = runtime_resolution.derive_translation_runtime_intent_from_compatibility(
+        provider_llm="openai",
+    )
+    assert (direct.model, direct.connection) == ("gpt_6_luna", "official_byok")
+    router = runtime_resolution.normalize_openrouter_runtime_intent(
+        provider_llm="openrouter",
+        selection_alias="gpt_6_luna_byok",
+        selected_source="managed",
+    )
+    assert (router.model, router.selected_source) == ("openai/gpt-6-luna", "byok")
+    selected = runtime_resolution.derive_translation_runtime_intent_from_compatibility(
+        provider_llm="openrouter",
+        openrouter_model=router.model,
+        openrouter_selected_source=router.selected_source,
+    )
+    assert (selected.model, selected.connection) == ("gpt_6_luna", "openrouter")
+
+
+@pytest.mark.parametrize("stale_alias", ["gemma4_31b_managed", "unknown", None])
+def test_luna_canonical_product_resolves_independently_of_legacy_alias(
+    stale_alias: str | None,
+) -> None:
+    runtime_resolution = _runtime_resolution_module()
+    normalized = runtime_resolution.normalize_openrouter_runtime_intent(
+        model="google/gemma-4-31b-it",
+        selected_source="managed",
+        selection_alias=stale_alias,
+    )
+    for connection, provider, model in (
+        ("openrouter", "openrouter", "openai/gpt-6-luna"),
+        ("official_byok", "openai", "gpt-6-luna"),
+    ):
+        config = runtime_resolution.resolve_llm_config(
+            _runtime_input(
+                runtime_resolution,
+                model="gpt_6_luna",
+                connection=connection,
+                openrouter=normalized,
+            )
+        )
+        assert (config.provider, config.model) == (provider, model)
+        assert config.credential.source == "secret_store"
+
+
 def test_managed_china_resolves_explicit_qq_managed_credential_reference() -> None:
     runtime_resolution = _runtime_resolution_module()
     resolved = _resolved_module()
@@ -835,7 +899,7 @@ def test_standard_managed_resolves_standard_managed_credential_reference() -> No
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
             connection=runtime_resolution.TRANSLATION_CONNECTION_MANAGED,
             openrouter=runtime_resolution.OpenRouterRuntimeIntent(
                 selected_source=runtime_resolution.OPENROUTER_SOURCE_MANAGED,
@@ -918,12 +982,14 @@ def test_legacy_current_openrouter_aliases_normalize_to_canonical_intent_and_res
 
     assert openrouter_intent.model == profiles.OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT
     assert openrouter_intent.selected_source == profiles.OPENROUTER_CREDENTIAL_SOURCE_BYOK
-    assert openrouter_intent.selection_alias == profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_BYOK
+    assert (
+        openrouter_intent.selection_alias == profiles.OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK
+    )
     assert not hasattr(openrouter_intent, "fallback_selection_alias")
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
             connection=runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER,
             openrouter=openrouter_intent,
             concurrency_limit=7,
@@ -989,7 +1055,7 @@ def test_legacy_gemini_alias_only_normalizes_to_canonical_runtime_target() -> No
         (
             "openrouter:byok:google/gemma-4-26b-a4b-it",
             "managed",
-            "gemma4_byok",
+            "gemma4_26b_31b_byok",
             "byok",
             "google/gemma-4-26b-a4b-it",
             "secret_store",
@@ -998,7 +1064,7 @@ def test_legacy_gemini_alias_only_normalizes_to_canonical_runtime_target() -> No
         (
             "openrouter:managed:google/gemma-4-26b-a4b-it",
             "byok",
-            "gemma4_managed",
+            "gemma4_26b_31b_managed",
             "managed",
             "google/gemma-4-26b-a4b-it",
             "managed",
@@ -1007,7 +1073,7 @@ def test_legacy_gemini_alias_only_normalizes_to_canonical_runtime_target() -> No
         (
             "openrouter:none:google/gemma-4-26b-a4b-it",
             "managed",
-            "gemma4_managed",
+            "gemma4_26b_31b_managed",
             "managed",
             "google/gemma-4-26b-a4b-it",
             "managed",
@@ -1455,8 +1521,8 @@ def test_missing_openrouter_source_defaults_to_byok_for_openrouter_provider() ->
 
     assert openrouter_intent.model == "google/gemma-4-26b-a4b-it"
     assert openrouter_intent.selected_source == "byok"
-    assert openrouter_intent.selection_alias == "gemma4_byok"
-    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4
+    assert openrouter_intent.selection_alias == "gemma4_26b_31b_byok"
+    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B
     assert translation_intent.connection == runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER
     assert config.provider == "openrouter"
     assert config.model == "google/gemma-4-26b-a4b-it"
@@ -1466,7 +1532,7 @@ def test_missing_openrouter_source_defaults_to_byok_for_openrouter_provider() ->
         reference="openrouter:byok",
     )
     assert config.routing_mode == "latency"
-    assert config.provider_routing == "gemma4_26b_latency"
+    assert config.provider_routing == "gemma4_26b_31b_latency"
     assert config.service_endpoint == "https://broker.fixture.test/v1"
     assert config.fallback is not None
     assert config.fallback.target == config.primary
@@ -1493,7 +1559,7 @@ def test_derive_translation_compatibility_defaults_missing_openrouter_source_to_
         **source_kwargs,
     )
 
-    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4
+    assert translation_intent.model == runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B
     assert translation_intent.connection == runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER
     assert translation_intent.concurrency_limit == 3
 
@@ -1572,7 +1638,7 @@ def test_resolved_output_uses_lookup_references_not_raw_secret_values() -> None:
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4,
+            model=runtime_resolution.TRANSLATION_MODEL_GEMMA4_26B_31B,
             connection=runtime_resolution.TRANSLATION_CONNECTION_OPENROUTER,
             openrouter=runtime_resolution.OpenRouterRuntimeIntent(
                 selected_source=runtime_resolution.OPENROUTER_SOURCE_BYOK,

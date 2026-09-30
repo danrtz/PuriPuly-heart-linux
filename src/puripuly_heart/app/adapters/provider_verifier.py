@@ -9,6 +9,12 @@ from puripuly_heart.app.ports.provider_verifier import (
     ProviderVerificationResult,
     ProviderVerifierPort,
 )
+from puripuly_heart.config.alibaba_connection import (
+    AlibabaRegionalSettings,
+    resolve_alibaba_connection,
+    validated_native_url,
+    validated_websocket_url,
+)
 from puripuly_heart.core.messages import (
     CONTENT_POLICY_METADATA_ONLY,
     DIAGNOSTIC_CATEGORY_AUTH,
@@ -19,19 +25,24 @@ from puripuly_heart.core.openrouter_metadata import OpenRouterKeyMetadata
 from puripuly_heart.core.translation_policy import FIXED_TRANSLATION_POLICY
 from puripuly_heart.providers.llm.deepseek import DeepSeekLLMProvider
 from puripuly_heart.providers.llm.gemini import GeminiLLMProvider
+from puripuly_heart.providers.llm.openai import OpenAILLMProvider
 from puripuly_heart.providers.llm.openrouter import OpenRouterLLMProvider
 from puripuly_heart.providers.llm.qwen_async import AsyncQwenLLMProvider
 from puripuly_heart.providers.stt.deepgram import DeepgramRealtimeSTTBackend
 from puripuly_heart.providers.stt.elevenlabs_scribe import ElevenLabsScribeSTTBackend
 from puripuly_heart.providers.stt.gemini_transcribe import GeminiTranscribeSTTBackend
+from puripuly_heart.providers.stt.qwen_audio import QwenAudioStreamingSTTBackend
 from puripuly_heart.providers.stt.soniox import SonioxRealtimeSTTBackend
 
-_ALIBABA_BEIJING_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
-_ALIBABA_SINGAPORE_BASE_URL = "https://dashscope-intl.aliyuncs.com/api/v1"
 
-
-def _compatible_qwen_base_url(base_url: str) -> str:
-    return base_url.replace("/api/v1", "/compatible-mode/v1")
+def _validated_compatible_url(base_url: str) -> str:
+    for region in ("beijing", "singapore"):
+        try:
+            native_url = validated_native_url(base_url, region)
+            return native_url[: -len("/api/v1")] + "/compatible-mode/v1"
+        except ValueError:
+            continue
+    raise ValueError("Invalid Alibaba native endpoint")
 
 
 def _optional_context_str(request: ProviderVerificationRequest, key: str) -> str | None:
@@ -87,6 +98,13 @@ class ProviderVerifierAdapter(ProviderVerifierPort):
             )
         if normalized_provider == "openrouter":
             return await OpenRouterLLMProvider.verify_api_key(api_key)
+        if normalized_provider == "openai":
+            if model not in (None, "gpt-6-luna"):
+                return False
+            return await OpenAILLMProvider.verify_api_key(
+                api_key,
+                model="gpt-6-luna",
+            )
         if normalized_provider == "deepseek":
             kwargs: dict[str, str] = {}
             if base_url is not None:
@@ -95,10 +113,11 @@ class ProviderVerifierAdapter(ProviderVerifierPort):
                 kwargs["model"] = model
             return await DeepSeekLLMProvider.verify_api_key(api_key, **kwargs)
         if normalized_provider in {"alibaba_beijing", "alibaba_singapore", "qwen"}:
-            qwen_base_url = base_url or (
-                _ALIBABA_SINGAPORE_BASE_URL
-                if normalized_provider == "alibaba_singapore"
-                else _ALIBABA_BEIJING_BASE_URL
+            region = "singapore" if normalized_provider == "alibaba_singapore" else "beijing"
+            qwen_base_url = validated_native_url(
+                base_url
+                or resolve_alibaba_connection(region, AlibabaRegionalSettings()).native_url,
+                region,
             )
             return await self.verify_qwen_llm_api_key(
                 api_key,
@@ -125,13 +144,33 @@ class ProviderVerifierAdapter(ProviderVerifierPort):
         low_latency: bool,
     ) -> bool:
         _ = low_latency
-        async_base_url = _compatible_qwen_base_url(base_url)
+        async_base_url = _validated_compatible_url(base_url)
         kwargs = {"base_url": async_base_url}
         if model is not None:
             kwargs["model"] = model
         if not FIXED_TRANSLATION_POLICY.fast_translation_enabled:
             raise RuntimeError("Fast Translation policy is disabled")
         return await AsyncQwenLLMProvider.verify_api_key(api_key, **kwargs)
+
+    async def probe_qwen_llm_api_key(self, api_key: str, *, base_url: str, model: str) -> bool:
+        if not FIXED_TRANSLATION_POLICY.fast_translation_enabled:
+            raise RuntimeError("Fast Translation policy is disabled")
+        return await AsyncQwenLLMProvider.probe_api_key(
+            api_key, base_url=_validated_compatible_url(base_url), model=model
+        )
+
+    async def verify_qwen_audio_api_key(self, api_key: str, *, endpoint: str, model: str) -> bool:
+        for region in ("beijing", "singapore"):
+            try:
+                endpoint = validated_websocket_url(endpoint, region)
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError("Invalid Alibaba WebSocket endpoint")
+        return await QwenAudioStreamingSTTBackend.verify_api_key(
+            api_key, endpoint=endpoint, model=model
+        )
 
     async def fetch_openrouter_key_metadata(
         self,

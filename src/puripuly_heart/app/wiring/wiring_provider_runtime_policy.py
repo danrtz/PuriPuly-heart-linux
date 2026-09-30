@@ -3,14 +3,29 @@ from __future__ import annotations
 import hashlib
 import json
 
+from puripuly_heart.config.alibaba_connection import resolve_alibaba_connection
 from puripuly_heart.config.prompts import resolve_system_prompt
 from puripuly_heart.config.provider_values import STTProviderName
+from puripuly_heart.config.runtime_resolution import (
+    OPENAI_MODEL_GPT_6_LUNA,
+    PROVIDER_OPENAI,
+)
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import provider_llm_for_translation
 from puripuly_heart.core.http_extensions import HttpExtensionRegistry
 from puripuly_heart.core.openrouter_routing import OpenRouterProviderRouting
 
 _MANAGED_OPENROUTER_CONNECTIONS = frozenset({"managed", "managed_china"})
+
+
+def llm_provider_requires_secret(translation_model: str, provider: str) -> bool:
+    return translation_model != "custom_http" and provider in {
+        "gemini",
+        "openai",
+        "openrouter",
+        "qwen",
+        "deepseek",
+    }
 
 
 def build_llm_provider_signature(
@@ -46,6 +61,7 @@ def build_llm_provider_signature(
         provider_llm,
         translation.concurrency_limit,
         translation.gemini.llm_model if provider_llm == "gemini" else None,
+        OPENAI_MODEL_GPT_6_LUNA if provider_llm == PROVIDER_OPENAI else None,
         translation.openrouter_model if primary_uses_openrouter else None,
         translation.openrouter_routing_mode if uses_openrouter else None,
         (
@@ -59,6 +75,13 @@ def build_llm_provider_signature(
         _managed_openrouter_identity_signature(settings) if uses_managed_openrouter else None,
         translation.qwen.llm_model if provider_llm == "qwen" else None,
         translation.qwen.region if provider_llm == "qwen" else None,
+        (
+            resolve_alibaba_connection(
+                translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
+            )
+            if provider_llm == "qwen"
+            else None
+        ),
         translation.deepseek.llm_model if provider_llm == "deepseek" else None,
         (
             (
@@ -129,5 +152,6 @@ def _managed_openrouter_identity_signature(
 __all__ = [
     "build_llm_provider_signature",
     "provider_llm_for_translation",
+    "llm_provider_requires_secret",
     "provider_runtime_requires_gpu_restart",
 ]

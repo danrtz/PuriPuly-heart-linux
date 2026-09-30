@@ -66,7 +66,9 @@ def test_state_publisher_full_snapshot_republishes_after_discovery() -> None:
     ("model", "connection", "expected_id"),
     [
         (TranslationModel.GEMINI_FLASH, TranslationConnection.OFFICIAL_BYOK, 5),
-        (TranslationModel.GEMMA4_31B, TranslationConnection.MANAGED, 1),
+        (TranslationModel.GEMMA4_26B_31B, TranslationConnection.MANAGED, 0),
+        (TranslationModel.GEMMA4_26B_31B, TranslationConnection.OPENROUTER, 0),
+        (TranslationModel.GPT_6_LUNA, TranslationConnection.OPENROUTER, 14),
         (TranslationModel.CUSTOM_HTTP, TranslationConnection.CUSTOM_HTTP, 9),
         (TranslationModel.MANAGED_GEMMA, TranslationConnection.CPU, 10),
         (TranslationModel.MANAGED_GEMMA, TranslationConnection.GPU, 11),

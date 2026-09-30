@@ -422,6 +422,60 @@ def test_settings_owner_roundtrips_verification_transitions(tmp_path: Path) -> N
     assert invalidated.settings.state.provider_verification.openrouter.status == "unknown"
 
 
+def test_old_settings_without_openai_evidence_keep_existing_translation_history() -> None:
+    from puripuly_heart.config.settings_vnext.serialization import from_dict, to_dict
+
+    raw = to_dict(AppSettingsVNext())
+    raw["intent"]["translation"]["model"] = "deepseek_v4_flash_41"
+    raw["intent"]["translation"]["connection"] = "official_byok"
+    raw["intent"]["translation"]["connection_history"]["deepseek_v4_flash_41"] = "official_byok"
+    raw["state"]["provider_verification"].pop("openai")
+
+    loaded = from_dict(raw)
+    assert loaded.intent.translation.model == "deepseek_v4_flash_41"
+    assert loaded.intent.translation.connection == "official_byok"
+    assert loaded.intent.translation.connection_history["deepseek_v4_flash_41"] == "official_byok"
+    assert loaded.state.provider_verification.openai.status == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_openai_verification_is_bound_to_luna_and_invalidated_by_key_changes(
+    tmp_path: Path,
+) -> None:
+    from puripuly_heart.app.services.settings_application import settings_view_surface_snapshots
+
+    path = tmp_path / "settings.json"
+    initial_key = "private-openai-credential"
+    store = MemorySecretStore({"openai_api_key": initial_key})
+    provider_settings = _provider_settings_owner(path, store)
+    provider_settings.persist_verification("openai", initial_key, True)
+
+    restored = load_vnext_settings(path)
+    assert restored.settings is not None
+    entry = restored.settings.state.provider_verification.openai
+    assert entry.status == "verified"
+    assert entry.secret_key == "openai_api_key"
+    assert entry.verifier_context["model"] == "gpt-6-luna"
+    assert settings_view_surface_snapshots(restored.settings)[0].verified.openai
+    assert initial_key not in path.read_text(encoding="utf-8")
+    assert "openai_api_key" not in restored.settings.intent.translation.connection_history
+
+    assert await provider_settings.change_secret("openai_api_key", "replacement")
+    restored = load_vnext_settings(path)
+    assert restored.settings is not None
+    assert restored.settings.state.provider_verification.openai.status == "unknown"
+    assert not settings_view_surface_snapshots(restored.settings)[0].verified.openai
+    assert "replacement" not in path.read_text(encoding="utf-8")
+
+    provider_settings.persist_verification("openai", "replacement", True)
+    assert await provider_settings.change_secret("openai_api_key", "")
+    restored = load_vnext_settings(path)
+    assert restored.settings is not None
+    assert store.get("openai_api_key") is None
+    assert restored.settings.state.provider_verification.openai.status == "unknown"
+    assert not settings_view_surface_snapshots(restored.settings)[0].verified.openai
+
+
 def test_settings_owner_rejects_verification_for_nonmatching_secret_store_value(
     tmp_path: Path,
 ) -> None:
@@ -609,6 +663,83 @@ async def test_overlapping_provider_secret_changes_preserve_both_invalidations(
     assert reloaded.settings is not None
     assert reloaded.settings.state.provider_verification.openrouter.status == "unknown"
     assert reloaded.settings.state.provider_verification.deepseek.status == "unknown"
+
+
+@pytest.mark.parametrize("stale_alias", [None, "gemma4_31b_managed", "gemma4_byok"])
+def test_managed_gemma_byok_target_retains_combined_pool_policy(
+    tmp_path: Path, stale_alias: str | None
+) -> None:
+    canonical = AppSettingsVNext()
+    translation = replace(
+        canonical.intent.translation,
+        connection="managed",
+        openrouter_model="google/gemma-4-31b-it",
+        openrouter_selection_alias=stale_alias,
+    )
+    owner = SettingsOwner(
+        path=tmp_path / "settings.json",
+        persistence=SettingsVNextCanonicalPersistenceAdapter(),
+        canonical=replace(canonical, intent=replace(canonical.intent, translation=translation)),
+    )
+
+    target = owner.build_managed_openrouter_byok_target()
+
+    assert target is not None
+    assert target.intent.translation.model == "gemma4_26b_31b"
+    assert target.intent.translation.connection == "openrouter"
+    assert target.intent.translation.connection_history["gemma4_26b_31b"] == "openrouter"
+    assert target.intent.translation.openrouter_model == "google/gemma-4-26b-a4b-it"
+    assert target.intent.translation.openrouter_provider_routing == "gemma4_26b_31b_latency"
+    assert target.intent.translation.openrouter_selected_source == "byok"
+    assert target.intent.translation.openrouter_selection_alias == "gemma4_26b_31b_byok"
+
+
+@pytest.mark.parametrize("connection", ["openrouter", "official_byok"])
+def test_luna_materialization_and_roundtrip_ignore_stale_router_alias(connection: str) -> None:
+    from puripuly_heart.config.settings_vnext import serialization
+    from puripuly_heart.config.settings_vnext.migration import from_dict
+
+    canonical = AppSettingsVNext()
+    translation = replace(
+        canonical.intent.translation,
+        model="gpt_6_luna",
+        connection=connection,
+        connection_history={"gemma4_26b_31b": "managed", "gpt_6_luna": connection},
+        openrouter_model="google/gemma-4-31b-it",
+        openrouter_selected_source="managed",
+        openrouter_selection_alias="gemma4_31b_managed",
+    )
+    settings = materialize_canonical_translation_settings(
+        replace(canonical, intent=replace(canonical.intent, translation=translation))
+    )
+    reloaded = from_dict(serialization.to_dict(settings))
+    actual = reloaded.intent.translation
+    assert actual.model == "gpt_6_luna"
+    assert actual.connection == connection
+    assert actual.connection_history == translation.connection_history
+    if connection == "openrouter":
+        assert actual.openrouter_model == "openai/gpt-6-luna"
+        assert actual.openrouter_selected_source == "byok"
+        assert actual.openrouter_selection_alias == "gpt_6_luna_byok"
+    else:
+        assert actual.openrouter_selected_source == "none"
+        assert actual.openrouter_selection_alias is None
+
+
+def test_luna_materialization_does_not_persist_managed_connection() -> None:
+    canonical = AppSettingsVNext()
+    translated = replace(
+        canonical.intent.translation,
+        model="gpt_6_luna",
+        connection="managed",
+        openrouter_selection_alias="gemma4_31b_managed",
+    )
+    actual = materialize_canonical_translation_settings(
+        replace(canonical, intent=replace(canonical.intent, translation=translated))
+    ).intent.translation
+    assert actual.connection == "openrouter"
+    assert actual.openrouter_model == "openai/gpt-6-luna"
+    assert actual.openrouter_selected_source == "byok"
 
 
 @pytest.mark.parametrize("connection", ["managed", "managed_china", "openrouter"])

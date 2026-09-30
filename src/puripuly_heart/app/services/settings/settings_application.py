@@ -48,7 +48,9 @@ from puripuly_heart.app.ports.settings_view import (
     ProviderApplyIntent,
     ProviderSettingsSnapshot,
     ProviderVerificationSnapshot,
+    QwenBeijingApiHostEdit,
     QwenRegionEdit,
+    QwenSingaporeApiHostEdit,
     SelfSttProviderEdit,
     SelfVadSettingsIntent,
     SonioxSpeakerDiarizationEdit,
@@ -85,6 +87,7 @@ from puripuly_heart.app.services.provider_runtime_apply import (
     _ui_prompt_clipboard_state_runtime_degraded_transaction_result,
     _ui_prompt_clipboard_state_save_failed_transaction_result,
 )
+from puripuly_heart.config.alibaba_connection import normalize_api_host
 from puripuly_heart.config.overlay_calibration import OverlayCalibration
 from puripuly_heart.config.prompts import (
     normalize_system_prompt_override,
@@ -107,6 +110,7 @@ from puripuly_heart.config.resolved import (
 from puripuly_heart.config.settings_vnext.schema import (
     AppSettingsVNext,
     DesktopFletOverlayPositionIntent,
+    ProviderVerificationEntry,
 )
 from puripuly_heart.config.translation_values import (
     TranslationConnection,
@@ -170,7 +174,7 @@ def _active_prompt_key(settings: AppSettingsVNext) -> str:
         settings.intent.translation.model,
         settings.intent.translation.connection,
     )
-    if provider in {"gemini", "openrouter", "deepseek", "local_llm", "managed_gemma"}:
+    if provider in {"gemini", "openrouter", "openai", "deepseek", "local_llm", "managed_gemma"}:
         return provider
     return "qwen"
 
@@ -201,6 +205,12 @@ def _openrouter_selection_alias(value: object) -> OpenRouterSelectionAlias | Non
 
 def _verified(entry: object) -> bool:
     return getattr(entry, "status", None) == "verified"
+
+
+def _dedicated_api_host(regional: object) -> str:
+    if getattr(regional, "endpoint_mode", None) != "workspace_dedicated":
+        return ""
+    return str(getattr(regional, "api_host", ""))
 
 
 def settings_view_surface_snapshots(
@@ -269,11 +279,19 @@ def settings_view_surface_snapshots(
             soniox=_verified(verification.soniox),
             google=_verified(verification.google),
             openrouter=_verified(verification.openrouter),
+            openai=(
+                _verified(verification.openai)
+                and verification.openai.provider == "openai"
+                and verification.openai.secret_key == "openai_api_key"
+                and verification.openai.verifier_context.get("model") == "gpt-6-luna"
+            ),
             deepseek=_verified(verification.deepseek),
             alibaba_beijing=_verified(verification.alibaba_beijing),
             alibaba_singapore=_verified(verification.alibaba_singapore),
         ),
         managed_referral_id=settings.state.managed_connection.referral_id,
+        qwen_api_host_beijing=_dedicated_api_host(translation.qwen.beijing),
+        qwen_api_host_singapore=_dedicated_api_host(translation.qwen.singapore),
     )
     general = GeneralSettingsSnapshot(
         locale=intent.ui.locale,
@@ -389,6 +407,46 @@ def osc_control_presentation_state(
 
 def _with_intent(settings: AppSettingsVNext, **changes: object) -> AppSettingsVNext:
     return replace(settings, intent=replace(settings.intent, **changes))
+
+
+def _with_qwen_api_host(
+    settings: AppSettingsVNext,
+    region: str,
+    api_host: str,
+) -> AppSettingsVNext:
+    qwen = settings.intent.translation.qwen
+    regional = getattr(qwen, region)
+    host = normalize_api_host(api_host, region)
+    mode = "workspace_dedicated" if host else "legacy_shared"
+    if mode == regional.endpoint_mode and (mode == "legacy_shared" or host == regional.api_host):
+        return settings
+    updated = _with_intent(
+        settings,
+        translation=replace(
+            settings.intent.translation,
+            qwen=replace(
+                qwen,
+                **{
+                    region: replace(
+                        regional,
+                        endpoint_mode=mode,
+                        api_host=host,
+                        revision=regional.revision + 1,
+                    )
+                },
+            ),
+        ),
+    )
+    return replace(
+        updated,
+        state=replace(
+            updated.state,
+            provider_verification=replace(
+                updated.state.provider_verification,
+                **{f"alibaba_{region}": ProviderVerificationEntry(status="unknown")},
+            ),
+        ),
+    )
 
 
 def materialize_immediate_settings_intent(
@@ -694,6 +752,10 @@ def materialize_provider_apply_intent(
                     ),
                 ),
             )
+        elif isinstance(edit, QwenBeijingApiHostEdit):
+            updated = _with_qwen_api_host(updated, "beijing", edit.api_host)
+        elif isinstance(edit, QwenSingaporeApiHostEdit):
+            updated = _with_qwen_api_host(updated, "singapore", edit.api_host)
         elif isinstance(edit, LocalLlmBaseUrlEdit):
             updated = _with_intent(
                 updated,

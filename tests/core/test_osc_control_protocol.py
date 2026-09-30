@@ -62,6 +62,15 @@ def test_translation_model_publish_ids_cover_every_product_model() -> None:
     assert {model.value for model in TranslationModel} <= set(TRANSLATION_MODEL_ID_BY_VALUE)
 
 
+def test_luna_osc_selection_has_new_id_and_keeps_both_connections() -> None:
+    message = decode_control_message("/avatar/parameters/PuriPuly_Translator", 14)
+    assert message.value == 14
+    assert TRANSLATION_MODEL_IDS[message.value] == "gpt_6_luna"
+    assert translation_model_id_for_selection("gpt_6_luna", "openrouter") == 14
+    assert translation_model_id_for_selection("gpt_6_luna", "official_byok") == 14
+    assert TRANSLATION_CONNECTION_BY_MODEL_ID.get(14) is None
+
+
 def test_codec_validates_absolute_boolean_and_integer_controls() -> None:
     bool_message = decode_control_message("/avatar/parameters/PuriPuly_Talk", True)
     integer_message = decode_control_message("/avatar/parameters/PuriPuly_SelfASR", 5)
@@ -195,8 +204,8 @@ def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
     }
     assert dict(TRANSLATION_MODEL_IDS) == {
         0: "gemma4_26b_31b",
-        1: "gemma4_31b",
-        2: "gemma4",
+        1: "gemma4_26b_31b",
+        2: "gemma4_26b_31b",
         3: "deepseek_v4_flash",
         5: "gemini_flash",
         6: "gemini_flash",
@@ -206,6 +215,7 @@ def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
         10: "managed_gemma",
         11: "managed_gemma",
         13: "deepseek_v4_flash_41",
+        14: "gpt_6_luna",
     }
     assert dict(TRANSLATION_CONNECTION_BY_MODEL_ID) == {
         10: "cpu",

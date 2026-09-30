@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Final, Literal, TypeAlias, cast
 
+from puripuly_heart.config.alibaba_connection import (
+    AlibabaConnection,
+    AlibabaRegionalSettings,
+    resolve_alibaba_connection,
+)
 from puripuly_heart.config.llm_profiles import (
     OPENROUTER_CREDENTIAL_SOURCE_BYOK,
     OPENROUTER_CREDENTIAL_SOURCE_MANAGED,
@@ -14,6 +19,7 @@ from puripuly_heart.config.llm_profiles import (
     OPENROUTER_MODEL_GEMINI_FLASH,
     OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
     OPENROUTER_MODEL_GEMMA_4_31B_IT,
+    OPENROUTER_MODEL_GPT_6_LUNA,
     OPENROUTER_MODEL_QWEN_35_FLASH_02_23,
     get_openrouter_llm_profile,
     normalize_legacy_openrouter_model,
@@ -39,12 +45,11 @@ from puripuly_heart.config.resolved import (
     normalize_legacy_vad_onset_threshold,
 )
 
-TRANSLATION_MODEL_GEMMA4: Final = "gemma4"
 TRANSLATION_MODEL_GEMMA4_26B_31B: Final = "gemma4_26b_31b"
-TRANSLATION_MODEL_GEMMA4_31B: Final = "gemma4_31b"
 TRANSLATION_MODEL_DEEPSEEK_V4_FLASH: Final = "deepseek_v4_flash"
 TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41: Final = "deepseek_v4_flash_41"
 TRANSLATION_MODEL_GEMINI_FLASH: Final = "gemini_flash"
+TRANSLATION_MODEL_GPT_6_LUNA: Final = "gpt_6_luna"
 TRANSLATION_MODEL_QWEN_38_FLASH: Final = "qwen38_flash"
 TRANSLATION_MODEL_OPENROUTER_QWEN_35_FLASH: Final = "openrouter_qwen35_flash"
 TRANSLATION_MODEL_MANAGED_GEMMA: Final = "managed_gemma"
@@ -57,11 +62,10 @@ _LOSER_GRACE_MS: Final = 50
 
 TranslationModelName: TypeAlias = Literal[
     "gemma4_26b_31b",
-    "gemma4_31b",
-    "gemma4",
     "deepseek_v4_flash",
     "deepseek_v4_flash_41",
     "gemini_flash",
+    "gpt_6_luna",
     "qwen38_flash",
     "openrouter_qwen35_flash",
     "managed_gemma",
@@ -70,11 +74,10 @@ TranslationModelName: TypeAlias = Literal[
 ]
 TRANSLATION_MODELS: Final[tuple[TranslationModelName, ...]] = (
     TRANSLATION_MODEL_GEMMA4_26B_31B,
-    TRANSLATION_MODEL_GEMMA4_31B,
-    TRANSLATION_MODEL_GEMMA4,
     TRANSLATION_MODEL_DEEPSEEK_V4_FLASH,
     TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41,
     TRANSLATION_MODEL_GEMINI_FLASH,
+    TRANSLATION_MODEL_GPT_6_LUNA,
     TRANSLATION_MODEL_QWEN_38_FLASH,
     TRANSLATION_MODEL_OPENROUTER_QWEN_35_FLASH,
     TRANSLATION_MODEL_MANAGED_GEMMA,
@@ -119,14 +122,6 @@ TRANSLATION_CONNECTIONS_BY_MODEL: Final[
             TRANSLATION_CONNECTION_MANAGED,
             TRANSLATION_CONNECTION_OPENROUTER,
         ),
-        TRANSLATION_MODEL_GEMMA4_31B: (
-            TRANSLATION_CONNECTION_MANAGED,
-            TRANSLATION_CONNECTION_OPENROUTER,
-        ),
-        TRANSLATION_MODEL_GEMMA4: (
-            TRANSLATION_CONNECTION_MANAGED,
-            TRANSLATION_CONNECTION_OPENROUTER,
-        ),
         TRANSLATION_MODEL_DEEPSEEK_V4_FLASH: (
             TRANSLATION_CONNECTION_MANAGED,
             TRANSLATION_CONNECTION_MANAGED_CHINA,
@@ -141,6 +136,10 @@ TRANSLATION_CONNECTIONS_BY_MODEL: Final[
         TRANSLATION_MODEL_GEMINI_FLASH: (
             TRANSLATION_CONNECTION_OFFICIAL_BYOK,
             TRANSLATION_CONNECTION_OPENROUTER,
+        ),
+        TRANSLATION_MODEL_GPT_6_LUNA: (
+            TRANSLATION_CONNECTION_OPENROUTER,
+            TRANSLATION_CONNECTION_OFFICIAL_BYOK,
         ),
         TRANSLATION_MODEL_QWEN_38_FLASH: (TRANSLATION_CONNECTION_OFFICIAL_BYOK,),
         TRANSLATION_MODEL_OPENROUTER_QWEN_35_FLASH: (
@@ -180,6 +179,7 @@ OPENROUTER_MANAGED_CREDENTIAL_KINDS: Final[tuple[OpenRouterManagedCredentialKind
 
 PROVIDER_OPENROUTER: Final = "openrouter"
 PROVIDER_DEEPSEEK: Final = "deepseek"
+PROVIDER_OPENAI: Final = "openai"
 PROVIDER_GEMINI: Final = "gemini"
 PROVIDER_QWEN: Final = "qwen"
 PROVIDER_MANAGED_GEMMA: Final = "managed_gemma"
@@ -187,6 +187,7 @@ PROVIDER_LOCAL_LLM: Final = "local_llm"
 PROVIDER_CUSTOM_HTTP: Final = "custom_http"
 LLM_PROVIDERS: Final[tuple[str, ...]] = (
     PROVIDER_GEMINI,
+    PROVIDER_OPENAI,
     PROVIDER_OPENROUTER,
     PROVIDER_QWEN,
     PROVIDER_MANAGED_GEMMA,
@@ -194,6 +195,7 @@ LLM_PROVIDERS: Final[tuple[str, ...]] = (
     PROVIDER_LOCAL_LLM,
 )
 
+OPENAI_MODEL_GPT_6_LUNA: Final = "gpt-6-luna"
 GEMINI_MODEL_FLASH: Final = "gemini-3.8-flash"
 LEGACY_GEMINI_MODEL_31_FLASH_LITE: Final = "gemini-3.1-flash-lite"
 DEEPSEEK_MODEL_V4_FLASH: Final = "deepseek-flash"
@@ -211,6 +213,7 @@ CREDENTIAL_REF_OPENROUTER_MANAGED: Final = "openrouter:managed"
 CREDENTIAL_REF_OPENROUTER_MANAGED_QQ: Final = "openrouter:managed_qq"
 CREDENTIAL_REF_GEMINI_BYOK: Final = "gemini:byok"
 CREDENTIAL_REF_DEEPSEEK_BYOK: Final = "deepseek:byok"
+CREDENTIAL_REF_OPENAI_BYOK: Final = "openai:byok"
 CREDENTIAL_REF_QWEN_BEIJING: Final = "qwen:beijing"
 CREDENTIAL_REF_QWEN_SINGAPORE: Final = "qwen:singapore"
 CREDENTIAL_REF_DEEPGRAM_STT: Final = "deepgram:stt"
@@ -272,10 +275,10 @@ STT_DEFAULT_SAMPLE_RATE_HZ: Final = 16000
 STT_DEFAULT_CHANNELS: Final = 1
 STT_DEFAULT_RING_BUFFER_MS: Final = 500
 STT_DEFAULT_DRAIN_TIMEOUT_S: Final = 2.0
-STT_DEFAULT_VAD_SPEECH_THRESHOLD: Final = 0.4
+STT_DEFAULT_VAD_SPEECH_THRESHOLD: Final = 0.3
 STT_DEFAULT_VAD_HANGOVER_MS: Final = 500
 STT_DEFAULT_VAD_PRE_ROLL_MS: Final = 500
-PEER_STT_DEFAULT_VAD_SPEECH_THRESHOLD: Final = 0.5
+PEER_STT_DEFAULT_VAD_SPEECH_THRESHOLD: Final = 0.4
 PEER_STT_DEFAULT_VAD_HANGOVER_MS: Final = 500
 PEER_STT_DEFAULT_VAD_PRE_ROLL_MS: Final = 500
 STT_DEFAULT_LOW_LATENCY_ENABLED: Final = True
@@ -300,6 +303,7 @@ _OPENROUTER_MODELS: Final[tuple[str, ...]] = (
     OPENROUTER_MODEL_DEEPSEEK_V4_FLASH,
     OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41,
     OPENROUTER_MODEL_GEMINI_FLASH,
+    OPENROUTER_MODEL_GPT_6_LUNA,
 )
 _OPENROUTER_ROUTING_MODES: Final[tuple[str, ...]] = ("latency",)
 _OPENROUTER_PROVIDER_ROUTINGS: Final[tuple[str, ...]] = (
@@ -307,8 +311,6 @@ _OPENROUTER_PROVIDER_ROUTINGS: Final[tuple[str, ...]] = (
     "deepseek_only",
     "google_gemini_latency",
     "gemma4_26b_31b_latency",
-    "gemma4_31b_latency",
-    "gemma4_26b_latency",
     "deepseek_v4_flash_latency",
     "deepseek_v4_flash_china",
     "deepseek_v4_flash_41_strict",
@@ -394,6 +396,8 @@ def _normalize_translation_model(value: object) -> TranslationModelName:
             "gemini37_flash": TRANSLATION_MODEL_GEMINI_FLASH,
             "qwen35_plus": TRANSLATION_MODEL_QWEN_38_FLASH,
             "qwen3.5-plus": TRANSLATION_MODEL_QWEN_38_FLASH,
+            "gemma4": TRANSLATION_MODEL_GEMMA4_26B_31B,
+            "gemma4_31b": TRANSLATION_MODEL_GEMMA4_26B_31B,
         }.get(legacy_value, legacy_value)
     return cast(
         TranslationModelName,
@@ -499,6 +503,12 @@ def _normalize_openrouter_managed_credential_kind(
     )
 
 
+def _normalize_openrouter_provider_routing(value: object) -> str:
+    if value in ("gemma4_31b_latency", "gemma4_26b_latency"):
+        return "gemma4_26b_31b_latency"
+    return _normalize_allowed(value, allowed=_OPENROUTER_PROVIDER_ROUTINGS, default="default")
+
+
 def _canonical_openrouter_alias(
     model: str,
     source: OpenRouterSource,
@@ -561,7 +571,9 @@ def _required_credential(source: str, reference: str) -> ResolvedCredentialRequi
 def _openrouter_credential(
     source: OpenRouterSource,
     *,
-    managed_credential_kind: OpenRouterManagedCredentialKind = OPENROUTER_MANAGED_CREDENTIAL_STANDARD,
+    managed_credential_kind: OpenRouterManagedCredentialKind = (
+        OPENROUTER_MANAGED_CREDENTIAL_STANDARD
+    ),
 ) -> ResolvedCredentialRequirement:
     if source == OPENROUTER_SOURCE_MANAGED:
         reference = (
@@ -578,22 +590,14 @@ def _openrouter_credential(
     return _no_credential()
 
 
-def _qwen_credential_reference(region: str) -> str:
-    if region == QWEN_REGION_SINGAPORE:
-        return CREDENTIAL_REF_QWEN_SINGAPORE
-    return CREDENTIAL_REF_QWEN_BEIJING
-
-
-def _qwen_service_endpoint(region: str) -> str:
-    if region == QWEN_REGION_SINGAPORE:
-        return "https://dashscope-intl.aliyuncs.com/api/v1"
-    return "https://dashscope.aliyuncs.com/api/v1"
-
-
-def _qwen_audio_endpoint(region: str) -> str:
-    if region == QWEN_REGION_SINGAPORE:
-        return "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
-    return "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+def _qwen_connection(region: str, connection: AlibabaConnection | None) -> AlibabaConnection:
+    if connection is not None:
+        if connection.region != region:
+            raise ValueError("Alibaba connection region mismatch")
+        return connection
+    return resolve_alibaba_connection(
+        cast(Literal["beijing", "singapore"], region), AlibabaRegionalSettings()
+    )
 
 
 def _translation_connection_from_openrouter_source(
@@ -665,11 +669,7 @@ class OpenRouterRuntimeIntent:
             allowed=_OPENROUTER_ROUTING_MODES,
             default="latency",
         )
-        provider_routing = _normalize_allowed(
-            self.provider_routing,
-            allowed=_OPENROUTER_PROVIDER_ROUTINGS,
-            default="default",
-        )
+        provider_routing = _normalize_openrouter_provider_routing(self.provider_routing)
         managed_credential_kind = _normalize_openrouter_managed_credential_kind(
             self.managed_credential_kind
         )
@@ -692,6 +692,7 @@ class DirectProviderRuntimeIntent:
     deepseek_v4_flash_model: str = DEEPSEEK_MODEL_V4_FLASH
     qwen_38_flash_model: str = QWEN_MODEL_38_FLASH
     qwen_region: str = QWEN_REGION_BEIJING
+    qwen_connection: AlibabaConnection | None = None
     local_llm_backend: str = LOCAL_LLM_BACKEND_OLLAMA
     local_llm_base_url: str = LOCAL_LLM_DEFAULT_BASE_URL
     local_llm_model: str = LOCAL_LLM_DEFAULT_MODEL
@@ -759,6 +760,7 @@ class STTRuntimeIntent:
     elevenlabs_scribe_language_code: str | None = None
     elevenlabs_scribe_auto_language: bool = False
     qwen_region: str = QWEN_REGION_BEIJING
+    qwen_connection: AlibabaConnection | None = None
     soniox_model: str = SONIOX_STT_MODEL_RT_V5
     soniox_endpoint: str = SONIOX_STT_DEFAULT_ENDPOINT
     soniox_keepalive_interval_s: float = SONIOX_STT_DEFAULT_KEEPALIVE_INTERVAL_S
@@ -1027,11 +1029,7 @@ def normalize_openrouter_runtime_intent(
             allowed=_OPENROUTER_ROUTING_MODES,
             default="latency",
         ),
-        provider_routing=_normalize_allowed(
-            provider_routing,
-            allowed=_OPENROUTER_PROVIDER_ROUTINGS,
-            default="default",
-        ),
+        provider_routing=_normalize_openrouter_provider_routing(provider_routing),
         managed_credential_kind=_normalize_openrouter_managed_credential_kind(
             managed_credential_kind
         ),
@@ -1059,11 +1057,7 @@ def derive_translation_runtime_intent_from_compatibility(
         openrouter_selected_source,
         default=_default_openrouter_source_for_provider(provider),
     )
-    provider_routing = _normalize_allowed(
-        openrouter_provider_routing,
-        allowed=_OPENROUTER_PROVIDER_ROUTINGS,
-        default="default",
-    )
+    provider_routing = _normalize_openrouter_provider_routing(openrouter_provider_routing)
     concurrency = _normalize_positive_int(concurrency_limit, default=10)
 
     if provider == PROVIDER_OPENROUTER:
@@ -1077,25 +1071,15 @@ def derive_translation_runtime_intent_from_compatibility(
                 ),
                 concurrency_limit=concurrency,
             )
-        if (
-            provider_routing == "gemma4_31b_latency"
-            or openrouter_model_value == OPENROUTER_MODEL_GEMMA_4_31B_IT
+        if openrouter_model_value in (
+            OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
+            OPENROUTER_MODEL_GEMMA_4_31B_IT,
         ):
             return TranslationRuntimeIntent(
-                model=TRANSLATION_MODEL_GEMMA4_31B,
+                model=TRANSLATION_MODEL_GEMMA4_26B_31B,
                 connection=_translation_connection_from_openrouter_source(
                     openrouter_source,
-                    model=TRANSLATION_MODEL_GEMMA4_31B,
-                    provider_routing=provider_routing,
-                ),
-                concurrency_limit=concurrency,
-            )
-        if openrouter_model_value == OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT:
-            return TranslationRuntimeIntent(
-                model=TRANSLATION_MODEL_GEMMA4,
-                connection=_translation_connection_from_openrouter_source(
-                    openrouter_source,
-                    model=TRANSLATION_MODEL_GEMMA4,
+                    model=TRANSLATION_MODEL_GEMMA4_26B_31B,
                     provider_routing=provider_routing,
                 ),
                 concurrency_limit=concurrency,
@@ -1130,6 +1114,12 @@ def derive_translation_runtime_intent_from_compatibility(
                 ),
                 concurrency_limit=concurrency,
             )
+        if openrouter_model_value == OPENROUTER_MODEL_GPT_6_LUNA:
+            return TranslationRuntimeIntent(
+                model=TRANSLATION_MODEL_GPT_6_LUNA,
+                connection=TRANSLATION_CONNECTION_OPENROUTER,
+                concurrency_limit=concurrency,
+            )
         if openrouter_model_value == OPENROUTER_MODEL_GEMINI_FLASH:
             return TranslationRuntimeIntent(
                 model=TRANSLATION_MODEL_GEMINI_FLASH,
@@ -1143,6 +1133,12 @@ def derive_translation_runtime_intent_from_compatibility(
         return TranslationRuntimeIntent(
             model=TRANSLATION_MODEL_DEEPSEEK_V4_FLASH,
             connection=_default_translation_connection(TRANSLATION_MODEL_DEEPSEEK_V4_FLASH),
+            concurrency_limit=concurrency,
+        )
+    if provider == PROVIDER_OPENAI:
+        return TranslationRuntimeIntent(
+            model=TRANSLATION_MODEL_GPT_6_LUNA,
+            connection=TRANSLATION_CONNECTION_OFFICIAL_BYOK,
             concurrency_limit=concurrency,
         )
 
@@ -1357,11 +1353,11 @@ def resolve_stt_config(intent: STTRuntimeIntent) -> ResolvedSTTConfig:
             }
     elif provider == STT_PROVIDER_QWEN_AUDIO:
         model = QWEN_AUDIO_STT_MODEL
-        region = intent.qwen_region
-        endpoint = _qwen_audio_endpoint(intent.qwen_region)
+        connection = _qwen_connection(intent.qwen_region, intent.qwen_connection)
+        region = connection.region
+        endpoint = connection.websocket_url
         credential = _required_credential(
-            CREDENTIAL_SOURCE_SECRET_STORE,
-            _qwen_credential_reference(intent.qwen_region),
+            CREDENTIAL_SOURCE_SECRET_STORE, connection.credential_reference
         )
         if intent.source_mode == "auto":
             hints = intent.qwen_audio_language_hints
@@ -1492,30 +1488,6 @@ def _resolve_translation_target(
             ),
         )
 
-    if translation.model == TRANSLATION_MODEL_GEMMA4_31B:
-        return _resolved_openrouter_target(
-            model=OPENROUTER_MODEL_GEMMA_4_31B_IT,
-            source=_openrouter_source_for_translation(translation.connection, openrouter),
-            openrouter=openrouter,
-            provider_routing="gemma4_31b_latency",
-            managed_credential_kind=_openrouter_managed_credential_kind_for_translation(
-                translation.connection,
-                openrouter,
-            ),
-        )
-
-    if translation.model == TRANSLATION_MODEL_GEMMA4:
-        return _resolved_openrouter_target(
-            model=OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
-            source=_openrouter_source_for_translation(translation.connection, openrouter),
-            openrouter=openrouter,
-            provider_routing="gemma4_26b_latency",
-            managed_credential_kind=_openrouter_managed_credential_kind_for_translation(
-                translation.connection,
-                openrouter,
-            ),
-        )
-
     if translation.model == TRANSLATION_MODEL_DEEPSEEK_V4_FLASH:
         provider_routing = (
             "deepseek_v4_flash_china"
@@ -1553,6 +1525,23 @@ def _resolve_translation_target(
                 openrouter,
             ),
         )
+    if translation.model == TRANSLATION_MODEL_GPT_6_LUNA:
+        if translation.connection == TRANSLATION_CONNECTION_OFFICIAL_BYOK:
+            return _resolved_direct_provider_target(
+                provider=PROVIDER_OPENAI,
+                model=OPENAI_MODEL_GPT_6_LUNA,
+                credential=_required_credential(
+                    CREDENTIAL_SOURCE_SECRET_STORE,
+                    CREDENTIAL_REF_OPENAI_BYOK,
+                ),
+            )
+        return _resolved_openrouter_target(
+            model=OPENROUTER_MODEL_GPT_6_LUNA,
+            source=OPENROUTER_SOURCE_BYOK,
+            openrouter=openrouter,
+            provider_routing="default",
+            managed_credential_kind=OPENROUTER_MANAGED_CREDENTIAL_STANDARD,
+        )
 
     if translation.model == TRANSLATION_MODEL_GEMINI_FLASH:
         if translation.connection == TRANSLATION_CONNECTION_OPENROUTER:
@@ -1576,15 +1565,15 @@ def _resolve_translation_target(
         )
 
     if translation.model == TRANSLATION_MODEL_QWEN_38_FLASH:
+        connection = _qwen_connection(direct.qwen_region, direct.qwen_connection)
         return _resolved_direct_provider_target(
             provider=PROVIDER_QWEN,
             model=direct.qwen_38_flash_model,
             credential=_required_credential(
-                CREDENTIAL_SOURCE_SECRET_STORE,
-                _qwen_credential_reference(direct.qwen_region),
+                CREDENTIAL_SOURCE_SECRET_STORE, connection.credential_reference
             ),
-            service_endpoint=_qwen_service_endpoint(direct.qwen_region),
-            region=direct.qwen_region,
+            service_endpoint=connection.native_url,
+            region=connection.region,
         )
 
     if translation.model == TRANSLATION_MODEL_OPENROUTER_QWEN_35_FLASH:
@@ -1630,33 +1619,24 @@ def _emergency_plan_for_primary(
     *,
     primary: ResolvedLLMTarget,
     openrouter: OpenRouterRuntimeIntent,
-    direct: DirectProviderRuntimeIntent,
 ) -> ResolvedLLMAttemptPlan | None:
     if primary.provider != PROVIDER_OPENROUTER:
         return None
-    emergency_translation = TranslationRuntimeIntent(
-        model=TRANSLATION_MODEL_GEMMA4_31B,
-        connection=translation.connection,
-        concurrency_limit=translation.concurrency_limit,
+    connection = _normalize_translation_connection(
+        translation.connection,
+        model=TRANSLATION_MODEL_GEMMA4_26B_31B,
     )
-    emergency_target = _resolve_translation_target(
-        emergency_translation,
+    emergency_target = _resolved_openrouter_target(
+        model=OPENROUTER_MODEL_GEMMA_4_31B_IT,
+        source=_openrouter_source_for_translation(connection, openrouter),
         openrouter=openrouter,
-        direct=direct,
+        provider_routing="gemma4_31b_modelrun_only",
+        managed_credential_kind=_openrouter_managed_credential_kind_for_translation(
+            connection, openrouter
+        ),
     )
     return ResolvedLLMAttemptPlan(
-        target=ResolvedLLMTarget(
-            provider=emergency_target.provider,
-            model=emergency_target.model,
-            models=emergency_target.models,
-            credential=emergency_target.credential,
-            base_url=emergency_target.base_url,
-            service_endpoint=emergency_target.service_endpoint,
-            region=emergency_target.region,
-            routing_mode=emergency_target.routing_mode,
-            provider_routing="gemma4_31b_modelrun_only",
-            provider_options=emergency_target.provider_options,
-        ),
+        target=emergency_target,
         start_after_ms=_EMERGENCY_HEDGE_DELAY_MS,
         start_on_primary_error=False,
     )
@@ -1689,7 +1669,6 @@ def resolve_llm_config(runtime_input: RuntimeResolutionInput) -> ResolvedLLMConf
             translation,
             primary=primary,
             openrouter=openrouter,
-            direct=direct,
         )
         if emergency_plan is not None:
             attempts.append(emergency_plan)
@@ -1705,6 +1684,7 @@ def resolve_llm_config(runtime_input: RuntimeResolutionInput) -> ResolvedLLMConf
 
 __all__ = [
     "CREDENTIAL_REF_DEEPSEEK_BYOK",
+    "CREDENTIAL_REF_OPENAI_BYOK",
     "CREDENTIAL_REF_GEMINI_BYOK",
     "CREDENTIAL_REF_OPENROUTER_BYOK",
     "CREDENTIAL_REF_OPENROUTER_MANAGED",
@@ -1719,6 +1699,7 @@ __all__ = [
     "DEEPSEEK_MODEL_V4_FLASH",
     "DEEPGRAM_STT_MODEL_NOVA_3",
     "ELEVENLABS_SCRIBE_STT_MODEL",
+    "OPENAI_MODEL_GPT_6_LUNA",
     "ELEVENLABS_SCRIBE_STT_MAX_KEYTERMS",
     "ELEVENLABS_SCRIBE_STT_MAX_KEYTERM_CHARS",
     "GEMINI_TRANSCRIBE_STT_MODEL",
@@ -1747,6 +1728,7 @@ __all__ = [
     "PROVIDER_MANAGED_GEMMA",
     "PROVIDER_LOCAL_LLM",
     "PROVIDER_OPENROUTER",
+    "PROVIDER_OPENAI",
     "PROVIDER_QWEN",
     "QWEN_MODEL_35_FLASH",
     "QWEN_AUDIO_STT_MODEL",
@@ -1797,10 +1779,9 @@ __all__ = [
     "TRANSLATION_MODEL_DEEPSEEK_V4_FLASH",
     "TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41",
     "TRANSLATION_MODEL_GEMINI_FLASH",
+    "TRANSLATION_MODEL_GPT_6_LUNA",
     "TRANSLATION_MODEL_QWEN_38_FLASH",
-    "TRANSLATION_MODEL_GEMMA4",
     "TRANSLATION_MODEL_GEMMA4_26B_31B",
-    "TRANSLATION_MODEL_GEMMA4_31B",
     "TRANSLATION_MODEL_CUSTOM_HTTP",
     "TRANSLATION_MODEL_LOCAL_LLM",
     "TRANSLATION_MODEL_MANAGED_GEMMA",

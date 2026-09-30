@@ -137,7 +137,7 @@ Example `changes.json` (supported field/type shape; provider availability and cr
   "changes": {
     "stt.provider": "soniox",
     "peer_stt.provider": "qwen_audio",
-    "translation.model": "gemma4",
+    "translation.model": "gemma4_26b_31b",
     "translation.connection": "openrouter",
     "telemetry.enabled": false
   }

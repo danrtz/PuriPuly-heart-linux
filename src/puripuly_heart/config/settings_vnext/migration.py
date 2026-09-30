@@ -116,6 +116,10 @@ def _prepare_vnext_migration_dict(data: Mapping[str, Any]) -> dict[str, Any]:
     intent = prepared.get("intent") if isinstance(prepared.get("intent"), dict) else {}
     translation = intent.get("translation") if isinstance(intent.get("translation"), dict) else {}
     if isinstance(intent, dict) and isinstance(translation, dict):
+        retained_combined_history = (
+            isinstance(translation.get("connection_history"), dict)
+            and "gemma4_26b_31b" in translation["connection_history"]
+        )
         if migrate_translation_concurrency and translation.get("concurrency_limit") == 5:
             translation["concurrency_limit"] = 10
         if migrate_multi_model_gemma:
@@ -134,6 +138,9 @@ def _prepare_vnext_migration_dict(data: Mapping[str, Any]) -> dict[str, Any]:
         _migrate_deepseek_translation(
             translation,
             migrate_saved_connections=migrate_deepseek_saved_connections,
+        )
+        _consolidate_cloud_gemma_translation(
+            translation, retained_combined_history=retained_combined_history
         )
         intent["translation"] = translation
         prepared["intent"] = intent
@@ -560,6 +567,57 @@ def _migrate_multi_model_gemma_translation(translation: dict[str, Any]) -> None:
     history = translation.get("connection_history")
     if isinstance(history, dict) and "gemma4" in history:
         history.setdefault("gemma4_26b_31b", history["gemma4"])
+
+
+def _consolidate_cloud_gemma_translation(
+    translation: dict[str, Any], *, retained_combined_history: bool
+) -> None:
+    combined = "gemma4_26b_31b"
+    retired = ("gemma4", "gemma4_31b")
+    model = translation.get("model")
+    previous = translation.get("previous_llm_model")
+    history = translation.get("connection_history")
+    if not isinstance(history, dict):
+        history = {}
+    valid_connections = {"managed", "openrouter"}
+    current = translation.get("connection")
+    if (
+        model in (combined, *retired)
+        or previous in retired
+        or any(key in history for key in (combined, *retired))
+    ):
+        if model in (combined, *retired) and current in valid_connections:
+            selected = current
+        else:
+            selected = history.get(combined) if retained_combined_history else None
+            if selected not in valid_connections:
+                selected = history.get(previous) if previous in retired else None
+            if selected not in valid_connections:
+                selected = history.get("gemma4")
+            if selected not in valid_connections:
+                selected = history.get("gemma4_31b")
+            if selected not in valid_connections:
+                selected = "managed"
+        history[combined] = selected
+        for old_model in retired:
+            history.pop(old_model, None)
+        translation["connection_history"] = history
+    if previous in retired:
+        translation["previous_llm_model"] = combined
+    if model in retired:
+        translation["model"] = combined
+
+    alias = translation.get("openrouter_selection_alias")
+    if alias in {"gemma4_managed", "gemma4_31b_managed"}:
+        translation["openrouter_selection_alias"] = "gemma4_26b_31b_managed"
+    elif alias in {"gemma4_byok", "gemma4_31b_byok"}:
+        translation["openrouter_selection_alias"] = "gemma4_26b_31b_byok"
+    if translation.get("model") == combined and current in valid_connections:
+        source = "managed" if current == "managed" else "byok"
+        translation["openrouter_model"] = "google/gemma-4-26b-a4b-it"
+        translation["openrouter_provider_routing"] = "gemma4_26b_31b_latency"
+        translation["openrouter_selected_source"] = source
+        translation["openrouter_selection_alias"] = f"gemma4_26b_31b_{source}"
 
 
 def _migrate_retired_cerebras_translation(translation: dict[str, Any]) -> None:

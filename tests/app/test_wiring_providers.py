@@ -141,7 +141,7 @@ _LLM_DEFAULTS: dict[str, tuple[str, str]] = {
     "qwen": ("qwen38_flash", "official_byok"),
     "deepseek": ("deepseek_v4_flash", "official_byok"),
     "local_llm": ("local_llm", "ollama"),
-    "openrouter": ("gemma4", "openrouter"),
+    "openrouter": ("gemma4_26b_31b", "openrouter"),
     "managed_gemma": ("managed_gemma", "cpu"),
 }
 _OPENROUTER_ALIAS_DEFAULTS: dict[str, tuple[str, str]] = {
@@ -153,8 +153,8 @@ _OPENROUTER_ALIAS_DEFAULTS: dict[str, tuple[str, str]] = {
         "openrouter_qwen35_flash",
         "managed",
     ),
-    OpenRouterSelectionAlias.GEMMA4_BYOK.value: ("gemma4", "openrouter"),
-    OpenRouterSelectionAlias.GEMMA4_MANAGED.value: ("gemma4", "managed"),
+    OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value: ("gemma4_26b_31b", "openrouter"),
+    OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value: ("gemma4_26b_31b", "managed"),
     OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value: (
         "deepseek_v4_flash",
         "openrouter",
@@ -847,7 +847,7 @@ def test_create_llm_provider_openrouter_byok_still_uses_user_owned_secret_after_
     settings = _vnext(
         llm="openrouter",
         openrouter_source="byok",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
     )
     secrets = InMemorySecretStore()
     secrets.set("openrouter_api_key", "pkce-user-key")
@@ -1199,7 +1199,7 @@ def test_create_llm_provider_openrouter_byok_paths_omit_managed_user_identifier(
         openrouter_model=OpenRouterLLMModel.GEMMA_4_26B_A4B_IT.value,
         openrouter_source="byok",
         openrouter_routing_mode="latency",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
     )
     secrets = InMemorySecretStore()
     secrets.set("openrouter_api_key", "or-key")
@@ -1296,7 +1296,7 @@ def test_create_stt_backend_from_resolved_qwen_audio_uses_endpoint_region_and_se
     assert backend.language_hints == ("ja",)
 
 
-def test_create_stt_backend_from_resolved_qwen_audio_uses_region_when_endpoint_missing() -> None:
+def test_create_stt_backend_from_resolved_qwen_audio_requires_resolved_endpoint() -> None:
     resolved = _resolved_stt_config(
         provider="qwen_audio",
         source_language="ja",
@@ -1307,11 +1307,8 @@ def test_create_stt_backend_from_resolved_qwen_audio_uses_region_when_endpoint_m
     )
     secrets = InMemorySecretStore()
     secrets.set("alibaba_api_key_singapore", "dto-qwen-key")
-
-    backend = wiring_module.create_stt_backend_from_resolved_config(resolved, secrets=secrets)
-
-    assert isinstance(backend, QwenAudioStreamingSTTBackend)
-    assert backend.endpoint == "wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference"
+    with pytest.raises(ValueError, match="resolved WebSocket endpoint"):
+        wiring_module.create_stt_backend_from_resolved_config(resolved, secrets=secrets)
 
 
 def test_create_stt_backend_from_resolved_soniox_uses_options_and_custom_terms() -> None:

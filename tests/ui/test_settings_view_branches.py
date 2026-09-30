@@ -33,6 +33,7 @@ from puripuly_heart.app.services.settings_secrets import SettingsSecretsOwner
 from puripuly_heart.app.wiring.wiring_provider_runtime_policy import (
     provider_llm_for_translation,
 )
+from puripuly_heart.config.alibaba_connection import AlibabaRegionalSettings
 from puripuly_heart.config.audio_host_api import WINDOWS_WASAPI_COMPATIBILITY_HOST_API
 from puripuly_heart.config.provider_values import (
     LOCAL_LLM_RESERVED_EXTRA_BODY_KEYS,
@@ -404,10 +405,10 @@ def _vnext(
         connection = connection or "ollama"
     elif apply_llm_defaults and llm == "openrouter":
         if openrouter_source == "managed":
-            model = model or "gemma4"
+            model = model or "gemma4_26b_31b"
             connection = connection or "managed"
         else:
-            model = model or "gemma4"
+            model = model or "gemma4_26b_31b"
             connection = connection or "openrouter"
     elif apply_llm_defaults and llm == "managed_gemma":
         model = model or "managed_gemma"
@@ -657,6 +658,8 @@ def _make_llm_selection_view(
     view._soniox_key = SimpleNamespace(visible=False)
     view._google_key = SimpleNamespace(visible=False)
     view._openrouter_key = SimpleNamespace(visible=False)
+    view._openai_key = SimpleNamespace(visible=False)
+    view._openai_verification_notice = SimpleNamespace(visible=False)
     view._deepseek_key = SimpleNamespace(visible=False)
     view._openrouter_pkce_button_row = SimpleNamespace(visible=False, update=lambda: None)
     view._openrouter_pkce_button = SimpleNamespace(text="", style=None, update=lambda: None)
@@ -1101,7 +1104,7 @@ def test_update_api_visibility_shows_openrouter_key(monkeypatch: pytest.MonkeyPa
     settings = _vnext(
         llm="openrouter",
         openrouter_source="byok",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
     )
 
     view, _ = _make_settings_view(monkeypatch, settings=settings)
@@ -1204,7 +1207,7 @@ def test_load_from_settings_places_managed_key_card_above_provider_fields(
     ),
     [
         (
-            TranslationModel.GEMMA4,
+            TranslationModel.GEMMA4_26B_31B,
             TranslationConnection.MANAGED,
             OpenRouterCredentialSource.MANAGED,
             None,
@@ -1220,7 +1223,7 @@ def test_load_from_settings_places_managed_key_card_above_provider_fields(
             True,
         ),
         (
-            TranslationModel.GEMMA4,
+            TranslationModel.GEMMA4_26B_31B,
             TranslationConnection.OPENROUTER,
             OpenRouterCredentialSource.BYOK,
             "managed-ref",
@@ -1228,7 +1231,7 @@ def test_load_from_settings_places_managed_key_card_above_provider_fields(
             False,
         ),
         (
-            TranslationModel.GEMMA4,
+            TranslationModel.GEMMA4_26B_31B,
             TranslationConnection.OPENROUTER,
             OpenRouterCredentialSource.BYOK,
             None,
@@ -1364,7 +1367,7 @@ def test_set_managed_key_state_hides_card_for_openrouter_connection(
         settings,
         connection_history={
             **settings.intent.translation.connection_history,
-            TranslationModel.GEMMA4.value: TranslationConnection.OPENROUTER,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER,
         },
     )
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
@@ -1394,7 +1397,7 @@ def test_set_managed_key_state_keeps_card_visible_for_managed_connection_when_us
         settings,
         connection_history={
             **settings.intent.translation.connection_history,
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
         },
     )
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.MANAGED)
@@ -1425,14 +1428,14 @@ def test_set_managed_key_state_keeps_card_visible_for_managed_connection_when_us
         (
             TranslationConnection.OPENROUTER,
             OpenRouterCredentialSource.BYOK,
-            OpenRouterSelectionAlias.GEMMA4_BYOK,
+            OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK,
             TranslationConnection.MANAGED,
             True,
         ),
         (
             TranslationConnection.MANAGED,
             OpenRouterCredentialSource.MANAGED,
-            OpenRouterSelectionAlias.GEMMA4_MANAGED,
+            OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED,
             TranslationConnection.OPENROUTER,
             False,
         ),
@@ -1448,11 +1451,11 @@ def test_translation_connection_selected_repaints_managed_key_card_immediately(
 ) -> None:
     settings = _vnext(
         llm="openrouter",
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=initial_connection,
         openrouter_source=initial_source,
         openrouter_alias=initial_alias,
-        connection_history={TranslationModel.GEMMA4.value: initial_connection},
+        connection_history={TranslationModel.GEMMA4_26B_31B.value: initial_connection},
     )
     view = _make_llm_selection_view(monkeypatch, settings)
     updates: list[str] = []
@@ -1605,7 +1608,7 @@ def test_managed_key_invite_progress_survives_managed_china_round_trip_before_se
         openrouter_source=OpenRouterCredentialSource.MANAGED,
         connection_history={
             TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED,
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
         },
     )
 
@@ -1632,7 +1635,7 @@ def test_managed_key_invite_progress_survives_managed_china_round_trip_before_se
     assert view._managed_key_invite_progress_row.visible is True
     assert view._managed_key_invite_progress_value.value == "1 / 3"
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     assert view._managed_key_referral_id == "7KQ9M2"
     assert view._managed_key_invite_progress_row.visible is True
     assert view._managed_key_invite_progress_value.value == "1 / 3"
@@ -2779,14 +2782,14 @@ def test_on_translation_connection_selected_updates_openrouter_model_and_prompt_
         AssertionError("BYOK selection should not launch PKCE immediately")
     )
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     view._on_translation_connection_selected(TranslationConnection.OPENROUTER.value)
 
     pending = view.build_provider_apply_settings()
 
     assert _llm(settings) == LLMProviderName.GEMINI.value
     assert pending is not None
-    assert pending.intent.translation.model == TranslationModel.GEMMA4.value
+    assert pending.intent.translation.model == TranslationModel.GEMMA4_26B_31B.value
     assert pending.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
@@ -2798,7 +2801,7 @@ def test_on_translation_connection_selected_updates_openrouter_model_and_prompt_
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_BYOK.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value
     )
     assert pending.intent.prompts.system_prompt_override == "G"
     assert view._prompt_editor.value == "G"
@@ -2812,10 +2815,10 @@ def test_translation_selection_preserves_all_staged_history_and_unrelated_latest
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.MANAGED,
         connection_history={
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
             TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED_CHINA,
             TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK,
         },
@@ -2832,18 +2835,19 @@ def test_translation_selection_preserves_all_staged_history_and_unrelated_latest
             TranslationModel.GEMINI_FLASH.value: TranslationConnection.OPENROUTER,
         },
     )
+    view.load_from_settings(settings, config_path=Path("settings.json"))
 
     pending = view.build_provider_apply_settings()
 
     assert pending is not None
-    assert pending.intent.translation.connection_history[TranslationModel.GEMMA4.value] == (
+    assert pending.intent.translation.connection_history[TranslationModel.GEMMA4_26B_31B.value] == (
         TranslationConnection.OPENROUTER.value
     )
     assert pending.intent.translation.connection_history[
         TranslationModel.DEEPSEEK_V4_FLASH_41.value
     ] == (TranslationConnection.OFFICIAL_BYOK.value)
     assert pending.intent.translation.connection_history[TranslationModel.GEMINI_FLASH.value] == (
-        TranslationConnection.OFFICIAL_BYOK.value
+        TranslationConnection.OPENROUTER.value
     )
 
 
@@ -2889,16 +2893,16 @@ def test_on_llm_selected_restores_saved_connection_history(
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.MANAGED,
         connection_history={
-            TranslationModel.GEMMA4.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
             TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.OFFICIAL_BYOK,
         },
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.MANAGED)
-    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_MANAGED)
+    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED)
     settings = _vnext(settings, system_prompt="O")
 
     view, _ = _make_settings_view(monkeypatch, settings=settings)
@@ -2993,7 +2997,7 @@ def test_on_llm_selected_stages_byok_with_default_openrouter_prompt_when_unsaved
         AssertionError("BYOK selection should not launch PKCE immediately")
     )
 
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
     view._on_translation_connection_selected(TranslationConnection.OPENROUTER.value)
 
     pending = view.build_provider_apply_settings()
@@ -3016,7 +3020,7 @@ def test_on_llm_selected_updates_managed_openrouter_label_and_source(
     settings = _vnext(settings, system_prompt="G")
 
     view, _ = _make_settings_view(monkeypatch, settings=settings)
-    view._on_llm_selected(TranslationModel.GEMMA4.value)
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
 
     pending = view.build_provider_apply_settings()
 
@@ -3031,9 +3035,9 @@ def test_on_llm_selected_updates_managed_openrouter_label_and_source(
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_MANAGED.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value
     )
-    assert view._llm_text.content.value == t("provider.gemma4_26b_a4b_it")
+    assert view._llm_text.content.value == t("provider.gemma4_26b_31b")
     assert view._translation_connection_text.content.value == t(
         "settings.translation_connection.managed"
     )
@@ -3063,9 +3067,9 @@ def test_on_llm_selected_openrouter_provider_value_defaults_to_gemma_managed(
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_MANAGED.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value
     )
-    assert view._llm_text.content.value == t("provider.gemma4_26b_a4b_it")
+    assert view._llm_text.content.value == t("provider.gemma4_26b_31b")
 
 
 def test_on_llm_selected_sets_deepseek_managed_connection_and_label(
@@ -3158,12 +3162,12 @@ def test_on_llm_selected_switching_away_from_openrouter_preserves_saved_selectio
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.OPENROUTER,
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
-    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK)
+    settings = _vnext(settings, openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK)
     settings = _vnext(settings, system_prompt="O")
 
     view, _ = _make_settings_view(monkeypatch)
@@ -3181,7 +3185,7 @@ def test_on_llm_selected_switching_away_from_openrouter_preserves_saved_selectio
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.GEMMA4_BYOK.value
+        == OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value
     )
 
 
@@ -3220,6 +3224,41 @@ def test_on_llm_selected_preserves_default_openrouter_managed_selection_during_g
         pending.intent.translation.openrouter_selection_alias
         == OpenRouterSelectionAlias.GEMMA4_26B_31B_MANAGED.value
     )
+
+
+def test_luna_ui_selection_switches_applicable_keys_and_restores_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    first = view.build_provider_apply_settings()
+    assert first is not None
+    assert first.intent.translation.connection == TranslationConnection.OPENROUTER.value
+    assert first.intent.translation.openrouter_selection_alias == "gpt_6_luna_byok"
+    assert view._openrouter_key.visible
+    assert view._openrouter_pkce_button_row.visible
+    assert not view._openai_key.visible
+    assert not view._openai_verification_notice.visible
+
+    view._on_translation_connection_selected(TranslationConnection.OFFICIAL_BYOK.value)
+    direct = view.build_provider_apply_settings()
+    assert direct is not None
+    assert direct.intent.translation.connection_history["gpt_6_luna"] == "official_byok"
+    assert direct.intent.translation.openrouter_selection_alias is None
+    assert direct.intent.translation.openrouter_selected_source == "none"
+    assert view._openai_key.visible
+    assert view._openai_verification_notice.visible
+    assert not view._openrouter_key.visible
+    assert not view._openrouter_pkce_button_row.visible
+
+    view._on_llm_selected(TranslationModel.GEMMA4_26B_31B.value)
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    restored = view.build_provider_apply_settings()
+    assert restored is not None
+    assert restored.intent.translation.connection == TranslationConnection.OFFICIAL_BYOK.value
+    assert view._openai_key.visible
 
 
 def test_on_translation_connection_selected_updates_settings_and_flags(
@@ -3265,9 +3304,11 @@ def test_on_translation_connection_selected_auto_applies_managed_connection(
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.GEMMA4,
+        model=TranslationModel.GEMMA4_26B_31B,
         connection=TranslationConnection.OPENROUTER,
-        connection_history={TranslationModel.GEMMA4.value: TranslationConnection.OPENROUTER},
+        connection_history={
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.OPENROUTER
+        },
     )
     settings = _vnext(settings, llm=LLMProviderName.OPENROUTER)
     settings = _vnext(settings, openrouter_source=OpenRouterCredentialSource.BYOK)
@@ -3558,7 +3599,7 @@ def test_refresh_after_openrouter_pkce_success_preserves_unrelated_drafts(
         llm="openrouter",
         source_language="ko",
         openrouter_source="byok",
-        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_BYOK.value,
+        openrouter_alias=OpenRouterSelectionAlias.GEMMA4_26B_31B_BYOK.value,
         system_prompt="O",
         verified_providers=("openrouter",),
     )
@@ -6567,6 +6608,7 @@ class ProviderApplyBackend:
         self.applied_settings: list[AppSettingsVNext] = []
         self.apply_started: asyncio.Event | None = None
         self.release_apply: asyncio.Event | None = None
+        self.view: settings_view.SettingsView | None = None
 
     async def apply_providers(self, settings: AppSettingsVNext) -> bool:
         self.applied_settings.append(settings)
@@ -6576,7 +6618,22 @@ class ProviderApplyBackend:
             await self.release_apply.wait()
         if self.result:
             self.settings = settings
+        self.refresh_settings_projection()
         return self.result
+
+    def refresh_settings_projection(self, *, preserve_custom_vocab_draft: bool = False) -> bool:
+        if self.view is None:
+            return False
+        provider, general, prompt, overlay = settings_view_surface_snapshots(self.settings)
+        self.view.load_from_settings(
+            provider=provider,
+            general=general,
+            prompt=prompt,
+            overlay=overlay,
+            config_path=Path("settings.json"),
+            preserve_custom_vocab_draft=preserve_custom_vocab_draft,
+        )
+        return True
 
 
 def _make_provider_apply_app(
@@ -6584,6 +6641,7 @@ def _make_provider_apply_app(
     backend: ProviderApplyBackend,
 ) -> tuple[TranslatorApp, list[Callable[[], Awaitable[None]]]]:
     view.build_provider_apply_settings = view._build_provider_apply_intent
+    backend.view = view
     app = TranslatorApp.__new__(TranslatorApp)
     app._current_tab = 1
     app.view_settings = view
@@ -6648,7 +6706,6 @@ async def test_provider_apply_preserves_unrelated_external_settings_edits(
     view.load_from_settings(latest, config_path=Path("settings.json"))
     app, scheduled = _make_provider_apply_app(view, backend)
 
-    assert view.external_settings_conflict is False
     app._on_nav_change(0)
     await scheduled[0]()
 
@@ -6658,30 +6715,64 @@ async def test_provider_apply_preserves_unrelated_external_settings_edits(
 
 
 @pytest.mark.asyncio
-async def test_provider_apply_conflict_does_not_commit_the_draft(
+async def test_provider_apply_uses_local_draft_over_same_field_external_edit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     baseline = _provider_baseline()
     view = _stage_peer_provider(monkeypatch, baseline)
-    latest = _vnext(baseline, peer_stt_provider=STTProviderName.DEEPGRAM.value)
+    latest = _vnext(
+        baseline,
+        peer_stt_provider=STTProviderName.DEEPGRAM.value,
+        locale="ja",
+    )
     backend = ProviderApplyBackend(latest)
     view.load_from_settings(latest, config_path=Path("settings.json"))
+    dialogs: list[object] = []
     attach_dummy_page(
         monkeypatch,
         view,
-        page=SimpleNamespace(show_dialog=lambda _dialog: None, pop_dialog=lambda: None),
+        page=SimpleNamespace(show_dialog=dialogs.append),
     )
     app, scheduled = _make_provider_apply_app(view, backend)
 
-    assert view.external_settings_conflict is True
     app._on_nav_change(0)
     await scheduled[0]()
 
-    pending = view._build_provider_apply_intent()
-    assert backend.settings is latest
-    assert backend.applied_settings == []
-    assert pending is not None
-    assert view.has_provider_changes is True
+    assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
+    assert backend.settings.intent.ui.locale == "ja"
+    assert view.has_provider_changes is False
+    assert dialogs == []
+
+
+@pytest.mark.asyncio
+async def test_translation_apply_clears_draft_after_history_order_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline = _vnext(
+        model=TranslationModel.GEMINI_FLASH,
+        connection=TranslationConnection.OFFICIAL_BYOK,
+        connection_history={
+            TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED,
+            TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK,
+        },
+    )
+    view, _store = _make_settings_view(monkeypatch)
+    view.load_from_settings(baseline, config_path=Path("settings.json"))
+    view._on_llm_selected(TranslationModel.DEEPSEEK_V4_FLASH_41.value)
+    backend = ProviderApplyBackend(baseline)
+    app, scheduled = _make_provider_apply_app(view, backend)
+
+    app._on_nav_change(0)
+    await scheduled[0]()
+
+    assert backend.settings.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH_41.value
+    assert backend.settings.intent.translation.connection_history == {
+        TranslationModel.GEMMA4_26B_31B.value: TranslationConnection.MANAGED.value,
+        TranslationModel.GEMINI_FLASH.value: TranslationConnection.OFFICIAL_BYOK.value,
+        TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED.value,
+    }
+    assert view.has_provider_changes is False
+    assert view._build_provider_apply_intent().edits == ()
 
 
 @pytest.mark.asyncio
@@ -6748,7 +6839,6 @@ async def test_provider_apply_acknowledgement_preserves_a_newer_edit_to_the_same
     await apply_task
 
     assert backend.settings.intent.peer_stt.provider == STTProviderName.ROLLING_FREE.value
-    assert view.external_settings_conflict is False
     assert view.has_provider_changes is True
     assert view._build_settings_with_provider_draft().peer_stt_provider == STTProviderName.DEEPGRAM
     pending = view.build_provider_apply_settings()
@@ -6804,7 +6894,6 @@ async def test_provider_apply_acknowledgement_preserves_a_newer_prompt_edit(
     await apply_task
 
     assert backend.settings.intent.prompts.system_prompt_override == "FIRST PROMPT"
-    assert view.external_settings_conflict is False
     assert view.has_provider_changes is False
     assert view.has_pending_prompt_changes is True
     assert view._prompt_editor.value == "SECOND PROMPT"
@@ -6826,6 +6915,7 @@ class PromptApplyBackend:
         await self.release_apply.wait()
         if self.succeed:
             self.settings = settings
+        self.refresh_settings_projection()
         return self.succeed
 
     def refresh_settings_projection(self, *, preserve_custom_vocab_draft: bool = False) -> bool:
@@ -6882,7 +6972,6 @@ async def test_prompt_apply_preserves_newer_uncommitted_edit_and_can_apply_it_la
     await apply_a
 
     assert backend.settings.intent.prompts.system_prompt_override == "FIRST PROMPT"
-    assert view.external_settings_conflict is False
     assert view._prompt_editor.value == "SECOND PROMPT"
     assert view.has_pending_prompt_changes is True
     assert SystemPromptEdit("SECOND PROMPT") in view._build_provider_apply_intent().edits
@@ -6918,3 +7007,180 @@ async def test_failed_prompt_apply_keeps_submitted_edit_for_retry(
 
     assert backend.settings.intent.prompts.system_prompt_override == "RETRY PROMPT"
     assert view.has_pending_prompt_changes is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply_on_navigation", [False, True])
+async def test_prompt_apply_uses_local_draft_over_external_prompt_edit(
+    monkeypatch: pytest.MonkeyPatch,
+    apply_on_navigation: bool,
+) -> None:
+    app, view, backend, scheduled = _make_prompt_apply_app(monkeypatch)
+    view._on_prompt_change("LOCAL PROMPT")
+    backend.settings = _vnext(backend.settings, system_prompt="EXTERNAL PROMPT", locale="ja")
+    backend.refresh_settings_projection()
+    backend.release_apply.set()
+
+    assert view._prompt_editor.value == "LOCAL PROMPT"
+    if apply_on_navigation:
+        app._on_nav_change(0)
+    else:
+        view._on_prompt_commit("LOCAL PROMPT")
+    await scheduled.pop(0)()
+
+    assert backend.settings.intent.prompts.system_prompt_override == "LOCAL PROMPT"
+    assert backend.settings.intent.ui.locale == "ja"
+    assert view.has_pending_prompt_changes is False
+
+
+def _qwen_view_settings(
+    *,
+    region: str = QwenRegion.BEIJING.value,
+    beijing_host: str = "",
+) -> AppSettingsVNext:
+    settings = _vnext(llm="qwen", stt_provider="qwen_audio", qwen_region=region)
+    if not beijing_host:
+        return settings
+    translation = settings.intent.translation
+    return replace(
+        settings,
+        intent=replace(
+            settings.intent,
+            translation=replace(
+                translation,
+                qwen=replace(
+                    translation.qwen,
+                    beijing=AlibabaRegionalSettings("workspace_dedicated", beijing_host, 1),
+                ),
+            ),
+        ),
+    )
+
+
+def test_qwen_api_host_selects_its_region_and_disables_region_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(_qwen_view_settings(), config_path=Path("settings.json"))
+    applied: list[None] = []
+    view.on_providers_changed = lambda: applied.append(None)
+
+    assert view._qwen_region_btn.disabled is False
+    assert view._qwen_api_host_row.visible is True
+    assert view._qwen_api_host.label == t("settings.qwen_api_host")
+    assert view._qwen_api_host_status == "idle"
+
+    view._qwen_api_host.value = "https://Work-9.AP-Southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+    view._on_qwen_api_host_change_end(None)
+
+    assert view._qwen_api_host.value == "work-9.ap-southeast-1.maas.aliyuncs.com"
+    assert view._qwen_api_host_status == "success"
+    assert view._qwen_region_btn.disabled is True
+    assert view._qwen_region_btn.content == (f"{t('settings.qwen_region')} {t('region.singapore')}")
+    assert view._alibaba_key_singapore.visible is True
+    assert view._alibaba_key_beijing.visible is False
+    assert len(applied) == 1
+    pending = view.build_provider_apply_settings()
+    qwen = pending.intent.translation.qwen
+    assert qwen.region == QwenRegion.SINGAPORE.value
+    assert qwen.singapore.endpoint_mode == "workspace_dedicated"
+    assert qwen.singapore.api_host == "work-9.ap-southeast-1.maas.aliyuncs.com"
+    assert qwen.beijing.endpoint_mode == "legacy_shared"
+
+
+def test_invalid_qwen_api_host_is_rejected_without_staging_or_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(_qwen_view_settings(), config_path=Path("settings.json"))
+    applied: list[None] = []
+    view.on_providers_changed = lambda: applied.append(None)
+    toasts: list[str] = []
+    view.show_snackbar = lambda message, _bgcolor: toasts.append(message)
+
+    view._qwen_api_host.value = "https://user:sk-secret@dashscope.aliyuncs.com"
+    view._on_qwen_api_host_change_end(None)
+    view._on_qwen_api_host_change_end(None)
+
+    assert toasts == [t("settings.qwen_api_host.invalid")]
+    assert view._qwen_api_host_status == "error"
+    assert view._qwen_region_btn.disabled is False
+    assert view.has_provider_changes is False
+    assert applied == []
+
+
+def test_clearing_qwen_api_host_returns_to_shared_and_enables_region_button(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = "work-1.cn-beijing.maas.aliyuncs.com"
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(
+        _qwen_view_settings(beijing_host=host),
+        config_path=Path("settings.json"),
+    )
+    view.on_providers_changed = lambda: None
+
+    assert view._qwen_api_host.value == host
+    assert view._qwen_region_btn.disabled is True
+
+    view._qwen_api_host.value = ""
+    view._on_qwen_api_host_change_end(None)
+
+    assert view._qwen_region_btn.disabled is False
+    pending = view.build_provider_apply_settings()
+    beijing = pending.intent.translation.qwen.beijing
+    assert (beijing.endpoint_mode, beijing.api_host) == ("legacy_shared", "")
+    assert pending.intent.translation.qwen.region == QwenRegion.BEIJING.value
+
+
+def test_region_button_shows_each_region_host_and_keeps_other_region(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = "work-1.cn-beijing.maas.aliyuncs.com"
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(
+        _qwen_view_settings(region=QwenRegion.SINGAPORE.value, beijing_host=host),
+        config_path=Path("settings.json"),
+    )
+
+    assert view._qwen_api_host.value == ""
+    assert view._qwen_region_btn.disabled is False
+
+    view._on_qwen_region_selected(QwenRegion.BEIJING.value)
+
+    assert view._qwen_api_host.value == host
+    assert view._qwen_region_btn.disabled is True
+    pending = view.build_provider_apply_settings()
+    assert pending.intent.translation.qwen.beijing.api_host == host
+
+
+def test_qwen_api_host_change_reverifies_region_key_after_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = DummySecretStore({"alibaba_api_key_singapore": "sk-singapore"})
+    view, _ = _make_settings_view(monkeypatch, store)
+    view.load_from_settings(
+        _qwen_view_settings(region=QwenRegion.SINGAPORE.value),
+        config_path=Path("settings.json"),
+    )
+    view.on_providers_changed = lambda: None
+    verified: list[tuple[str, str]] = []
+
+    async def verify(provider: str, key: str) -> tuple[bool, str]:
+        verified.append((provider, key))
+        return True, "ok"
+
+    view.on_verify_api_key = verify
+    view._alibaba_key_singapore._set_status("success")
+    assert view.consume_alibaba_key_verification() is None
+
+    view._qwen_api_host.value = "work-9.ap-southeast-1.maas.aliyuncs.com"
+    view._on_qwen_api_host_change_end(None)
+
+    assert view._alibaba_key_singapore._current_status == "idle"
+    verification = view.consume_alibaba_key_verification()
+    assert verification is not None
+    assert view.consume_alibaba_key_verification() is None
+    asyncio.run(verification())
+    assert verified == [("alibaba_singapore", "sk-singapore")]
+    assert view._alibaba_key_singapore._current_status == "success"

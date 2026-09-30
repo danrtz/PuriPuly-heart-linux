@@ -13,12 +13,15 @@ from puripuly_heart.app.services.managed_auth_claims import (
     ManagedAuthClaimGuard,
     local_managed_auth_blocking_source,
 )
+from puripuly_heart.config.alibaba_connection import (
+    alibaba_credential_sources,
+    resolve_alibaba_connection,
+)
 from puripuly_heart.config.llm_profiles import openrouter_alias_for_fields
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     OpenRouterLLMModel,
     OpenRouterSelectionAlias,
-    QwenRegion,
     parse_openrouter_llm_model,
 )
 from puripuly_heart.config.resolved import (
@@ -30,15 +33,18 @@ from puripuly_heart.config.resolved import (
     ResolvedLLMTarget,
 )
 from puripuly_heart.config.runtime_resolution import (
+    CREDENTIAL_REF_OPENAI_BYOK,
     CREDENTIAL_REF_OPENROUTER_BYOK,
     CREDENTIAL_REF_OPENROUTER_MANAGED,
     CREDENTIAL_REF_OPENROUTER_MANAGED_QQ,
     CREDENTIAL_REF_QWEN_BEIJING,
     CREDENTIAL_REF_QWEN_SINGAPORE,
+    OPENAI_MODEL_GPT_6_LUNA,
     PROVIDER_DEEPSEEK,
     PROVIDER_GEMINI,
     PROVIDER_LOCAL_LLM,
     PROVIDER_MANAGED_GEMMA,
+    PROVIDER_OPENAI,
     PROVIDER_OPENROUTER,
     PROVIDER_QWEN,
     DirectProviderRuntimeIntent,
@@ -74,6 +80,7 @@ from puripuly_heart.providers.llm.deepseek import DeepSeekLLMProvider
 from puripuly_heart.providers.llm.gemini import GeminiLLMProvider
 from puripuly_heart.providers.llm.local_openai import LocalOpenAICompatibleLLMProvider
 from puripuly_heart.providers.llm.managed_gemma import ManagedGemmaLLMProvider
+from puripuly_heart.providers.llm.openai import OpenAILLMProvider
 from puripuly_heart.providers.llm.openrouter import OpenRouterLLMProvider
 from puripuly_heart.providers.llm.qwen_async import AsyncQwenLLMProvider
 
@@ -140,6 +147,13 @@ def runtime_resolution_input_from_vnext(settings: AppSettingsVNext) -> RuntimeRe
             deepseek_v4_flash_model=translation.deepseek.llm_model,
             qwen_38_flash_model=translation.qwen.llm_model,
             qwen_region=translation.qwen.region,
+            qwen_connection=(
+                resolve_alibaba_connection(
+                    translation.qwen.region, getattr(translation.qwen, translation.qwen.region)
+                )
+                if translation.model == "qwen38_flash"
+                else None
+            ),
             local_llm_backend=local_llm.backend,
             local_llm_base_url=local_llm.base_url,
             local_llm_model=local_llm.model,
@@ -490,37 +504,20 @@ def _qwen_api_key_for_resolved_credential(
     secrets: SecretStore,
 ) -> str:
     if credential.reference == CREDENTIAL_REF_QWEN_SINGAPORE:
-        return require_secret_any(
-            secrets,
-            key="alibaba_api_key_singapore",
-            env_vars=("ALIBABA_API_KEY_SINGAPORE", "ALIBABA_API_KEY", "DASHSCOPE_API_KEY"),
-            legacy_keys=("alibaba_api_key",),
-        )
-    if credential.reference in (CREDENTIAL_REF_QWEN_BEIJING, None):
-        return require_secret_any(
-            secrets,
-            key="alibaba_api_key_beijing",
-            env_vars=("ALIBABA_API_KEY_BEIJING", "ALIBABA_API_KEY", "DASHSCOPE_API_KEY"),
-            legacy_keys=("alibaba_api_key",),
-        )
-    raise ValueError("Unsupported Qwen resolved credential reference")
-
-
-def _qwen_sync_base_url(target: ResolvedLLMTarget) -> str:
-    if target.service_endpoint:
-        return target.service_endpoint
-    if target.region == QwenRegion.SINGAPORE.value:
-        return "https://dashscope-intl.aliyuncs.com/api/v1"
-    return "https://dashscope.aliyuncs.com/api/v1"
+        region = "singapore"
+    elif credential.reference in (CREDENTIAL_REF_QWEN_BEIJING, None):
+        region = "beijing"
+    else:
+        raise ValueError("Unsupported Qwen resolved credential reference")
+    key, legacy_keys, env_vars = alibaba_credential_sources(region)
+    return require_secret_any(secrets, key=key, legacy_keys=legacy_keys, env_vars=env_vars)
 
 
 def _qwen_async_base_url(target: ResolvedLLMTarget) -> str:
-    sync_base_url = _qwen_sync_base_url(target).rstrip("/")
-    if sync_base_url.endswith("/compatible-mode/v1"):
-        return sync_base_url
-    if sync_base_url.endswith("/api/v1"):
-        return sync_base_url[: -len("/api/v1")] + "/compatible-mode/v1"
-    return sync_base_url + "/compatible-mode/v1"
+    native_url = target.service_endpoint
+    if native_url is None or not native_url.endswith("/api/v1"):
+        raise ValueError("Qwen target requires a resolved native endpoint")
+    return native_url[: -len("/api/v1")] + "/compatible-mode/v1"
 
 
 def _openrouter_provider_from_resolved_config(
@@ -737,6 +734,25 @@ def _provider_from_resolved_target(
             env_var="DEEPSEEK_API_KEY",
         )
         return DeepSeekLLMProvider(
+            api_key=api_key,
+            model=target.model,
+            runtime_logging=runtime_logging,
+        )
+
+    if target.provider == PROVIDER_OPENAI:
+        if target.model != OPENAI_MODEL_GPT_6_LUNA:
+            raise ValueError("OpenAI supports only GPT 6 Luna")
+        if (
+            target.credential.source != CREDENTIAL_SOURCE_SECRET_STORE
+            or target.credential.reference != CREDENTIAL_REF_OPENAI_BYOK
+        ):
+            raise ValueError("OpenAI requires its official BYOK credential")
+        api_key = require_secret(
+            secrets,
+            key="openai_api_key",
+            env_var="OPENAI_API_KEY",
+        )
+        return OpenAILLMProvider(
             api_key=api_key,
             model=target.model,
             runtime_logging=runtime_logging,

@@ -346,6 +346,8 @@ class SettingsOwner:
         current_settings: AppSettingsVNext | None = None,
     ) -> AppSettingsVNext | None:
         from puripuly_heart.config.llm_profiles import (
+            OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT,
+            OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK,
             get_openrouter_llm_profile,
             get_openrouter_selection_alias_for_model_and_source,
         )
@@ -361,32 +363,43 @@ class SettingsOwner:
             return None
         if translation.openrouter_selected_source != "managed":
             return None
-        openrouter_model = translation.openrouter_model
-        alias = translation.openrouter_selection_alias
-        if alias is not None:
-            profile = get_openrouter_llm_profile(alias)
-            if profile is not None:
-                openrouter_model = profile.openrouter_model
-        alias_value = get_openrouter_selection_alias_for_model_and_source(
-            openrouter_model,
-            "byok",
-        )
+        combined_gemma = translation.model in {"gemma4_26b_31b", "gemma4", "gemma4_31b"}
+        if combined_gemma:
+            openrouter_model = OPENROUTER_MODEL_GEMMA_4_26B_A4B_IT
+            alias_value = OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK
+        else:
+            openrouter_model = translation.openrouter_model
+            alias = translation.openrouter_selection_alias
+            if alias is not None:
+                profile = get_openrouter_llm_profile(alias)
+                if profile is not None:
+                    openrouter_model = profile.openrouter_model
+            alias_value = get_openrouter_selection_alias_for_model_and_source(
+                openrouter_model,
+                "byok",
+            )
         if alias_value is None:
             return None
         history = dict(translation.connection_history)
-        history[translation.model] = "openrouter"
+        history["gemma4_26b_31b" if combined_gemma else translation.model] = "openrouter"
+        if combined_gemma:
+            history.pop("gemma4", None)
+            history.pop("gemma4_31b", None)
         return replace(
             settings,
             intent=replace(
                 settings.intent,
                 translation=replace(
                     translation,
+                    model="gemma4_26b_31b" if combined_gemma else translation.model,
                     connection="openrouter",
                     connection_history=history,
                     openrouter_selection_alias=alias_value,
                     openrouter_selected_source="byok",
                     openrouter_model=openrouter_model,
-                    openrouter_provider_routing="default",
+                    openrouter_provider_routing=(
+                        "gemma4_26b_31b_latency" if combined_gemma else "default"
+                    ),
                 ),
             ),
         )
@@ -657,15 +670,16 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
     from puripuly_heart.config.llm_profiles import (
         OPENROUTER_MODEL_DEEPSEEK_V4_FLASH,
         OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41,
+        OPENROUTER_MODEL_GPT_6_LUNA,
         OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK,
         OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_MANAGED,
-        OPENROUTER_SELECTION_ALIAS_GEMMA4_31B_BYOK,
-        OPENROUTER_SELECTION_ALIAS_GEMMA4_31B_MANAGED,
         openrouter_alias_for_fields,
     )
 
     translation = settings.intent.translation
-    model = translation.model
+    model = "gemma4_26b_31b" if translation.model in {"gemma4", "gemma4_31b"} else translation.model
+    if model != translation.model:
+        translation = replace(translation, model=model)
     if model in {"gemini31_flash_lite", "gemini37_flash"}:
         translation = replace(translation, model="gemini_flash")
         model = "gemini_flash"
@@ -673,6 +687,9 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
         translation = replace(translation, model="qwen38_flash")
         model = "qwen38_flash"
     connection = translation.connection
+    if model == "gpt_6_luna" and connection not in {"openrouter", "official_byok"}:
+        connection = "openrouter"
+        translation = replace(translation, connection=connection)
     if model == "deepseek_v4_flash" and connection == "official_byok":
         translation = replace(translation, model="deepseek_v4_flash_41")
         model = "deepseek_v4_flash_41"
@@ -697,30 +714,6 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
                 OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_MANAGED
                 if connection == "managed"
                 else OPENROUTER_SELECTION_ALIAS_GEMMA4_26B_31B_BYOK
-            ),
-        }
-    elif model == "gemma4_31b":
-        selected_source = "managed" if connection == "managed" else "byok"
-        updates = {
-            "openrouter_model": "google/gemma-4-31b-it",
-            "openrouter_provider_routing": "gemma4_31b_latency",
-            "openrouter_selected_source": selected_source,
-            "openrouter_selection_alias": (
-                OPENROUTER_SELECTION_ALIAS_GEMMA4_31B_MANAGED
-                if connection == "managed"
-                else OPENROUTER_SELECTION_ALIAS_GEMMA4_31B_BYOK
-            ),
-        }
-    elif model == "gemma4":
-        selected_source = "managed" if connection == "managed" else "byok"
-        openrouter_model = "google/gemma-4-26b-a4b-it"
-        updates = {
-            "openrouter_model": openrouter_model,
-            "openrouter_provider_routing": "gemma4_26b_latency",
-            "openrouter_selected_source": selected_source,
-            "openrouter_selection_alias": openrouter_alias_for_fields(
-                model=openrouter_model,
-                source=selected_source,
             ),
         }
     elif model == "deepseek_v4_flash":
@@ -756,6 +749,23 @@ def materialize_canonical_translation_settings(settings: AppSettingsVNext) -> Ap
                     model=openrouter_model,
                     source=selected_source,
                 ),
+            }
+    elif model == "gpt_6_luna":
+        if connection == "openrouter":
+            updates = {
+                "openrouter_model": OPENROUTER_MODEL_GPT_6_LUNA,
+                "openrouter_selected_source": "byok",
+                "openrouter_provider_routing": "default",
+                "openrouter_selection_alias": openrouter_alias_for_fields(
+                    model=OPENROUTER_MODEL_GPT_6_LUNA,
+                    source="byok",
+                ),
+            }
+        else:
+            updates = {
+                "openrouter_selected_source": "none",
+                "openrouter_selection_alias": None,
+                "openrouter_provider_routing": "default",
             }
     elif model == "gemini_flash":
         if connection == "openrouter":

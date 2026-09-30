@@ -44,6 +44,7 @@ from .wiring_managed_gemma import (
 )
 from .wiring_provider_runtime_policy import (
     build_llm_provider_signature,
+    llm_provider_requires_secret,
     provider_llm_for_translation,
     provider_runtime_requires_gpu_restart,
 )
@@ -448,9 +449,9 @@ def compose_provider_runtime(
         return LlmProviderRebuildContext(
             settings=current,
             replace_provider=replace_provider,
-            requires_secret=(
-                translation.model != "custom_http"
-                and provider_llm in {"gemini", "openrouter", "qwen", "deepseek"}
+            requires_secret=llm_provider_requires_secret(
+                translation.model,
+                provider_llm,
             ),
             resource_label=(
                 "Translation backend" if translation.model == "custom_http" else "LLM provider"

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Final, Literal
 
+from puripuly_heart.config.alibaba_connection import AlibabaRegionalSettings, normalize_api_host
 from puripuly_heart.config.audio_host_api import WINDOWS_WASAPI_COMPATIBILITY_HOST_API
 from puripuly_heart.config.overlay_calibration import OverlayCalibration
 from puripuly_heart.config.prompts import normalize_system_prompt_override
@@ -19,7 +20,7 @@ from puripuly_heart.core.translation_policy import (
     TranslationRuntimePolicy,
 )
 
-VNEXT_SETTINGS_SCHEMA_VERSION: Final = 48
+VNEXT_SETTINGS_SCHEMA_VERSION: Final = 50
 OSC_DEFAULT_HOST: Final = "127.0.0.1"
 OSC_DEFAULT_SEND_PORT: Final = 9000
 OSC_DEFAULT_RECEIVE_PORT: Final = 9001
@@ -282,6 +283,21 @@ def new_anonymous_telemetry_identifier() -> str:
 class QwenTranslationIntent:
     region: str = "beijing"
     llm_model: str = "qwen3.8-flash"
+    beijing: AlibabaRegionalSettings = field(default_factory=AlibabaRegionalSettings)
+    singapore: AlibabaRegionalSettings = field(default_factory=AlibabaRegionalSettings)
+
+    def __post_init__(self) -> None:
+        if self.region not in ("beijing", "singapore"):
+            raise ValueError("Invalid Alibaba region")
+        for region in ("beijing", "singapore"):
+            connection = getattr(self, region)
+            if not isinstance(connection, AlibabaRegionalSettings):
+                raise ValueError("Invalid Alibaba regional connection")
+            object.__setattr__(
+                self,
+                region,
+                replace(connection, api_host=normalize_api_host(connection.api_host, region)),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,7 +384,7 @@ class CustomSTTIntent:
 class STTIntent:
     provider: str = "local_cpu_auto"
     drain_timeout_s: float = 2.0
-    vad_speech_threshold: float = 0.4
+    vad_speech_threshold: float = 0.3
     low_latency_mode: bool = True
     low_latency_vad_hangover_ms: int = 500
     low_latency_merge_gap_ms: int = 600
@@ -611,7 +627,7 @@ class CaptureTargetIntent:
 class DesktopAudioIntent:
     output_device: str = ""
     capture_target: CaptureTargetIntent = field(default_factory=CaptureTargetIntent)
-    vad_speech_threshold: float = 0.5
+    vad_speech_threshold: float = 0.4
     vad_hangover_ms: int = 500
     vad_pre_roll_ms: int = 500
 
@@ -845,6 +861,7 @@ class ProviderVerificationState:
     soniox: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     google: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     openrouter: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
+    openai: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     deepseek: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     alibaba_beijing: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)
     alibaba_singapore: ProviderVerificationEntry = field(default_factory=ProviderVerificationEntry)

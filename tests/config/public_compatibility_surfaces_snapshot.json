@@ -763,7 +763,8 @@
       "MyOverlayExeName": "PuriPulyHeartOverlay.exe",
       "MyPackagedAppDir": "dist\\PuriPulyHeart",
       "MyStagedOverlayDir": "build\\overlay",
-      "MyAppId": "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+      "MyAppId": "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}",
+      "CanonicalSettingsVersion": "50"
     },
     "setup_lines": [
       "AppId={#MyAppId}",
@@ -815,19 +816,20 @@
     "openrouter_main_selection_aliases": [
       "gemma4_26b_31b_managed",
       "gemma4_26b_31b_byok",
-      "gemma4_31b_managed",
-      "gemma4_31b_byok",
-      "gemma4_managed",
       "qwen35_flash_managed",
       "deepseek_v4_flash_managed",
       "gemini_flash_byok",
       "deepseek_v4_flash_41_managed",
-      "gemma4_byok",
       "qwen35_flash_byok",
       "deepseek_v4_flash_byok",
-      "deepseek_v4_flash_41_byok"
+      "deepseek_v4_flash_41_byok",
+      "gpt_6_luna_byok"
     ],
     "legacy_selection_aliases": [
+      "gemma4_managed",
+      "gemma4_byok",
+      "gemma4_31b_managed",
+      "gemma4_31b_byok",
       "gemini31_flash_lite_byok",
       "openrouter:byok:google/gemma-4-26b-a4b-it",
       "openrouter:byok:qwen/qwen3.5-flash-02-23",
@@ -925,14 +927,14 @@
       "tests/ui/test_desktop_overlay_renderer.py::test_desktop_overlay_snapshot_mapping_table_covers_block_contract_and_emitted_lines"
     ],
     "prompt_loader": [
-      "tests/config/test_public_compatibility_surfaces.py::test_prompt_loader_snapshot_freezes_fallback_order_and_translation_prompt_requirement",
+      "tests/config/test_public_compatibility_surfaces.py::test_prompt_loader_prefers_named_files_then_defaults",
       "tests/config/test_prompt_loader.py::test_load_prompt_for_llm_providers_uses_shared_translation_prompt",
       "tests/config/test_prompt_loader.py::test_load_prompt_falls_back_to_default",
       "tests/config/test_prompt_loader.py::test_load_prompt_for_provider_requires_translation_prompt_for_llm_provider",
       "tests/config/test_prompt_loader.py::test_get_default_prompt_reads_translation_prompt"
     ],
     "provider_aliases": [
-      "tests/config/test_public_compatibility_surfaces.py::test_provider_alias_snapshot_matches_current_aliases_and_legacy_acceptance",
+      "tests/config/test_config_and_secrets.py::test_legacy_gemini_byok_alias_is_compatibility_only",
       "tests/config/test_config_and_secrets.py::test_openrouter_alias_for_fields_does_not_expose_deepseek_v4_pro"
     ],
     "provider_runtime_public_config": [

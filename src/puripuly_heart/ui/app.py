@@ -1063,9 +1063,6 @@ class TranslatorApp:
                 if pending_settings is not None:
 
                     async def _task():
-                        if self.view_settings.external_settings_conflict:
-                            self.view_settings._show_external_conflict()
-                            return
                         result = await self.application.apply_provider_intent(pending_settings)
                         if result:
                             self.view_settings.acknowledge_provider_apply_settings(pending_settings)
@@ -1076,9 +1073,6 @@ class TranslatorApp:
                 pending = PromptApplyIntent(self.view_settings._prompt_editor.value)
 
                 async def _task():
-                    if self.view_settings.external_settings_conflict:
-                        self.view_settings._show_external_conflict()
-                        return
                     result = await self.application.apply_prompt_intent(pending)
                     if result:
                         self.view_settings.acknowledge_prompt_apply_settings(pending)
@@ -1476,9 +1470,6 @@ class TranslatorApp:
 
     def _on_prompt_apply_settings(self, intent: PromptApplyIntent) -> None:
         async def _task():
-            if self.view_settings.external_settings_conflict:
-                self.view_settings._show_external_conflict()
-                return
             result = await self.application.apply_prompt_intent(intent)
             if result:
                 self.view_settings.acknowledge_prompt_apply_settings(intent)
@@ -1521,13 +1512,20 @@ class TranslatorApp:
             if pending_intent is None:
                 await self.application.apply_providers()
                 return
-            if view_settings.external_settings_conflict:
-                view_settings._show_external_conflict()
-                return
             result = await self.application.apply_provider_intent(pending_intent)
             if result:
                 view_settings.acknowledge_provider_apply_settings(pending_intent)
                 self.application.refresh_settings_projection()
+                consume_alibaba_key_verification = getattr(
+                    view_settings, "consume_alibaba_key_verification", None
+                )
+                verification = (
+                    consume_alibaba_key_verification()
+                    if callable(consume_alibaba_key_verification)
+                    else None
+                )
+                if verification is not None:
+                    self._run_page_task(verification)
 
         self._queue_settings_mutation_task(_task)
 
@@ -2042,6 +2040,7 @@ class TranslatorApp:
         if provider in (
             "google",
             "openrouter",
+            "openai",
             "deepseek",
             "alibaba_beijing",
             "alibaba_singapore",
@@ -2072,6 +2071,7 @@ class TranslatorApp:
             "soniox_api_key": "soniox",
             "google_api_key": "google",
             "openrouter_api_key": "openrouter",
+            "openai_api_key": "openai",
             "deepseek_api_key": "deepseek",
             "alibaba_api_key_beijing": "alibaba_beijing",
             "alibaba_api_key_singapore": "alibaba_singapore",
@@ -2096,6 +2096,7 @@ class TranslatorApp:
         if provider in {
             "google",
             "openrouter",
+            "openai",
             "deepseek",
             "alibaba_beijing",
             "alibaba_singapore",
@@ -2127,6 +2128,7 @@ class TranslatorApp:
             "soniox_api_key": "soniox",
             "google_api_key": "google",
             "openrouter_api_key": "openrouter",
+            "openai_api_key": "openai",
             "deepseek_api_key": "deepseek",
             "alibaba_api_key": "alibaba_beijing",  # Use beijing as default
             "alibaba_api_key_beijing": "alibaba_beijing",
@@ -2157,6 +2159,7 @@ class TranslatorApp:
             if provider in (
                 "google",
                 "openrouter",
+                "openai",
                 "deepseek",
                 "alibaba_beijing",
                 "alibaba_singapore",
