@@ -398,7 +398,7 @@ Delivery boundaries:
 - Self chatbox delivery owns its bounded admission and expiry policy.
 - Output handoff releases translation ordering without waiting for display. Sink failure does not replay recognition or translation.
 - Peer publications retain activation generation and `source_order` through output. For turn-bound providers this follows segment order; independent Gemini finals use receipt-ordered admission into the same monotonic publication sequence. Retiring an activation cancels its deliveries and rejects late work.
-- Independent Hybrid peer text without speaker evidence is `uncertain` and uses the existing gray fallback, without a speaker hold or guessed identity. Legacy non-diarized providers keep their existing gold style; first-readable presentation remains pinned.
+- Peer text without speaker runs, including independent Gemini finals, is `non_diarized` and uses the existing gold style without a speaker hold or guessed identity. Explicit uncertain or missing speaker attribution keeps the gray fallback; first-readable presentation remains pinned.
 - Destination admission and presenter application receipts are explicit; neither is a remote display acknowledgement.
 
 Caption and overlay settings control destinations, not peer capture. Conversation errors share publication identity; runtime session status uses a separate path.
