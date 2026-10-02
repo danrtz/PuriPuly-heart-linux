@@ -485,7 +485,7 @@ def test_v40_deepseek_official_upgrades_41_metadata() -> None:
 
 
 @pytest.mark.parametrize("connection", ["managed", "managed_china"])
-def test_v41_new_deepseek_40_managed_choice_survives_reload(connection: str) -> None:
+def test_current_deepseek_v4_managed_choice_migrates_to_41(connection: str) -> None:
     migration = _migration()
     serialization = _serialization()
     raw = serialization.to_dict(AppSettingsVNext())
@@ -500,10 +500,44 @@ def test_v41_new_deepseek_40_managed_choice_survives_reload(connection: str) -> 
         }
     )
 
-    translated = migration.from_dict(raw).intent.translation
-    assert translated.model == "deepseek_v4_flash"
+    loaded = migration.from_dict(raw)
+    translated = loaded.intent.translation
+    assert translated.model == "deepseek_v4_flash_41"
     assert translated.connection == connection
-    assert translated.connection_history == {"deepseek_v4_flash": connection}
+    assert translated.connection_history == {"deepseek_v4_flash_41": connection}
+    assert translated.openrouter_model == "deepseek/deepseek-v4.1-flash"
+    assert translated.openrouter_selected_source == "managed"
+    assert translated.openrouter_selection_alias == "deepseek_v4_flash_41_managed"
+    assert translated.openrouter_provider_routing == "deepseek_v4_flash_41_strict"
+
+    once = serialization.to_dict(loaded)
+    twice = serialization.to_dict(migration.from_dict(once))
+    assert twice == once
+
+
+def test_deepseek_v4_managed_history_moves_without_replacing_saved_41_connection() -> None:
+    migration = _migration()
+    serialization = _serialization()
+    raw = serialization.to_dict(AppSettingsVNext())
+    raw["intent"]["translation"].update(
+        {
+            "model": "gemini_flash",
+            "connection": "official_byok",
+            "previous_llm_model": "deepseek_v4_flash",
+            "connection_history": {
+                "deepseek_v4_flash": "managed_china",
+                "deepseek_v4_flash_41": "official_byok",
+                "gemini_flash": "official_byok",
+            },
+        }
+    )
+
+    translated = migration.from_dict(raw).intent.translation
+    assert translated.model == "gemini_flash"
+    assert translated.connection == "official_byok"
+    assert translated.previous_llm_model == "deepseek_v4_flash_41"
+    assert translated.connection_history["deepseek_v4_flash_41"] == "official_byok"
+    assert "deepseek_v4_flash" not in translated.connection_history
 
 
 def test_v40_hidden_managed_openrouter_alias_upgrades_using_original_source() -> None:

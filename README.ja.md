@@ -103,13 +103,14 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | 無制限 | 無制限 | 5,000回 | 7,260回 |
 | **Gemma 4 26B A4B + 31B** | 13,940回 | 13,940回 | 3,680回 | 4,770回 |
-| **DeepSeek V4 Flash (OpenRouter)** | 17,020回 | 17,020回 | 3,860回 | 5,090回 |
 | **DeepSeek V4.1 Flash** | 16,800回 | 16,800回 | 3,860回 | 5,070回 |
+| **GPT 6 Luna** | 8,680回 | 8,680回 | 3,170回 | 3,950回 |
 
 #### その他のモデル
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **DeepSeek V4 Flash (OpenRouter)** | 17,020回 | 17,020回 | 3,860回 | 5,090回 |
 | **Gemini 3.8 Flash** | 1,160回 | 1,160回 | 940回 | 1,000回 |
 | **Qwen 3.8 Flash** | 7,460回 | 7,460回 | 2,990回 | 3,680回 |
 
@@ -121,13 +122,14 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | 0円 | 0円 | ~0.03円 | ~0.02円 |
 | **Gemma 4 26B A4B + 31B** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
-| **DeepSeek V4 Flash (OpenRouter)** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 | **DeepSeek V4.1 Flash** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
+| **GPT 6 Luna** | ~0.02円 | ~0.02円 | ~0.05円 | ~0.04円 |
 
 #### その他のモデル
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **DeepSeek V4 Flash (OpenRouter)** | ~0.01円 | ~0.01円 | ~0.04円 | ~0.03円 |
 | **Gemini 3.8 Flash** | ~0.13円 | ~0.13円 | ~0.16円 | ~0.15円 |
 | **Qwen 3.8 Flash** | ~0.02円 | ~0.02円 | ~0.05円 | ~0.04円 |
 
@@ -135,6 +137,7 @@ VRChatやDiscordを含む、さまざまな環境で使えます。
 *   *1ドルあたりの使用可能回数は、発話あたりのコスト表の四捨五入前の値を基準に算出*
 *   *すべてのコストと使用可能回数は概算*
 *   *DeepSeek V4.1 Flashはキャッシュヒット率70%、V4 Flash（OpenRouter）は60%を仮定しています*
+*   *GPT 6 LunaはOpenAI APIの料金を基準とし、キャッシュ割引なしを仮定しています。ChatGPTで接続した場合はAPI料金の代わりにCodexの利用上限を使います*
 *   *Qwen APIコストは北京リージョン基準*
 *   *料金表基準: 2026年9月25日*
 *   *1ドル = 150円*
@@ -400,8 +403,6 @@ Authorizeボタンを押しても認証されない場合は、再試行する�
 ---
 
 ## アーキテクチャ
-
-![PuriPuly Heart ヘキサゴナルアーキテクチャ図](docs/architecture-light.png)
 
 [`docs/architecture.md`](docs/architecture.md) を参照してください。
 

@@ -139,6 +139,7 @@ def _prepare_vnext_migration_dict(data: Mapping[str, Any]) -> dict[str, Any]:
             translation,
             migrate_saved_connections=migrate_deepseek_saved_connections,
         )
+        _migrate_retired_deepseek_v4_managed_path(translation)
         _consolidate_cloud_gemma_translation(
             translation, retained_combined_history=retained_combined_history
         )
@@ -786,6 +787,40 @@ def _migrate_deepseek_translation(
     deepseek = translation.get("deepseek")
     if isinstance(deepseek, dict) and deepseek.get("llm_model") == "deepseek-v4-flash":
         deepseek["llm_model"] = "deepseek-flash"
+
+
+_RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS = frozenset({"managed", "managed_china"})
+
+
+def _migrate_retired_deepseek_v4_managed_path(translation: dict[str, Any]) -> None:
+    history = translation.get("connection_history")
+    history_map = history if isinstance(history, dict) else None
+    primary_connection = translation.get("connection")
+    retired_primary = (
+        translation.get("model") == "deepseek_v4_flash"
+        and primary_connection in _RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS
+    )
+    retired_history = False
+    if retired_primary:
+        translation["model"] = "deepseek_v4_flash_41"
+        translation["openrouter_model"] = "deepseek/deepseek-v4.1-flash"
+        translation["openrouter_selected_source"] = "managed"
+        translation["openrouter_selection_alias"] = "deepseek_v4_flash_41_managed"
+        translation["openrouter_provider_routing"] = "deepseek_v4_flash_41_strict"
+        if history_map is not None:
+            history_map["deepseek_v4_flash_41"] = primary_connection
+            if history_map.get("deepseek_v4_flash") in _RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS:
+                history_map.pop("deepseek_v4_flash", None)
+    elif history_map is not None:
+        saved_connection = history_map.get("deepseek_v4_flash")
+        if saved_connection in _RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS:
+            retired_history = True
+            history_map.pop("deepseek_v4_flash", None)
+            history_map.setdefault("deepseek_v4_flash_41", saved_connection)
+    if translation.get("previous_llm_model") == "deepseek_v4_flash" and (
+        retired_primary or retired_history
+    ):
+        translation["previous_llm_model"] = "deepseek_v4_flash_41"
 
 
 def _migrate_legacy_openrouter_model_translation(translation: dict[str, Any]) -> None:

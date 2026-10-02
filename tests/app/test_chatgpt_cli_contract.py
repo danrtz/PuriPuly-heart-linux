@@ -131,3 +131,29 @@ async def test_cli_chatgpt_login_failure_is_not_reported_as_success(tmp_path, mo
         assert result["reason"] == "access_denied"
     finally:
         await app.stop()
+
+
+@pytest.mark.asyncio
+async def test_selecting_chatgpt_translation_switches_to_luna_on_chatgpt(tmp_path, monkeypatch):
+    monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
+    path = tmp_path / "settings.json"
+    _isolated_settings(path)
+    app = compose_headless_application(path)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("chatgpt-select")
+        before = (await control.query("settings.current", {}))["settings"]["intent"]["translation"]
+        assert (before["model"], before["connection"]) != ("gpt_6_luna", "chatgpt")
+
+        await app.select_chatgpt_translation()
+
+        translation = (await control.query("settings.current", {}))["settings"]["intent"][
+            "translation"
+        ]
+        assert translation["model"] == "gpt_6_luna"
+        assert translation["connection"] == "chatgpt"
+        assert translation["connection_history"]["gpt_6_luna"] == "chatgpt"
+        assert (await control.query("auth.status", {}))["chatgpt"]["sign_in_required"] is True
+    finally:
+        await app.stop()

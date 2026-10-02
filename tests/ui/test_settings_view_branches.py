@@ -2871,19 +2871,19 @@ def test_on_llm_selected_updates_deepseek_model_with_default_managed_connection(
     assert _llm(settings) == LLMProviderName.GEMINI.value
     assert pending is not None
     assert pending.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH.value
-    assert pending.intent.translation.connection == TranslationConnection.MANAGED.value
+    assert pending.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value
     )
     assert pending.intent.prompts.system_prompt_override == "G"
     assert view._prompt_editor.value == "G"
     assert view._llm_text.content.value == t("provider.deepseek_v4_flash")
     assert view._translation_connection_text.content.value == t(
-        "settings.translation_connection.managed"
+        "settings.translation_connection.openrouter"
     )
-    assert view._managed_trial_usage_bar.visible is True
+    assert view._managed_trial_usage_bar.visible is False
     assert settings.intent.prompts.system_prompt_override == "G"
     assert view.has_provider_changes is True
 
@@ -3090,20 +3090,20 @@ def test_on_llm_selected_sets_deepseek_managed_connection_and_label(
 
     assert pending is not None
     assert pending.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH.value
-    assert pending.intent.translation.connection == TranslationConnection.MANAGED.value
+    assert pending.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value
     )
     assert pending.intent.translation.openrouter_model == OpenRouterLLMModel.DEEPSEEK_V4_FLASH.value
     assert (
         pending.intent.translation.openrouter_selected_source
-        == OpenRouterCredentialSource.MANAGED.value
+        == OpenRouterCredentialSource.BYOK.value
     )
     assert view._llm_text.content.value == t("provider.deepseek_v4_flash")
     assert view._translation_connection_text.content.value == t(
-        "settings.translation_connection.managed"
+        "settings.translation_connection.openrouter"
     )
     assert view._prompt_editor.value == "G"
 
@@ -3347,10 +3347,10 @@ def test_on_translation_connection_selected_stages_deepseek_managed_china_routin
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.DEEPSEEK_V4_FLASH,
+        model=TranslationModel.DEEPSEEK_V4_FLASH_41,
         connection=TranslationConnection.MANAGED,
         connection_history={
-            TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED,
+            TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED,
         },
     )
 
@@ -3362,9 +3362,10 @@ def test_on_translation_connection_selected_stages_deepseek_managed_china_routin
     pending = view.build_provider_apply_settings()
 
     assert pending is not None
+    assert pending.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH_41.value
     assert pending.intent.translation.connection == TranslationConnection.MANAGED_CHINA.value
     assert (
-        pending.intent.translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH.value]
+        pending.intent.translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH_41.value]
         == TranslationConnection.MANAGED_CHINA
     )
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
@@ -3374,11 +3375,11 @@ def test_on_translation_connection_selected_stages_deepseek_managed_china_routin
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_MANAGED.value
     )
     assert (
         pending.intent.translation.openrouter_provider_routing
-        == OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_CHINA.value
+        == OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_41_STRICT.value
     )
     assert view._translation_connection_text.content.value == t(
         "settings.translation_connection.managed_china"
@@ -5275,7 +5276,7 @@ def test_apply_locale_relocalizes_chatgpt_account_card(
 
         ko_font = font_for_language("ko")
         assert view._chatgpt_account_title.value == t("settings.chatgpt_account.title")
-        assert view._chatgpt_account_status.value == t("settings.chatgpt_account.signed_out")
+        assert not view._chatgpt_account_status.visible
         for button, key in (
             (view._chatgpt_connect_button, "settings.chatgpt_account.connect"),
             (view._chatgpt_usage_button, "settings.chatgpt_account.manage_usage"),
@@ -5324,8 +5325,7 @@ def test_signed_in_chatgpt_card_shows_account_line_instead_of_description(
     )
     view.refresh_chatgpt_account()
 
-    assert view._chatgpt_account_status.visible
-    assert view._chatgpt_account_status.value == t("settings.chatgpt_account.signed_out")
+    assert not view._chatgpt_account_status.visible
     assert not view._chatgpt_account_email.visible
     assert view._chatgpt_connect_button.visible
 

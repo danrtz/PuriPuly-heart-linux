@@ -172,10 +172,18 @@ def test_document_dialogs_do_not_render_title_or_status_labels(
     assert "peer_translation_eula.title" not in eula_keys
 
 
-@pytest.mark.parametrize("dialog_opener", [_open_founder_letter, _open_eula])
+@pytest.mark.parametrize(
+    ("dialog_opener", "button_count", "alignment"),
+    [
+        (_open_founder_letter, 2, ft.MainAxisAlignment.SPACE_BETWEEN),
+        (_open_eula, 2, ft.MainAxisAlignment.SPACE_BETWEEN),
+    ],
+)
 def test_document_dialogs_use_large_standalone_action_buttons(
     monkeypatch: pytest.MonkeyPatch,
     dialog_opener,
+    button_count,
+    alignment,
 ) -> None:
     page, _requested_keys = dialog_opener(monkeypatch)
 
@@ -183,22 +191,17 @@ def test_document_dialogs_use_large_standalone_action_buttons(
 
     assert action_row.__class__.__name__ == "Row"
     assert [button.__class__.__name__ for button in action_row.controls] == [
-        "TextButton",
-        "TextButton",
-    ]
+        "TextButton"
+    ] * button_count
     assert action_row.spacing == 14
-    assert _button_vertical_padding(action_row.controls[0]) == (20, 20)
-    assert _button_vertical_padding(action_row.controls[1]) == (20, 20)
-    assert _button_text_size(action_row.controls[0]) == 26
-    assert _button_text_size(action_row.controls[1]) == 26
-    assert _button_color(action_row.controls[0], ft.ControlState.DEFAULT) == COLOR_NEUTRAL_DARK
-    assert _button_color(action_row.controls[0], ft.ControlState.HOVERED) == COLOR_PRIMARY
-    assert _button_color(action_row.controls[1], ft.ControlState.DEFAULT) == COLOR_NEUTRAL_DARK
-    assert _button_color(action_row.controls[1], ft.ControlState.HOVERED) == COLOR_PRIMARY
-    assert action_row.controls[0].style.bgcolor == ft.Colors.TRANSPARENT
-    assert action_row.controls[1].style.bgcolor == ft.Colors.TRANSPARENT
-    assert action_row.controls[0].style.animation_duration == 0
-    assert action_row.controls[1].style.animation_duration == 0
+    assert action_row.alignment == alignment
+    for button in action_row.controls:
+        assert _button_vertical_padding(button) == (20, 20)
+        assert _button_text_size(button) == 26
+        assert _button_color(button, ft.ControlState.DEFAULT) == COLOR_NEUTRAL_DARK
+        assert _button_color(button, ft.ControlState.HOVERED) == COLOR_PRIMARY
+        assert button.style.bgcolor == ft.Colors.TRANSPARENT
+        assert button.style.animation_duration == 0
     assert getattr(action_row, "bgcolor", None) != COLOR_BACKGROUND
 
 

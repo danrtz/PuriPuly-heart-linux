@@ -9,17 +9,12 @@ import pytest
 REQUIRED_DISCORD_AUTH_KEYS = [
     "discord_auth.body",
     "discord_auth.continue",
-    "discord_auth.close",
     "discord_auth.cancel",
     "discord_auth.waiting_body",
     "discord_auth.callback_received_body",
     "discord_auth.recovering_body",
     "discord_auth.action_required_body",
     "discord_auth.success",
-    "discord_auth.referral_id.label",
-    "discord_auth.referral_id.expand",
-    "discord_auth.referral_id.collapse",
-    "discord_auth.referral_id.helper",
     "discord_auth.referral_reward_applied",
     "discord_auth.error.email_unverified",
     "discord_auth.error.account_too_new",
@@ -62,19 +57,15 @@ _FORBIDDEN_DISCORD_AUTH_COPY_PATTERNS = {
 
 _EXPECTED_TALK_TOGETHER_PASS_STRINGS = {
     "en": {
-        "discord_auth.referral_id.label": "Pass ID",
         "discord_auth.referral_reward_applied": "You and your friend got 200 extra uses.",
     },
     "ko": {
-        "discord_auth.referral_id.label": "Pass ID",
         "discord_auth.referral_reward_applied": "친구와 함께 200회 추가 사용량을 받았어요.",
     },
     "ja": {
-        "discord_auth.referral_id.label": "Pass ID",
         "discord_auth.referral_reward_applied": "友だちと一緒に200回分の追加使用量を受け取りました。",
     },
     "zh-CN": {
-        "discord_auth.referral_id.label": "Pass ID",
         "discord_auth.referral_reward_applied": "你和朋友已获得 200 次额外使用量。",
     },
 }
@@ -119,10 +110,6 @@ def test_discord_auth_copy_uses_pass_terms_without_referral_or_currency(locale: 
     checked_copy = "\n".join(
         [
             bundle["discord_auth.body"],
-            bundle["discord_auth.referral_id.label"],
-            bundle["discord_auth.referral_id.expand"],
-            bundle["discord_auth.referral_id.collapse"],
-            bundle["discord_auth.referral_id.helper"],
             bundle["discord_auth.referral_reward_applied"],
         ]
     )

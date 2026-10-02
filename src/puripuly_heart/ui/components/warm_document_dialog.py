@@ -88,6 +88,9 @@ def open_warm_document_dialog(
     secondary_label: str | None = None,
     secondary_action: Callable[[], None] | None = None,
     actions: Sequence[WarmDocumentDialogAction] | None = None,
+    modal: bool = True,
+    action_alignment: ft.MainAxisAlignment = ft.MainAxisAlignment.SPACE_BETWEEN,
+    on_dismiss: Callable[[], None] | None = None,
 ) -> WarmDocumentDialogResult:
     dialog: ft.AlertDialog | None = None
 
@@ -166,7 +169,7 @@ def open_warm_document_dialog(
     action_row = ft.Row(
         controls=list(initial_action_buttons),
         spacing=ACTION_SPACING,
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        alignment=action_alignment,
         wrap=True,
     )
 
@@ -201,11 +204,12 @@ def open_warm_document_dialog(
     )
 
     dialog = ft.AlertDialog(
-        modal=True,
+        modal=modal,
         scrollable=True,
         content=modal_content,
         content_padding=0,
         bgcolor=ft.Colors.TRANSPARENT,
+        on_dismiss=None if on_dismiss is None else lambda _: on_dismiss(),
     )
     page.show_dialog(dialog)
     return WarmDocumentDialogResult(

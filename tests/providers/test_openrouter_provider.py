@@ -523,23 +523,47 @@ async def test_httpx_openrouter_client_deepseek_40_china_pins_baidu(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("primary_connection", "expected_route"),
+    ("model", "primary_connection", "expected_route", "expected_preferences"),
     [
-        ("openrouter", "deepseek_v4_flash_latency"),
-        ("managed_china", "deepseek_v4_flash_china"),
+        (
+            "deepseek_v4_flash",
+            "openrouter",
+            "deepseek_v4_flash_latency",
+            {
+                "only": [
+                    "makora",
+                    "together",
+                    "wafer/fast",
+                    "baidu/fp8",
+                ],
+                "sort": {"by": "latency", "partition": "none"},
+                "allow_fallbacks": True,
+            },
+        ),
+        (
+            "deepseek_v4_flash_41",
+            "managed_china",
+            "deepseek_v4_flash_41_strict",
+            {
+                "only": ["deepseek", "wafer"],
+                "allow_fallbacks": False,
+            },
+        ),
     ],
 )
 async def test_resolved_deepseek_fallback_preserves_primary_provider_pool(
     monkeypatch,
+    model: str,
     primary_connection: str,
     expected_route: str,
+    expected_preferences: dict[str, object],
 ) -> None:
     fake_client = FakeAsyncClient()
     monkeypatch.setattr("httpx.AsyncClient", lambda **_kwargs: fake_client)
     resolved = resolve_llm_config(
         RuntimeResolutionInput(
             translation=TranslationRuntimeIntent(
-                model="deepseek_v4_flash",
+                model=model,
                 connection=primary_connection,
             ),
             openrouter=OpenRouterRuntimeIntent(selected_source="byok"),
@@ -560,23 +584,6 @@ async def test_resolved_deepseek_fallback_preserves_primary_provider_pool(
         system_prompt="SYSTEM",
         source_language="ko-KR",
         target_language="zh-CN",
-    )
-    expected_preferences = (
-        {
-            "only": ["baidu/fp8"],
-            "allow_fallbacks": False,
-        }
-        if primary_connection == "managed_china"
-        else {
-            "only": [
-                "makora",
-                "together",
-                "wafer/fast",
-                "baidu/fp8",
-            ],
-            "sort": {"by": "latency", "partition": "none"},
-            "allow_fallbacks": True,
-        }
     )
     assert fake_client.last_request["json"]["provider"] == expected_preferences
 

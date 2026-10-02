@@ -115,6 +115,12 @@ async def _translate(provider: ChatGptPlanLLMProvider, text: str = "안녕") -> 
     return result.text
 
 
+async def _wait_for_requests(server: _FakeServer, count: int) -> None:
+    async with asyncio.timeout(1):
+        while len(server.requests) < count:
+            await asyncio.sleep(0)
+
+
 async def test_translate_sends_plan_compatible_request_and_reuses_connection() -> None:
     server = _FakeServer(_completed("Hello there"))
     provider = _provider(server, _FakeSession())
@@ -318,4 +324,112 @@ async def test_cancelled_release_finishes_closing_every_detached_connection() ->
         assert [socket.close_code for socket in server.sockets] == [1000, 1000, 1000]
     finally:
         gate.set()
+        await provider.close()
+
+
+async def test_cancelled_response_drains_before_connection_reuse_without_mixing_text() -> None:
+    server = _FakeServer(lambda _request: [])
+    provider = _provider(server, _FakeSession(), max_connections=1)
+    first = asyncio.create_task(_translate(provider, "first"))
+    try:
+        await _wait_for_requests(server, 1)
+        socket = server.sockets[0]
+        socket._queue.put_nowait(json.dumps({"type": "response.output_text.delta", "delta": "old"}))
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert server.closed == 0
+
+        server.script = _completed("new")
+        second = asyncio.create_task(_translate(provider, "second"))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(second), timeout=0.02)
+        assert len(server.requests) == 1
+        socket._queue.put_nowait(
+            json.dumps({"type": "response.output_text.delta", "delta": " tail"})
+        )
+        socket._queue.put_nowait(json.dumps({"type": "response.completed"}))
+
+        assert await asyncio.wait_for(second, timeout=1) == "new"
+        assert len(server.sockets) == 1
+        assert server.closed == 0
+    finally:
+        await provider.close()
+    assert server.closed == 1
+
+
+@pytest.mark.parametrize("failure", ["timeout", "error"])
+async def test_cancelled_response_failure_frees_pool_slot(failure: str) -> None:
+    server = _FakeServer(lambda _request: [])
+    provider = _provider(server, _FakeSession(), max_connections=1, request_timeout_s=0.1)
+    first = asyncio.create_task(_translate(provider))
+    try:
+        await _wait_for_requests(server, 1)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        server.script = _completed("next")
+        second = asyncio.create_task(_translate(provider))
+        if failure == "error":
+            server.sockets[0]._queue.put_nowait(
+                json.dumps({"type": "response.failed", "response": {"error": {"code": "failed"}}})
+            )
+        assert await asyncio.wait_for(second, timeout=1) == "next"
+        assert server.sockets[0].close_code == 1000
+        assert len(server.sockets) == 2
+    finally:
+        await provider.close()
+
+
+@pytest.mark.parametrize("shutdown", ["release", "close"])
+async def test_shutdown_retires_draining_connection(shutdown: str) -> None:
+    server = _FakeServer(lambda _request: [])
+    provider = _provider(server, _FakeSession(), max_connections=1)
+    first = asyncio.create_task(_translate(provider))
+    try:
+        await _wait_for_requests(server, 1)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        if shutdown == "close":
+            await asyncio.wait_for(provider.close(), timeout=1)
+            assert server.closed == 1
+            with pytest.raises(RuntimeError, match="closed"):
+                await _translate(provider)
+        else:
+            await provider.release_connections()
+            server.sockets[0]._queue.put_nowait(
+                json.dumps({"type": "response.output_text.delta", "delta": "old"})
+            )
+            server.sockets[0]._queue.put_nowait(json.dumps({"type": "response.completed"}))
+            server.script = _completed("next")
+            assert await asyncio.wait_for(_translate(provider), timeout=1) == "next"
+            assert server.sockets[0].close_code == 1000
+            assert len(server.sockets) == 2
+    finally:
+        await provider.close()
+
+
+async def test_cancelled_pool_waiter_never_sends_an_abandoned_request() -> None:
+    server = _FakeServer(lambda _request: [])
+    provider = _provider(server, _FakeSession(), max_connections=1)
+    first = asyncio.create_task(_translate(provider, "first"))
+    try:
+        await _wait_for_requests(server, 1)
+        abandoned = asyncio.create_task(_translate(provider, "abandoned"))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(abandoned), timeout=0.02)
+        abandoned.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await abandoned
+        server.sockets[0]._queue.put_nowait(
+            json.dumps({"type": "response.output_text.delta", "delta": "first"})
+        )
+        server.sockets[0]._queue.put_nowait(json.dumps({"type": "response.completed"}))
+        assert await asyncio.wait_for(first, timeout=1) == "first"
+        server.script = _completed("last")
+        assert await asyncio.wait_for(_translate(provider, "last"), timeout=1) == "last"
+        assert len(server.requests) == 2
+        assert len(server.sockets) == 1
+    finally:
         await provider.close()

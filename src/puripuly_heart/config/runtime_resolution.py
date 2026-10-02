@@ -58,7 +58,7 @@ TRANSLATION_MODEL_CUSTOM_HTTP: Final = "custom_http"
 
 _FIRST_HEDGE_DELAY_MS: Final = 1300
 _EMERGENCY_HEDGE_DELAY_MS: Final = 4400
-_CHATGPT_FIRST_HEDGE_DELAY_MS: Final = 2000
+_CHATGPT_FIRST_HEDGE_DELAY_MS: Final = 1700
 _LOSER_GRACE_MS: Final = 50
 
 TranslationModelName: TypeAlias = Literal[
@@ -126,11 +126,7 @@ TRANSLATION_CONNECTIONS_BY_MODEL: Final[
             TRANSLATION_CONNECTION_MANAGED,
             TRANSLATION_CONNECTION_OPENROUTER,
         ),
-        TRANSLATION_MODEL_DEEPSEEK_V4_FLASH: (
-            TRANSLATION_CONNECTION_MANAGED,
-            TRANSLATION_CONNECTION_MANAGED_CHINA,
-            TRANSLATION_CONNECTION_OPENROUTER,
-        ),
+        TRANSLATION_MODEL_DEEPSEEK_V4_FLASH: (TRANSLATION_CONNECTION_OPENROUTER,),
         TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41: (
             TRANSLATION_CONNECTION_MANAGED,
             TRANSLATION_CONNECTION_MANAGED_CHINA,
@@ -1093,13 +1089,20 @@ def derive_translation_runtime_intent_from_compatibility(
                 concurrency_limit=concurrency,
             )
         if openrouter_model_value == OPENROUTER_MODEL_DEEPSEEK_V4_FLASH:
-            return TranslationRuntimeIntent(
+            connection = _translation_connection_from_openrouter_source(
+                openrouter_source,
                 model=TRANSLATION_MODEL_DEEPSEEK_V4_FLASH,
-                connection=_translation_connection_from_openrouter_source(
-                    openrouter_source,
-                    model=TRANSLATION_MODEL_DEEPSEEK_V4_FLASH,
-                    provider_routing=provider_routing,
-                ),
+                provider_routing=provider_routing,
+            )
+            model = TRANSLATION_MODEL_DEEPSEEK_V4_FLASH
+            if connection in (
+                TRANSLATION_CONNECTION_MANAGED,
+                TRANSLATION_CONNECTION_MANAGED_CHINA,
+            ):
+                model = TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41
+            return TranslationRuntimeIntent(
+                model=model,
+                connection=connection,
                 concurrency_limit=concurrency,
             )
         if openrouter_model_value == OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41:

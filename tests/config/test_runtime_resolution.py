@@ -469,28 +469,6 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
         ),
         (
             "deepseek_v4_flash",
-            "managed",
-            "managed",
-            "openrouter",
-            "deepseek/deepseek-v4-flash-0731",
-            "managed",
-            "openrouter:managed",
-            None,
-            "deepseek_v4_flash_latency",
-        ),
-        (
-            "deepseek_v4_flash",
-            "managed_china",
-            "managed",
-            "openrouter",
-            "deepseek/deepseek-v4-flash-0731",
-            "managed",
-            "openrouter:managed_qq",
-            None,
-            "deepseek_v4_flash_china",
-        ),
-        (
-            "deepseek_v4_flash",
             "openrouter",
             "byok",
             "openrouter",
@@ -508,6 +486,17 @@ def test_overlay_runtime_resolution_maps_desktop_options_without_legacy_name() -
             "deepseek/deepseek-v4.1-flash",
             "managed",
             "openrouter:managed",
+            None,
+            "deepseek_v4_flash_41_strict",
+        ),
+        (
+            "deepseek_v4_flash_41",
+            "managed_china",
+            "managed",
+            "openrouter",
+            "deepseek/deepseek-v4.1-flash",
+            "managed",
+            "openrouter:managed_qq",
             None,
             "deepseek_v4_flash_41_strict",
         ),
@@ -762,7 +751,7 @@ def test_managed_openrouter_primary_gets_identity_hedge_and_emergency_route() ->
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_DEEPSEEK_V4_FLASH,
+            model=runtime_resolution.TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41,
             connection=runtime_resolution.TRANSLATION_CONNECTION_MANAGED_CHINA,
         )
     )
@@ -836,7 +825,7 @@ def test_luna_openrouter_connection_keeps_openrouter_byok_target() -> None:
     assert target.credential.reference == "openrouter:byok"
 
 
-def test_luna_chatgpt_plan_hedges_after_serial_websocket_latency() -> None:
+def test_luna_chatgpt_plan_starts_same_model_hedge_at_1700_ms() -> None:
     runtime_resolution = _runtime_resolution_module()
     intent = runtime_resolution.normalize_translation_runtime_intent(
         model="gpt_6_luna", connection="chatgpt"
@@ -845,7 +834,7 @@ def test_luna_chatgpt_plan_hedges_after_serial_websocket_latency() -> None:
         runtime_resolution.RuntimeResolutionInput(translation=intent)
     )
     assert [attempt.target.provider for attempt in config.attempts] == ["chatgpt", "chatgpt"]
-    assert config.attempts[1].start_after_ms == 2000
+    assert config.attempts[1].start_after_ms == 1700
 
 
 def test_luna_compatibility_provider_and_profile_resolve_to_same_product() -> None:
@@ -901,7 +890,7 @@ def test_managed_china_resolves_explicit_qq_managed_credential_reference() -> No
     config = runtime_resolution.resolve_llm_config(
         _runtime_input(
             runtime_resolution,
-            model=runtime_resolution.TRANSLATION_MODEL_DEEPSEEK_V4_FLASH,
+            model=runtime_resolution.TRANSLATION_MODEL_DEEPSEEK_V4_FLASH_41,
             connection=runtime_resolution.TRANSLATION_CONNECTION_MANAGED_CHINA,
             openrouter=runtime_resolution.OpenRouterRuntimeIntent(
                 selected_source=runtime_resolution.OPENROUTER_SOURCE_MANAGED,
@@ -914,7 +903,7 @@ def test_managed_china_resolves_explicit_qq_managed_credential_reference() -> No
         required=True,
         reference="openrouter:managed_qq",
     )
-    assert config.provider_routing == "deepseek_v4_flash_china"
+    assert config.provider_routing == "deepseek_v4_flash_41_strict"
 
 
 def test_standard_managed_resolves_standard_managed_credential_reference() -> None:

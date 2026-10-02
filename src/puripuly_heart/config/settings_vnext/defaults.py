@@ -46,15 +46,15 @@ def new_settings_for_first_run(system_locale: str | None = None) -> AppSettingsV
     if locale_value == "zh-CN":
         translation = replace(
             translation,
-            model="deepseek_v4_flash",
+            model="deepseek_v4_flash_41",
             connection="managed_china",
             connection_history={
                 **translation.connection_history,
-                "deepseek_v4_flash": "managed_china",
+                "deepseek_v4_flash_41": "managed_china",
             },
-            openrouter_model="deepseek/deepseek-v4-flash-0731",
-            openrouter_selection_alias="deepseek_v4_flash_managed",
-            openrouter_provider_routing="deepseek_v4_flash_china",
+            openrouter_model="deepseek/deepseek-v4.1-flash",
+            openrouter_selection_alias="deepseek_v4_flash_41_managed",
+            openrouter_provider_routing="deepseek_v4_flash_41_strict",
         )
     settings = replace(
         settings,

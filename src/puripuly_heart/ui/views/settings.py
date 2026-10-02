@@ -307,6 +307,9 @@ _TRANSLATION_CONNECTION_LABEL_KEYS = {
     TranslationConnection.OLLAMA: "settings.translation_connection.ollama",
     TranslationConnection.CUSTOM_HTTP: "settings.translation_connection.custom_http",
 }
+_TRANSLATION_CONNECTION_DESCRIPTION_KEYS = {
+    TranslationConnection.CHATGPT: "settings.translation_connection.chatgpt.description",
+}
 _TRANSLATION_MODELS = (
     TranslationModel.MANAGED_GEMMA,
     TranslationModel.GEMMA4_26B_31B,
@@ -1365,9 +1368,10 @@ class SettingsView(ft.Column):
             color=COLOR_SECONDARY,
         )
         self._chatgpt_account_status = ft.Text(
-            t("settings.chatgpt_account.signed_out"),
+            "",
             size=18,
             color=COLOR_ON_BACKGROUND,
+            visible=False,
         )
         self._chatgpt_account_email = ft.Text(
             "",
@@ -3034,8 +3038,8 @@ class SettingsView(ft.Column):
         return t(_TRANSLATION_CONNECTION_LABEL_KEYS[connection])
 
     def _translation_connection_display_description(self, connection: TranslationConnection) -> str:
-        _ = connection
-        return ""
+        key = _TRANSLATION_CONNECTION_DESCRIPTION_KEYS.get(connection)
+        return t(key) if key else ""
 
     def _set_translation_connection_text(self, text: str) -> None:
         text_control = self._translation_connection_text.content
@@ -5142,12 +5146,10 @@ class SettingsView(ft.Column):
         in_progress = bool(snapshot is not None and snapshot.in_progress)
         email = snapshot.email if snapshot is not None else None
         self._chatgpt_account_title.value = t("settings.chatgpt_account.title")
-        self._chatgpt_account_status.value = t(
-            "settings.chatgpt_account.in_progress"
-            if in_progress
-            else "settings.chatgpt_account.signed_out"
+        self._chatgpt_account_status.value = (
+            t("settings.chatgpt_account.in_progress") if in_progress else ""
         )
-        self._chatgpt_account_status.visible = not signed_in
+        self._chatgpt_account_status.visible = in_progress
         self._chatgpt_account_email.value = (
             t("settings.chatgpt_account.account_email", email=email)
             if email

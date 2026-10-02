@@ -126,7 +126,7 @@ def test_first_run_settings_preserve_provider_defaults() -> None:
 
     translation = settings.intent.translation
     assert settings.intent.stt.provider == "local_cpu_auto"
-    assert translation.model == "deepseek_v4_flash"
+    assert translation.model == "deepseek_v4_flash_41"
     assert translation.connection == "managed_china"
     assert translation.openrouter_selected_source == "managed"
 
@@ -188,10 +188,10 @@ def test_main_first_run_uses_detected_system_locale(
     loaded = _load_settings_or_default(path)
 
     assert loaded.intent.ui.locale == "zh-CN"
-    assert loaded.intent.translation.model == "deepseek_v4_flash"
+    assert loaded.intent.translation.model == "deepseek_v4_flash_41"
     assert loaded.intent.translation.connection == "managed_china"
-    assert loaded.intent.translation.openrouter_selection_alias == "deepseek_v4_flash_managed"
-    assert loaded.intent.translation.openrouter_provider_routing == "deepseek_v4_flash_china"
+    assert loaded.intent.translation.openrouter_selection_alias == "deepseek_v4_flash_41_managed"
+    assert loaded.intent.translation.openrouter_provider_routing == "deepseek_v4_flash_41_strict"
     assert not path.exists()
 
 
@@ -215,7 +215,7 @@ def test_main_first_run_non_china_uses_managed_gemma_primary_default(
     [
         (
             "zh_CN",
-            "deepseek_v4_flash",
+            "deepseek_v4_flash_41",
             "managed_china",
             "openrouter:managed_qq",
         ),

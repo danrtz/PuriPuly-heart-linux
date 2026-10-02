@@ -718,6 +718,44 @@ class UiApplicationBoundary:
     def chatgpt_sign_in_required(self) -> bool:
         return bool(self._provider.chatgpt_sign_in_required())
 
+    async def select_chatgpt_translation(self) -> object:
+        from dataclasses import replace
+
+        from puripuly_heart.app.ports.settings_view import TranslationSelectionEdit
+        from puripuly_heart.app.services.settings.settings_application import (
+            settings_view_surface_snapshots,
+        )
+        from puripuly_heart.config.translation_values import (
+            TranslationConnection,
+            TranslationModel,
+        )
+
+        settings = self.compatibility_settings()
+        if settings is None:
+            return None
+        selection = settings_view_surface_snapshots(settings)[0].translation
+        model = TranslationModel.GPT_6_LUNA
+        connection = TranslationConnection.CHATGPT
+        if selection.model == model and selection.connection == connection:
+            return True
+        history = dict(selection.connection_history)
+        history[model] = connection
+        edit = TranslationSelectionEdit(
+            replace(
+                selection,
+                model=model,
+                connection=connection,
+                connection_history=tuple(
+                    (candidate, history[candidate])
+                    for candidate in TranslationModel
+                    if candidate in history
+                ),
+                previous_llm_model=None,
+            ),
+            ((model, connection),),
+        )
+        return await self.apply_provider_intent(ProviderApplyIntent((edit,)))
+
     async def sign_out_chatgpt(self) -> ChatGptSignOutResult:
         settings = self.compatibility_settings()
         if settings is not None and self.state().translation_enabled:

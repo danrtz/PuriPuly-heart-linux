@@ -151,3 +151,40 @@ async def test_owner_close_during_release_does_not_start_queued_preparation() ->
         gate.set()
         await owner.close()
         await provider.close()
+
+
+async def test_replacement_is_prewarmed_during_previous_preparation() -> None:
+    old_server = _Server()
+    old_server.gate = asyncio.Event()
+    new_server = _Server()
+    old_provider = ChatGptPlanLLMProvider(
+        session=_Session(), connector=old_server.connect, prepared_connections=2
+    )
+    new_provider = ChatGptPlanLLMProvider(
+        session=_Session(), connector=new_server.connect, prepared_connections=2
+    )
+    current = [old_provider]
+    owner = LlmConnectionReadinessOwner(
+        llm_provider=lambda: current[0], translation_enabled=lambda: True
+    )
+    try:
+        owner.sync()
+        await old_server.started.wait()
+        current[0] = new_provider
+        owner.sync()
+        old_server.gate.set()
+        await owner._task
+        new_server.reject_new_connections = True
+        result = await new_provider.translate(
+            utterance_id=uuid4(),
+            text="안녕",
+            system_prompt="Translate Korean to English.",
+            source_language="Korean",
+            target_language="English",
+        )
+        assert result.text == "Hello"
+    finally:
+        old_server.gate.set()
+        await owner.close()
+        await old_provider.close()
+        await new_provider.close()

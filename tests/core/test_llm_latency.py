@@ -223,7 +223,8 @@ async def test_concurrent_races_isolate_ids_and_log_only_started_attempts() -> N
     assert blocked_request["winner_attempt"] == "1"
     attempts_by_request = {
         request["request_id"]: [
-            (row["attempt"], row["status"]) for row in rows
+            (row["attempt"], row["status"])
+            for row in rows
             if row["event"] == "attempt_end" and row["request_id"] == request["request_id"]
         ]
         for request in requests.values()
@@ -258,7 +259,8 @@ async def test_hedge_loser_cancellation_remains_correlated_after_request_end() -
     assert request["attempts"] == "2"
     assert request["winner_attempt"] == "1"
     assert {(row["attempt"], row["status"]) for row in attempts} == {
-        ("0", "cancelled"), ("1", "success")
+        ("0", "cancelled"),
+        ("1", "success"),
     }
     assert all(row["request_id"] == request["request_id"] for row in attempts)
 
@@ -274,7 +276,7 @@ async def test_cancelled_semaphore_wait_records_queue_time_without_fake_attempt(
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    row, = sink.rows()
+    (row,) = sink.rows()
     assert row["event"] == "request_end"
     assert row["status"] == "cancelled"
     assert row["queue_ms"] == "250"

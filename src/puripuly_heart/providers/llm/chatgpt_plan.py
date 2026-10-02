@@ -110,6 +110,8 @@ class ChatGptPlanLLMProvider(LLMProvider):
     _condition: asyncio.Condition | None = field(init=False, default=None, repr=False)
     _closed: bool = field(init=False, default=False, repr=False)
     _pool_epoch: int = field(init=False, default=0, repr=False)
+    _requests: set[asyncio.Task[str]] = field(init=False, default_factory=set, repr=False)
+    _close_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
 
     def _cond(self) -> asyncio.Condition:
         if self._condition is None:
@@ -120,7 +122,9 @@ class ChatGptPlanLLMProvider(LLMProvider):
         if self._closed:
             return
         async with self._cond():
-            missing = max(0, self.prepared_connections - self._open_count)
+            missing = max(
+                0, min(self.prepared_connections, self.max_connections) - self._open_count
+            )
             self._open_count += missing
         if missing == 0:
             return
@@ -210,13 +214,29 @@ class ChatGptPlanLLMProvider(LLMProvider):
         await self._discard_detached(idle)
 
     async def close(self) -> None:
-        async with self._cond():
+        if self._close_task is None:
             self._closed = True
+            self._close_task = asyncio.create_task(self._close_pool())
+        try:
+            await asyncio.shield(self._close_task)
+        except asyncio.CancelledError:
+            await self._close_task
+            raise
+
+    async def _close_pool(self) -> None:
+        async with self._cond():
             idle = list(self._idle)
             self._idle.clear()
             self._open_count -= len(idle)
             self._cond().notify_all()
-        await self._discard_detached(idle)
+        requests = tuple(self._requests)
+        for task in requests:
+            task.cancel()
+        await asyncio.gather(
+            self._discard_detached(idle),
+            *requests,
+            return_exceptions=True,
+        )
 
     async def _run_with_reauth_retry(self, body: Mapping[str, object]) -> str:
         try:
@@ -232,7 +252,26 @@ class ChatGptPlanLLMProvider(LLMProvider):
             observation.transport = "websocket"
             observation.connection_reused = None
             observation.connect_ms = None
+        acquired = asyncio.Event()
+        task = asyncio.create_task(self._run_connection(body, acquired))
+        self._requests.add(task)
+        task.add_done_callback(self._request_finished)
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not acquired.is_set():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            raise
+
+    def _request_finished(self, task: asyncio.Task[str]) -> None:
+        self._requests.discard(task)
+        if not task.cancelled():
+            task.exception()
+
+    async def _run_connection(self, body: Mapping[str, object], acquired: asyncio.Event) -> str:
         connection = await self._acquire()
+        acquired.set()
         reusable = False
         try:
             text = await asyncio.wait_for(
