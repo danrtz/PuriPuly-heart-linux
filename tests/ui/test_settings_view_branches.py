@@ -16,6 +16,7 @@ pytest.importorskip("flet")
 from puripuly_heart.app.services.settings_application import settings_view_surface_snapshots
 from puripuly_heart.core.managed_openrouter_release import TalkTogetherPassStatus
 
+from puripuly_heart.app.ports.chatgpt_account import ChatGptAccountSnapshot
 from puripuly_heart.app.ports.settings_view import (
     CustomSttEndpointEdit,
     ManagedReferralEdit,
@@ -5257,6 +5258,76 @@ def test_apply_locale_updates_all_settings_clickable_value_fonts_to_zh_cn(
             assert control.content.font_family == zh_font
     finally:
         i18n_module.set_locale(previous_locale)
+
+
+def test_apply_locale_relocalizes_chatgpt_account_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_locale = i18n_module.get_locale()
+    i18n_module.set_locale("en")
+    try:
+        view, _ = _make_settings_view(monkeypatch)
+        view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+        view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+
+        i18n_module.set_locale("ko")
+        view.apply_locale()
+
+        ko_font = font_for_language("ko")
+        assert view._chatgpt_account_title.value == t("settings.chatgpt_account.title")
+        assert view._chatgpt_account_status.value == t("settings.chatgpt_account.signed_out")
+        for button, key in (
+            (view._chatgpt_connect_button, "settings.chatgpt_account.connect"),
+            (view._chatgpt_usage_button, "settings.chatgpt_account.manage_usage"),
+            (view._chatgpt_sign_out_button, "settings.chatgpt_account.sign_out"),
+        ):
+            assert button.content == t(key)
+            assert button.style.text_style.font_family == ko_font
+    finally:
+        i18n_module.set_locale(previous_locale)
+
+
+@pytest.mark.parametrize(
+    ("email", "expected_text"),
+    [
+        (
+            "user@example.com",
+            lambda: t("settings.chatgpt_account.account_email", email="user@example.com"),
+        ),
+        (None, lambda: t("settings.chatgpt_account.connected")),
+    ],
+)
+def test_signed_in_chatgpt_card_shows_account_line_instead_of_description(
+    monkeypatch: pytest.MonkeyPatch,
+    email: str | None,
+    expected_text: Callable[[], str],
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    view._chatgpt_intents = SimpleNamespace(
+        account_snapshot=lambda: ChatGptAccountSnapshot(signed_in=True, email=email)
+    )
+
+    view.refresh_chatgpt_account()
+
+    assert not view._chatgpt_account_status.visible
+    assert view._chatgpt_account_email.visible
+    assert view._chatgpt_account_email.value == expected_text()
+    assert view._chatgpt_account_email.size == view._chatgpt_usage_button.style.text_style.size
+    assert view._chatgpt_usage_button.visible
+    assert view._chatgpt_sign_out_button.visible
+    assert not view._chatgpt_connect_button.visible
+
+    view._chatgpt_intents = SimpleNamespace(
+        account_snapshot=lambda: ChatGptAccountSnapshot(signed_in=False)
+    )
+    view.refresh_chatgpt_account()
+
+    assert view._chatgpt_account_status.visible
+    assert view._chatgpt_account_status.value == t("settings.chatgpt_account.signed_out")
+    assert not view._chatgpt_account_email.visible
+    assert view._chatgpt_connect_button.visible
 
 
 def test_overlay_distance_step_buttons_apply_immediately(

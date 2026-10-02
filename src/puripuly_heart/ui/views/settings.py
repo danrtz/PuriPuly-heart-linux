@@ -1369,6 +1369,14 @@ class SettingsView(ft.Column):
             size=18,
             color=COLOR_ON_BACKGROUND,
         )
+        self._chatgpt_account_email = ft.Text(
+            "",
+            size=20,
+            color=COLOR_ON_BACKGROUND,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            visible=False,
+        )
         self._chatgpt_connect_button = self._build_action_button(
             t("settings.chatgpt_account.connect"),
             self._on_chatgpt_connect_click,
@@ -1392,6 +1400,7 @@ class SettingsView(ft.Column):
                     self._chatgpt_account_title,
                     ft.Container(height=4),
                     self._chatgpt_account_status,
+                    self._chatgpt_account_email,
                     ft.Row(
                         [
                             self._chatgpt_usage_button,
@@ -5131,15 +5140,26 @@ class SettingsView(ft.Column):
         snapshot = intents.account_snapshot() if intents is not None else None
         signed_in = bool(snapshot is not None and snapshot.signed_in)
         in_progress = bool(snapshot is not None and snapshot.in_progress)
-        if signed_in and snapshot is not None and snapshot.email:
-            status = t("settings.chatgpt_account.signed_in", email=snapshot.email)
-        elif signed_in:
-            status = t("settings.chatgpt_account.signed_in_no_email")
-        elif in_progress:
-            status = t("settings.chatgpt_account.in_progress")
-        else:
-            status = t("settings.chatgpt_account.signed_out")
-        self._chatgpt_account_status.value = status
+        email = snapshot.email if snapshot is not None else None
+        self._chatgpt_account_title.value = t("settings.chatgpt_account.title")
+        self._chatgpt_account_status.value = t(
+            "settings.chatgpt_account.in_progress"
+            if in_progress
+            else "settings.chatgpt_account.signed_out"
+        )
+        self._chatgpt_account_status.visible = not signed_in
+        self._chatgpt_account_email.value = (
+            t("settings.chatgpt_account.account_email", email=email)
+            if email
+            else t("settings.chatgpt_account.connected")
+        )
+        self._chatgpt_account_email.visible = signed_in
+        _set_text_button_label(
+            self._chatgpt_usage_button, t("settings.chatgpt_account.manage_usage")
+        )
+        _set_text_button_label(
+            self._chatgpt_sign_out_button, t("settings.chatgpt_account.sign_out")
+        )
         _set_text_button_label(
             self._chatgpt_connect_button,
             t(
@@ -6853,6 +6873,15 @@ class SettingsView(ft.Column):
             self._api_guide_btn.style = self._get_button_style(ui_font)
         if self._openrouter_pkce_button:
             self._sync_openrouter_pkce_button_state(display_settings)
+        self._chatgpt_connect_button.style = self._get_button_style(
+            ui_font,
+            size=20,
+            default_color=COLOR_NEUTRAL_DARK,
+            disabled_color=COLOR_NEUTRAL_DARK,
+        )
+        self._chatgpt_usage_button.style = self._get_button_style(ui_font, size=20)
+        self._chatgpt_sign_out_button.style = self._get_button_style(ui_font, size=20)
+        self._sync_chatgpt_account_card()
         self._sync_clickable_text_control_fonts(ui_font)
         for glyph_text in (
             getattr(self, "_overlay_distance_decrease_glyph", None),
