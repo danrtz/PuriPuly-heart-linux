@@ -1,4 +1,20 @@
-> **Linux fork:** Native Arch/Hyprland, PipeWire, Vulkan speech recognition, local translation and OpenXR subtitles. See [Linux installation and verification](docs/Linux.md). Based on kapitalismho’s PuriPuly Heart; original attribution and AGPL-3.0 license are preserved.
+> **Linux beta fork:** Native Arch/Hyprland, PipeWire, Vulkan speech recognition, local translation and OpenXR subtitles. Based on [kapitalismho’s PuriPuly Heart](https://github.com/kapitalismho/PuriPuly-heart); original attribution and AGPL-3.0-or-later licensing are preserved. This is an independent fork, not an official upstream Linux release.
+
+## Linux: start here
+
+Follow the [Linux installation and verification guide](docs/Linux.md) for system prerequisites, installation, model setup and known limitations. The `linux-port` branch contains the port; installation currently builds from source, with no packaged Linux release yet. After installing the system prerequisites:
+
+```sh
+git clone --branch linux-port https://github.com/danrtz/PuriPuly-heart.git
+cd PuriPuly-heart
+scripts/linux/install-user.sh
+```
+
+Desktop audio capture, local English/Japanese recognition and translation, captions, and failure recovery have been tested on Arch/Hyprland. The Python suite passed 6,751 tests with 53 skipped. **Physical-headset/live VRChat validation is pending**; OpenXR overlays have passed simulated-headset tests. Account-backed cloud providers have not been verified in this port.
+
+Report Linux-port problems in [this fork’s issues](https://github.com/danrtz/PuriPuly-heart/issues). The feature descriptions, demonstrations and benchmarks below come from upstream; they are not additional Linux validation results.
+
+---
 
 <p align="center">
   <img src="src/puripuly_heart/data/icons/icon.png" alt="PuriPuly — Real-Time Two-Way Voice Translator for VRChat" width="128" />
@@ -12,7 +28,7 @@
   <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
   <img src="https://img.shields.io/badge/python-3.14-yellow" alt="Python" />
-  <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Linux_beta_%7C_Windows-lightgrey" alt="Platform: Linux beta and upstream Windows" />
 </p>
 
 <h2 align="center">
@@ -53,7 +69,7 @@ So I built one that can.
 
 ## What is PuriPuly?
 
-PuriPuly is a two-way voice translator for Windows that translates your voice and the other person's voice in real time.
+PuriPuly is a two-way voice translator that translates your voice and the other person's voice in real time. This fork adds native Linux support to the upstream Windows application.
 We aim for natural translation through LLMs.
 Beyond stiff literal translation, so real person-to-person conversation can happen.
 It works in many environments, including VRChat and Discord.
@@ -84,7 +100,7 @@ It works in many environments, including VRChat and Discord.
 - **How is personal data handled?**
 → Voice and conversation contents are never sent to Puripuly servers. In addition, all source code is publicly available in this repository, so you can verify its network behavior directly.
 
-### [📥 Download](https://github.com/kapitalismho/PuriPuly-heart/releases/latest)
+### [Linux installation](docs/Linux.md) · [Upstream Windows download](https://github.com/kapitalismho/PuriPuly-heart/releases/latest)
 
 ---
 
@@ -177,9 +193,11 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 
 ---
 
-# If you run into problems, please DM me on [Twitter/X](https://x.com/kapitalismho).
+For Linux-port problems, use [this fork’s issue tracker](https://github.com/danrtz/PuriPuly-heart/issues). The upstream author's contact is [Twitter/X](https://x.com/kapitalismho).
 
 ## Usage
+
+**Linux:** use the [Linux first-use instructions](docs/Linux.md#first-use). The Windows installer and Discord onboarding below describe the upstream distribution; local Linux models do not require a cloud account.
 
 1. Download the latest version from the [Download page](https://github.com/kapitalismho/PuriPuly-heart/releases/latest).
 2. Install PuriPuly.
@@ -195,6 +213,8 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 For bidirectional control setup and the stable parameter ABI, see [VRChat OSC controls](docs/vrchat-osc.md).
 
 ### If audio capture does not work
+On Linux, check the PipeWire/PulseAudio device selection and capture guidance in [the Linux guide](docs/Linux.md). The MME instructions below apply to Windows.
+
 If audio capture does not work, open **Settings > General** and follow these steps.
 
 1. Change **Audio Host API** to **Auto** or **MME**.
@@ -421,13 +441,13 @@ Upcoming work is tracked publicly on the [PuriPuly project board](https://github
 
 | Surface                    | Recommended environment | Documentation                                          |
 | -------------------------- | ----------------------- | ------------------------------------------------------ |
-| Python desktop application | Windows                 | This section                                           |
+| Python desktop application | Linux / Windows         | [Linux guide](docs/Linux.md); Windows below             |
 | Broker service             | Linux                   | [`broker/README.md`](broker/README.md)                 |
-| Native VR overlay          | Windows                 | [`native/overlay/README.md`](native/overlay/README.md) |
+| Native VR overlay          | Linux / Windows         | [Linux OpenXR](docs/Linux.md); [upstream Windows](native/overlay/README.md) |
 
 ### Python Environment
 
-The Python application requires ordinary GIL-enabled CPython 3.14 on Windows x64.
+The Python application requires ordinary GIL-enabled CPython 3.14. For native x86-64 Linux builds, follow [the Linux guide](docs/Linux.md), which uses `.venv` and builds the platform runtimes. The following environment instructions are for upstream Windows development.
 
 Create and activate the Windows environment:
 
@@ -449,7 +469,7 @@ pip install -e ".[dev]"
 uv sync --dev
 ```
 
-For Linux or WSL work, use `.venv-wsl` when it is available.
+For separate WSL development work, `.venv-wsl` may be used when available. This is separate from the native Linux installer above.
 
 ```bash
 UV_PROJECT_ENVIRONMENT=.venv-wsl uv sync --dev
