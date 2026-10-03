@@ -219,6 +219,7 @@ class STTRecognitionUnit:
     provenance: STTNativeProvenance = STTNativeProvenance()
     final_language_runs: tuple[FinalLanguageRun, ...] = ()
     final_speaker_runs: tuple[FinalSpeakerRun, ...] = ()
+    estimated_last_speech_at: float | None = None
 
     @property
     def retained_bytes(self) -> int:

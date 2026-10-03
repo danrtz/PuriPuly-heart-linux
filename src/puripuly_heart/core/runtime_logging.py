@@ -137,7 +137,7 @@ LATENCY_TRACE_POINT_CONTRACTS: dict[str, LatencyTracePointContract] = {
     "last_speech": LatencyTracePointContract(
         name="last_speech",
         timing_semantics="Last observed source speech content boundary supplied by the channel owner.",
-        acceptance_expectation="Use the owned source content frontier and observed trailing silence; leave unavailable origins unmeasured.",
+        acceptance_expectation="Use the owned source content frontier and observed trailing silence, or a frozen latest-VAD-speech estimate for independent recognition marked estimated=true; leave unavailable origins unmeasured.",
     ),
     "speech_end": LatencyTracePointContract(
         name="speech_end",

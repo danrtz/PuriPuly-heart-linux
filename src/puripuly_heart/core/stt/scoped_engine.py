@@ -219,6 +219,10 @@ class ScopedRecognitionEngine:
         init=False, default=None, repr=False
     )
     _last_receipt_sequence: int = field(init=False, default=0, repr=False)
+    _estimated_speech_scope: tuple[object, ...] | None = field(
+        init=False, default=None, repr=False
+    )
+    _estimated_last_speech_at: float | None = field(init=False, default=None, repr=False)
     _recognition_authorities: OrderedDict[RecognitionStreamIdentity, int] = field(
         init=False, default_factory=OrderedDict, repr=False
     )
@@ -433,6 +437,31 @@ class ScopedRecognitionEngine:
                         self._retire_current_session(watchdogs)
                         return
                     self._register_recognition_stream(stream)
+            if (
+                owned.ledger.activation_generation != owned.activation_generation
+                or owned.ledger.settings != owned.settings
+                or (owned.is_current is not None and not owned.is_current())
+            ):
+                return
+            capture = owned.event.capture
+            if owned.event.chunk.size and capture:
+                capture_epoch = capture[0].capture_epoch
+                if any(span.capture_epoch != capture_epoch for span in capture):
+                    return
+                scope = (
+                    owned.activation_generation,
+                    capture_epoch,
+                    self._settings_scope(owned.settings),
+                )
+                if self._estimated_speech_scope != scope or any(
+                    span.discontinuity_before is not None for span in capture
+                ):
+                    self._estimated_last_speech_at = None
+                self._estimated_speech_scope = scope
+                if owned.event.speech_observed:
+                    self._estimated_last_speech_at = max(
+                        span.source_end_monotonic_s for span in capture
+                    )
             session = self._session
             stream = self._recognition_stream
             watchdogs = self._session_watchdogs
@@ -525,6 +554,8 @@ class ScopedRecognitionEngine:
 
     def _register_recognition_stream(self, stream: RecognitionStreamIdentity) -> None:
         if self._recognition_stream != stream:
+            self._estimated_speech_scope = None
+            self._estimated_last_speech_at = None
             self._recognition_stream = stream
             self._last_receipt_sequence = 0
         self._recognition_authorities[stream] = self._authority_generation
@@ -696,6 +727,8 @@ class ScopedRecognitionEngine:
         self._authority_generation += 1
         self._stream_recovery = None
         self._recognition_authorities.clear()
+        self._estimated_speech_scope = None
+        self._estimated_last_speech_at = None
         async with self._abort_lock:
             turns = tuple(self._turns.values())
             session = self._session
@@ -786,6 +819,21 @@ class ScopedRecognitionEngine:
         settings = owned.segment.settings
         watchdogs = self.watchdog_resolver(settings)
         stream = self._recognition_stream
+        speech_scope = (
+            owned.segment.identity.activation_generation,
+            owned.segment.identity.capture_epoch,
+            self._settings_scope(settings),
+        )
+        startup_last_speech_at = (
+            self._estimated_last_speech_at
+            if self._estimated_speech_scope == speech_scope
+            and (
+                stream is None
+                or (stream.activation_generation, stream.capture_epoch, stream.settings_scope)
+                != speech_scope
+            )
+            else None
+        )
         if stream is not None and (
             stream.activation_generation != owned.segment.identity.activation_generation
             or stream.capture_epoch != owned.segment.identity.capture_epoch
@@ -870,6 +918,9 @@ class ScopedRecognitionEngine:
                 identity.settings_scope,
             )
             self._register_recognition_stream(stream)
+            if startup_last_speech_at is not None:
+                self._estimated_speech_scope = speech_scope
+                self._estimated_last_speech_at = startup_last_speech_at
         if event.pre_roll.size:
             await self._send_payload(
                 turn,
@@ -1239,6 +1290,20 @@ class ScopedRecognitionEngine:
                     ):
                         continue
                     self._last_receipt_sequence = event.identity.receipt_sequence
+                    stream = event.identity.stream
+                    event = replace(
+                        event,
+                        estimated_last_speech_at=(
+                            self._estimated_last_speech_at
+                            if self._estimated_speech_scope
+                            == (
+                                stream.activation_generation,
+                                stream.capture_epoch,
+                                stream.settings_scope,
+                            )
+                            else None
+                        ),
+                    )
                     await self._emit(
                         STTRecognitionUnitTerminal(event, "final" if event.text else "empty")
                     )
@@ -1681,6 +1746,8 @@ class ScopedRecognitionEngine:
         watchdogs: STTRecognitionWatchdogs | None = None,
     ) -> None:
         self._cancel_lifetime_check()
+        self._estimated_speech_scope = None
+        self._estimated_last_speech_at = None
         session = self._session
         if session is None:
             return

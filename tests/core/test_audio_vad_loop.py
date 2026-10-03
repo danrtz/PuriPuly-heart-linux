@@ -1150,3 +1150,69 @@ async def test_muted_input_fences_stream_without_sending_synthetic_silence():
         (0.375, None),
         (None, "source_eof"),
     ]
+
+
+async def test_stream_input_carries_vad_speech_fact_with_real_source_timing_before_onset():
+    frames = [
+        AudioFrameF32(
+            samples=np.full(end - start, 0.25, dtype=np.float32),
+            sample_rate_hz=16000,
+            capture=AudioCaptureSpan(
+                capture_epoch=9,
+                callback_sequence=sequence,
+                source_sample_rate_hz=16000,
+                source_start_sample=start,
+                source_end_sample=end,
+                source_start_monotonic_s=10 + start / 16000,
+                source_end_monotonic_s=10 + end / 16000,
+            ),
+        )
+        for sequence, (start, end) in enumerate(((0, 8), (8, 16), (16, 20)))
+    ]
+    vad = VadGating(
+        SequenceVadEngine(probs=[0.9, 0.1, 0.9]),
+        sample_rate_hz=16000,
+        chunk_samples=8,
+        ring_buffer_ms=1,
+        hangover_ms=640,
+    )
+    received: list[tuple[bool, int, float]] = []
+    delivery_order: list[str] = []
+    activity_times: list[float] = []
+
+    class Sink:
+        async def handle_stream_input(self, event) -> None:
+            if event.capture:
+                received.append(
+                    (
+                        event.speech_observed,
+                        event.chunk.size,
+                        event.capture[-1].source_end_monotonic_s,
+                    )
+                )
+                delivery_order.append("stream")
+
+        async def handle_vad_event(self, event) -> None:
+            if isinstance(event, SpeechStart):
+                delivery_order.append("start")
+
+        async def observe_source_activity(
+            self, *, speech_observed: bool, observed_at_monotonic_s: float
+        ) -> None:
+            activity_times.append(observed_at_monotonic_s)
+
+    await run_audio_vad_loop(
+        source=FakeAudioSource(frames),
+        vad=vad,
+        sink=Sink(),
+        target_sample_rate_hz=16000,
+        monotonic_clock=lambda: 500.0,
+    )
+
+    assert received == [
+        (True, 8, 10 + 8 / 16000),
+        (False, 8, 10 + 16 / 16000),
+        (True, 4, 10 + 20 / 16000),
+    ]
+    assert delivery_order == ["stream", "start", "stream", "stream"]
+    assert activity_times == [500.0, 500.0, 500.0]

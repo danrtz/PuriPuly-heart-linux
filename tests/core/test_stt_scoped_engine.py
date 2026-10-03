@@ -3230,10 +3230,19 @@ class ControlledStreamSession(ControlledScopedSession):
 
 
 def stream_input(
-    ledger: PeerAudioSegmentLedger, start: int, end: int, **kwargs: Any
+    ledger: PeerAudioSegmentLedger,
+    start: int,
+    end: int,
+    *,
+    speech_observed: bool = False,
+    **kwargs: Any,
 ) -> OwnedStreamInput:
     return OwnedStreamInput(
-        CaptureStreamInput(np.full(end - start, 0.4, dtype=np.float32), (span(start, start, end),)),
+        CaptureStreamInput(
+            np.full(end - start, 0.4, dtype=np.float32),
+            (span(start, start, end),),
+            speech_observed=speech_observed,
+        ),
         ledger,
         ledger.settings,
         ledger.activation_generation,
@@ -3355,7 +3364,7 @@ async def test_continuous_stream_write_failure_recovers_unsent_frames_and_new_fi
             sessions[0].send_gate.clear()
         else:
             sessions[0].failure = OSError("wire failed")
-        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        await engine.handle_stream_input(stream_input(ledger, 6, 10, speech_observed=True))
         if failure == "timeout":
             await wait_until(sessions[0].write_cancelled.is_set)
         await engine.handle_stream_input(stream_input(ledger, 6, 10))
@@ -3383,6 +3392,7 @@ async def test_continuous_stream_write_failure_recovers_unsent_frames_and_new_fi
         finals = [e for e in emitted if isinstance(e, STTRecognitionUnitTerminal)]
         assert [e.unit.text for e in finals] == ["recovered final"]
         assert finals[0].unit.identity.stream == new_stream
+        assert finals[0].unit.estimated_last_speech_at is None
     finally:
         await engine.close()
 
@@ -3582,5 +3592,199 @@ async def test_independent_scoped_context_deduplicates_seen_audio_and_retains_in
             for _, ranges in session.audio
             for s in ranges
         ] == [(0, 2), (2, 6), (6, 10), (10, 14)]
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["self", "peer"])
+async def test_independent_final_freezes_latest_source_speech_before_deferred_delivery(
+    channel: str,
+) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    first, chunk, end = segment_events(ledger, start_sample=0, now=100)
+    session = ControlledStreamSession()
+    emitted: list[STTRecognitionUnitTerminal] = []
+    delivery_entered = asyncio.Event()
+    release_delivery = asyncio.Event()
+
+    async def factory(_settings, _epoch):
+        return session
+
+    async def sink(event):
+        if isinstance(event, STTRecognitionUnitTerminal):
+            delivery_entered.set()
+            await release_delivery.wait()
+            emitted.append(event)
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        channel=channel,
+        monotonic_clock=lambda: 500.0,
+        watchdog_resolver=lambda _: watchdogs(),
+    )
+    engine.bind_event_sink(sink)
+    try:
+        await engine.observe_source_activity(speech_observed=True, observed_at_monotonic_s=400)
+        await engine.handle_stream_input(stream_input(ledger, 6, 10, speech_observed=True))
+        await engine.handle_stream_input(stream_input(ledger, 10, 14))
+        await engine.handle_owned_vad_event(first)
+        await engine.handle_owned_vad_event(chunk)
+        await engine.handle_stream_input(stream_input(ledger, 10, 14))
+        assert session.stream is not None
+        session.emit(STTRecognitionUnit(RecognitionUnitIdentity(session.stream, uuid4(), 1), "one"))
+        await asyncio.wait_for(delivery_entered.wait(), timeout=1)
+        session.emit(STTRecognitionUnit(RecognitionUnitIdentity(session.stream, uuid4(), 2), "two"))
+        await wait_until(lambda: engine._last_receipt_sequence == 2)
+        await engine.handle_stream_input(stream_input(ledger, 14, 18, speech_observed=True))
+        await engine.handle_owned_vad_event(end)
+        release_delivery.set()
+        await wait_until(lambda: len(emitted) == 2)
+        assert [(event.unit.text, event.unit.estimated_last_speech_at) for event in emitted] == [
+            ("one", 10 / 16000),
+            ("two", 10 / 16000),
+        ]
+        session.emit(
+            STTRecognitionUnit(RecognitionUnitIdentity(session.stream, uuid4(), 3), "after seal")
+        )
+        await wait_until(lambda: len(emitted) == 3)
+        assert emitted[2].unit.estimated_last_speech_at == 18 / 16000
+    finally:
+        release_delivery.set()
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_independent_final_without_observed_source_speech_has_no_estimate() -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    first, _, _ = segment_events(ledger, start_sample=0, now=100)
+    session = ControlledStreamSession()
+    emitted: list[STTProviderTurnEvent] = []
+
+    async def factory(_settings, _epoch):
+        return session
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        event_sink=emitted.append,
+        monotonic_clock=lambda: 500.0,
+        watchdog_resolver=lambda _: watchdogs(),
+    )
+    try:
+        await engine.observe_source_activity(speech_observed=True, observed_at_monotonic_s=400)
+        await engine.handle_stream_input(stream_input(ledger, 2, 6))
+        await engine.handle_owned_vad_event(first)
+        await engine.handle_stream_input(stream_input(ledger, 6, 10))
+        assert session.stream is not None
+        session.emit(STTRecognitionUnit(RecognitionUnitIdentity(session.stream, uuid4(), 1), "final"))
+        await wait_until(lambda: any(isinstance(e, STTRecognitionUnitTerminal) for e in emitted))
+        finals = [event for event in emitted if isinstance(event, STTRecognitionUnitTerminal)]
+        assert finals[0].unit.estimated_last_speech_at is None
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "abort",
+        "source_discontinuity",
+        "provider_epoch",
+        "capture_epoch",
+        "capture_epoch_with_speech",
+        "activation",
+        "settings",
+    ],
+)
+async def test_independent_new_stream_does_not_reuse_retired_speech(boundary: str) -> None:
+    ledger = PeerAudioSegmentLedger(activation_generation=3, settings=settings("gemini_transcribe"))
+    first, _, end = segment_events(ledger, start_sample=0, now=100)
+    sessions: list[ControlledStreamSession] = []
+    emitted: list[STTProviderTurnEvent] = []
+
+    async def factory(_settings, _epoch):
+        session = ControlledStreamSession()
+        sessions.append(session)
+        return session
+
+    engine = ScopedRecognitionEngine(
+        factory,
+        event_sink=emitted.append,
+        watchdog_resolver=lambda _: watchdogs(),
+    )
+    try:
+        await engine.handle_stream_input(stream_input(ledger, 2, 6, speech_observed=True))
+        await engine.handle_owned_vad_event(first)
+        await engine.handle_owned_vad_event(end)
+        old_stream = sessions[0].stream
+        assert old_stream is not None
+        if boundary == "abort":
+            await engine.abort(reason="toggle_off")
+        elif boundary == "source_discontinuity":
+            await engine.handle_stream_input(
+                OwnedStreamInput(
+                    CaptureStreamInput(
+                        np.empty((0,), dtype=np.float32),
+                        (),
+                        boundary_reason="source_discontinuity",
+                    ),
+                    ledger,
+                    ledger.settings,
+                    ledger.activation_generation,
+                )
+            )
+        elif boundary == "provider_epoch":
+            sessions[0].emit(
+                STTProviderEpochEnded(old_stream.provider_epoch_id, orderly=True, reason="closed")
+            )
+            await wait_until(lambda: engine._session is None)
+        successor_ledger = PeerAudioSegmentLedger(
+            activation_generation=4 if boundary == "activation" else 3,
+            settings=(
+                settings("gemini_transcribe", signature="next")
+                if boundary == "settings"
+                else ledger.settings
+            ),
+        )
+        successor_capture = replace(
+            span(2, 10, 14),
+            capture_epoch=2 if boundary.startswith("capture_epoch") else 1,
+        )
+        successor = successor_ledger.observe_vad_event(
+            SpeechStart(
+                uuid4(),
+                np.empty((0,), dtype=np.float32),
+                np.full(4, 0.2, dtype=np.float32),
+                chunk_capture=(successor_capture,),
+            ),
+            now_monotonic_s=200,
+        )
+        if boundary == "capture_epoch_with_speech":
+            await engine.handle_stream_input(
+                OwnedStreamInput(
+                    CaptureStreamInput(
+                        np.full(4, 0.2, dtype=np.float32),
+                        (successor_capture,),
+                        speech_observed=True,
+                    ),
+                    successor_ledger,
+                    successor_ledger.settings,
+                    successor_ledger.activation_generation,
+                )
+            )
+        await engine.handle_owned_vad_event(successor)
+        session = sessions[-1]
+        assert session.stream is not None
+        assert session.stream != old_stream
+        session.emit(STTRecognitionUnit(RecognitionUnitIdentity(old_stream, uuid4(), 1), "stale"))
+        session.emit(
+            STTRecognitionUnit(RecognitionUnitIdentity(session.stream, uuid4(), 1), "current")
+        )
+        await wait_until(lambda: any(isinstance(e, STTRecognitionUnitTerminal) for e in emitted))
+        finals = [event for event in emitted if isinstance(event, STTRecognitionUnitTerminal)]
+        assert [(event.unit.text, event.unit.estimated_last_speech_at) for event in finals] == [
+            ("current", 14 / 16000 if boundary == "capture_epoch_with_speech" else None)
+        ]
     finally:
         await engine.close()

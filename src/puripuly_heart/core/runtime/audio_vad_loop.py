@@ -409,7 +409,11 @@ async def run_audio_vad_loop(
                         gate_stream_blocked = False
                         real_samples = sum(span.normalized_sample_count for span in chunk_capture)
                         await handle_stream_input(
-                            CaptureStreamInput(chunk=chunk[:real_samples], capture=chunk_capture)
+                            CaptureStreamInput(
+                                chunk=chunk[:real_samples],
+                                capture=chunk_capture,
+                                speech_observed=speech_observed,
+                            )
                         )
                 for event in events:
                     await _dispatch(event)
