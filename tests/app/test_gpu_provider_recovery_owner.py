@@ -392,3 +392,63 @@ def test_owner_declares_recovery_lifecycle_policy() -> None:
         "cancellation_policy": "propagate cancellation after prepared callback cleanup",
         "shutdown_policy": "no background task or external resource is retained",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry_required", [False, True])
+async def test_idle_application_retry_resets_failed_runtime_without_restarting_capture(
+    retry_required,
+):
+    from puripuly_heart.app.services.gpu_provider_recovery_application import (
+        GpuProviderRecoveryApplicationOwner,
+        GpuProviderRecoveryApplicationRequest,
+    )
+
+    events = []
+    runtime = RuntimeStub(
+        snapshot=_snapshot(channels=frozenset(), retry_required=retry_required), events=events
+    )
+    runtime.release.set()
+
+    async def no_capture_action(*_args):
+        pytest.fail("idle recovery must not start a capture channel")
+
+    def no_capture_factory(*_args):
+        pytest.fail("idle recovery must not construct a capture channel")
+
+    async def quiesce(channels):
+        assert channels == ()
+
+    owner = GpuProviderRecoveryApplicationOwner(
+        recovery_owner=GpuProviderRecoveryOwner(),
+        runtime_provider=lambda: runtime,
+        pending_provider=lambda: frozenset(),
+        pending_clear=lambda channels: events.append(("cleared", channels)),
+        failure_sink=lambda reason: pytest.fail(reason),
+        runtime_state_sink=lambda snapshot: None,
+        quiesce=quiesce,
+        self_owner_factory=no_capture_factory,
+        peer_owner_provider=no_capture_factory,
+        self_state_sink=no_capture_factory,
+        ensure_self_switch=no_capture_action,
+        refresh_self=no_capture_action,
+        refresh_peer=no_capture_action,
+    )
+    request = GpuProviderRecoveryApplicationRequest(
+        device_id="vk:0",
+        reason="manual_retry",
+        self_gpu_selected=True,
+        peer_gpu_selected=True,
+        self_desired=False,
+        peer_enabled=False,
+        self_config_factory=no_capture_factory,
+        peer_config_factory=no_capture_factory,
+        self_request_factory=no_capture_factory,
+        peer_request_factory=no_capture_factory,
+    )
+    result = await owner.recover(lambda: request)
+    assert result.status == ("applied" if retry_required else "skipped")
+    assert len(runtime.requests) == int(retry_required)
+    if retry_required:
+        assert runtime.requests[0].channels == ()
+        assert ("cleared", frozenset()) in events

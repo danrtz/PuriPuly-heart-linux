@@ -118,7 +118,32 @@ These short functional checks used public speech samples and simple conversation
 
 CPU and GPU produced the same Japanese speech transcription and preserved the meaning of both translation samples. Translation times exclude first-time model/prefix preparation. First translation preparation took approximately 1.28 seconds on Vulkan and 5.19 seconds on CPU in this test. Other audio, message lengths, hardware and simultaneous games change these results.
 
-The full Python suite passed 6,720 tests with 53 skipped. Native validation passed 10 speech-worker and 252 overlay tests. Follow-up regressions cover the final capture-startup, device-selection, peer-language labels and OSC-transition fixes. The installed desktop launcher, saved settings, real microphone start/stop, caption controls and credential storage were also checked. Physical headset and account-backed cloud services remain outside these completed checks.
+The full Python suite passed 6,751 tests with 53 skipped after the stability fixes below. Native validation passed 10 speech-worker and 252 overlay tests. Regressions cover capture startup, device selection, peer-language labels, OSC transitions and failure recovery. The installed desktop launcher, saved settings, real microphone start/stop, caption controls and credential storage were also checked. Physical headset and account-backed cloud services remain outside these completed checks.
+
+### Stability pass — October 3, 2026
+
+Failure injection reproduced and fixed five lifecycle problems:
+
+- Restart GPU now clears a failed worker state even when the failure has stopped both capture channels. It leaves capture stopped until explicitly enabled again.
+- OSC shutdown cancels blocked discovery instead of waiting indefinitely.
+- Reapplying a manual OSC endpoint retries its receiver after another program releases the port.
+- Clipboard shutdown terminates owned helper processes even when their parent has already exited, preventing a blocked pipe from hanging cleanup.
+- Desktop caption operations tolerate an X11 window disappearing between lookup and use.
+
+The longer translation run also exposed unnecessary RAM growth from llama.cpp's default 8 GiB historical prompt-cache budget. The server now uses `--cache-ram 0`, while retaining prompt caching in the three resident slots and the application's disk prefix cache. Across 24 simultaneous self/peer utterance pairs (48 outputs), the last eight server RSS samples stayed at about 2,136 MiB with only 4 KiB growth; the default-cache run grew from 3,796 to 4,262 MiB over the same final eight pairs. Median recognition-to-translation latency was 0.397 s versus 0.402 s, with all outputs succeeding and no orphaned workers after shutdown. These figures describe server RAM, not GPU VRAM.
+
+| Check | Observed result |
+| --- | --- |
+| Host/control lifecycle | 834 queries across four host lifetimes; concurrent queries, duplicate-launch refusal, idempotent setting changes, rejected invalid settings and restart after an intentional test-host kill passed. |
+| Damaged settings | Truncated JSON and a future settings version were rejected at startup; original files remained intact and no live control endpoint remained. |
+| Audio lifecycle | 12 generated-silence capture cycles, three per-app stream replacements, missing-device handling and forced helper exit passed. Test resources were removed and default audio routes stayed unchanged. |
+| Speech lifecycle | Repeated CPU/GPU self and peer sessions, simultaneous utterances, live provider handoffs, rapid cancellation and real worker-kill/recovery passed. Stopping capture returned to 11 file descriptors, four async tasks and zero open fixture sources. |
+| Desktop captions | Four launches verified transparency, placement and click-through, including recovery after an owned caption process was killed. A real destroyed X11 window was handled without exceptions. |
+| Native VR captions | Five isolated simulated-headset runs and failures involving runtime/service absence, bridge disconnection and runtime loss exited correctly with no orphaned child processes. |
+| OSC | 20 rapid mode-change cycles plus port contention and blocked-discovery tests passed; Off cleared pending pages and peer captions stayed out of the chatbox. |
+| Installed GUI idle | Over 60 seconds, the Python host used about 0.77% of one CPU core and the Flet child used 0%; file-descriptor counts stayed at 20/30 and combined RSS changed by about 24 KiB. Capture remained off. |
+
+These bounded checks use isolated settings, public recorded speech and generated silence. They do not establish physical-headset compatibility, cloud-account operation or multi-day reliability. Detailed local probe results are retained under the ignored `diagnostics/stability/` directory.
 
 ## Updates and removal
 

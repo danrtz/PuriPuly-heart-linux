@@ -116,3 +116,41 @@ async def test_closed_native_port_does_not_move_or_show_another_window():
     assert not result.confirmed
     assert api.bounds == (0, 0, 800, 600)
     assert not api.visible
+
+
+@pytest.mark.parametrize("error_name", ["BadWindow", "BadDrawable"])
+@pytest.mark.parametrize(
+    "method,args,expected",
+    [
+        ("extended_style", (42,), 0),
+        ("set_click_through", (42, True), None),
+        ("set_topmost_no_activate", (42,), (False, None)),
+        ("show", (42,), None),
+        ("apply_bounds", (42, (0, 0, 100, 100)), None),
+        ("window_bounds", (42,), None),
+    ],
+)
+def test_native_calls_handle_a_window_destroyed_between_checks(error_name, method, args, expected):
+    from Xlib import error
+
+    from puripuly_heart.ui.linux_window_zorder import X11WindowApi
+
+    failure_type = getattr(error, error_name)
+    failure = failure_type.__new__(failure_type)
+    failure._data = {}
+
+    class DestroyedWindow:
+        def __getattr__(self, name):
+            def fail(*args, **kwargs):
+                raise failure
+
+            return fail
+
+    api = object.__new__(X11WindowApi)
+    from types import SimpleNamespace
+
+    api._display = SimpleNamespace(intern_atom=lambda name: 1)
+    api._window = lambda xid: DestroyedWindow()
+    api.is_window_visible = lambda xid: True
+    api._property = lambda *args: None
+    assert getattr(api, method)(*args) == expected

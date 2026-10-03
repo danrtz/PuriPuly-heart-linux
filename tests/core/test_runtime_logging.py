@@ -303,7 +303,10 @@ def test_configured_main_logging_drops_exception_and_stack_details_before_live_a
         except RuntimeError:
             root_logger.exception("provider call failed safely")
         root_logger.error("stack-only failure breadcrumb", stack_info=True)
-        _wait_for_log_text(sinks.log_file, "untrusted_record_redacted")
+        _wait_until(
+            lambda: sinks.log_file.read_text(encoding="utf-8").count("untrusted_record_redacted")
+            == 3
+        )
 
         live = stream.getvalue()
         persisted = sinks.log_file.read_text(encoding="utf-8")

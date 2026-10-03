@@ -182,6 +182,8 @@ def build_gemma_server_command(
         "--cache-type-v",
         "f16",
         "--cache-prompt",
+        "--cache-ram",
+        "0",
         "--reasoning",
         "off",
         "--reasoning-budget",

@@ -325,7 +325,7 @@ class GpuRuntimeInteractionOwner:
         channels: frozenset[GpuASRChannel],
     ) -> None:
         self.clear_pending(*channels)
-        self.set_ui_state("ready", origin="manual_retry")
+        self.set_ui_state("ready" if channels else self.idle_ui_state(), origin="manual_retry")
 
     def _provisioning_state(self) -> LocalASRGpuProvisioningState:
         state = self.state_provider()

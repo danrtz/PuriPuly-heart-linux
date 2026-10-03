@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import wraps
+
 from Xlib import X, Xatom, display, error, protocol
 from Xlib.ext import shape
 
@@ -9,6 +11,20 @@ from puripuly_heart.ui.desktop_window_zorder import (
     WindowEnumerationResult,
     WindowsWindowZOrderPort,
 )
+
+
+def _ignore_destroyed_window(default=None):
+    def decorate(method):
+        @wraps(method)
+        def call(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except error.BadWindow, error.BadDrawable:
+                return default
+
+        return call
+
+    return decorate
 
 
 class X11WindowApi:
@@ -79,7 +95,7 @@ class X11WindowApi:
             geometry = window.get_geometry()
             position = self._root.translate_coords(window, 0, 0)
             return (position.x, position.y, geometry.width, geometry.height)
-        except error.BadWindow:
+        except error.BadWindow, error.BadDrawable:
             return None
 
     def process_id(self, xid: int) -> int | None:
@@ -89,6 +105,7 @@ class X11WindowApi:
         except error.BadWindow:
             return None
 
+    @_ignore_destroyed_window(0)
     def extended_style(self, xid: int) -> int:
         window = self._window(xid)
         states = self._property(window, "_NET_WM_STATE")
@@ -107,6 +124,7 @@ class X11WindowApi:
                 result |= _WS_EX_TRANSPARENT
         return result
 
+    @_ignore_destroyed_window()
     def set_click_through(self, xid: int, enabled: bool) -> None:
         window = self._window(xid)
         geometry = window.get_geometry()
@@ -120,6 +138,7 @@ class X11WindowApi:
         window.shape_rectangles(shape.SO.Set, shape.SK.Input, X.Unsorted, 0, 0, rectangles)
         self._display.sync()
 
+    @_ignore_destroyed_window((False, None))
     def set_topmost_no_activate(self, xid: int) -> tuple[bool, int | None]:
         window = self._window(xid)
         if window.get_attributes().override_redirect:
@@ -137,10 +156,12 @@ class X11WindowApi:
         self._display.flush()
         return True, None
 
+    @_ignore_destroyed_window()
     def show(self, xid) -> None:
         self._window(xid).map()
         self._display.sync()
 
+    @_ignore_destroyed_window()
     def apply_bounds(self, xid, bounds) -> None:
         window = self._window(xid)
         if not self.is_window_visible(xid):

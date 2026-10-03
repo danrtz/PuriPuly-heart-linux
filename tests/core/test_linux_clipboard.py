@@ -38,6 +38,7 @@ def test_missing_wayland_is_an_actionable_failure(monkeypatch):
     watcher.stop()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX subprocess lifecycle")
 def test_wayland_watcher_delivers_changes_and_reaps_child(tmp_path, monkeypatch):
     import threading
 
@@ -71,3 +72,44 @@ else:
     finally:
         watcher.stop()
     assert process.poll() is not None
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX subprocess lifecycle")
+def test_stop_closes_watch_helper_after_clipboard_owner_exits(tmp_path, monkeypatch):
+    import contextlib
+    import signal
+    import threading
+
+    import psutil
+
+    helper = tmp_path / "wl-paste"
+    helper.write_text("""#!/usr/bin/python3
+import pathlib, subprocess, sys, time
+if '--watch' not in sys.argv:
+    print('initial', end='')
+else:
+    child = subprocess.Popen([sys.executable, '-c', 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)'])
+    pathlib.Path(__file__).with_suffix('.pid').write_text(str(child.pid))
+    time.sleep(0.3)
+""")
+    helper.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("WAYLAND_DISPLAY", "isolated-test")
+    watcher = LinuxClipboardWatcher(lambda _: None)
+    watcher.start()
+    process = watcher._process
+    process.wait(timeout=3)
+    cleanup = threading.Thread(target=watcher.stop, daemon=True)
+    try:
+        cleanup.start()
+        cleanup.join(timeout=3)
+        assert not cleanup.is_alive(), "Clipboard cleanup blocked on an orphaned helper"
+        with contextlib.suppress(psutil.NoSuchProcess):
+            assert (
+                psutil.Process(int(helper.with_suffix(".pid").read_text())).status()
+                == psutil.STATUS_ZOMBIE
+            )
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        cleanup.join(timeout=3)

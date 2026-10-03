@@ -121,7 +121,9 @@ class GpuProviderRecoveryApplicationOwner:
                 recovered_channels,
             ),
             on_failure=lambda: self.failure_sink(request.reason),
-            skip_if_no_channels=request.reason == "manual_retry",
+            skip_if_no_channels=(
+                request.reason == "manual_retry" and not runtime.snapshot.gpu.retry_required
+            ),
         )
 
     @staticmethod

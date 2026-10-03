@@ -270,6 +270,8 @@ class OscControlIntegrationOwner:
         if self._configured_connection == key and (
             mode == "manual" or self.query_runtime.started or self._automatic_query_inflight()
         ):
+            if mode == "manual" and self._receiver_owner.receiver is None:
+                await self._receiver_owner.ensure_receiver()
             self._ensure_publisher()
             self._publish_delta()
             return
@@ -369,7 +371,7 @@ class OscControlIntegrationOwner:
             return
         self.stop_ingress()
         self._closed = True
-        await self.wait_automatic_query_start()
+        await self._cancel_automatic_query_start()
         await self._scope.close()
         await self.query_runtime.stop()
         await self.router.close()

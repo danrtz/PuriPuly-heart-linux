@@ -34,6 +34,7 @@ def test_cpu_profile_preserves_fixed_common_and_mtp_contract(tmp_path: Path) -> 
     assert _values(command, "--ubatch-size") == ["512"]
     assert _values(command, "--cache-type-k") == ["f16"]
     assert _values(command, "--cache-type-v") == ["f16"]
+    assert _values(command, "--cache-ram") == ["0"]
     assert "--cache-prompt" in command
     assert _values(command, "--reasoning") == ["off"]
     assert _values(command, "--reasoning-budget") == ["0"]
@@ -94,6 +95,7 @@ def test_gpu_profile_is_vulkan_full_offload_without_mtp(tmp_path: Path) -> None:
     assert _values(command, "--prio") == ["-1"]
     assert _values(command, "--cache-type-k") == ["f16"]
     assert _values(command, "--cache-type-v") == ["f16"]
+    assert _values(command, "--cache-ram") == ["0"]
     assert _values(command, "--ctx-size") == ["4608"]
     assert _values(command, "--parallel") == ["3"]
     assert "--swa-full" not in command
