@@ -269,13 +269,17 @@ fn normalize3(vector: [f32; 3]) -> Option<[f32; 3]> {
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum OpenVrError {
-    #[error("openvr init failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR initialization failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr init failed: {0}"))]
     Init(String),
-    #[error("openvr output adapter selection failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR graphics adapter selection failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr output adapter selection failed: {0}"))]
     AdapterSelection(String),
-    #[error("openvr texture submission failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR texture submission failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr texture submission failed: {0}"))]
     Submit(String),
-    #[error("openvr calibration failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR calibration failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr calibration failed: {0}"))]
     Calibration(String),
 }
 
@@ -284,7 +288,8 @@ pub enum OpenVrError {
 enum OpenVrBackgroundInitError {
     #[error("SteamVR runtime is not running")]
     NoServerForBackgroundApp,
-    #[error("openvr init failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR initialization failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr init failed: {0}"))]
     Init(String),
 }
 
@@ -297,7 +302,8 @@ pub(crate) enum OpenVrStartupPreflightError {
     SteamVrNotRunning,
     #[error("VR headset not found")]
     HmdNotFound,
-    #[error("openvr init failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR initialization failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr init failed: {0}"))]
     Init(String),
 }
 
@@ -583,7 +589,9 @@ impl OverlayFrameSubmitter for OpenVrOverlay {
 enum OpenVrBackend {
     #[cfg(windows)]
     Windows(WindowsOpenVrOverlay),
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    Linux(crate::linux_xr::LinuxXrOverlay),
+    #[cfg(not(any(windows, target_os = "linux")))]
     Test(FakeOpenVr),
 }
 
@@ -634,7 +642,13 @@ impl OpenVrBackend {
             return WindowsOpenVrOverlay::new(overlay_instance_id).map(Self::Windows);
         }
 
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            let _ = overlay_instance_id;
+            return crate::linux_xr::LinuxXrOverlay::new().map(Self::Linux);
+        }
+
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = overlay_instance_id;
             Ok(Self::Test(FakeOpenVr::default()))
@@ -645,7 +659,12 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.output_adapter.clone(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(_) => OpenVrOutputAdapter {
+                identity: AdapterIdentity::Unavailable,
+                requested_identity: AdapterIdentity::Unavailable,
+            },
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(_) => OpenVrOutputAdapter {
                 identity: AdapterIdentity::Test,
                 requested_identity: AdapterIdentity::Test,
@@ -657,19 +676,23 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.submit_frame(frame),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.submit_frame(frame),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(openvr) => submit_texture(openvr, frame),
         }
     }
 
     fn apply_calibration(&mut self, calibration: &OverlayCalibration) -> Result<(), OpenVrError> {
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         let _ = calibration;
 
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.apply_calibration(calibration),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.apply_calibration(calibration),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(_) => Ok(()),
         }
     }
@@ -678,7 +701,9 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.reanchor_spatial_locked(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.reanchor_spatial_locked(),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(openvr) => openvr.reanchor_spatial_locked(),
         }
     }
@@ -687,7 +712,9 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.set_overlay_visible(visible),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.set_overlay_visible(visible),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(openvr) => openvr.set_overlay_visible(visible),
         }
     }
@@ -696,7 +723,9 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.observed_overlay_visible(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.observed_overlay_visible(),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(openvr) => openvr.observed_overlay_visible(),
         }
     }
@@ -705,7 +734,9 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.poll_runtime_events(max_events),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.poll_runtime_events(max_events),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(openvr) => openvr.poll_runtime_events(max_events),
         }
     }
@@ -714,7 +745,9 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.display_refresh_rate_hz(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(openvr) => openvr.display_refresh_rate_hz(),
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(_) => None,
         }
     }
@@ -723,7 +756,9 @@ impl OpenVrBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(openvr) => openvr.sample_frame_timing(),
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            Self::Linux(_) => None,
+            #[cfg(not(any(windows, target_os = "linux")))]
             Self::Test(_) => None,
         }
     }

@@ -109,6 +109,7 @@ class RuntimePipelineOscInputs:
     chatbox_clear: bool
     chatbox_max_chars: int
     vrc_mic_intercept: bool
+    enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +155,7 @@ def runtime_pipeline_inputs_from_vnext(
             chatbox_clear=osc.chatbox_clear,
             chatbox_max_chars=osc.chatbox_max_chars,
             vrc_mic_intercept=osc.vrc_mic_intercept,
+            enabled=osc.connection_mode != "off",
         ),
         translation_runtime=project_translation_runtime_settings_from_vnext(settings),
         llm_runtime_input=runtime_resolution_input_from_vnext(settings),
@@ -888,6 +890,7 @@ async def _compose_runtime_pipeline(
         chatbox_address=inputs.osc.chatbox_address,
         chatbox_send=inputs.osc.chatbox_send,
         chatbox_clear=inputs.osc.chatbox_clear,
+        enabled=inputs.osc.enabled,
     )
     resources.sender = sender
     osc = ChatboxPaginator(

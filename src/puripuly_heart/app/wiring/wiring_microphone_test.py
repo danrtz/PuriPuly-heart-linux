@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 
@@ -18,6 +19,17 @@ from puripuly_heart.core.audio.source import (
     determine_self_mic_capture_channels,
     observe_microphone_test_route,
 )
+
+if sys.platform.startswith("linux"):
+    from puripuly_heart.core.audio.linux_source import (
+        LinuxMicrophoneAudioSource as SoundDeviceAudioSource,
+    )
+    from puripuly_heart.core.audio.linux_source import (
+        determine_linux_mic_capture_channels as determine_self_mic_capture_channels,
+    )
+    from puripuly_heart.core.audio.linux_source import (
+        observe_linux_microphone_test_route as observe_microphone_test_route,
+    )
 from puripuly_heart.core.clock import Clock
 from puripuly_heart.core.runtime.self_capture import SelfCaptureSessionOwner
 

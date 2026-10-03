@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ntpath
+import os
+import sys
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -23,7 +26,11 @@ class PsutilCurrentUserProcessSnapshots:
         for process in psutil.process_iter(["pid", "exe", "username", "create_time"]):
             try:
                 info = process.info
-                executable_path = info.get("exe")
+                executable_path = (
+                    linux_process_executable(process)
+                    if sys.platform.startswith("linux") and hasattr(process, "exe")
+                    else info.get("exe")
+                )
                 create_time = info.get("create_time")
                 if not isinstance(executable_path, str) or create_time is None:
                     instance_id = None
@@ -138,6 +145,22 @@ class _UnavailableProcess:
 
     def is_running(self) -> bool:
         return False
+
+
+def linux_process_executable(process) -> str:
+    executable = process.exe()
+    if "wine" in os.path.basename(executable).lower():
+        for argument in process.cmdline():
+            if not argument.lower().endswith(".exe"):
+                continue
+            if argument.startswith("/"):
+                return argument
+            drive, path = ntpath.splitdrive(argument)
+            if drive.lower() == "z:":
+                return path.replace("\\", "/")
+            if drive and path.startswith("\\"):
+                return argument
+    return executable
 
 
 def _import_psutil():  # noqa: ANN201

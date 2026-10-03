@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from importlib import resources
 from typing import Any
 
@@ -15,6 +16,13 @@ _DEFAULT_LOCALE = "en"
 _FALLBACK_LOCALE = "en"
 _LOCALE_DISPLAY_ORDER = ("en", "ko", "zh-CN", "ja", "ru")
 _LOCALE_DISPLAY_RANK = {code: index for index, code in enumerate(_LOCALE_DISPLAY_ORDER)}
+
+_LINUX_KEYS = {
+    "settings.overlay.failure.steamvr_not_installed": "settings.overlay.failure.openxr_not_installed",
+    "settings.overlay.failure.steamvr_not_running": "settings.overlay.failure.openxr_not_running",
+    "settings.overlay.failure.openvr_init_failed": "settings.overlay.failure.openxr_init_failed",
+    "dashboard.overlay_session_fallback_desktop": "dashboard.openxr_session_fallback_desktop",
+}
 
 _current_locale = _DEFAULT_LOCALE
 _bundles: dict[str, dict[str, str]] = {}
@@ -105,6 +113,8 @@ def get_locale() -> str:
 
 
 def t(key: str, *, default: str | None = None, **params: Any) -> str:
+    if sys.platform.startswith("linux"):
+        key = _LINUX_KEYS.get(key, key)
     value = _load_bundle(_current_locale).get(key)
     if value is None:
         value = _load_bundle(_FALLBACK_LOCALE).get(key)
@@ -126,6 +136,8 @@ def t_for_locale(
     **params: Any,
 ) -> str:
     resolved_locale = resolve_locale(locale)
+    if sys.platform.startswith("linux"):
+        key = _LINUX_KEYS.get(key, key)
     value = _load_bundle(resolved_locale).get(key)
     if value is None:
         value = _load_bundle(_FALLBACK_LOCALE).get(key)

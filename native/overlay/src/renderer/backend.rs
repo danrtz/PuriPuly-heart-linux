@@ -8,7 +8,6 @@ use std::ffi::c_void;
 #[cfg(windows)]
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
-#[cfg(windows)]
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
@@ -90,7 +89,6 @@ use crate::presentation::{
     AdapterIdentity, AdapterMatch, PresentationBackend, ReadinessCancellation, ReadinessOutcome,
 };
 
-#[cfg(windows)]
 const GPU_READINESS_TIMEOUT: Duration = Duration::from_millis(50);
 
 #[cfg(windows)]
@@ -179,6 +177,10 @@ enum TextFormatCollectionRoute {
     FallbackToSystem,
 }
 
+#[cfg(target_os = "linux")]
+#[path = "linux.rs"]
+mod linux;
+
 pub struct CaptionRenderer {
     policy: CaptionLayoutPolicy,
     presentation: RefCell<CaptionPresentation>,
@@ -233,6 +235,8 @@ impl CaptionRenderer {
                     )
                 })
             }
+            #[cfg(target_os = "linux")]
+            RenderBackend::Linux(_) => None,
             RenderBackend::Test(_) => None,
         }
     }
@@ -483,6 +487,34 @@ pub struct RenderedFrame {
 }
 
 impl RenderedFrame {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn pixels(&self) -> Option<Arc<Vec<u8>>> {
+        match &self.texture {
+            TextureHandle::Pixels(pixels) => Some(pixels.clone()),
+            _ => None,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn write_png(&self, path: &std::path::Path) -> Result<(), CaptionRenderError> {
+        let pixels = self
+            .pixels()
+            .ok_or_else(|| CaptionRenderError::Draw("frame has no pixel surface".into()))?;
+        let surface = cairo::ImageSurface::create_for_data(
+            (*pixels).clone(),
+            cairo::Format::ARgb32,
+            self.width as i32,
+            self.height as i32,
+            self.width as i32 * 4,
+        )
+        .map_err(|error| CaptionRenderError::Draw(error.to_string()))?;
+        let mut output = std::fs::File::create(path)
+            .map_err(|error| CaptionRenderError::Draw(error.to_string()))?;
+        surface
+            .write_to_png(&mut output)
+            .map_err(|error| CaptionRenderError::Draw(error.to_string()))
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }
@@ -521,6 +553,8 @@ impl RenderedFrame {
 enum TextureHandle {
     #[cfg(windows)]
     D3D11(ID3D11Texture2D),
+    #[cfg(target_os = "linux")]
+    Pixels(Arc<Vec<u8>>),
     Test(TestTextureHandle),
 }
 
@@ -529,6 +563,8 @@ impl TextureHandle {
         match self {
             #[cfg(windows)]
             Self::D3D11(texture) => texture.as_raw(),
+            #[cfg(target_os = "linux")]
+            Self::Pixels(pixels) => pixels.as_ptr() as *mut c_void,
             Self::Test(texture) => texture.as_ptr(),
         }
     }
@@ -562,6 +598,8 @@ impl TestTextureHandle {
 enum RenderBackend {
     #[cfg(windows)]
     Windows(WindowsCaptionRenderer),
+    #[cfg(target_os = "linux")]
+    Linux(linux::LinuxCaptionRenderer),
     Test(TestCaptionRenderer),
 }
 
@@ -574,7 +612,13 @@ impl RenderBackend {
             return WindowsCaptionRenderer::new(output_adapter).map(Self::Windows);
         }
 
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            let _ = output_adapter;
+            return linux::LinuxCaptionRenderer::new().map(Self::Linux);
+        }
+
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             Err(CaptionRenderError::Init(
                 "the Direct3D11 caption renderer is only available on Windows".into(),
@@ -600,6 +644,10 @@ impl RenderBackend {
             Self::Windows(renderer) => {
                 renderer.render(policy, presentation, blocks, width, height, debug_overlay)
             }
+            #[cfg(target_os = "linux")]
+            Self::Linux(renderer) => {
+                renderer.render(policy, presentation, blocks, width, height, debug_overlay)
+            }
             Self::Test(renderer) => {
                 let _ = presentation;
                 let layout =
@@ -613,6 +661,8 @@ impl RenderBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(renderer) => renderer.presentation_backend,
+            #[cfg(target_os = "linux")]
+            Self::Linux(_) => PresentationBackend::OpenXrVulkan,
             Self::Test(_) => PresentationBackend::Test,
         }
     }
@@ -621,6 +671,8 @@ impl RenderBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(renderer) => renderer.adapter_identity,
+            #[cfg(target_os = "linux")]
+            Self::Linux(_) => AdapterIdentity::Unavailable,
             Self::Test(_) => AdapterIdentity::Test,
         }
     }
@@ -629,6 +681,8 @@ impl RenderBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(renderer) => renderer.outstanding_query.borrow().is_some(),
+            #[cfg(target_os = "linux")]
+            Self::Linux(_) => false,
             Self::Test(_) => false,
         }
     }
@@ -640,6 +694,8 @@ impl RenderBackend {
         match self {
             #[cfg(windows)]
             Self::Windows(renderer) => renderer.prepare_frame_for_submission(cancellation).await,
+            #[cfg(target_os = "linux")]
+            Self::Linux(_) => if cancellation.is_cancelled() { ReadinessOutcome::Cancelled } else { ReadinessOutcome::Ready },
             Self::Test(_) if cancellation.is_cancelled() => ReadinessOutcome::Cancelled,
             Self::Test(_) => ReadinessOutcome::Ready,
         }

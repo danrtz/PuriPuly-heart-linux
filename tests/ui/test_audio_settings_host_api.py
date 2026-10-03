@@ -22,6 +22,9 @@ WINDOWS_MME_HOST_API = "MME"
 
 
 def _fake_sounddevice(monkeypatch: pytest.MonkeyPatch, *, hostapis, devices=()) -> None:
+    from puripuly_heart.ui.components.settings import audio_settings
+
+    monkeypatch.setattr(audio_settings, "sys", SimpleNamespace(platform="win32"))
     monkeypatch.setitem(
         sys.modules,
         "sounddevice",
@@ -198,3 +201,25 @@ def test_host_api_selection_resets_selected_microphone(
 
     assert view._audio_settings.host_api == WINDOWS_WASAPI_COMPATIBILITY_HOST_API
     assert view._audio_settings.microphone == ""
+
+
+def test_linux_options_show_readable_names_with_stable_device_ids(monkeypatch):
+    from puripuly_heart.core.audio import linux_inventory
+    from puripuly_heart.ui.components.settings import audio_settings
+
+    monkeypatch.setattr(audio_settings, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(
+        linux_inventory,
+        "audio_devices",
+        lambda **kwargs: (
+            linux_inventory.PulseDevice(42, "stable-device-id", "VR Headset", 1, 44100),
+        ),
+    )
+    settings = AudioSettings()
+    assert [option.value for option in settings._get_host_api_options()] == [
+        "",
+        host_api_config.LINUX_AUDIO_HOST_API,
+    ]
+    for options in (settings._get_microphone_options(), settings._get_desktop_output_options()):
+        assert options[1].value == "stable-device-id"
+        assert options[1].label == "VR Headset"

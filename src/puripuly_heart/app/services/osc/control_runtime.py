@@ -212,6 +212,7 @@ class OscControlIntegrationOwner:
 
     def stop_ingress(self) -> None:
         self._accepting_ingress = False
+        self._set_sender_enabled(False)
         self.router.set_ingress_enabled(False)
         self._receiver_owner.stop_ingress()
 
@@ -236,6 +237,8 @@ class OscControlIntegrationOwner:
                 )
             elif key[1] != "off":
                 self._ensure_publisher()
+            else:
+                self._set_sender_enabled(False)
         await self._receiver_owner.configure(enabled=enabled)
         if self._mode != "off" and not self._automatic_query_inflight():
             self._publish_delta()
@@ -259,6 +262,7 @@ class OscControlIntegrationOwner:
 
         key = (host, mode, int(send_port), int(receive_port))
         if self._configured_connection == key and mode == "off":
+            self._set_sender_enabled(False)
             await self.router.suspend_ingress()
             if self._publisher is not None:
                 self._publisher.close()
@@ -270,6 +274,8 @@ class OscControlIntegrationOwner:
             self._publish_delta()
             return
 
+        self._set_sender_enabled(False)
+        self._mode = "off"
         await self.router.suspend_ingress()
         await self._cancel_automatic_query_start()
         self._query_failure = None
@@ -418,6 +424,12 @@ class OscControlIntegrationOwner:
         except Exception:
             return False
 
+    def _set_sender_enabled(self, enabled: bool) -> None:
+        sender = self._sender_provider()
+        setter = getattr(sender, "set_enabled", None)
+        if callable(setter):
+            setter(enabled)
+
     async def _set_sender_destination(self, host: str, port: int) -> None:
         sender = self._sender_provider()
         if sender is None:
@@ -426,6 +438,7 @@ class OscControlIntegrationOwner:
         if not callable(setter):
             raise RuntimeError("VRChat OSC sender does not support destination changes")
         setter(host, int(port))
+        self._set_sender_enabled(self._mode != "off" and self._accepting_ingress)
 
     def _ensure_publisher(self) -> OscStatePublisher | None:
         sender = self._sender_provider()

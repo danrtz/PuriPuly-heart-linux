@@ -1,12 +1,20 @@
+#[cfg(windows)]
 use std::env;
+#[cfg(windows)]
 use std::path::PathBuf;
 
+#[cfg(windows)]
 const PRODUCT_NAME: &str = "PuriPuly <3";
+#[cfg(windows)]
 const COMPANY_NAME: &str = "salee";
+#[cfg(windows)]
 const FILE_DESCRIPTION: &str = "PuriPuly <3 GPU Worker";
+#[cfg(windows)]
 const INTERNAL_NAME: &str = "PuriPulyHeartGpuWorker";
+#[cfg(windows)]
 const ORIGINAL_FILENAME: &str = "PuriPulyHeartGpuWorker.exe";
 
+#[cfg(windows)]
 fn version_tuple(version: &str) -> (u16, u16, u16, u16) {
     let parts: Vec<u16> = version
         .trim()
@@ -27,6 +35,7 @@ fn version_tuple(version: &str) -> (u16, u16, u16, u16) {
     (padded[0], padded[1], padded[2], padded[3])
 }
 
+#[cfg(windows)]
 fn render_version_rc(version: &str) -> String {
     assert_eq!(PRODUCT_NAME, "PuriPuly <3");
     let (major, minor, patch, build) = version_tuple(version);
@@ -73,6 +82,7 @@ fn render_version_rc(version: &str) -> String {
     )
 }
 
+#[cfg(windows)]
 fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
@@ -94,3 +104,6 @@ fn main() {
         .manifest_optional()
         .expect("failed to embed Windows version resource");
 }
+
+#[cfg(not(windows))]
+fn main() {}

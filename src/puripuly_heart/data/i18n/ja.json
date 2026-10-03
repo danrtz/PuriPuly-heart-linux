@@ -572,5 +572,9 @@
   "chatgpt_auth.error.retry": "ChatGPT へのログインに失敗しました。もう一度お試しください。",
   "provider.chatgpt.usage_limit": "ChatGPT プランの利用上限に達しました。ChatGPT の設定 > 利用量で確認できます。",
   "provider.chatgpt.not_eligible": "この ChatGPT アカウントではプランの利用ができません。",
-  "provider.chatgpt.reauth_required": "ChatGPT のログインが期限切れです。設定から再ログインしてください。"
+  "provider.chatgpt.reauth_required": "ChatGPT のログインが期限切れです。設定から再ログインしてください。",
+  "settings.overlay.failure.openxr_not_installed": "OpenXRオーバーレイのランタイムが利用できません。WiVRnまたはMonadoを使用してください。",
+  "settings.overlay.failure.openxr_not_running": "WiVRnまたはMonadoでヘッドセットを接続するか、デスクトップ字幕を選択してください。",
+  "settings.overlay.failure.openxr_init_failed": "OpenXRオーバーレイの初期化に失敗しました",
+  "dashboard.openxr_session_fallback_desktop": "VRが利用できないため、デスクトップ字幕を表示しました。"
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ntpath
 import sys
 from dataclasses import dataclass
 from typing import Callable
@@ -26,7 +27,7 @@ def probe_vrchat_osc_presence(
 ) -> VrchatOscPresence:
     if port <= 0 or port > 65535:
         return VrchatOscPresence(vrchat_running=False, osc_listening=None)
-    if process_iter is None and net_connections is None and sys.platform != "win32":
+    if process_iter is None and net_connections is None and sys.platform not in {"win32", "linux"}:
         return VrchatOscPresence(vrchat_running=False, osc_listening=None)
 
     if process_iter is None or net_connections is None:
@@ -94,7 +95,15 @@ def _collect_vrchat_pids(process_iter: Callable[..., object]) -> set[int]:
                 pid = getattr(process, "pid", None)
             if not isinstance(name, str) or not isinstance(pid, int):
                 continue
-            if name.casefold() in _VRCHAT_PROCESS_NAMES:
+            matches = name.casefold() in _VRCHAT_PROCESS_NAMES
+            if not matches and sys.platform.startswith("linux") and "wine" in name.casefold():
+                from puripuly_heart.core.audio.process_identity import linux_process_executable
+
+                matches = (
+                    ntpath.basename(linux_process_executable(process)).casefold()
+                    in _VRCHAT_PROCESS_NAMES
+                )
+            if matches:
                 pids.add(pid)
         except Exception:
             continue

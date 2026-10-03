@@ -157,12 +157,18 @@ async def test_adapter_preserves_unavailable_reason_without_resolved_target() ->
     assert resolution.reason == "ambiguous"
 
 
-def test_wiring_factory_composes_fresh_process_resolver_adapter() -> None:
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_wiring_factory_composes_fresh_process_resolver_adapter(monkeypatch, platform) -> None:
+    monkeypatch.setattr("puripuly_heart.app.wiring.wiring_composition.sys.platform", platform)
     adapter = create_peer_capture_target_resolver_adapter()
 
     assert isinstance(adapter, PeerCaptureTargetResolverAdapter)
     first = adapter.resolver_factory()
     second = adapter.resolver_factory()
     assert first is not second
-    assert type(first).__name__ == "ProcessCaptureResolver"
-    assert type(first.snapshots).__name__ == "PsutilCurrentUserProcessSnapshots"
+    assert type(first).__name__ == (
+        "LinuxProcessCaptureResolver" if platform == "linux" else "ProcessCaptureResolver"
+    )
+    assert type(first.snapshots).__name__ == (
+        "LinuxAudioProcessSnapshots" if platform == "linux" else "PsutilCurrentUserProcessSnapshots"
+    )

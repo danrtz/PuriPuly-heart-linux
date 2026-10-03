@@ -1,3 +1,5 @@
+> **Linux fork:** Native Arch/Hyprland, PipeWire, Vulkan speech recognition, local translation and OpenXR subtitles. See [Linux installation and verification](docs/Linux.md). Based on kapitalismho’s PuriPuly Heart; original attribution and AGPL-3.0 license are preserved.
+
 <p align="center">
   <img src="src/puripuly_heart/data/icons/icon.png" alt="PuriPuly — Real-Time Two-Way Voice Translator for VRChat" width="128" />
 </p>

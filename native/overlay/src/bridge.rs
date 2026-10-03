@@ -58,7 +58,7 @@ impl BridgeClient {
         config.write_buffer_size = 64 * 1024;
         config.max_write_buffer_size = 1024 * 1024 + 64 * 1024;
         let (mut stream, _response) =
-            connect_async_with_config(&manifest.bridge_url, Some(config), false)
+            connect_async_with_config(&manifest.bridge_url, Some(config), true)
                 .await
                 .map_err(|error| BridgeError::Connect(error.to_string()))?;
 

@@ -517,12 +517,14 @@ def materialize_immediate_settings_intent(
             ),
         )
     elif isinstance(intent, OscConnectionSettingsIntent):
+        send_port = intent.send_port if intent.send_port is not None else updated.intent.osc.send_port
         updated = _with_intent(
             updated,
             osc=replace(
                 updated.intent.osc,
                 connection_mode=intent.connection_mode,
-                send_port=intent.send_port,
+                port=send_port,
+                send_port=send_port,
                 receive_port=intent.receive_port,
             ),
         )

@@ -38,6 +38,30 @@ from puripuly_heart.core.overlay.process_adapter import (
 )
 
 
+@pytest.fixture(params=["win32", "linux"])
+def overlay_platform(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    name = "PuriPulyHeartOverlay.exe" if request.param == "win32" else "PuriPulyHeartOverlay"
+    monkeypatch.setattr(process_runners_module, "OVERLAY_EXECUTABLE_NAME", name)
+    monkeypatch.setattr(
+        process_runners_module,
+        "sys",
+        SimpleNamespace(platform=request.param, executable=process_runners_module.sys.executable),
+    )
+    return name
+
+
+@pytest.fixture
+def windows_overlay(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        process_runners_module, "OVERLAY_EXECUTABLE_NAME", "PuriPulyHeartOverlay.exe"
+    )
+    monkeypatch.setattr(
+        process_runners_module,
+        "sys",
+        SimpleNamespace(platform="win32", executable=process_runners_module.sys.executable),
+    )
+
+
 def _ready_script_line() -> str:
     return (
         "m=__import__('json').load(open(sys.argv[2], encoding='utf-8')); "
@@ -1929,6 +1953,7 @@ async def test_startup_exit_with_reader_failure_reaches_failed_disposition(
 
 def test_default_overlay_process_runner_uses_repository_root_after_module_extraction(
     tmp_path: Path,
+    overlay_platform: str,
 ) -> None:
     app_executable = tmp_path / "installed" / "PuriPulyHeart.exe"
 
@@ -1936,28 +1961,29 @@ def test_default_overlay_process_runner_uses_repository_root_after_module_extrac
         sys_executable=app_executable,
     )
 
-    assert packaged == app_executable.resolve().with_name("PuriPulyHeartOverlay.exe")
+    assert packaged == app_executable.resolve().with_name(overlay_platform)
     assert staged == (
         Path(process_runners_module.__file__).resolve().parents[4]
         / "build"
         / "overlay"
-        / "PuriPulyHeartOverlay.exe"
+        / overlay_platform
     )
 
 
 def test_default_overlay_process_runner_prefers_newer_packaged_sibling_over_staged_overlay(
     tmp_path: Path,
+    overlay_platform: str,
 ) -> None:
     installed_dir = tmp_path / "installed"
     installed_dir.mkdir()
     app_executable = installed_dir / "PuriPulyHeart.exe"
     app_executable.write_text("", encoding="utf-8")
 
-    packaged_sibling = installed_dir / "PuriPulyHeartOverlay.exe"
+    packaged_sibling = installed_dir / overlay_platform
     packaged_sibling.write_text("packaged", encoding="utf-8")
 
     repo_root = tmp_path / "repo"
-    staged = repo_root / "build" / "overlay" / "PuriPulyHeartOverlay.exe"
+    staged = repo_root / "build" / "overlay" / overlay_platform
     staged.parent.mkdir(parents=True)
     staged.write_text("staged", encoding="utf-8")
 
@@ -1975,17 +2001,18 @@ def test_default_overlay_process_runner_prefers_newer_packaged_sibling_over_stag
 
 def test_default_overlay_process_runner_prefers_newer_staged_overlay_over_packaged_sibling(
     tmp_path: Path,
+    overlay_platform: str,
 ) -> None:
     installed_dir = tmp_path / "installed"
     installed_dir.mkdir()
     app_executable = installed_dir / "PuriPulyHeart.exe"
     app_executable.write_text("", encoding="utf-8")
 
-    packaged_sibling = installed_dir / "PuriPulyHeartOverlay.exe"
+    packaged_sibling = installed_dir / overlay_platform
     packaged_sibling.write_text("packaged", encoding="utf-8")
 
     repo_root = tmp_path / "repo"
-    staged = repo_root / "build" / "overlay" / "PuriPulyHeartOverlay.exe"
+    staged = repo_root / "build" / "overlay" / overlay_platform
     staged.parent.mkdir(parents=True)
     staged.write_text("staged", encoding="utf-8")
 
@@ -2003,6 +2030,7 @@ def test_default_overlay_process_runner_prefers_newer_staged_overlay_over_packag
 
 def test_default_overlay_process_runner_uses_staged_overlay_for_local_dev_when_sibling_missing(
     tmp_path: Path,
+    overlay_platform: str,
 ) -> None:
     installed_dir = tmp_path / "installed"
     installed_dir.mkdir()
@@ -2010,7 +2038,7 @@ def test_default_overlay_process_runner_uses_staged_overlay_for_local_dev_when_s
     app_executable.write_text("", encoding="utf-8")
 
     repo_root = tmp_path / "repo"
-    staged = repo_root / "build" / "overlay" / "PuriPulyHeartOverlay.exe"
+    staged = repo_root / "build" / "overlay" / overlay_platform
     staged.parent.mkdir(parents=True)
     staged.write_text("staged", encoding="utf-8")
 
@@ -2025,9 +2053,10 @@ def test_default_overlay_process_runner_uses_staged_overlay_for_local_dev_when_s
 @pytest.mark.asyncio
 async def test_overlay_process_manager_rejects_stale_staged_overlay_build(
     tmp_path: Path,
+    overlay_platform: str,
 ) -> None:
     repo_root = tmp_path / "repo"
-    staged = repo_root / "build" / "overlay" / "PuriPulyHeartOverlay.exe"
+    staged = repo_root / "build" / "overlay" / overlay_platform
     staged.parent.mkdir(parents=True)
     staged.write_text("staged", encoding="utf-8")
 
@@ -2055,6 +2084,7 @@ async def test_overlay_process_manager_rejects_stale_staged_overlay_build(
 @pytest.mark.parametrize("staged_dll_bytes", [None, b"stale-openvr-runtime"])
 def test_default_overlay_process_runner_refreshes_staged_openvr_runtime_dll_from_vendored_bundle(
     tmp_path: Path,
+    windows_overlay: None,
     monkeypatch: pytest.MonkeyPatch,
     staged_dll_bytes: bytes | None,
 ) -> None:
@@ -2075,6 +2105,7 @@ def test_default_overlay_process_runner_refreshes_staged_openvr_runtime_dll_from
 
 def test_default_overlay_process_runner_rejects_missing_vendored_openvr_bundle_contract(
     tmp_path: Path,
+    windows_overlay: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     overlay_executable, bundle = _make_local_dev_overlay_fixture(
@@ -2095,6 +2126,7 @@ def test_default_overlay_process_runner_rejects_missing_vendored_openvr_bundle_c
 
 def test_default_overlay_process_runner_rejects_missing_packaged_openvr_runtime_dll(
     tmp_path: Path,
+    windows_overlay: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     overlay_executable, bundle = _make_packaged_overlay_fixture(tmp_path, packaged_dll_bytes=None)
@@ -2108,6 +2140,7 @@ def test_default_overlay_process_runner_rejects_missing_packaged_openvr_runtime_
 
 def test_default_overlay_process_runner_rejects_packaged_openvr_runtime_dll_hash_mismatch(
     tmp_path: Path,
+    windows_overlay: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     overlay_executable, bundle = _make_packaged_overlay_fixture(
@@ -2124,6 +2157,7 @@ def test_default_overlay_process_runner_rejects_packaged_openvr_runtime_dll_hash
 
 def test_default_overlay_process_runner_accepts_packaged_sibling_openvr_runtime_without_repo_bundle(
     tmp_path: Path,
+    windows_overlay: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     overlay_executable = tmp_path / "installed" / "PuriPulyHeartOverlay.exe"
@@ -3175,3 +3209,24 @@ async def test_failed_desktop_start_still_waits_for_authenticated_ack_after_exit
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+def test_linux_native_overlay_prepares_without_windows_runtime_dll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(process_runners_module, "OVERLAY_EXECUTABLE_NAME", "PuriPulyHeartOverlay")
+    monkeypatch.setattr(process_runners_module, "sys", SimpleNamespace(platform="linux"))
+    binary = tmp_path / "PuriPulyHeartOverlay"
+    binary.write_bytes(b"linux-native-overlay")
+
+    def reject_dll(*args: object, **kwargs: object) -> None:
+        pytest.fail("Linux OpenXR overlays must not require Windows OpenVR DLLs")
+
+    monkeypatch.setattr(
+        DefaultOverlayProcessRunner, "ensure_bundled_openvr_runtime_dll", reject_dll
+    )
+    assert (
+        DefaultOverlayProcessRunner(executable_path=binary).prepare(_overlay_manifest()) == binary
+    )
+    assert not binary.with_name("openvr_api.dll").exists()

@@ -426,6 +426,11 @@ Implementation: `core/runtime/output.py`. Behavior tests: `tests/core/runtime/te
 
 Each generation owns its tasks and shutdown. Python owns caption lifetime; native owns presentation retries.
 
+Windows native overlays use OpenVR, Direct3D 11, and DirectWrite. Linux uses OpenXR with `XR_EXTX_overlay` and `XR_KHR_vulkan_enable2` through WiVRn/Monado (`native/overlay/src/linux_xr.rs`), with Pango/Cairo text shaping and rasterization (`native/overlay/src/renderer/linux.rs`). A dedicated OpenXR thread owns the session, frame loop, Vulkan uploads, and headset-relative or spatial placement. Immutable pixel surfaces are reused until caption presentation changes. Both backends retain the same authenticated WebSocket, calibration, visibility, generation, and shutdown contracts. Linux does not load a Windows OpenVR DLL or depend on xrizer's incomplete external-overlay API. The historical `steamvr` target and protocol reason identifiers remain compatible with stored settings.
+
+Linux validation includes a render-only PNG CLI and `native/overlay/tests/linux_smoke.py`, which uses its own simulated Monado instance and temporary runtime directory without changing the active headset runtime. A real headset visual check remains a separate acceptance step.
+
+
 `OverlayPresenter` owns provider-independent Peer subtitle admission and pacing (`core/overlay/presenter.py`); output retains bounded waiting work.
 
 Behavior tests: `tests/core/test_overlay_presenter.py`.
@@ -515,3 +520,23 @@ Child processes remain owned for the host lifetime. Abrupt-exit containment is a
 - Callbacks must delegate to the receiving owner; they must not mutate another owner's private runtime state.
 - Ordering is local to the owning channel or queue. Do not assume global ordering across self, peer, UI, and provider events.
 - Blocking model, device, or native work must not block the application event loop; use the established worker, executor, or child-process boundary.
+
+## Linux Platform Adapters
+
+The Linux fork keeps the runtime owners and data handoffs above. Composition selects platform adapters; capture, provider, subtitle and shutdown policy remains with the existing owners.
+
+| Boundary | Linux adapter or build entry point |
+| --- | --- |
+| Audio inventory and capture | `core/audio/linux_inventory.py`, `core/audio/linux_source.py`; PulseAudio protocol through `pactl`/`parec`, including PipeWire's compatibility server |
+| Clipboard events | `core/clipboard/linux.py` |
+| Desktop work area and stacking | `app/adapters/linux_desktop_work_area.py`, `ui/linux_window_zorder.py`; desktop captions use XWayland/X11 where native Wayland cannot expose those operations |
+| Application control identity and lease | POSIX implementation in `core/control_instance.py` |
+| Native local ASR | `app/adapters/gpu_worker_process.py` launches `PuriPulyHeartGpuWorker`; the Rust worker retains authenticated loopback IPC, ownership and strict Vulkan selection |
+| Local CPU ASR | Existing sherpa-onnx providers with native Linux libraries; Windows DLL bootstrapping is skipped |
+| Local translation | Existing `core/local_translation/runtime.py` owner launches native `llama-server`; `release_evidence/linux_managed_gemma_distribution.py` verifies and stages pinned Linux CPU/Vulkan archives |
+| Native VR overlay | `native/overlay/src/linux_xr.rs`, `native/overlay/src/renderer/linux.rs`; Pango/Cairo text rasterization and Vulkan/OpenXR presentation through `XR_EXTX_overlay` |
+| Source installation | `scripts/linux/build-native.sh`, `scripts/linux/install-user.sh`; repo-local virtual environment, native artifacts under `build/`, user launchers and desktop entry |
+
+Linux source launchers preserve the virtual environment's interpreter path, including symlinks, so child model-download workers retain the same installed dependencies. The Linux user installer does not introduce a new application runtime owner or change configuration ownership. Build-time archive downloads remain outside the live translation path; model provisioning stays with the existing ASR/Gemma provisioning owners.
+
+Native VR runtime support and physical headset verification are distinct. A runtime without the required OpenXR overlay extension is rejected without taking over the main VR application. See [Linux setup and validation](Linux.md) for supported runtime requirements and the current validation limits.

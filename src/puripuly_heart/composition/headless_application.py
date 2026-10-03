@@ -124,6 +124,7 @@ class HeadlessApplicationPresentation:
             dashboard_destination=self.dashboard,
             history_destination=_HeadlessHistory(),
             get_language_codes=app.get_event_language_codes,
+            get_peer_language_codes=lambda: app.get_event_language_codes("peer"),
             is_translation_enabled=lambda: app.state().translation_enabled,
             get_stt_state=lambda: app.state().stt_state,
             clear_managed_auth_pending=app.clear_managed_auth_pending_state,
@@ -249,9 +250,9 @@ class HeadlessApplicationPresentation:
     def add_history_entry(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def get_event_language_codes(self) -> tuple[str | None, str | None]:
+    def get_event_language_codes(self, channel: str = "self") -> tuple[str | None, str | None]:
         app = self.application
-        return app.get_event_language_codes() if app is not None else (None, None)
+        return app.get_event_language_codes(channel) if app is not None else (None, None)
 
     def is_event_translation_enabled(self) -> bool:
         app = self.application

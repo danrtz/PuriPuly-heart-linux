@@ -572,5 +572,9 @@
   "chatgpt_auth.error.retry": "ChatGPT sign-in failed. Please try again.",
   "provider.chatgpt.usage_limit": "You've reached your ChatGPT plan usage limit. Check it in ChatGPT Settings > Usage.",
   "provider.chatgpt.not_eligible": "ChatGPT plan usage isn't available for this account.",
-  "provider.chatgpt.reauth_required": "Your ChatGPT sign-in has expired. Sign in again in Settings."
+  "provider.chatgpt.reauth_required": "Your ChatGPT sign-in has expired. Sign in again in Settings.",
+  "settings.overlay.failure.openxr_not_installed": "OpenXR overlay runtime unavailable. Use WiVRn or Monado.",
+  "settings.overlay.failure.openxr_not_running": "Connect your headset through WiVRn or Monado, or choose Desktop captions.",
+  "settings.overlay.failure.openxr_init_failed": "OpenXR overlay initialization failed",
+  "dashboard.openxr_session_fallback_desktop": "VR is unavailable. Opened desktop captions instead."
 }

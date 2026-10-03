@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 from puripuly_heart.config.audio_host_api import (
+    LINUX_AUDIO_HOST_API,
     WINDOWS_DIRECTSOUND_HOST_API,
     WINDOWS_MME_HOST_API,
     WINDOWS_WASAPI_COMPATIBILITY_HOST_API,
@@ -79,6 +81,8 @@ class AudioSettings:
     def _get_host_api_options(self) -> list[OptionItem]:
         """Get available host API options."""
         options = [OptionItem(value="", label=self._default_option_label)]
+        if sys.platform.startswith("linux"):
+            return options + [OptionItem(value=LINUX_AUDIO_HOST_API, label=LINUX_AUDIO_HOST_API)]
 
         try:
             import sounddevice as sd
@@ -125,6 +129,8 @@ class AudioSettings:
     def _get_microphone_options(self) -> list[OptionItem]:
         """Get available microphone options based on selected host API."""
         options = [OptionItem(value="", label=self._default_option_label)]
+        if sys.platform.startswith("linux"):
+            return self._linux_device_options(outputs=False)
 
         try:
             import sounddevice as sd
@@ -157,6 +163,8 @@ class AudioSettings:
 
     def _get_desktop_output_options(self) -> list[OptionItem]:
         options = [OptionItem(value="", label=self._default_option_label)]
+        if sys.platform.startswith("linux"):
+            return self._linux_device_options(outputs=True)
 
         manager = None
         try:
@@ -179,6 +187,19 @@ class AudioSettings:
                 except Exception:
                     pass
 
+        return options
+
+    def _linux_device_options(self, *, outputs: bool) -> list[OptionItem]:
+        from puripuly_heart.core.audio.linux_inventory import audio_devices
+
+        options = [OptionItem(value="", label=self._default_option_label)]
+        try:
+            options.extend(
+                OptionItem(value=device.name, label=device.label)
+                for device in audio_devices(outputs=outputs)
+            )
+        except Exception as exc:
+            logger.warning("Linux audio device enumeration failed: %s", exc)
         return options
 
     def apply_locale(self) -> None:

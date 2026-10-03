@@ -115,6 +115,7 @@ class FletUiPresentationAdapter:
                 getattr(self._app, "add_history_entry", None)
             ),
             get_language_codes=getattr(self._app, "get_event_language_codes", None),
+            get_peer_language_codes=lambda: self.get_event_language_codes("peer"),
             is_translation_enabled=getattr(self._app, "is_event_translation_enabled", None),
             get_stt_state=getattr(self._app, "get_event_stt_state", None),
             clear_managed_auth_pending=getattr(
@@ -457,9 +458,11 @@ class FletUiPresentationAdapter:
         if callable(callback):
             callback(*args, **kwargs)
 
-    def get_event_language_codes(self) -> tuple[str | None, str | None]:
+    def get_event_language_codes(self, channel: str = "self") -> tuple[str | None, str | None]:
         callback = getattr(self._app, "get_event_language_codes", None)
-        return callback() if callable(callback) else (None, None)
+        if not callable(callback):
+            return None, None
+        return callback() if channel == "self" else callback(channel)
 
     def is_event_translation_enabled(self) -> bool:
         callback = getattr(self._app, "is_event_translation_enabled", None)

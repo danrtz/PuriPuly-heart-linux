@@ -230,6 +230,7 @@ def test_embedded_bootstrap_only_persists_bounded_uncaught_error_diagnostics(
         environment = {
             "PYTHONPATH": str(root / "src") + __import__("os").pathsep + str(modules),
             "LOCALAPPDATA": str(profile),
+            "XDG_CONFIG_HOME": str(profile),
             "PURIPULY_HEART_NATIVE_RESOURCE_ROOT": str(root),
             "PURIPULY_HEART_NATIVE_RUNTIME_ROOT": str(root),
             "PURIPULY_HEART_NATIVE_HOST_EXECUTABLE": str(tmp_path / "PuriPulyHeart.exe"),

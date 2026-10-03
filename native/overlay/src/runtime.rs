@@ -66,7 +66,8 @@ pub enum StartupError {
     SteamVrNotRunning,
     #[error("VR headset not found")]
     HmdNotFound,
-    #[error("openvr init failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR initialization failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("openvr init failed: {0}"))]
     OpenVrInit(String),
     #[error("renderer init failed: {0}")]
     RendererInit(String),
@@ -80,7 +81,8 @@ pub enum StartupError {
     RuntimeBridge(String),
     #[error("runtime render failed: {0}")]
     RuntimeRender(String),
-    #[error("runtime OpenVR failed: {0}")]
+    #[cfg_attr(target_os = "linux", error("OpenXR runtime failed: {0}"))]
+    #[cfg_attr(not(target_os = "linux"), error("runtime OpenVR failed: {0}"))]
     RuntimeOpenVr(String),
     #[error("runtime disconnected before ready")]
     RuntimeDisconnected,
@@ -2507,6 +2509,35 @@ async fn run_with_manifest_and_profile(
 }
 
 pub async fn run_cli(args: &[String]) -> i32 {
+    #[cfg(target_os = "linux")]
+    if args.len() == 3 && args[1] == "--render-preview" {
+        let result = (|| {
+            let renderer = CaptionRenderer::new()?;
+            let first = CaptionBlock::new("self-preview", "A little closer, in every language.")
+                .with_secondary_text("少しずつ、言葉を越えて。", true)
+                .with_secondary_language("ja");
+            let mut second = CaptionBlock::new("peer-preview", "반가워요 · 你好 · مرحبًا")
+                .with_secondary_text("It is good to meet you.", true);
+            second.channel = Some(CaptionChannel::PeerChannel);
+            second.speaker_style = SpeakerStyle::Cyan;
+            let frame = renderer.render_blocks(vec![first, second])?;
+            frame.write_png(Path::new(&args[2]))?;
+            Ok::<_, crate::renderer::CaptionRenderError>(())
+        })();
+        return match result {
+            Ok(()) => {
+                println!("{}", json!({
+                    "rendered": true, "path": args[2], "backend": "pango_cairo",
+                    "width": 4096, "height": 1056
+                }));
+                0
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                21
+            }
+        };
+    }
     if args.len() == 2 && args[1] == "--version" {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return 0;
@@ -2625,12 +2656,12 @@ async fn initialize_runtime_resources(
 fn create_runtime_renderer(
     openvr: &OpenVrOverlay,
 ) -> Result<CaptionRenderer, crate::renderer::CaptionRenderError> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         CaptionRenderer::new_for_openvr(&openvr.output_adapter())
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = openvr;
         CaptionRenderer::new_for_test()

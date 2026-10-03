@@ -3,7 +3,6 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import json
-import msvcrt
 import os
 import stat
 import threading
@@ -12,6 +11,11 @@ from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 
 class InstanceAlreadyRunning(RuntimeError):
@@ -277,6 +281,44 @@ class _WindowsSecurity:
             raise ctypes.WinError(ctypes.get_last_error())
 
 
+class _PosixSecurity:
+    def close(self) -> None:
+        pass
+
+    def protect(self, path: Path) -> None:
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid():
+            raise InstanceSecurityError("Instance path is not owned by the current user")
+        path.chmod(0o700 if stat.S_ISDIR(info.st_mode) else 0o600)
+        self.verify_path(path)
+
+    def verify_path(self, path: Path) -> None:
+        info = path.lstat()
+        if (
+            not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode))
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or (stat.S_ISREG(info.st_mode) and info.st_nlink != 1)
+        ):
+            raise InstanceSecurityError(
+                "Instance path must be private and owned by the current user"
+            )
+
+    def lock(self, stream: BinaryIO) -> bool:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        return True
+
+    def unlock(self, stream: BinaryIO) -> None:
+        fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+def _security() -> _WindowsSecurity | _PosixSecurity:
+    return _WindowsSecurity() if os.name == "nt" else _PosixSecurity()
+
+
 def _exists(path: Path) -> bool:
     try:
         path.lstat()
@@ -285,7 +327,22 @@ def _exists(path: Path) -> bool:
     return True
 
 
-def _control_root(security: _WindowsSecurity) -> Path:
+def _control_root(security: _WindowsSecurity | _PosixSecurity) -> Path:
+    if os.name != "nt":
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        if runtime:
+            base = Path(runtime)
+            security.verify_path(base)
+        else:
+            base = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+        root = base / "puripuly-heart" / "control"
+        for directory in (root.parent, root):
+            try:
+                directory.mkdir(mode=0o700, parents=True)
+            except FileExistsError:
+                pass
+            security.verify_path(directory)
+        return root
     local = os.environ.get("LOCALAPPDATA")
     if not local or not Path(local).is_dir():
         raise InstanceSecurityError("LOCALAPPDATA is unavailable")
@@ -303,13 +360,13 @@ def _control_root(security: _WindowsSecurity) -> Path:
     return root
 
 
-def _identity(settings_path: Path, security: _WindowsSecurity) -> tuple[Path, str]:
+def _identity(settings_path: Path, security: _WindowsSecurity | _PosixSecurity) -> tuple[Path, str]:
     canonical = os.path.normcase(str(settings_path.resolve(strict=False)))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return _control_root(security) / f"{digest}.json", canonical
 
 
-def _lock_stream(path: Path, security: _WindowsSecurity) -> BinaryIO:
+def _lock_stream(path: Path, security: _WindowsSecurity | _PosixSecurity) -> BinaryIO:
     if not _exists(path):
         try:
             with path.open("xb"):
@@ -320,7 +377,9 @@ def _lock_stream(path: Path, security: _WindowsSecurity) -> BinaryIO:
     return path.open("r+b")
 
 
-def _record(path: Path, security: _WindowsSecurity, *, temporary: bool = False) -> InstanceRecord:
+def _record(
+    path: Path, security: _WindowsSecurity | _PosixSecurity, *, temporary: bool = False
+) -> InstanceRecord:
     security.verify_path(path)
     if not path.is_file() or path.stat().st_size > 4096:
         raise InstanceSecurityError("Instance record is not a bounded regular file")
@@ -436,7 +495,7 @@ class InstanceLease:
 
 
 def acquire(settings_path: Path) -> InstanceLease:
-    security = _WindowsSecurity()
+    security = _security()
     try:
         path, canonical = _identity(settings_path, security)
         with _local_leases_lock:
@@ -469,7 +528,7 @@ def acquire(settings_path: Path) -> InstanceLease:
 
 
 def discover(settings_path: Path) -> InstanceRecord | None:
-    security = _WindowsSecurity()
+    security = _security()
     try:
         path, _canonical = _identity(settings_path, security)
         if not _exists(path):
@@ -492,12 +551,9 @@ def discover(settings_path: Path) -> InstanceRecord | None:
 
 
 def discover_instances() -> list[dict[str, str | int]]:
-    security = _WindowsSecurity()
+    security = _security()
     try:
-        local = os.environ.get("LOCALAPPDATA")
-        if not local or not Path(local).is_dir():
-            raise InstanceSecurityError("LOCALAPPDATA is unavailable")
-        root = Path(local) / "puripuly-heart" / "control"
+        root = _control_root(security)
         if not _exists(root):
             return []
         security.verify_path(root)

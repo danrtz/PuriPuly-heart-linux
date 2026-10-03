@@ -916,6 +916,7 @@ async fn connect_test_bridge() -> (
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let auth = ws.next().await.unwrap().unwrap();
@@ -1096,6 +1097,7 @@ async fn connect_test_bridge_with_followups(
     let (exited_tx, exited_rx) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let stream = BlockedStream {
             inner: stream,
             block: transport.clone(),
@@ -1780,6 +1782,7 @@ async fn spatial_reanchor_is_deferred_until_latest_gpu_ready_frame_after_preempt
     let server_progress = submit_progress.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = presentation_snapshot(
@@ -1881,6 +1884,7 @@ async fn event_loop_cancels_stale_readiness_submits_latest_then_handles_shutdown
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         for revision in [0, 1, 2] {
@@ -2535,6 +2539,7 @@ async fn bridge_client_close_sends_close_frame() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let auth = ws.next().await.unwrap().unwrap();
@@ -3486,6 +3491,7 @@ async fn production_owner_coalesces_retry_and_releases_resources_on_shutdown() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -3561,6 +3567,7 @@ async fn diagnostic_profiles_execute_exact_delayed_physical_and_logical_attempts
         let state = Arc::new(OwnedSubmitterState::default());
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
             let mut ws = accept_async(stream).await.unwrap();
             let _auth = ws.next().await.unwrap().unwrap();
             let first = json!({
@@ -3662,6 +3669,7 @@ async fn production_owner_runs_independent_self_and_peer_fresh_schedules_to_exac
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -3771,6 +3779,7 @@ async fn production_owner_stale_scene_cannot_satisfy_newer_schedule() {
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -3917,6 +3926,7 @@ async fn production_owner_self_cancellation_leaves_peer_schedule_completing() {
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4030,6 +4040,7 @@ async fn production_owner_coalesced_two_channel_submission_failure_bounds_both()
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4101,6 +4112,7 @@ async fn production_owner_coalesced_two_channel_shutdown_tears_down_both() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4174,6 +4186,7 @@ async fn production_owner_replaces_channel_token_and_empty_snapshot_cancels_sche
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4301,6 +4314,7 @@ async fn production_owner_preemption_preserves_due_and_completes_on_pending_snap
     let server_readiness_started = readiness_started.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4423,6 +4437,7 @@ async fn production_owner_active_schedule_submission_failure_is_terminal() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4501,6 +4516,7 @@ async fn production_owner_active_schedule_readiness_failure_is_terminal() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4582,6 +4598,7 @@ async fn production_owner_single_readiness_timeout_retries_without_submit_or_exi
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4653,6 +4670,7 @@ async fn production_owner_overlay_hidden_reasserts_show_when_desired_visible() {
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let snapshot = json!({
@@ -4727,6 +4745,7 @@ async fn production_owner_event_pump_preserves_idle_hide_tail() {
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -4901,6 +4920,7 @@ async fn production_owner_empty_scene_stays_settled_during_silent_input() {
     let state = Arc::new(OwnedSubmitterState::default());
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5008,6 +5028,7 @@ async fn production_owner_stable_visible_silence_does_not_arm_due_deadline() {
     let state = Arc::new(OwnedSubmitterState::default());
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let snapshot = json!({
@@ -5063,6 +5084,7 @@ async fn cached_frame_rehandoff_reuses_completed_texture_without_fresh_progress_
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let snapshot = json!({
@@ -5187,6 +5209,7 @@ async fn production_owner_surviving_peer_transition_never_hides_with_delayed_obs
     let server_state = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5267,6 +5290,7 @@ async fn production_owner_pose_wait_outlives_no_progress_budget_then_handoffs_sa
     let pose_available_at = std::time::Instant::now() + Duration::from_millis(800);
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let snapshot = json!({
@@ -5397,6 +5421,7 @@ async fn production_owner_preserves_primary_failure_and_reports_hide_cleanup_fai
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let snapshot = json!({
@@ -5455,6 +5480,7 @@ async fn production_owner_promotes_hide_cleanup_failure_after_successful_shutdow
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let snapshot = json!({
@@ -5515,6 +5541,7 @@ async fn production_owner_health_burst_cannot_starve_ready_producer() {
     let server_queued = queued.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5593,6 +5620,7 @@ async fn production_owner_health_flood_preserves_readiness_budget_and_reports_du
     let server_sent_challenges = sent_challenges.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5699,6 +5727,7 @@ async fn production_owner_readiness_no_progress_escalates_under_snapshot_churn_w
     let server_churn_sent = churn_sent.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5795,6 +5824,7 @@ async fn production_owner_shutdown_records_active_schedule_teardown() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5858,6 +5888,7 @@ async fn production_owner_non_retry_disconnect_records_active_schedule_teardown(
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -5920,6 +5951,7 @@ async fn production_owner_slow_submission_has_no_catch_up_and_expires_cleanly() 
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _auth = ws.next().await.unwrap().unwrap();
         let first = json!({
@@ -6025,6 +6057,7 @@ async fn runtime_hides_overlay_after_empty_state_stays_idle_past_delay() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let _ = ws.next().await.unwrap().unwrap();
@@ -6098,6 +6131,7 @@ async fn runtime_cancels_pending_idle_hide_when_new_text_arrives() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let _ = ws.next().await.unwrap().unwrap();
@@ -6188,6 +6222,7 @@ async fn runtime_shows_overlay_again_when_text_returns_after_idle_hide() {
     let server_progress = submit_progress.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let _ = ws.next().await.unwrap().unwrap();
@@ -6285,6 +6320,7 @@ async fn runtime_submits_text_frame_before_revealing_overlay_after_idle_hide() {
     let server_progress = submit_progress.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let _ = ws.next().await.unwrap().unwrap();
@@ -6385,6 +6421,7 @@ async fn bridge_client_authenticates_and_receives_initial_snapshot() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
 
         let auth = ws.next().await.unwrap().unwrap();
@@ -6477,6 +6514,7 @@ async fn run_with_manifest_reports_bridge_auth_failures_as_startup_errors() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
+        stream.set_nodelay(true).unwrap();
         let mut ws = accept_async(stream).await.unwrap();
         let _ = ws.next().await;
         ws.send(Message::Text(

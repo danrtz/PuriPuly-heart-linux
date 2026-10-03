@@ -1,3 +1,5 @@
+#![cfg_attr(not(windows), allow(dead_code, unused_imports))]
+
 use std::env;
 use std::path::PathBuf;
 
@@ -73,6 +75,7 @@ fn render_version_rc(version: &str) -> String {
     )
 }
 
+#[cfg(windows)]
 fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
@@ -87,3 +90,6 @@ fn main() {
         .manifest_optional()
         .expect("failed to embed Windows version resource");
 }
+
+#[cfg(not(windows))]
+fn main() {}

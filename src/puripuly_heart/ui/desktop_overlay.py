@@ -737,6 +737,10 @@ async def _default_flet_app_runner(
     on_process_started: Callable[[int, str | None], None] | None = None,
     process_owner: Any | None = None,
 ) -> None:
+    if sys.platform.startswith("linux"):
+        from puripuly_heart.core.overlay.process_runners import desktop_overlay_environment
+
+        os.environ.update(desktop_overlay_environment())
     import flet as ft
 
     from puripuly_heart.ui.flet_desktop_runtime import patch_hidden_view_launcher
@@ -753,6 +757,8 @@ async def _default_flet_app_runner(
 
 
 def _default_preview_app_runner(target: Callable[[Any], object]) -> object:
+    if sys.platform.startswith("linux"):
+        os.environ["GDK_BACKEND"] = "x11"
     import flet as ft
 
     return ft.run_async(main=target)
@@ -800,7 +806,9 @@ class FletDesktopRendererWindow:
         else:
             self._window_z_order_port = NoopWindowZOrderPort()
         self._window_z_order_required = window_z_order_port is not None or (
-            app_runner is None and preview_catalog is None and os.name == "nt"
+            app_runner is None
+            and preview_catalog is None
+            and (os.name == "nt" or sys.platform.startswith("linux"))
         )
         self._structured_lifecycle_trace_enabled = app_runner is None and preview_catalog is None
         if app_runner is None and current_runtime_layout().host_kind != "native":
@@ -1490,6 +1498,9 @@ class FletDesktopRendererWindow:
         locked = self._interaction_mode == _DESKTOP_INTERACTION_MODE_PASS_THROUGH
         window = page.window
         window.ignore_mouse_events = locked
+        native_input = getattr(self._window_z_order_port, "set_click_through", None)
+        if callable(native_input):
+            native_input(locked)
 
     async def _show_configured_window(
         self,
@@ -1503,6 +1514,8 @@ class FletDesktopRendererWindow:
             coordinator.record("show_requested")
         window.visible = True
         page.update()
+        if sys.platform.startswith("linux") and callable(getattr(window, "to_front", None)):
+            await invoke_control_method(window, "to_front")
         return await self._confirm_window_visible()
 
     async def _confirm_window_bounds(

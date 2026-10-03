@@ -472,7 +472,7 @@ def _worker_environment(runtime_dir: Path) -> dict[str, str]:
     }
     layout = current_runtime_layout()
     if layout.host_kind == "native":
-        for name in ("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA"):
+        for name in ("USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME"):
             value = os.environ.get(name)
             if value:
                 environment[name] = value

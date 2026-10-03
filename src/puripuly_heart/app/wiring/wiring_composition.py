@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Awaitable, Callable
 
 from puripuly_heart.app.ports.desktop_overlay import (
@@ -330,6 +331,22 @@ def create_self_capture_source_adapter(
         resolve_sounddevice_input_device,
     )
 
+    if sys.platform.startswith("linux"):
+        from puripuly_heart.core.audio.linux_source import (
+            LinuxMicrophoneAudioSource,
+            determine_linux_mic_capture_channels,
+            resolve_linux_input_device,
+        )
+
+        return SelfCaptureSourceAdapter(
+            normalize_host_api=normalize_input_host_api,
+            resolve_device=resolve_linux_input_device,
+            channel_decision=determine_linux_mic_capture_channels,
+            source_factory=LinuxMicrophoneAudioSource,
+            log_diagnostic=log_diagnostic,
+            wrap_source=wrap_source,
+        )
+
     return SelfCaptureSourceAdapter(
         normalize_host_api=normalize_input_host_api,
         resolve_device=resolve_sounddevice_input_device,
@@ -398,6 +415,21 @@ def create_peer_capture_source_adapter(
     from puripuly_heart.core.audio.process_identity import PsutilProcessIdentityWatcher
     from puripuly_heart.core.audio.process_source import ProcessAudioCaptureSource
 
+    if sys.platform.startswith("linux"):
+        from puripuly_heart.core.audio.linux_source import (
+            LinuxLoopbackAudioSource,
+            LinuxProcessAudioSource,
+        )
+
+        return PeerCaptureSourceAdapter(
+            loopback_source_factory=LinuxLoopbackAudioSource,
+            process_source_factory=LinuxProcessAudioSource,
+            process_watcher_factory=PsutilProcessIdentityWatcher,
+            pipeline_factory=DesktopPeerPipeline,
+            log_diagnostic=log_diagnostic,
+            wrap_source=wrap_source,
+        )
+
     return PeerCaptureSourceAdapter(
         loopback_source_factory=DesktopLoopbackAudioSource,
         process_source_factory=ProcessAudioCaptureSource,
@@ -414,6 +446,11 @@ def create_peer_capture_target_resolver_adapter() -> PeerCaptureTargetResolverPo
     )
     from puripuly_heart.config.process_capture_resolution import ProcessCaptureResolver
     from puripuly_heart.core.audio.process_identity import PsutilCurrentUserProcessSnapshots
+
+    if sys.platform.startswith("linux"):
+        from puripuly_heart.core.audio.linux_inventory import LinuxProcessCaptureResolver
+
+        return PeerCaptureTargetResolverAdapter(resolver_factory=LinuxProcessCaptureResolver)
 
     def create_process_resolver() -> ProcessCaptureResolver:
         return ProcessCaptureResolver(snapshots=PsutilCurrentUserProcessSnapshots())

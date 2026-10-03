@@ -902,9 +902,12 @@ def _patch_app_construction(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_module, "get_locale", lambda: "en")
 
 
+@pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_translator_app_init_builds_layout_and_wires_callbacks(
     monkeypatch: pytest.MonkeyPatch,
+    platform,
 ) -> None:
+    monkeypatch.setattr(app_module.sys, "platform", platform)
     _patch_app_construction(monkeypatch)
 
     page = DummyPage()
@@ -918,14 +921,18 @@ def test_translator_app_init_builds_layout_and_wires_callbacks(
     assert backend.config_path == Path("settings.json")
     assert page.title == app_module.t("app.title")
     assert page.window.frameless is True
-    assert page.window.resizable is False
-    assert page.window.maximizable is False
+    assert page.window.resizable is (platform == "linux")
+    assert page.window.maximizable is (platform == "linux")
     assert page.window.width == app_module.DEFAULT_WINDOW_WIDTH
     assert page.window.height == app_module.DEFAULT_WINDOW_HEIGHT
     assert page.window.min_width == app_module.DEFAULT_WINDOW_WIDTH
-    assert page.window.max_width == app_module.DEFAULT_WINDOW_WIDTH
+    assert page.window.max_width == (
+        None if platform == "linux" else app_module.DEFAULT_WINDOW_WIDTH
+    )
     assert page.window.min_height == app_module.DEFAULT_WINDOW_HEIGHT
-    assert page.window.max_height == app_module.DEFAULT_WINDOW_HEIGHT
+    assert page.window.max_height == (
+        None if platform == "linux" else app_module.DEFAULT_WINDOW_HEIGHT
+    )
     assert page.window.prevent_close is True
     assert page.window.on_event == app._on_window_event
     assert page.window.center_calls == 0

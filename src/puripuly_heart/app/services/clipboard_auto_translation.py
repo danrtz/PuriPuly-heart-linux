@@ -59,7 +59,7 @@ class ClipboardAutoTranslationOwner:
         strict_runtime_errors: bool | None = None,
     ) -> None:
         strict = self._resolve_strict_runtime_errors(strict_runtime_errors)
-        if not enabled or self.platform_provider() != "win32":
+        if not enabled or self.platform_provider() not in {"win32", "linux"}:
             await self.stop(strict_runtime_errors=strict)
             return
         async with self.lock:

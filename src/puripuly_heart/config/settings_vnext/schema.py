@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import ntpath
+import posixpath
 import re
+import sys
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -10,7 +12,10 @@ from datetime import date
 from typing import Final, Literal
 
 from puripuly_heart.config.alibaba_connection import AlibabaRegionalSettings, normalize_api_host
-from puripuly_heart.config.audio_host_api import WINDOWS_WASAPI_COMPATIBILITY_HOST_API
+from puripuly_heart.config.audio_host_api import (
+    LINUX_AUDIO_HOST_API,
+    WINDOWS_WASAPI_COMPATIBILITY_HOST_API,
+)
 from puripuly_heart.config.overlay_calibration import OverlayCalibration
 from puripuly_heart.config.prompts import normalize_system_prompt_override
 from puripuly_heart.config.provider_values import normalize_cloud_free_tier_providers
@@ -483,7 +488,11 @@ class LanguageIntent:
 @dataclass(frozen=True, slots=True)
 class AudioIntent:
     ring_buffer_ms: int = 500
-    input_host_api: str = WINDOWS_WASAPI_COMPATIBILITY_HOST_API
+    input_host_api: str = (
+        LINUX_AUDIO_HOST_API
+        if sys.platform.startswith("linux")
+        else WINDOWS_WASAPI_COMPATIBILITY_HOST_API
+    )
     input_device: str = ""
 
 
@@ -549,6 +558,11 @@ _DISCORD_BASENAME_BY_CHANNEL_CASEFOLDED: Final[frozenset[str]] = frozenset(
 def _normalize_executable_identity(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("process executable identity must be non-empty")
+    if value.startswith("/") and not value.startswith("//"):
+        normalized = posixpath.normpath(value.strip())
+        if normalized == "/" or "\x00" in normalized:
+            raise ValueError("process executable identity must name an executable")
+        return normalized
     normalized = ntpath.normcase(ntpath.normpath(value.strip().replace("/", "\\")))
     if (
         not normalized

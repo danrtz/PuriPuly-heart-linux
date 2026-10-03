@@ -91,19 +91,27 @@ class EventProjectionService:
         context: EventProjectionContext,
     ) -> EventProjectionBatch:
         is_final = mapped.transcript_kind == "final"
+        detected_languages = {
+            run.language for run in transcript.final_language_runs if run.language
+        }
+        language_code = (
+            next(iter(detected_languages))
+            if len(detected_languages) == 1
+            else None if detected_languages else context.source_language
+        )
         history = ()
         if is_final:
             history = (
                 HistoryProjection(
                     mapped.source or "Mic",
                     transcript.text,
-                    language_code=context.source_language,
+                    language_code=language_code,
                 ),
             )
         return EventProjectionBatch(
             transcript=DashboardTranscriptProjection(
                 text=transcript.text,
-                language_code=context.source_language,
+                language_code=language_code,
                 debug_prefix=None,
             ),
             history=history,
@@ -116,10 +124,11 @@ class EventProjectionService:
         context: EventProjectionContext,
     ) -> EventProjectionBatch:
         source = mapped.source or "Mic"
+        language_code = translation.target_language or context.target_language
         return EventProjectionBatch(
             translation=DashboardTranslationProjection(
                 text=translation.text,
-                language_code=context.target_language,
+                language_code=language_code,
                 debug_prefix=None,
             ),
             history=(
@@ -127,14 +136,14 @@ class EventProjectionService:
                     source,
                     translation.text,
                     translated=True,
-                    language_code=context.target_language,
+                    language_code=language_code,
                 ),
             ),
             translation_diagnostic=TranslationAppliedDiagnostic(
                 utterance_id=translation.utterance_id,
                 channel=translation.channel,
                 source_label=source,
-                dashboard_target_language=context.target_language,
+                dashboard_target_language=language_code,
                 translation_target_language=translation.target_language,
                 text_len=len(translation.text),
             ),

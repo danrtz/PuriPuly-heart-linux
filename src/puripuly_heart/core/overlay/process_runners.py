@@ -18,7 +18,9 @@ from .process_adapter import OverlayManagedProcess, _AsyncioOverlayProcess
 
 logger = logging.getLogger("puripuly_heart.core.overlay.process")
 
-OVERLAY_EXECUTABLE_NAME = "PuriPulyHeartOverlay.exe"
+OVERLAY_EXECUTABLE_NAME = (
+    "PuriPulyHeartOverlay.exe" if sys.platform == "win32" else "PuriPulyHeartOverlay"
+)
 OPENVR_RUNTIME_DLL_NAME = "openvr_api.dll"
 QUIET_TAIL_PROFILE_ENV = "PURIPULY_OVERLAY_QUIET_TAIL_PROFILE"
 HANDOFF_EXPERIMENT_ENV = "PURIPULY_OVERLAY_HANDOFF_EXPERIMENT"
@@ -42,6 +44,23 @@ class OverlayPreparationError(Exception):
     def __init__(self, failure_reason: str, message: str | None = None) -> None:
         super().__init__(message or failure_reason)
         self.failure_reason = failure_reason
+
+
+def desktop_overlay_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    if sys.platform.startswith("linux"):
+        runtime = current_runtime_layout().native("desktop", "libpuripuly-gtk-rgba.so")
+        if not runtime.is_file():
+            raise OverlayPreparationError(
+                "desktop_transparency_runtime_missing",
+                "Build the Linux caption runtime with scripts/linux/build-native.sh.",
+            )
+        environment["GDK_BACKEND"] = "x11"
+        preload = environment.get("LD_PRELOAD", "").split(":")
+        environment["LD_PRELOAD"] = ":".join(
+            dict.fromkeys((str(runtime), *(item for item in preload if item)))
+        )
+    return environment
 
 
 class OverlayProcessRunner(Protocol):
@@ -90,7 +109,7 @@ class DefaultOverlayProcessRunner:
                 "stale_overlay_build",
                 f"staged overlay executable is older than overlay source: {stale_source}",
             )
-        if path.name == OVERLAY_EXECUTABLE_NAME:
+        if sys.platform == "win32" and path.name == OVERLAY_EXECUTABLE_NAME:
             self.ensure_bundled_openvr_runtime_dll(path)
         return path
 
@@ -331,8 +350,10 @@ class DesktopFletOverlayRunner:
             kwargs["creationflags"] = (
                 subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS
             )
+        child_env = desktop_overlay_environment()
         process = await asyncio.create_subprocess_exec(
             *self.build_command(manifest_path, executable_path=executable_path),
+            env=child_env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             **kwargs,

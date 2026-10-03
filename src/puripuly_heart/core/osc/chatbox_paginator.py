@@ -55,8 +55,24 @@ class ChatboxPaginator:
             raise ValueError("self_speech_waiting_ttl_s must be positive")
         self._pending_pages = []
         self._pending_messages = []
+        bind_disable = getattr(self.sender, "set_disable_callback", None)
+        if callable(bind_disable):
+            bind_disable(self._sender_disabled)
+
+    def _sender_disabled(self) -> None:
+        if self._pending_pages or self._pending_messages:
+            self.drop_pending()
+        self._last_typing_state = False
+
+    @property
+    def enabled(self) -> bool:
+        return bool(getattr(self.sender, "enabled", True))
 
     def enqueue(self, message: OSCMessage) -> OSCMessage | None:
+        if not self.enabled:
+            if self._pending_pages or self._pending_messages:
+                self.drop_pending()
+            return None
         page_count = (
             len(
                 self._split_text(
@@ -119,6 +135,10 @@ class ChatboxPaginator:
         return None
 
     def process_due(self) -> None:
+        if not self.enabled:
+            if self._pending_pages or self._pending_messages:
+                self.drop_pending()
+            return
         if not self._is_paginating():
             self._drain_pending_messages()
             return

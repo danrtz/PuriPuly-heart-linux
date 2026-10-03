@@ -628,7 +628,8 @@ class ApplicationControlOwner:
         selected_profile = normalize_input_host_api(selected_host_api)
         input_devices = [
             {
-                "value": item["name"],
+                "value": item.get("id", item["name"]),
+                **({"label": item["name"]} if "id" in item else {}),
                 "host_api": item["host_api"],
                 "available": (
                     not selected_profile.actual_host_api
@@ -652,7 +653,18 @@ class ApplicationControlOwner:
         )
         output_devices = [
             {"value": "", "available": True},
-            *({"value": name, "available": True} for name in audio["loopback_outputs"]),
+            *(
+                {
+                    "value": name,
+                    "available": True,
+                    **(
+                        {"label": audio["loopback_output_labels"][name]}
+                        if name in audio.get("loopback_output_labels", {})
+                        else {}
+                    ),
+                }
+                for name in audio["loopback_outputs"]
+            ),
         ]
         if selected_output_device and not any(
             item["value"] == selected_output_device for item in output_devices
@@ -1428,7 +1440,9 @@ class ApplicationControlOwner:
             "status": (
                 "cancelled"
                 if result.cancelled
-                else "degraded" if result.failed_model_ids else "applied"
+                else "degraded"
+                if result.failed_model_ids
+                else "applied"
             ),
             "models": _json(result.snapshot),
             "failed_model_ids": list(result.failed_model_ids),
@@ -2044,7 +2058,7 @@ class ApplicationControlOwner:
             host_api = changes.get("audio.input_host_api", canonical.intent.audio.input_host_api)
             actual_host_api = normalize_input_host_api(host_api).actual_host_api
             dynamic_choices["audio.input_device"] = {""} | {
-                item["name"]
+                item.get("id", item["name"])
                 for item in devices["microphones"]
                 if not actual_host_api or item["host_api"] == actual_host_api
             }
@@ -2257,23 +2271,38 @@ class ApplicationControlOwner:
                     ProviderApplyIntent((edit,)),
                     materialize_translation=self.settings.materialize_translation,
                 )
-        if any(
-            key in changes
-            for key in (
-                set(PROVIDER_EDITS)
-                | {
-                    "stt.provider",
-                    "peer_stt.provider",
-                    "stt.cloud_free_tier_providers",
-                    "translation.model",
-                    "translation.connection",
-                    "translation.connection_history",
-                    "translation.previous_llm_model",
-                    "managed.referral_id",
-                }
-            )
-        ):
-            return await self.application.apply_providers(updated)
+        provider_fields = set(PROVIDER_EDITS) | {
+            "stt.provider",
+            "peer_stt.provider",
+            "stt.cloud_free_tier_providers",
+            "translation.model",
+            "translation.connection",
+            "translation.connection_history",
+            "translation.previous_llm_model",
+            "managed.referral_id",
+        }
+        if changes.keys() & provider_fields:
+            result = await self.application.apply_providers(updated)
+            provider_result = self.results.current
+            remaining = {key: value for key, value in changes.items() if key not in provider_fields}
+            if not remaining or result is False:
+                return result
+            if provider_result is not None and provider_result.status not in {
+                TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
+                TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
+            }:
+                return result
+            result = await self._apply_fields({"changes": remaining})
+            if (
+                provider_result is not None
+                and provider_result.status
+                == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED
+                and self.results.current is not None
+                and self.results.current.status
+                == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED
+            ):
+                self.results.set(provider_result)
+            return result
         return await self.application.apply_settings(updated)
 
     async def operation(self, operation_id: str) -> dict:

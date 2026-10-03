@@ -20,6 +20,17 @@ def _load_runtime_module():
         pytest.fail(f"{MODULE_NAME} is missing: {exc}")
 
 
+def test_linux_runtime_does_not_load_windows_libraries(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime_module = _load_runtime_module()
+    monkeypatch.setattr(runtime_module.sys, "platform", "linux")
+    monkeypatch.setattr(
+        runtime_module,
+        "resolve_local_qwen_runtime_dir",
+        lambda: pytest.fail("Linux must use the native sherpa-onnx runtime"),
+    )
+    assert runtime_module.ensure_local_qwen_windows_runtime() == Path()
+
+
 def test_resolve_local_qwen_runtime_dir_uses_declared_native_layout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -118,7 +129,9 @@ def test_ensure_local_qwen_windows_runtime_rejects_unloadable_runtime_dll(
 
     monkeypatch.setattr(runtime_module.sys, "platform", "win32")
     monkeypatch.setattr(runtime_module, "resolve_local_qwen_runtime_dir", lambda: runtime_dir)
-    monkeypatch.setattr(runtime_module.os, "add_dll_directory", lambda _path: object())
+    monkeypatch.setattr(
+        runtime_module.os, "add_dll_directory", lambda _path: object(), raising=False
+    )
     monkeypatch.setattr(
         runtime_module.ctypes,
         "WinDLL",

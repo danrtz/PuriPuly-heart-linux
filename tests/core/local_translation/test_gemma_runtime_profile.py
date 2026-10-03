@@ -139,3 +139,21 @@ def test_load_or_detect_thread_profile_corrupt_file_redetects(
     profile = load_or_detect_thread_profile(path, physical_cores=8, logical_cores=16)
     assert profile == LlamaCppThreadProfile(4, 12, 1)
     assert path.is_file()
+
+
+def test_linux_runtime_resolves_native_servers(tmp_path, monkeypatch) -> None:
+    from puripuly_heart.core.local_translation import runtime_profile
+
+    monkeypatch.setattr(runtime_profile.sys, "platform", "linux")
+    paths = runtime_profile.default_gemma_runtime_paths(tmp_path)
+    assert paths.cpu_server == tmp_path / "cpu" / "llama-server"
+    assert paths.vulkan_server == tmp_path / "vulkan" / "llama-server"
+
+
+def test_windows_runtime_preserves_executable_names(tmp_path, monkeypatch) -> None:
+    from puripuly_heart.core.local_translation import runtime_profile
+
+    monkeypatch.setattr(runtime_profile.sys, "platform", "win32")
+    paths = runtime_profile.default_gemma_runtime_paths(tmp_path)
+    assert paths.cpu_server == tmp_path / "cpu" / "llama-server.exe"
+    assert paths.vulkan_server == tmp_path / "vulkan" / "llama-server.exe"

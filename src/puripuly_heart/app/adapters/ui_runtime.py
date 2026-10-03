@@ -650,14 +650,17 @@ class UiEngagementRuntimeAdapter:
     telemetry: AppActiveDayTelemetryService
     after_launch: ApplicationAfterLaunchOwner
 
-    def get_event_language_codes(self) -> tuple[str | None, str | None]:
+    def get_event_language_codes(self, channel: str = "self") -> tuple[str | None, str | None]:
         settings = self.settings.canonical
         if settings is None:
             return None, None
-        return (
-            settings.intent.languages.source_language,
-            settings.intent.languages.target_language,
-        )
+        languages = settings.intent.languages
+        if channel == "peer":
+            return (
+                None if languages.peer_source_mode == "auto" else languages.effective_peer_source,
+                languages.effective_peer_target,
+            )
+        return languages.source_language, languages.target_language
 
     def schedule_github_star_prompt_translation_success_observed(self) -> None:
         self.github_prompt.schedule_translation_success_observed()

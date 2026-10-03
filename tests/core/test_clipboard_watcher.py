@@ -5,6 +5,7 @@ import pytest
 from puripuly_heart.core.clipboard import watcher as watcher_module
 from puripuly_heart.core.clipboard.watcher import (
     ClipboardWatcherError,
+    WindowsClipboardWatcher,
     create_clipboard_watcher,
 )
 
@@ -12,7 +13,7 @@ from puripuly_heart.core.clipboard.watcher import (
 def test_clipboard_watcher_start_raises_on_non_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(watcher_module.sys, "platform", "linux")
+    monkeypatch.setattr(watcher_module.sys, "platform", "darwin")
     watcher = create_clipboard_watcher(lambda _text: None)
 
     with pytest.raises(ClipboardWatcherError, match="only available on Windows"):
@@ -50,7 +51,7 @@ def test_cleanup_window_unregisters_window_class(
         kernel32 = FakeKernel32()
 
     monkeypatch.setattr(watcher_module.ctypes, "windll", FakeWindll(), raising=False)
-    watcher = create_clipboard_watcher(lambda _text: None)
+    watcher = WindowsClipboardWatcher(lambda _text: None)
     watcher._hwnd = 123
 
     watcher._cleanup_window(123)

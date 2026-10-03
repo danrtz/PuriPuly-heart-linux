@@ -3,6 +3,7 @@ import contextlib
 import inspect
 import json
 import logging
+import sys
 import tempfile
 import webbrowser
 from pathlib import Path
@@ -480,6 +481,12 @@ class TranslatorApp:
         self.page.window.icon = DEFAULT_FOUNDATION_RESOURCES.asset_url(
             FOUNDATION_DESIGN_TOKENS.icon_asset
         )
+        if sys.platform.startswith("linux"):
+            self.page.window.resizable = True
+            self.page.window.maximizable = True
+            self.page.window.max_width = None
+            self.page.window.max_height = None
+            self.page.window.icon = DEFAULT_FOUNDATION_RESOURCES.asset_url("icons/icon.png")
         self.page.on_keyboard_event = self._on_keyboard_event
 
     def _build_layout(self):
@@ -2296,8 +2303,8 @@ class TranslatorApp:
     def clear_managed_auth_pending_state(self) -> None:
         self.application.clear_managed_auth_pending_state()
 
-    def get_event_language_codes(self) -> tuple[str | None, str | None]:
-        return self.application.get_event_language_codes()
+    def get_event_language_codes(self, channel: str = "self") -> tuple[str | None, str | None]:
+        return self.application.get_event_language_codes(channel)
 
     def is_event_translation_enabled(self) -> bool:
         return self.application.state().translation_enabled

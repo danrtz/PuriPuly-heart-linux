@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+LINUX_AUDIO_HOST_API = "PipeWire / PulseAudio"
+
 WINDOWS_WASAPI_HOST_API = "Windows WASAPI"
 WINDOWS_WASAPI_COMPATIBILITY_HOST_API = "Windows WASAPI (Compatibility Mode)"
 WINDOWS_DIRECTSOUND_HOST_API = "Windows DirectSound"

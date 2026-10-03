@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+import shutil
 import sys
 from dataclasses import dataclass
 from typing import Final
@@ -15,6 +16,11 @@ class ProcessCapturePlatformAvailability:
 
 
 def get_process_capture_platform_availability() -> ProcessCapturePlatformAvailability:
+    if sys.platform.startswith("linux"):
+        available = bool(shutil.which("pactl") and shutil.which("parec"))
+        return ProcessCapturePlatformAvailability(
+            available=available, reason=None if available else "missing_pulseaudio_tools"
+        )
     version = sys.version_info
     return evaluate_process_capture_platform(
         system_name=platform.system(),
@@ -33,6 +39,8 @@ def evaluate_process_capture_platform(
     machine: str,
     windows_build: int | None,
 ) -> ProcessCapturePlatformAvailability:
+    if system_name == "Linux":
+        return ProcessCapturePlatformAvailability(available=True)
     if system_name != "Windows":
         return ProcessCapturePlatformAvailability(available=False, reason="unsupported_system")
     if implementation.casefold() != "cpython":

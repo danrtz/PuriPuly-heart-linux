@@ -572,5 +572,9 @@
   "chatgpt_auth.error.retry": "ChatGPT 登录失败，请重试。",
   "provider.chatgpt.usage_limit": "已达到 ChatGPT 套餐的用量上限。可在 ChatGPT 设置 > 用量中查看。",
   "provider.chatgpt.not_eligible": "此 ChatGPT 账号无法使用套餐用量。",
-  "provider.chatgpt.reauth_required": "ChatGPT 登录已过期，请在设置中重新登录。"
+  "provider.chatgpt.reauth_required": "ChatGPT 登录已过期，请在设置中重新登录。",
+  "settings.overlay.failure.openxr_not_installed": "OpenXR 悬浮字幕运行时不可用。请使用 WiVRn 或 Monado。",
+  "settings.overlay.failure.openxr_not_running": "请通过 WiVRn 或 Monado 连接头显，或选择桌面字幕。",
+  "settings.overlay.failure.openxr_init_failed": "OpenXR 悬浮字幕初始化失败",
+  "dashboard.openxr_session_fallback_desktop": "VR 不可用，已打开桌面字幕。"
 }

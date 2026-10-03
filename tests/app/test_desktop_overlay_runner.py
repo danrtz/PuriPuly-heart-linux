@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from puripuly_heart.core.overlay import process as process_module
+from puripuly_heart.core.overlay import process_runners as process_runners_module
 from puripuly_heart.core.overlay.manifest import OVERLAY_CONTRACT_VERSION, OverlayLaunchManifest
 from puripuly_heart.runtime_layout import current_runtime_layout
 
@@ -153,6 +154,7 @@ async def test_desktop_runner_uses_background_priority_on_windows(
         return type("FakeProcess", (), {"stdout": None, "stderr": None})()
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_spawn)
+    monkeypatch.setattr(process_runners_module.sys, "platform", "win32")
     runner = process_module.DesktopFletOverlayRunner(
         frozen=False,
         python_executable=tmp_path / "python.exe",
@@ -278,3 +280,50 @@ def test_import_preview_dispatch_is_provider_secret_and_stt_free() -> None:
 
     assert returncode == 0, f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
     assert imported == dict.fromkeys(imported, False)
+
+
+@pytest.mark.asyncio
+async def test_linux_desktop_runner_uses_xwayland_without_changing_parent_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_spawn(*command: str, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return type("FakeProcess", (), {"stdout": None, "stderr": None})()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_spawn)
+    monkeypatch.setattr(process_runners_module.sys, "platform", "linux")
+    monkeypatch.setenv("GDK_BACKEND", "wayland")
+    monkeypatch.setenv("LD_PRELOAD", "/tmp/existing.so")
+    runtime = tmp_path / "libpuripuly-gtk-rgba.so"
+    runtime.write_bytes(b"test")
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        process_runners_module,
+        "current_runtime_layout",
+        lambda: SimpleNamespace(native=lambda *parts: runtime),
+    )
+    runner = process_module.DesktopFletOverlayRunner(
+        frozen=False, python_executable=tmp_path / "python"
+    )
+    await runner.spawn(tmp_path / "python", tmp_path / "manifest.json")
+    assert captured["env"]["GDK_BACKEND"] == "x11"
+    assert os.environ["GDK_BACKEND"] == "wayland"
+    assert captured["env"]["LD_PRELOAD"] == f"{runtime}:/tmp/existing.so"
+    assert os.environ["LD_PRELOAD"] == "/tmp/existing.so"
+
+
+def test_linux_desktop_missing_transparency_runtime_is_actionable(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(process_runners_module.sys, "platform", "linux")
+    monkeypatch.setattr(
+        process_runners_module,
+        "current_runtime_layout",
+        lambda: SimpleNamespace(native=lambda *parts: tmp_path / "missing.so"),
+    )
+    with pytest.raises(process_runners_module.OverlayPreparationError, match="build-native.sh"):
+        process_runners_module.desktop_overlay_environment()

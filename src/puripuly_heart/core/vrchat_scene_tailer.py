@@ -23,10 +23,61 @@ class VrchatSceneLogTruncated(Exception):
 
 
 def default_vrchat_log_directory() -> Path:
+    if override := os.environ.get("PURIPULY_VRCHAT_LOG_DIR"):
+        return Path(override).expanduser()
+    if os.name != "nt":
+        return _linux_vrchat_log_directory()
     profile = os.environ.get("USERPROFILE", "")
     if profile:
         return Path(profile) / "AppData" / "LocalLow" / "VRChat" / "VRChat"
     return Path.home() / "AppData" / "LocalLow" / "VRChat" / "VRChat"
+
+
+def _linux_vrchat_log_directory() -> Path:
+    home = Path.home()
+    libraries = [
+        home / ".local/share/Steam",
+        home / ".steam/steam",
+        home / ".var/app/com.valvesoftware.Steam/data/Steam",
+    ]
+    for steam in tuple(libraries):
+        try:
+            text = (steam / "steamapps/libraryfolders.vdf").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        libraries.extend(
+            Path(value.replace("\\\\", "\\"))
+            for value in re.findall(r'"path"\s+"((?:\\.|[^"\\])*)"', text)
+        )
+    prefixes = [library / "steamapps/compatdata/438100/pfx" for library in libraries]
+    if value := os.environ.get("STEAM_COMPAT_DATA_PATH"):
+        prefixes.insert(0, Path(value) / "pfx")
+    if value := os.environ.get("WINEPREFIX"):
+        prefixes.insert(0, Path(value))
+    suffix = "AppData/LocalLow/VRChat/VRChat"
+    directories = []
+    for prefix in dict.fromkeys(prefixes):
+        directories.extend((prefix / "drive_c/users").glob(f"*/{suffix}"))
+    if directories:
+
+        def newest(directory: Path) -> float:
+            try:
+                return max(
+                    (item.stat().st_mtime for item in directory.glob("output_log_*.txt")), default=0
+                )
+            except OSError:
+                return 0
+
+        return max(directories, key=newest)
+    return prefixes[0] / "drive_c/users/steamuser" / suffix
+
+
+def _file_identity(status: os.stat_result) -> tuple[int, int, float]:
+    return (
+        status.st_dev,
+        status.st_ino,
+        status.st_ctime if os.name == "nt" else getattr(status, "st_birthtime", 0.0),
+    )
 
 
 def log_start_time(file_name: str) -> float | None:
@@ -186,15 +237,7 @@ class VrchatSceneLogTailer:
             status = path.stat()
         except OSError:
             raise
-        if (
-            self._identity is not None
-            and (
-                status.st_dev,
-                status.st_ino,
-                status.st_ctime,
-            )
-            != self._identity
-        ):
+        if self._identity is not None and _file_identity(status) != self._identity:
             raise VrchatSceneLogTruncated(str(path))
         if status.st_size < self._offset:
             raise VrchatSceneLogTruncated(str(path))
@@ -211,7 +254,7 @@ class VrchatSceneLogTailer:
             status = path.stat()
         except OSError:
             return
-        self._identity = (status.st_dev, status.st_ino, status.st_ctime)
+        self._identity = _file_identity(status)
         self._observed_mtime = status.st_mtime
 
     def _consume(self, path: Path, start: int) -> list[str]:

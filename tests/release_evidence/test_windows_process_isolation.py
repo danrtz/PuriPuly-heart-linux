@@ -104,6 +104,7 @@ def test_native_worker_environment_supports_nested_runtime_layout_under_isolated
     monkeypatch.setenv("HOME", str(profile))
     monkeypatch.setenv("APPDATA", str(appdata))
     monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(localappdata))
     monkeypatch.setattr(
         "puripuly_heart.release_evidence.windows_process_isolation.current_runtime_layout",
         lambda: layout,

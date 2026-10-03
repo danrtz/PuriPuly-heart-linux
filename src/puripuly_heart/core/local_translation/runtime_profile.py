@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -139,9 +140,10 @@ def default_llama_runtime_root() -> Path:
 
 def default_gemma_runtime_paths(root: Path | None = None) -> GemmaRuntimePaths:
     resolved = (root or default_llama_runtime_root()).resolve()
+    server_name = "llama-server.exe" if sys.platform == "win32" else "llama-server"
     return GemmaRuntimePaths(
-        cpu_server=resolved / "cpu" / "llama-server.exe",
-        vulkan_server=resolved / "vulkan" / "llama-server.exe",
+        cpu_server=resolved / "cpu" / server_name,
+        vulkan_server=resolved / "vulkan" / server_name,
     )
 
 

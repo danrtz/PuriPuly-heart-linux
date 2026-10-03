@@ -30,7 +30,7 @@ from puripuly_heart.core.lifecycle import LifecycleScope, start_lifecycle_task
 from puripuly_heart.runtime_layout import current_runtime_layout
 
 GPU_WORKER_CONTRACT_VERSION = 2
-GPU_WORKER_EXECUTABLE_NAME = "PuriPulyHeartGpuWorker.exe"
+GPU_WORKER_EXECUTABLE_NAME = "PuriPulyHeartGpuWorker" + (".exe" if sys.platform == "win32" else "")
 _MAX_FRAME_BYTES = 4 * 1024 * 1024
 _STDERR_FAILURE_FLUSH_SECONDS = 0.05
 
@@ -222,7 +222,7 @@ class DefaultGpuWorkerProcessFactory(GpuWorkerProcessFactoryPort):
             else:
                 executable = layout.native(GPU_WORKER_EXECUTABLE_NAME)
             return executable, executable
-        executable = (sys_executable or Path(sys.executable)).resolve()
+        executable = (sys_executable or Path(sys.executable)).absolute()
         root = repo_root or Path(__file__).resolve().parents[4]
         return (
             executable.with_name(GPU_WORKER_EXECUTABLE_NAME),

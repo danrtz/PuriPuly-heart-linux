@@ -164,12 +164,17 @@ def run_local_asr_production_composition_evidence(
 
 
 def run_hf_xet_runtime_check() -> int:
+    from importlib.machinery import EXTENSION_SUFFIXES
+
     import hf_xet
     import huggingface_hub
 
     if huggingface_hub.__version__ != "1.26.0":
         raise RuntimeError("unexpected packaged huggingface_hub version")
-    if not Path(hf_xet.__file__).with_name("hf_xet.pyd").is_file():
+    if not any(
+        Path(hf_xet.__file__).with_name("hf_xet" + suffix).is_file()
+        for suffix in EXTENSION_SUFFIXES
+    ):
         raise RuntimeError("packaged hf_xet native extension is missing")
     return 0
 

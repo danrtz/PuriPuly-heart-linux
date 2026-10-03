@@ -277,6 +277,7 @@ class UIEventBridge:
         history_destination: HistoryEventDestination,
         error_destination: ErrorEventDestination | None = None,
         get_language_codes: object | None = None,
+        get_peer_language_codes: object | None = None,
         is_translation_enabled: object | None = None,
         get_stt_state: object | None = None,
         clear_managed_auth_pending: object | None = None,
@@ -286,6 +287,7 @@ class UIEventBridge:
         self.event_queue = event_queue
         self.runtime_logging = runtime_logging
         self._get_language_codes_callback = get_language_codes
+        self._get_peer_language_codes_callback = get_peer_language_codes
         self._is_translation_enabled_callback = is_translation_enabled
         self._get_stt_state_callback = get_stt_state
         self._github_star_translation_success_callback = on_github_star_translation_success
@@ -313,8 +315,11 @@ class UIEventBridge:
             return bool(self._is_translation_enabled_callback())
         return False
 
-    def _projection_context(self) -> EventProjectionContext:
-        source_lang, target_lang = self._get_language_codes()
+    def _projection_context(self, channel: str = "self") -> EventProjectionContext:
+        if channel == "peer" and callable(self._get_peer_language_codes_callback):
+            source_lang, target_lang = self._get_peer_language_codes_callback()
+        else:
+            source_lang, target_lang = self._get_language_codes()
         stt_state = (
             self._get_stt_state_callback() if callable(self._get_stt_state_callback) else None
         )
@@ -406,7 +411,9 @@ class UIEventBridge:
             return
 
         if mapped.kind == "transcript":
-            projection = self.projection_service.project(mapped, self._projection_context())
+            projection = self.projection_service.project(
+                mapped, self._projection_context(getattr(mapped.payload, "channel", "self"))
+            )
             if projection.transcript is None:
                 return
             transcript_projection = projection.transcript
@@ -425,7 +432,9 @@ class UIEventBridge:
             return
 
         if mapped.kind == "translation":
-            projection = self.projection_service.project(mapped, self._projection_context())
+            projection = self.projection_service.project(
+                mapped, self._projection_context(getattr(mapped.payload, "channel", "self"))
+            )
             if projection.translation is None:
                 return
             translation_projection = projection.translation
@@ -450,7 +459,9 @@ class UIEventBridge:
             return
 
         if mapped.kind == "osc" and isinstance(mapped.payload, OSCMessage):
-            projection = self.projection_service.project(mapped, self._projection_context())
+            projection = self.projection_service.project(
+                mapped, self._projection_context(getattr(mapped.payload, "channel", "self"))
+            )
             self.history_destination.append_entry(
                 "VRChat",
                 mapped.payload.text,

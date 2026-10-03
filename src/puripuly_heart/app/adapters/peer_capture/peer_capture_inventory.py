@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -15,6 +16,10 @@ from puripuly_heart.core.audio.process_identity import PsutilCurrentUserProcessS
 
 class WindowsProcessCaptureInventoryAdapter:
     def candidates(self) -> tuple[ProcessCaptureCandidate, ...]:
+        if sys.platform.startswith("linux"):
+            from puripuly_heart.core.audio.linux_inventory import LinuxProcessCaptureResolver
+
+            return LinuxProcessCaptureResolver().enumerate_candidates()
         return ProcessCaptureResolver(
             snapshots=PsutilCurrentUserProcessSnapshots()
         ).enumerate_candidates()
@@ -22,6 +27,10 @@ class WindowsProcessCaptureInventoryAdapter:
 
 class WindowsLoopbackDeviceInventoryAdapter:
     def names(self) -> tuple[str, ...]:
+        if sys.platform.startswith("linux"):
+            from puripuly_heart.core.audio.linux_inventory import audio_devices
+
+            return tuple(device.label for device in audio_devices(outputs=True))
         names: list[str] = []
         manager = None
         try:

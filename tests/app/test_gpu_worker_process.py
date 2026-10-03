@@ -19,6 +19,40 @@ from puripuly_heart.app.ports.gpu_worker import (
 FAKE_WORKER = Path(__file__).parents[1] / "fixtures" / "fake_gpu_worker.py"
 
 
+def test_native_worker_name_matches_host_platform() -> None:
+    expected = "PuriPulyHeartGpuWorker.exe" if sys.platform == "win32" else "PuriPulyHeartGpuWorker"
+    assert gpu_worker_process_module.GPU_WORKER_EXECUTABLE_NAME == expected
+
+
+def test_staged_native_worker_is_resolved(tmp_path: Path) -> None:
+    staged = (
+        tmp_path / "build" / "gpu_worker" / gpu_worker_process_module.GPU_WORKER_EXECUTABLE_NAME
+    )
+    staged.parent.mkdir(parents=True)
+    staged.touch()
+    assert (
+        DefaultGpuWorkerProcessFactory.resolve_default_executable(
+            sys_executable=tmp_path / "venv" / "python", repo_root=tmp_path
+        )
+        == staged
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows symlinks require extra privileges")
+def test_native_worker_beside_symlinked_interpreter_is_resolved(tmp_path: Path) -> None:
+    interpreter = tmp_path / "venv" / "python"
+    interpreter.parent.mkdir()
+    interpreter.symlink_to(sys.executable)
+    sibling = interpreter.with_name(gpu_worker_process_module.GPU_WORKER_EXECUTABLE_NAME)
+    sibling.touch()
+    assert (
+        DefaultGpuWorkerProcessFactory.resolve_default_executable(
+            sys_executable=interpreter, repo_root=tmp_path
+        )
+        == sibling
+    )
+
+
 def _factory(**overrides: object) -> DefaultGpuWorkerProcessFactory:
     values = {
         "executable_path": FAKE_WORKER,

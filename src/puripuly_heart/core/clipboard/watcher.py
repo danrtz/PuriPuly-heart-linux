@@ -343,5 +343,9 @@ class WindowsClipboardWatcher:
             user32.CloseClipboard()
 
 
-def create_clipboard_watcher(on_text: Callable[[str], None]) -> WindowsClipboardWatcher:
+def create_clipboard_watcher(on_text: Callable[[str], None]):
+    if sys.platform.startswith("linux"):
+        from puripuly_heart.core.clipboard.linux import LinuxClipboardWatcher
+
+        return LinuxClipboardWatcher(on_text)
     return WindowsClipboardWatcher(on_text)

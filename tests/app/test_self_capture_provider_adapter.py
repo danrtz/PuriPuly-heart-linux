@@ -143,7 +143,7 @@ async def test_mutations_forward_terminal_failure_owner_and_map_results() -> Non
 
 
 @pytest.mark.asyncio
-async def test_start_ingress_validates_provider_and_gpu_activation() -> None:
+async def test_start_ingress_validates_provider_and_gpu_availability() -> None:
     runtime = RecordingRuntime()
     adapter = SelfCaptureProviderAdapter(cast(object, runtime), runtime)
     gpu_config = _config(provider_id="local_qwen_gpu", local_gpu=True)
@@ -164,11 +164,24 @@ async def test_start_ingress_validates_provider_and_gpu_activation() -> None:
 
     runtime.snapshot = _snapshot(
         provider_id="local_qwen_gpu",
-        gpu_phase="ready",
+        gpu_phase="failed",
         active_channels=frozenset(),
     )
     with pytest.raises(RuntimeError, match="GPU provider ingress"):
         await adapter.start_ingress()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["available", "ready"])
+async def test_gpu_ingress_allows_lazy_session_activation_on_first_speech(phase) -> None:
+    runtime = RecordingRuntime()
+    runtime.snapshot = _snapshot(
+        provider_id="local_qwen_gpu", gpu_phase=phase, active_channels=frozenset()
+    )
+    adapter = SelfCaptureProviderAdapter(cast(object, runtime), runtime)
+    assert adapter.is_ready(_config(provider_id="local_qwen_gpu", local_gpu=True))
+    await adapter.start_ingress()
+    assert runtime.calls == [("start", "self")]
 
 
 @pytest.mark.asyncio

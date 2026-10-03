@@ -7,6 +7,12 @@ from puripuly_heart.app.ports.desktop_overlay import DesktopWorkArea
 
 class WindowsDesktopWorkAreaAdapter:
     def primary_work_area(self) -> DesktopWorkArea | None:
+        if sys.platform.startswith("linux"):
+            from puripuly_heart.app.adapters.linux_desktop_work_area import (
+                LinuxDesktopWorkAreaAdapter,
+            )
+
+            return LinuxDesktopWorkAreaAdapter().primary_work_area()
         if sys.platform != "win32":
             return None
         try:

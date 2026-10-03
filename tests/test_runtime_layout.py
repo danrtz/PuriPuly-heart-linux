@@ -86,7 +86,7 @@ def test_native_python_child_environment_is_installed_only_and_non_recursive(
 
     environment = layout.python_child_environment(
         {
-            "SystemRoot": r"C:\Windows",
+            "SystemRoot": str(tmp_path / "Windows"),
             "PATH": "poisoned",
             "PYTHONPATH": "poisoned",
             "FLET_DART_BRIDGE_PORT": "41",
@@ -103,9 +103,24 @@ def test_native_python_child_environment_is_installed_only_and_non_recursive(
         str(install_root.resolve()),
         str(install_root.resolve() / "DLLs"),
         str(install_root.resolve() / "site-packages"),
-        r"C:\Windows\System32",
+        str(tmp_path / "Windows" / "System32"),
     ]
     assert environment["PYTHONDONTWRITEBYTECODE"] == "1"
     assert environment["PYTHONOPTIMIZE"] == "0"
     assert "FLET_DART_BRIDGE_PORT" not in environment
     assert "FLET_DART_BRIDGE_EXIT_PORT" not in environment
+
+
+def test_source_python_keeps_virtual_environment_symlink(tmp_path, monkeypatch):
+    import sys
+
+    executable = tmp_path / "venv/bin/python"
+    executable.parent.mkdir(parents=True)
+    executable.symlink_to(sys.executable)
+    monkeypatch.setattr(sys, "executable", str(executable))
+    for key in tuple(os.environ):
+        if key.startswith("PURIPULY_HEART_NATIVE_"):
+            monkeypatch.delenv(key)
+    layout = current_runtime_layout()
+    assert layout.python_executable == executable
+    assert layout.host_executable == executable

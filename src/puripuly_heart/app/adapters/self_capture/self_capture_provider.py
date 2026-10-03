@@ -92,7 +92,7 @@ class SelfCaptureProviderAdapter:
             raise RuntimeError("Self provider ingress did not become ready")
         if config.local_gpu:
             gpu = runtime.snapshot.gpu
-            if gpu.phase != "ready" or "self" not in gpu.active_channels:
+            if gpu.phase not in {"available", "ready"}:
                 raise RuntimeError("Self GPU provider ingress did not become ready")
 
     async def warmup(self) -> None:

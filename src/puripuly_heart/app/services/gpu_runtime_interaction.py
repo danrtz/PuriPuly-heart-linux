@@ -182,7 +182,7 @@ class GpuRuntimeInteractionOwner:
         phase = snapshot.gpu.phase
         if phase in {"available", "ready"}:
             self.set_ui_state(
-                "ready" if phase == "ready" else "loading",
+                "ready" if phase == "ready" else "installed",
                 origin="activation",
             )
             return True

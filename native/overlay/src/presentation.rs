@@ -56,6 +56,7 @@ pub enum HandoffMode {
 #[serde(rename_all = "snake_case")]
 pub enum PresentationBackend {
     D3d11Hardware,
+    OpenXrVulkan,
     D3d11Warp,
     Test,
 }

@@ -95,6 +95,105 @@ async def test_cli_model_only_selection_restores_saved_luna_connection(
         await restarted.stop()
 
 
+@pytest.mark.asyncio
+async def test_mixed_settings_batch_preserves_provider_languages_audio_and_telemetry(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
+    path = tmp_path / "settings.json"
+    isolated_settings(path)
+    initial = json.loads(path.read_text(encoding="utf-8"))
+    initial["intent"]["audio"]["input_device"] = "Previous microphone"
+    initial["intent"]["telemetry"]["enabled"] = True
+    path.write_text(json.dumps(initial), encoding="utf-8")
+    app = compose_headless_application(path)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("mixed-settings-control")
+        submitted = await control.submit(
+            "settings.apply",
+            {
+                "changes": {
+                    "translation.model": "gpt_6_luna",
+                    "translation.connection": "official_byok",
+                    "languages": {"source": "en", "target": "ja"},
+                    "audio.input_device": "",
+                    "telemetry.enabled": False,
+                    "locale": "en",
+                }
+            },
+            request_id="mixed-settings",
+        )
+        result = await control.wait(submitted["operation_id"], timeout=10)
+        assert result["status"] == "degraded"
+        current = (await control.query("settings.current", {}))["settings"]["intent"]
+        assert current["translation"]["model"] == "gpt_6_luna"
+        assert current["translation"]["connection"] == "official_byok"
+        assert current["languages"]["source_language"] == "en"
+        assert current["languages"]["target_language"] == "ja"
+        assert current["audio"]["input_device"] == ""
+        assert current["telemetry"]["enabled"] is False
+        assert current["ui"]["locale"] == "en"
+        assert current["osc"]["connection_mode"] == "off"
+    finally:
+        await app.stop()
+    persisted = json.loads(path.read_text(encoding="utf-8"))["intent"]
+    assert persisted["translation"]["model"] == "gpt_6_luna"
+    assert persisted["translation"]["connection"] == "official_byok"
+    assert persisted["languages"]["source_language"] == "en"
+    assert persisted["languages"]["target_language"] == "ja"
+    assert persisted["audio"]["input_device"] == ""
+    assert persisted["telemetry"]["enabled"] is False
+    assert persisted["ui"]["locale"] == "en"
+    assert persisted["osc"]["connection_mode"] == "off"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_status", "expected_status"),
+    [
+        ("settings_commit_failed", "persistence_failed"),
+        ("settings_commit_success_runtime_interrupted", "interrupted"),
+    ],
+)
+async def test_mixed_settings_batch_stops_when_provider_apply_does_not_complete(
+    tmp_path, monkeypatch, provider_status, expected_status
+) -> None:
+    monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
+    path = tmp_path / "settings.json"
+    isolated_settings(path)
+    app = compose_headless_application(path)
+    try:
+        await app.start()
+        control = app.control()
+        control.bind_instance("mixed-settings-failure")
+        original = (await control.query("settings.current", {}))["settings"]
+
+        async def unavailable_provider_apply(_self, _updated):
+            control.results.set(TransactionResult(provider_status, None, None))
+            return expected_status != "persistence_failed"
+
+        monkeypatch.setattr(
+            type(control.application), "apply_providers", unavailable_provider_apply
+        )
+        submitted = await control.submit(
+            "settings.apply",
+            {
+                "changes": {
+                    "translation.model": "gpt_6_luna",
+                    "languages": {"source": "en", "target": "ja"},
+                }
+            },
+            request_id="mixed-settings-failure",
+        )
+        result = await control.wait(submitted["operation_id"], timeout=10)
+        assert result["status"] == expected_status
+        assert (await control.query("settings.current", {}))["settings"] == original
+    finally:
+        await app.stop()
+
+
 def test_headless_runtime_error_is_localized_in_dashboard_state(caplog) -> None:
     from puripuly_heart.ui.i18n import t
 
@@ -713,5 +812,66 @@ async def test_peer_terms_are_explicit_and_shared_acceptance_is_isolated(tmp_pat
         assert unavailable["error"]["code"] == "capture_target_unavailable"
         assert (await control.query("consent.peer_translation", {}))["accepted"] is True
         assert app.compatibility_settings().state.peer_translation.eula_accepted is True
+    finally:
+        await app.stop()
+
+
+@pytest.mark.asyncio
+async def test_linux_audio_choices_and_validation_use_saved_stable_device_ids(
+    tmp_path, monkeypatch
+):
+    from puripuly_heart.app.services import application_audio_devices
+    from puripuly_heart.config.audio_host_api import LINUX_AUDIO_HOST_API
+    from puripuly_heart.core.audio import linux_inventory
+
+    monkeypatch.setattr(application_audio_devices.sys, "platform", "linux")
+    monkeypatch.setattr(
+        linux_inventory,
+        "audio_devices",
+        lambda outputs=False: (
+            linux_inventory.PulseDevice(
+                index=40 if outputs else 30,
+                name="headset.output" if outputs else "headset.input",
+                label="VR headset",
+                channels=2 if outputs else 1,
+                sample_rate_hz=48000,
+            ),
+        ),
+    )
+    monkeypatch.setenv("PURIPULY_HEART_SECRETS_PASSPHRASE", "isolated-test-passphrase")
+    path = tmp_path / "settings.json"
+    isolated_settings(path)
+    settings = json.loads(path.read_text())
+    settings["intent"]["audio"].update(
+        input_host_api=LINUX_AUDIO_HOST_API, input_device="headset.input"
+    )
+    settings["intent"]["desktop_audio"]["output_device"] = "headset.output"
+    path.write_text(json.dumps(settings))
+    app = compose_headless_application(path)
+    try:
+        await app.start()
+        control = app.control()
+        catalog = await control.query("settings.choices", {})
+        assert catalog["choices"]["audio.input_device"] == [
+            {
+                "value": "headset.input",
+                "label": "VR headset",
+                "host_api": LINUX_AUDIO_HOST_API,
+                "available": True,
+            }
+        ]
+        assert catalog["choices"]["audio.output_device"] == [
+            {"value": "", "available": True},
+            {"value": "headset.output", "label": "VR headset", "available": True},
+        ]
+        canonical = control.application.compatibility_settings()
+        await control._validate_settings_changes(
+            {"audio.input_device": "headset.input", "audio.output_device": "headset.output"},
+            canonical,
+        )
+        with pytest.raises(ValueError):
+            await control._validate_settings_changes(
+                {"audio.input_device": "absent.input"}, canonical
+            )
     finally:
         await app.stop()

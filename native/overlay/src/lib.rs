@@ -2,6 +2,8 @@ pub mod bridge;
 mod frame_cycle;
 pub mod logging;
 pub mod manifest;
+#[cfg(target_os = "linux")]
+mod linux_xr;
 pub mod openvr;
 pub mod presentation;
 pub mod renderer;

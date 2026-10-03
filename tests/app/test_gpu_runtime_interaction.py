@@ -181,3 +181,12 @@ async def test_validate_activation_starts_install_when_model_is_missing(
         )
     ]
     await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("phase", "expected"), [("available", "installed"), ("ready", "ready")])
+async def test_validated_gpu_does_not_claim_loading_before_lazy_session_starts(phase, expected):
+    owner, presentations = _owner(PhaseRuntime(phase))
+    assert await owner.validate_activation() is True
+    assert owner.snapshot.ui_state == expected
+    assert presentations[-1].state == expected

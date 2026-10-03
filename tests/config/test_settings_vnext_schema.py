@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import asdict, fields, is_dataclass
 from importlib import import_module
 from types import ModuleType
 
 import pytest
 
-from puripuly_heart.config.audio_host_api import WINDOWS_WASAPI_COMPATIBILITY_HOST_API
+from puripuly_heart.config.audio_host_api import (
+    LINUX_AUDIO_HOST_API,
+    WINDOWS_WASAPI_COMPATIBILITY_HOST_API,
+)
 
 
 def _load_schema_module() -> ModuleType:
@@ -63,7 +67,7 @@ def test_vnext_schema_defaults_match_current_persisted_settings_defaults() -> No
 
     settings = schema.AppSettingsVNext()
 
-    assert settings.intent.audio.input_host_api == WINDOWS_WASAPI_COMPATIBILITY_HOST_API
+    assert settings.intent.audio.input_host_api == (LINUX_AUDIO_HOST_API if sys.platform.startswith("linux") else WINDOWS_WASAPI_COMPATIBILITY_HOST_API)
     assert settings.intent.desktop_audio.vad_hangover_ms == 500
     assert (
         settings.intent.translation.openrouter_broker_base_url

@@ -39,6 +39,7 @@ def test_is_newer_compares_versions():
 
 @pytest.mark.asyncio
 async def test_check_for_update_returns_info(monkeypatch):
+    monkeypatch.setattr(updater.sys, "platform", "win32")
     data = {
         "tag_name": "v1.2.3",
         "assets": [{"name": "app.exe", "browser_download_url": "https://example/app.exe"}],
@@ -62,4 +63,15 @@ async def test_check_for_update_returns_none_on_error(monkeypatch):
     response = DummyResponse(500, {})
     monkeypatch.setattr(updater.httpx, "AsyncClient", lambda timeout=5.0: DummyClient(response))
 
+    assert await updater.check_for_update() is None
+
+
+@pytest.mark.asyncio
+async def test_linux_does_not_offer_windows_installer(monkeypatch):
+    monkeypatch.setattr(updater.sys, "platform", "linux")
+
+    def no_network(**kwargs):
+        raise AssertionError("Windows release lookup should not run on Linux")
+
+    monkeypatch.setattr(updater.httpx, "AsyncClient", no_network)
     assert await updater.check_for_update() is None

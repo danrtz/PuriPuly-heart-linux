@@ -23,7 +23,7 @@ from puripuly_heart.core.runtime_logging import (
     SessionRuntimeLoggingService,
 )
 from puripuly_heart.domain.events import STTSessionState, UIEvent, UIEventType
-from puripuly_heart.domain.models import OSCMessage, Transcript, Translation
+from puripuly_heart.domain.models import FinalLanguageRun, OSCMessage, Transcript, Translation
 from puripuly_heart.ui import event_dispatch as event_dispatch_module
 from puripuly_heart.ui.event_bridge import (
     AppDashboardEventDestination,
@@ -204,6 +204,7 @@ def make_bridge(app: object, **kwargs: object) -> UIEventBridge:
         get_language_codes=kwargs.pop(
             "get_language_codes", getattr(app, "get_event_language_codes", None)
         ),
+        get_peer_language_codes=kwargs.pop("get_peer_language_codes", None),
         is_translation_enabled=kwargs.pop(
             "is_translation_enabled", getattr(app, "is_event_translation_enabled", None)
         ),
@@ -1027,8 +1028,8 @@ async def test_event_bridge_logs_peer_dashboard_translation_applied_detail_only(
         )
     )
 
-    assert app.view_dashboard.translation_calls == [("translated peer", "en")]
-    assert app.history == [("Peer Mic", "translated peer", True, "en")]
+    assert app.view_dashboard.translation_calls == [("translated peer", "ja")]
+    assert app.history == [("Peer Mic", "translated peer", True, "ja")]
     assert runtime_logging.basic_messages == []
     assert len(runtime_logging.detailed_messages) == 1
     level, message = runtime_logging.detailed_messages[0]
@@ -1038,7 +1039,7 @@ async def test_event_bridge_logs_peer_dashboard_translation_applied_detail_only(
         utterance_id=str(utterance_id),
         channel="peer",
         source_label="Peer Mic",
-        dashboard_target_language="en",
+        dashboard_target_language="ja",
         translation_target_language="ja",
         text_len=len("translated peer"),
     )
@@ -1402,3 +1403,90 @@ def test_event_bridge_reports_overlay_state_to_app() -> None:
 
     assert app.overlay_state == "failed"
     assert app.overlay_failure_reason == "runtime_crashed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "peer_source", "runs", "expected_source", "expected_target"),
+    [
+        ("self", "ja", (), "en", "ja"),
+        ("peer", "ja", (), "ja", "en"),
+        ("peer", None, (FinalLanguageRun("こんにちは", "ja"),), "ja", "en"),
+        ("peer", None, (), None, "en"),
+        (
+            "peer",
+            None,
+            (FinalLanguageRun("こんにちは", "ja"), FinalLanguageRun("你好", "zh-CN")),
+            None,
+            "en",
+        ),
+    ],
+)
+async def test_history_and_dashboard_use_each_channels_manual_or_detected_language(
+    channel, peer_source, runs, expected_source, expected_target
+):
+    app = DummyApp()
+    bridge = make_bridge(
+        app,
+        get_language_codes=lambda: ("en", "ja"),
+        get_peer_language_codes=lambda: (peer_source, "en"),
+    )
+    utterance_id = uuid4()
+    await bridge._handle_event(
+        UIEvent(
+            type=UIEventType.TRANSCRIPT_FINAL,
+            payload=Transcript(
+                utterance_id=utterance_id,
+                text="original",
+                is_final=True,
+                channel=channel,
+                final_language_runs=runs,
+            ),
+            source=channel,
+        )
+    )
+    await bridge._handle_event(
+        UIEvent(
+            type=UIEventType.TRANSLATION_DONE,
+            payload=Translation(utterance_id=utterance_id, text="translated", channel=channel),
+            source=channel,
+        )
+    )
+    assert app.history == [
+        (channel, "original", False, expected_source),
+        (channel, "translated", True, expected_target),
+    ]
+    assert app.view_dashboard.translation_calls == [("translated", expected_target)]
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("manual", ("ja", "en")), ("auto", (None, "en"))])
+def test_ui_boundary_exposes_peer_languages_without_reusing_self_pair(mode, expected):
+    from dataclasses import replace
+
+    from puripuly_heart.app.adapters.ui_runtime import UiEngagementRuntimeAdapter
+    from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+
+    settings = AppSettingsVNext()
+    settings = replace(
+        settings,
+        intent=replace(
+            settings.intent,
+            languages=replace(
+                settings.intent.languages,
+                source_language="en",
+                target_language="ja",
+                peer_source_language="ja",
+                peer_target_language="en",
+                peer_source_mode=mode,
+            ),
+        ),
+    )
+    adapter = UiEngagementRuntimeAdapter(
+        settings=SimpleNamespace(canonical=settings),
+        settings_application=None,
+        github_prompt=None,
+        telemetry=None,
+        after_launch=None,
+    )
+    assert adapter.get_event_language_codes() == ("en", "ja")
+    assert adapter.get_event_language_codes("peer") == expected

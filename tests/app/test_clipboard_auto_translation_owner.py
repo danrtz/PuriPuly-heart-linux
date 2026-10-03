@@ -24,7 +24,8 @@ class FakeClipboardWatcher:
 
 
 @pytest.mark.asyncio
-async def test_owner_starts_submits_and_stops_windows_watcher() -> None:
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+async def test_owner_starts_submits_and_stops_watcher(platform: str) -> None:
     watchers: list[FakeClipboardWatcher] = []
     submitted: list[str] = []
     submitted_event = asyncio.Event()
@@ -42,7 +43,7 @@ async def test_owner_starts_submits_and_stops_windows_watcher() -> None:
         watcher_factory=watcher_factory,
         submit_text=submit_text,
         failure_sink=lambda _message: None,
-        platform_provider=lambda: "win32",
+        platform_provider=lambda: platform,
     )
 
     await owner.sync(enabled=True)
@@ -56,7 +57,7 @@ async def test_owner_starts_submits_and_stops_windows_watcher() -> None:
 
 
 @pytest.mark.asyncio
-async def test_owner_does_not_create_watcher_when_disabled_or_not_windows() -> None:
+async def test_owner_does_not_create_watcher_when_disabled_or_unsupported() -> None:
     factory_calls = 0
 
     def watcher_factory(on_text: Callable[[str], None]) -> FakeClipboardWatcher:
@@ -71,7 +72,7 @@ async def test_owner_does_not_create_watcher_when_disabled_or_not_windows() -> N
         watcher_factory=watcher_factory,
         submit_text=submit_text,
         failure_sink=lambda _message: None,
-        platform_provider=lambda: "linux",
+        platform_provider=lambda: "darwin",
     )
 
     await owner.sync(enabled=True)

@@ -161,14 +161,22 @@ def test_adapter_rejects_resolved_process_without_identity() -> None:
         )
 
 
-def test_wiring_factory_composes_internal_peer_capture_source_adapter() -> None:
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_wiring_factory_composes_internal_peer_capture_source_adapter(
+    monkeypatch, platform
+) -> None:
+    monkeypatch.setattr("puripuly_heart.app.wiring.wiring_composition.sys.platform", platform)
     adapter = create_peer_capture_source_adapter(
         log_diagnostic=lambda _message: None,
         wrap_source=lambda source: source,
     )
 
     assert isinstance(adapter, PeerCaptureSourceAdapter)
-    assert adapter.loopback_source_factory.__name__ == "DesktopLoopbackAudioSource"
-    assert adapter.process_source_factory.__name__ == "ProcessAudioCaptureSource"
+    assert adapter.loopback_source_factory.__name__ == (
+        "LinuxLoopbackAudioSource" if platform == "linux" else "DesktopLoopbackAudioSource"
+    )
+    assert adapter.process_source_factory.__name__ == (
+        "LinuxProcessAudioSource" if platform == "linux" else "ProcessAudioCaptureSource"
+    )
     assert adapter.process_watcher_factory.__name__ == "PsutilProcessIdentityWatcher"
     assert adapter.pipeline_factory.__name__ == "DesktopPeerPipeline"

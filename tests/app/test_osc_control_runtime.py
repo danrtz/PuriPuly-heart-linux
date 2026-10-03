@@ -1329,6 +1329,7 @@ async def test_off_transition_drains_an_admitted_dashboard_command() -> None:
     )
     await application.started.wait()
 
+    sent_before_disable = list(sender.messages)
     off_task = asyncio.create_task(
         integration.configure_connection(
             mode="off",
@@ -1348,6 +1349,5 @@ async def test_off_transition_drains_an_admitted_dashboard_command() -> None:
     assert result.error == "router_disabled"
     assert application.completed is True
     assert integration.connection_mode == "off"
-    assert len(sender.messages) == 16
-    assert sender.messages[-1] == ("/avatar/parameters/PuriPuly_Talk", True)
+    assert sender.messages == sent_before_disable
     await integration.close()

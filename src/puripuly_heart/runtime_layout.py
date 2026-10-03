@@ -73,11 +73,13 @@ def current_runtime_layout() -> RuntimeLayout:
     if native_resource_root:
         resource_root = Path(native_resource_root).resolve()
         runtime_root = Path(os.getenv(_NATIVE_RUNTIME_ROOT_ENV, native_resource_root)).resolve()
-        host_executable = Path(os.getenv(_NATIVE_HOST_EXECUTABLE_ENV, sys.executable)).resolve()
-        python_executable = Path(os.getenv(_NATIVE_PYTHON_EXECUTABLE_ENV, sys.executable)).resolve()
+        host_executable = Path(os.getenv(_NATIVE_HOST_EXECUTABLE_ENV, sys.executable)).absolute()
+        python_executable = Path(
+            os.getenv(_NATIVE_PYTHON_EXECUTABLE_ENV, sys.executable)
+        ).absolute()
         host_kind: RuntimeHostKind = "native"
     elif bool(getattr(sys, "frozen", False)):
-        host_executable = Path(sys.executable).resolve()
+        host_executable = Path(sys.executable).absolute()
         resource_root = Path(getattr(sys, "_MEIPASS", host_executable.parent)).resolve()
         runtime_root = resource_root
         python_executable = host_executable
@@ -85,7 +87,7 @@ def current_runtime_layout() -> RuntimeLayout:
     else:
         resource_root = Path(__file__).resolve().parents[2]
         runtime_root = resource_root / "build"
-        host_executable = Path(sys.executable).resolve()
+        host_executable = Path(sys.executable).absolute()
         python_executable = host_executable
         host_kind = "source"
 

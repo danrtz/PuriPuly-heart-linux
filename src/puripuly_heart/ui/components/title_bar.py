@@ -8,6 +8,8 @@ from puripuly_heart.ui.theme import (
     COLOR_DIVIDER,
     COLOR_ERROR,
     COLOR_NEUTRAL_DARK,
+    COLOR_ON_BACKGROUND,
+    COLOR_PRIMARY,
     COLOR_SECONDARY,
 )
 
@@ -44,7 +46,23 @@ class TitleBar(ft.Container):
         )
 
         drag_area = ft.WindowDragArea(
-            content=ft.Container(expand=True, height=48),
+            content=ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.FAVORITE_ROUNDED, size=18, color=COLOR_PRIMARY),
+                        ft.Text(
+                            "PuriPuly Heart",
+                            size=13,
+                            weight=ft.FontWeight.W_600,
+                            color=COLOR_ON_BACKGROUND,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                padding=ft.Padding.only(left=20),
+                expand=True,
+                height=48,
+            ),
             expand=True,
         )
 

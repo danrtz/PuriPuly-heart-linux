@@ -817,8 +817,12 @@ class UiApplicationBoundary:
     def clear_managed_auth_pending_state(self) -> None:
         self._managed.clear_managed_auth_pending_state()
 
-    def get_event_language_codes(self) -> tuple[str | None, str | None]:
-        return self._engagement.get_event_language_codes()
+    def get_event_language_codes(self, channel: str = "self") -> tuple[str | None, str | None]:
+        return (
+            self._engagement.get_event_language_codes()
+            if channel == "self"
+            else self._engagement.get_event_language_codes(channel)
+        )
 
     def schedule_github_star_prompt_translation_success_observed(self) -> None:
         self._engagement.schedule_github_star_prompt_translation_success_observed()

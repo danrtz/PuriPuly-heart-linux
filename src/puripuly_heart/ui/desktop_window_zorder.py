@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import os
+import sys
 from collections.abc import Awaitable, Callable
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -707,6 +708,10 @@ class _CtypesWin32WindowApi:
 
 
 def create_window_z_order_port() -> WindowZOrderPort:
+    if sys.platform.startswith("linux"):
+        from puripuly_heart.ui.linux_window_zorder import LinuxWindowZOrderPort
+
+        return LinuxWindowZOrderPort()
     if os.name != "nt":
         return NoopWindowZOrderPort()
     return WindowsWindowZOrderPort()

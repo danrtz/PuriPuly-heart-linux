@@ -7,6 +7,7 @@ Network failures are handled gracefully without affecting the main application.
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,6 +56,8 @@ async def check_for_update() -> UpdateInfo | None:
     Returns UpdateInfo if a new version is available, None otherwise.
     Network errors are silently ignored (returns None).
     """
+    if sys.platform.startswith("linux"):
+        return None
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(

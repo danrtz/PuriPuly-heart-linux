@@ -1820,9 +1820,9 @@ fn renderer_returns_a_renderable_texture_contract_off_windows() {
     assert_eq!(frame.height(), 1056);
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 #[test]
-fn renderer_runtime_backend_is_rejected_outside_windows() {
+fn renderer_runtime_backend_is_rejected_on_unsupported_platforms() {
     let result = CaptionRenderer::new();
     assert!(result.is_err());
     let error = result.err().unwrap();

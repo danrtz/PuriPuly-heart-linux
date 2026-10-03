@@ -257,3 +257,9 @@ opencode.json
 .impeccable.md
 /temp/
 .flet/
+!/scripts/linux/
+/scripts/linux/*
+!/scripts/linux/build-native.sh
+!/scripts/linux/install-user.sh
+
+/diagnostics/

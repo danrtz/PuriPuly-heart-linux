@@ -572,5 +572,9 @@
   "chatgpt_auth.error.retry": "Не удалось войти в ChatGPT. Попробуйте ещё раз.",
   "provider.chatgpt.usage_limit": "Достигнут лимит использования плана ChatGPT. Проверьте его в настройках ChatGPT > Использование.",
   "provider.chatgpt.not_eligible": "Для этого аккаунта ChatGPT использование плана недоступно.",
-  "provider.chatgpt.reauth_required": "Срок входа в ChatGPT истёк. Войдите снова в настройках."
+  "provider.chatgpt.reauth_required": "Срок входа в ChatGPT истёк. Войдите снова в настройках.",
+  "settings.overlay.failure.openxr_not_installed": "Среда OpenXR для оверлея недоступна. Используйте WiVRn или Monado.",
+  "settings.overlay.failure.openxr_not_running": "Подключите гарнитуру через WiVRn или Monado либо выберите субтитры на рабочем столе.",
+  "settings.overlay.failure.openxr_init_failed": "Не удалось инициализировать оверлей OpenXR",
+  "dashboard.openxr_session_fallback_desktop": "VR недоступен. Открыты субтитры на рабочем столе."
 }

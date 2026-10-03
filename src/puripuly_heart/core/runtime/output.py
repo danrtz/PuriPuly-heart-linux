@@ -582,6 +582,16 @@ class OutputRuntime:
         if not self.chatbox_is_eligible(channel):
             raise ValueError("unknown chatbox publication channel")
 
+        if not getattr(self.chatbox, "enabled", True):
+            return self._observe_result(
+                status=OUTPUT_ROUTING_DECISION_SKIPPED,
+                route=OUTPUT_ROUTE_SELF_CHATBOX,
+                publication_id=str(publication_id),
+                publication_kind=publication_kind,
+                reason="destination_disabled",
+                metadata={"channel": channel, **publication_metadata},
+            )
+
         publication_key = (
             OUTPUT_ROUTE_SELF_CHATBOX,
             f"{publication_id}:{presentation_revision}",
