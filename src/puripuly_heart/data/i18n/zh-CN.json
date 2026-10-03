@@ -126,6 +126,7 @@
   "settings.default_option": "自动",
   "settings.option.on": "开启",
   "settings.option.off": "关闭",
+  "settings.activation_notice.title": "提示显示",
   "settings.overlay.show_translation": "显示翻译",
   "settings.overlay.show_peer_original": "显示对方原文",
   "dashboard.local_stt_notice_self_loading": "正在加载语音识别模型…",

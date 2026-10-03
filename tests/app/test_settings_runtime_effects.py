@@ -71,6 +71,7 @@ def test_peer_runtime_convergence_requires_capture_and_committed_live_provider()
         phase="ready",
     )
     adapter._pipeline = SimpleNamespace(
+        output_runtime=None,
         local_asr_runtime=SimpleNamespace(
             snapshot=SimpleNamespace(channel_for=lambda _channel: channel)
         )
@@ -104,6 +105,7 @@ async def test_failed_self_runtime_apply_does_not_write_target_signature_cache_f
     adapter._provisioning = _AsyncNoop()
     adapter._clear_local_pending = lambda: None
     adapter._pipeline = SimpleNamespace(
+        output_runtime=None,
         translation_runtime_configuration=None,
         peer_translation_channel=object(),
     )
@@ -187,6 +189,7 @@ async def test_peer_refresh_recomputes_activation_after_eula_transition() -> Non
     adapter._provisioning = _AsyncNoop()
     adapter._clear_local_pending = lambda: None
     adapter._pipeline = SimpleNamespace(
+        output_runtime=None,
         translation_runtime_configuration=None,
         peer_translation_channel=object(),
     )
@@ -273,6 +276,7 @@ async def test_stale_active_peer_with_matching_cache_retries_without_caching_non
     adapter._provisioning = _AsyncNoop()
     adapter._clear_local_pending = lambda: None
     adapter._pipeline = SimpleNamespace(
+        output_runtime=None,
         translation_runtime_configuration=None,
         peer_translation_channel=object(),
     )

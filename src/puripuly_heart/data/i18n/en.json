@@ -126,6 +126,7 @@
   "settings.default_option": "Auto",
   "settings.option.on": "On",
   "settings.option.off": "Off",
+  "settings.activation_notice.title": "Activation Notices",
   "settings.overlay.show_translation": "Show Translation",
   "settings.overlay.show_peer_original": "Show Peer Original",
   "dashboard.local_stt_notice_self_loading": "Loading the speech recognition model…",

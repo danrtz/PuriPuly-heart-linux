@@ -16,6 +16,7 @@ from puripuly_heart.app.adapters.settings_vnext_canonical_persistence import (
 )
 from puripuly_heart.app.adapters.ui_runtime import UiProviderRuntimeAdapter
 from puripuly_heart.app.ports.settings_view import (
+    ActivationNoticeSettingsIntent,
     AudioInputSettingsIntent,
     AudioSettingsIntent,
     ChatboxSourceSettingsIntent,
@@ -87,6 +88,40 @@ def test_surface_projection_returns_independent_frozen_snapshots() -> None:
     assert overlay.target == settings.intent.overlay.target
     with pytest.raises(FrozenInstanceError):
         general.locale = "ja"
+
+
+def test_activation_notice_intent_replays_only_its_canonical_preference() -> None:
+    baseline = AppSettingsVNext()
+    current = _vnext(
+        osc=replace(
+            baseline.intent.osc,
+            connection_mode="manual",
+            send_port=9130,
+            receive_port=9131,
+            chatbox_include_source=True,
+            vrc_mic_intercept=True,
+        ),
+        overlay=replace(baseline.intent.overlay, show_translation=False),
+        ui=replace(baseline.intent.ui, locale="ja"),
+    )
+
+    updated = materialize_immediate_settings_intent(current, ActivationNoticeSettingsIntent(False))
+
+    assert updated == _vnext(
+        current,
+        osc=replace(current.intent.osc, activation_notice_enabled=False),
+    )
+    assert settings_view_surface_snapshots(current)[1].activation_notice_enabled is True
+    assert settings_view_surface_snapshots(updated)[1].activation_notice_enabled is False
+
+
+@pytest.mark.parametrize("invalid", [None, 0, 1, "false", [], {}])
+def test_activation_notice_intent_rejects_non_boolean_values(invalid: object) -> None:
+    with pytest.raises(ValueError, match="activation_notice_enabled"):
+        materialize_immediate_settings_intent(
+            AppSettingsVNext(),
+            ActivationNoticeSettingsIntent(invalid),
+        )
 
 
 def test_immediate_intents_rebase_onto_latest_settings_without_surface_displacement() -> None:

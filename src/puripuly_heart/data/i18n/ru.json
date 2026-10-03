@@ -126,6 +126,7 @@
   "settings.default_option": "Авто",
   "settings.option.on": "Вкл.",
   "settings.option.off": "Выкл.",
+  "settings.activation_notice.title": "Показывать уведомления",
   "settings.overlay.show_translation": "Показывать перевод",
   "settings.overlay.show_peer_original": "Показывать оригинал собеседника",
   "dashboard.local_stt_notice_self_loading": "Загрузка модели распознавания речи…",

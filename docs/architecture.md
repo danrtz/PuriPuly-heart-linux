@@ -275,6 +275,8 @@ Do not retain references across replacement unless the API explicitly allows it.
 
 `SettingsView` consumes only frozen surface snapshots and emits focused typed intents. The settings application owner replays those intents onto the latest canonical settings before persistence and runtime application.
 
+`intent.osc.activation_notice_enabled` defaults to `true` and controls only the Talk and Listen activation chatbox notices. The General tab's fifth row exposes one direct on/off card and two empty cards; its existing four rows are unchanged. Notice-only edits persist through `ActivationNoticeSettingsIntent`, then synchronously update the active output owner without preparing or restarting capture, providers, or overlays. Failed persistence restores the committed settings projection and leaves the output policy unchanged.
+
 
 Contains user selections, not active runtime resources.
 
@@ -400,6 +402,7 @@ Delivery boundaries:
 
 - Peer UI and overlay destinations have independent bounded queues and writers.
 - Self chatbox delivery owns its bounded admission and expiry policy.
+- `OutputRuntime.activation_notice_enabled` gates the immediate Talk notice and queued Listen disclosure before destination handoff. Disabled notices produce an `activation_notice_disabled` routing outcome; enabling the preference does not replay them. Ordinary Self output, typing, subtitles, errors, and the initial Peer consent requirement are unchanged. Pipeline construction and recreation initialize this policy from canonical settings; Talk's existing activation eligibility and cooldown remain owned by the Self translation channel.
 - Output handoff releases translation ordering without waiting for display. Sink failure does not replay recognition or translation.
 - Peer publications retain activation generation and `source_order` through output. For turn-bound providers this follows segment order; independent Gemini finals use receipt-ordered admission into the same monotonic publication sequence. Retiring an activation cancels its deliveries and rejects late work.
 - Peer text without speaker runs, including independent Gemini finals, is `non_diarized` and uses the existing gold style without a speaker hold or guessed identity. Explicit uncertain or missing speaker attribution keeps the gray fallback; first-readable presentation remains pinned.

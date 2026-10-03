@@ -126,6 +126,7 @@
   "settings.default_option": "자동 선택",
   "settings.option.on": "켜기",
   "settings.option.off": "끄기",
+  "settings.activation_notice.title": "안내문 표시",
   "settings.overlay.show_translation": "번역 표시",
   "settings.overlay.show_peer_original": "상대 원문 표시",
   "dashboard.local_stt_notice_self_loading": "음성 인식 모델을 불러오는 중이에요.",
