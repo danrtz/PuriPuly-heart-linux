@@ -10,6 +10,9 @@ from puripuly_heart.app.services.settings_application import (
     materialize_provider_apply_intent,
     settings_view_surface_snapshots,
 )
+from puripuly_heart.app.wiring_provider_runtime import (
+    project_translation_runtime_settings_from_vnext,
+)
 
 from puripuly_heart.app.adapters.settings_vnext_canonical_persistence import (
     SettingsVNextCanonicalPersistenceAdapter,
@@ -50,11 +53,13 @@ from puripuly_heart.app.wiring.wiring_provider_runtime_policy import (
     provider_llm_for_translation,
 )
 from puripuly_heart.config.alibaba_connection import AlibabaRegionalSettings
+from puripuly_heart.config.prompts import get_translation_prompt_template
 from puripuly_heart.config.provider_values import (
     OpenRouterCredentialSource,
     QwenRegion,
     STTProviderName,
 )
+from puripuly_heart.config.runtime_resolution import OPENAI_MODEL_GPT_6_LUNA
 from puripuly_heart.config.settings_vnext.schema import (
     AppSettingsVNext,
     ProviderVerificationEntry,
@@ -367,6 +372,60 @@ def test_provider_edit_journal_replays_only_owned_fields_onto_latest_settings() 
     assert updated.intent.prompts.system_prompt_override == "focused prompt"
     assert updated.intent.languages.source_language == "ja"
     assert updated.intent.audio.input_device == "latest microphone"
+
+
+@pytest.mark.parametrize(
+    "connection",
+    (
+        TranslationConnection.OFFICIAL_BYOK,
+        TranslationConnection.OPENROUTER,
+        TranslationConnection.CHATGPT,
+    ),
+)
+@pytest.mark.parametrize("override", (None, "  Custom translation prompt.\n"))
+def test_model_selection_preserves_prompt_override_and_generic_editor_default(
+    connection: TranslationConnection,
+    override: str | None,
+) -> None:
+    baseline = AppSettingsVNext()
+    current = _vnext(
+        baseline,
+        prompts=replace(baseline.intent.prompts, system_prompt_override=override),
+    )
+    for model, selected_connection in (
+        (TranslationModel.GPT_6_LUNA, connection),
+        (TranslationModel.GEMINI_FLASH, TranslationConnection.OFFICIAL_BYOK),
+    ):
+        provider, _general, _prompt, _overlay = settings_view_surface_snapshots(current)
+        selection = replace(
+            provider.translation,
+            model=model,
+            connection=selected_connection,
+        )
+        current = materialize_provider_apply_intent(
+            current,
+            ProviderApplyIntent(
+                (TranslationSelectionEdit(selection, ((model, selected_connection),)),)
+            ),
+            materialize_translation=materialize_canonical_translation_settings,
+        )
+
+        assert current.intent.prompts.system_prompt_override == override
+        editor_prompt = settings_view_surface_snapshots(current)[2].system_prompt
+        assert editor_prompt == (
+            override if override is not None else get_translation_prompt_template()
+        )
+        if model is TranslationModel.GPT_6_LUNA:
+            expected_runtime_prompt = get_translation_prompt_template(model=OPENAI_MODEL_GPT_6_LUNA)
+        else:
+            expected_runtime_prompt = get_translation_prompt_template()
+        runtime = project_translation_runtime_settings_from_vnext(current)
+        assert runtime.system_prompt == (
+            override if override is not None else expected_runtime_prompt
+        )
+
+        saved = materialize_prompt_apply_intent(current, PromptApplyIntent(editor_prompt))
+        assert saved.intent.prompts.system_prompt_override == override
 
 
 def _with_qwen(settings: AppSettingsVNext, **qwen_fields: object) -> AppSettingsVNext:

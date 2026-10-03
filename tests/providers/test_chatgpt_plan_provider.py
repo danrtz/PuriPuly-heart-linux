@@ -149,15 +149,58 @@ async def test_translate_sends_plan_compatible_request_and_reuses_connection() -
     assert request["store"] is False
     assert request["reasoning"] == {"effort": "none"}
     assert request["instructions"] == "Translate Korean to English."
+    assert "prompt_cache_options" not in request
     assert "stream" not in request
     assert "temperature" not in request
     assert "max_output_tokens" not in request
     assert "stream_id" not in request
     message = request["input"][0]
-    assert message["role"] == "user"
-    assert "안녕" in message["content"][0]["text"]
+    assert message == {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "<input>\n안녕\n</input>"}],
+    }
+    assert server.requests[1]["instructions"] == request["instructions"]
+    assert server.requests[1]["input"][0] != message
     await provider.close()
     assert server.closed == 1
+
+
+async def test_plan_omits_unsupported_explicit_cache_fields_and_preserves_custom_prompt() -> None:
+    server = _FakeServer(_completed("ok"))
+    provider = _provider(server, _FakeSession())
+    custom_prompt = "Custom instructions\nKeep {literal} exactly as written."
+    try:
+        for text, context, participants in (
+            ("first input", "first context", 2),
+            ("second input", "second context", 3),
+        ):
+            await provider.translate(
+                utterance_id=uuid4(),
+                text=text,
+                system_prompt=custom_prompt,
+                source_language="Korean",
+                target_language="English",
+                context=context,
+                scene_participant_count=participants,
+                max_output_tokens=37,
+            )
+
+        for request in server.requests:
+            assert request["store"] is False
+            assert request["reasoning"] == {"effort": "none"}
+            assert "max_output_tokens" not in request
+            user_message = request["input"][-1]
+            assert user_message["role"] == "user"
+            assert len(user_message["content"]) == 1
+            assert user_message["content"][0]["type"] == "input_text"
+            assert "prompt_cache_breakpoint" not in user_message["content"][0]
+            assert request["instructions"] == custom_prompt
+            assert "prompt_cache_options" not in request
+            assert len(request["input"]) == 1
+        assert server.requests[0]["input"][-1] != server.requests[1]["input"][-1]
+    finally:
+        await provider.close()
 
 
 async def test_concurrent_requests_use_separate_connections_within_pool_limit() -> None:
@@ -562,7 +605,7 @@ async def test_queued_requests_are_fifo_and_do_not_reuse_an_occupied_socket() ->
         assert not newest.done()
         attempt = asyncio.create_task(first.translate_attempt(0))
         await _wait_for_requests(server, 1)
-        assert "oldest" in server.requests[0]["input"][0]["content"][0]["text"]
+        assert "oldest" in server.requests[0]["input"][-1]["content"][0]["text"]
         await first.close()
         assert not newest.done()
         server.gate.set()
@@ -827,7 +870,7 @@ async def test_response_unauthorized_retries_once_with_the_same_logical_payload(
         calls += 1
         if calls == 1:
             return [{"type": "error", "status": 401}]
-        text = request["input"][0]["content"][0]["text"]
+        text = request["input"][-1]["content"][0]["text"]
         return _completed(text)(request)
 
     server = _FakeServer(script)
@@ -930,7 +973,7 @@ async def test_abandoned_admission_during_opening_never_sends_or_leaks_capacity(
         assert await asyncio.wait_for(next_request, timeout=1) == "next"
         assert len(server.sockets) == 1
         assert len(server.requests) == 1
-        assert "next" in server.requests[0]["input"][0]["content"][0]["text"]
+        assert "next" in server.requests[0]["input"][-1]["content"][0]["text"]
     finally:
         gate.set()
         await provider.close()
@@ -1055,7 +1098,7 @@ async def test_repeated_handshake_unauthorized_stops_after_one_retry() -> None:
 
 async def test_executions_with_the_same_utterance_id_keep_distinct_payloads_and_slots() -> None:
     def script(request: dict[str, object]) -> list[dict[str, object]]:
-        text = request["input"][0]["content"][0]["text"]
+        text = request["input"][-1]["content"][0]["text"]
         return _completed("first" if "first" in text else "second")(request)
 
     server = _FakeServer(script)
