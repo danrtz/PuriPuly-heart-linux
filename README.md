@@ -1,3 +1,20 @@
+<p align="center">
+  <img src="src/puripuly_heart/data/icons/icon.png" alt="PuriPuly Heart for Linux" width="128" />
+</p>
+
+<h1 align="center">PuriPuly Heart — Linux Port</h1>
+<p align="center"><strong>Native Linux voice translation and subtitles for VRChat</strong><br>
+PipeWire audio · CPU / Vulkan inference · Desktop / OpenXR captions</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black" alt="Platform: Linux" />
+  <img src="https://img.shields.io/badge/status-beta-orange" alt="Status: beta" />
+  <img src="https://img.shields.io/badge/tested_on-Arch_%2B_Hyprland-1793D1" alt="Tested on Arch Linux and Hyprland" />
+  <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
+</p>
+
+<p align="center"><a href="docs/Linux.md"><strong>Install on Linux</strong></a> · <a href="docs/Linux.md#stability-pass--october-3-2026">Testing and limitations</a> · <a href="https://github.com/kapitalismho/PuriPuly-heart">Original Windows project</a></p>
+
 > **Linux beta fork:** Native Arch/Hyprland, PipeWire, Vulkan speech recognition, local translation and OpenXR subtitles. Based on [kapitalismho’s PuriPuly Heart](https://github.com/kapitalismho/PuriPuly-heart); original attribution and AGPL-3.0-or-later licensing are preserved. This is an independent fork, not an official upstream Linux release.
 
 ## Linux: start here
@@ -15,21 +32,6 @@ Desktop audio capture, local English/Japanese recognition and translation, capti
 Report Linux-port problems in [this fork’s issues](https://github.com/danrtz/PuriPuly-heart/issues). The feature descriptions, demonstrations and benchmarks below come from upstream; they are not additional Linux validation results.
 
 ---
-
-<p align="center">
-  <img src="src/puripuly_heart/data/icons/icon.png" alt="PuriPuly — Real-Time Two-Way Voice Translator for VRChat" width="128" />
-</p>
-
-<h1 align="center">PuriPuly<br>
-  <sub>Real-Time Two-Way Voice Translator for VRChat</sub>
-</h1>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="Version" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
-  <img src="https://img.shields.io/badge/python-3.14-yellow" alt="Python" />
-  <img src="https://img.shields.io/badge/platform-Linux_beta_%7C_Windows-lightgrey" alt="Platform: Linux beta and upstream Windows" />
-</p>
 
 <h2 align="center">
   🇺🇸 English ·
