@@ -22,14 +22,14 @@ PipeWire audio · CPU / Vulkan inference · Desktop / OpenXR captions</p>
 Follow the [Linux installation and verification guide](docs/Linux.md) for system prerequisites, installation, model setup and known limitations. The `linux-port` branch contains the port; installation currently builds from source, with no packaged Linux release yet. After installing the system prerequisites:
 
 ```sh
-git clone --branch linux-port https://github.com/danrtz/PuriPuly-heart.git
-cd PuriPuly-heart
+git clone --branch linux-port https://github.com/danrtz/PuriPuly-heart-linux.git
+cd PuriPuly-heart-linux
 scripts/linux/install-user.sh
 ```
 
 Desktop audio capture, local English/Japanese recognition and translation, captions, and failure recovery have been tested on Arch/Hyprland. The Python suite passed 6,751 tests with 53 skipped. **Physical-headset/live VRChat validation is pending**; OpenXR overlays have passed simulated-headset tests. Account-backed cloud providers have not been verified in this port.
 
-Report Linux-port problems in [this fork’s issues](https://github.com/danrtz/PuriPuly-heart/issues). The feature descriptions, demonstrations and benchmarks below come from upstream; they are not additional Linux validation results.
+Report Linux-port problems in [this fork’s issues](https://github.com/danrtz/PuriPuly-heart-linux/issues). The feature descriptions, demonstrations and benchmarks below come from upstream; they are not additional Linux validation results.
 
 ---
 
@@ -195,7 +195,7 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 
 ---
 
-For Linux-port problems, use [this fork’s issue tracker](https://github.com/danrtz/PuriPuly-heart/issues). The upstream author's contact is [Twitter/X](https://x.com/kapitalismho).
+For Linux-port problems, use [this fork’s issue tracker](https://github.com/danrtz/PuriPuly-heart-linux/issues). The upstream author's contact is [Twitter/X](https://x.com/kapitalismho).
 
 ## Usage
 
