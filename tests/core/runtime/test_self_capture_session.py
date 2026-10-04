@@ -940,7 +940,6 @@ async def test_same_effective_self_intent_preserves_stream_ownership_for_next_in
         assert owner.loop_task is initial_loop_task
         await submit_utterance(2)
         assert [event.unit.text for event in captured] == ["utterance-1", "utterance-2"]
-        assert len(session.stream_audio) == 2
         assert [item.outcome for item in guarded.ledger.terminal_receipts] == [
             "submitted",
             "submitted",

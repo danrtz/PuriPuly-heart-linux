@@ -260,6 +260,46 @@ def test_peer_runtime_state_omits_intermediate_provider_wait() -> None:
     assert receipts == []
 
 
+def test_nonprocess_runtime_failure_refreshes_effective_flags_and_presentation() -> None:
+    from puripuly_heart.core.peer_capture import (
+        PeerCaptureDiagnostic,
+        PeerCaptureDiagnosticEvent,
+        PeerCaptureFailureReason,
+    )
+
+    harness = Harness()
+    harness.settings.ui.peer_translation_enabled = True
+    harness.settings.ui.peer_translation_eula_accepted = True
+    owner = harness.owner()
+    runtime = Runtime(effective_active=True, desired_active=True)
+    owner.bind_runtime(runtime)
+    owner.sync_effective_flags()
+    assert harness.effective[-1] == (True, True)
+    presentation_count = harness.events.count("presentation")
+    runtime.effective_active = False
+    runtime.desired_active = False
+    runtime.failure_reason = PeerCaptureFailureReason.SESSION_FAILED
+    owner.activation_starting = True
+
+    owner.on_runtime_diagnostic(
+        PeerCaptureDiagnostic(
+            event=PeerCaptureDiagnosticEvent.FAILURE,
+            generation=1,
+            state=PeerCaptureSessionState.FAULTED,
+            provider_id="local_qwen",
+            capture_kind="default_output_device",
+            reason=PeerCaptureFailureReason.SESSION_FAILED,
+        )
+    )
+
+    assert harness.effective[-1] == (False, False)
+    assert owner.snapshot().effective_enabled is False
+    assert owner.snapshot().activation_starting is False
+    assert owner.process_warning_reason is None
+    assert harness.events.count("presentation") == presentation_count + 1
+    assert harness.settings.ui.peer_translation_enabled is True
+
+
 @pytest.mark.asyncio
 async def test_peer_owner_preserves_eula_and_effective_activation_contract() -> None:
     harness = Harness()

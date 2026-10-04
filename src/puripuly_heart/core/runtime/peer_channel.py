@@ -289,14 +289,29 @@ class _GenerationGuardedVadSink:
         await self._cancel_expiry()
 
     async def abort(self) -> None:
+        self._closing = True
+        failures: list[Exception] = []
         worker = self._worker
         if worker is not None:
             worker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await worker
-        await self._cancel_expiry()
-        while self._queue:
-            self._release_event_accounting(self._queue.popleft())
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                failures.append(exc)
+        try:
+            await self._cancel_expiry()
+        except Exception as exc:
+            failures.append(exc)
+        finally:
+            while self._queue:
+                try:
+                    self._release_event_accounting(self._queue.popleft())
+                except Exception as exc:
+                    failures.append(exc)
+            self._started_segment_ids.clear()
+        PeerCaptureSessionOwner._raise_cleanup_failures("peer VAD dispatch abort failed", failures)
 
     async def _submit(self, event: object) -> None:
         if not self.runtime.is_current_generation(self.capture_generation.value):
@@ -1529,7 +1544,11 @@ class PeerCaptureSessionOwner:
                         ),
                         task_name="session-loop",
                     )
-                    loop_task.add_done_callback(self._on_loop_task_done)
+                    loop_task.add_done_callback(
+                        lambda task: self._on_loop_task_done(
+                            task, generation=capture_generation.value
+                        )
+                    )
                     self._loop_task = loop_task
             if superseded:
                 await self._close_if_possible(source)
@@ -1678,15 +1697,38 @@ class PeerCaptureSessionOwner:
             else:
                 await guarded_sink.abort()
         except asyncio.CancelledError:
-            await guarded_sink.abort()
+            try:
+                await guarded_sink.abort()
+            except Exception as cleanup_exc:
+                self._log_loop_exception(
+                    "cleanup_failed", cleanup_exc, generation=capture_generation.value
+                )
             raise
         except Exception as exc:
-            await guarded_sink.abort()
-            await self._on_runtime_failure(
-                exc,
-                generation=capture_generation.value,
-                config=self._config,
-            )
+            cleanup_failures: list[Exception] = []
+            try:
+                await guarded_sink.abort()
+            except Exception as cleanup_exc:
+                if cleanup_exc is not exc:
+                    cleanup_failures.append(cleanup_exc)
+                    self._log_loop_exception(
+                        "cleanup_failed", cleanup_exc, generation=capture_generation.value
+                    )
+            try:
+                await self._on_runtime_failure(
+                    exc,
+                    generation=capture_generation.value,
+                    config=self._config,
+                )
+            except Exception as cleanup_exc:
+                cleanup_failures.append(cleanup_exc)
+                self._log_loop_exception(
+                    "cleanup_failed", cleanup_exc, generation=capture_generation.value
+                )
+            if cleanup_failures:
+                raise ExceptionGroup(
+                    "peer runtime failure cleanup failed", [exc, *cleanup_failures]
+                ) from None
             return
         terminal_reason = self._terminal_reason_from_source(source)
         if terminal_reason not in {None, "closed"}:
@@ -1726,7 +1768,7 @@ class PeerCaptureSessionOwner:
         generation: int,
         config: PeerCaptureSessionConfig | None,
     ) -> None:
-        _ = exc
+        self._log_loop_exception("runtime_failed", exc, generation=generation)
         await self._fault_current_generation(
             generation,
             config=config,
@@ -1794,6 +1836,7 @@ class PeerCaptureSessionOwner:
         current_task = asyncio.current_task()
         defer_diagnostic = current_task is not None and self._loop_task is current_task
         diagnostic = None
+        failures: list[Exception] = []
         if config is not None:
             unavailable_reason = None
             if reason is PeerRuntimeFailureReason.PROCESS_TARGET_UNAVAILABLE:
@@ -1807,22 +1850,28 @@ class PeerCaptureSessionOwner:
                 capture_kind=config.capture_target.kind,
                 detail=unavailable_reason,
             )
-            if config.capture_target.kind == "process":
-                self._retry_required_capture_target = config.capture_target
-            self._last_failure = diagnostic
         async with self._lock:
             if generation != self._generation or self._closed:
                 return
+            if config is not None and config.capture_target.kind == "process":
+                self._retry_required_capture_target = config.capture_target
+            self._last_failure = diagnostic
             self._generation += 1
             teardown_generation = self._generation
             self._desired_active = False
             self._state = PeerCaptureSessionState.STOPPING
-            self._notify_state_changed()
+            try:
+                self._notify_state_changed()
+            except Exception as exc:
+                failures.append(exc)
         try:
-            await self._teardown_resources(
-                target_state=PeerCaptureSessionState.FAULTED,
-                generation=teardown_generation,
-                release_mode="abort",
+            await self._attempt_cleanup(
+                failures,
+                lambda: self._teardown_resources(
+                    target_state=PeerCaptureSessionState.FAULTED,
+                    generation=teardown_generation,
+                    release_mode="abort",
+                ),
             )
         finally:
             if diagnostic is not None:
@@ -1830,6 +1879,7 @@ class PeerCaptureSessionOwner:
                     self._deferred_loop_diagnostics[current_task] = diagnostic
                 else:
                     self._emit_failure(diagnostic)
+        self._raise_cleanup_failures("peer runtime fault cleanup failed", failures)
 
     async def _teardown_resources(
         self,
@@ -1967,8 +2017,8 @@ class PeerCaptureSessionOwner:
             if retired_source is not source
         ]
 
+    @staticmethod
     def _raise_cleanup_failures(
-        self,
         message: str,
         cleanup_failures: list[Exception],
     ) -> None:
@@ -1983,12 +2033,38 @@ class PeerCaptureSessionOwner:
         loop_task.cancel()
         await asyncio.gather(loop_task, return_exceptions=True)
 
-    def _on_loop_task_done(self, task: asyncio.Task[None]) -> None:
+    def _log_loop_exception(
+        self,
+        event: Literal["runtime_failed", "cleanup_failed", "loop_failed"],
+        exc: BaseException,
+        *,
+        generation: int,
+    ) -> None:
+        exception_class = type(exc).__name__
+        if not (
+            0 < len(exception_class) <= 128
+            and all(
+                character.isascii() and (character.isalnum() or character == "_")
+                for character in exception_class
+            )
+        ):
+            exception_class = "UnknownError"
+        with contextlib.suppress(Exception):
+            logger.error(
+                "[PeerRuntime] %s channel=peer generation=%s exception_class=%s",
+                event,
+                generation,
+                exception_class,
+            )
+
+    def _on_loop_task_done(self, task: asyncio.Task[None], *, generation: int) -> None:
         if not task.cancelled():
             try:
-                task.exception()
+                exc = task.exception()
             except asyncio.CancelledError:
-                pass
+                exc = None
+            if exc is not None:
+                self._log_loop_exception("loop_failed", exc, generation=generation)
         diagnostic = self._deferred_loop_diagnostics.pop(task, None)
         if diagnostic is not None:
             self._emit_failure(diagnostic)
@@ -2186,7 +2262,10 @@ class PeerCaptureSessionOwner:
 
     def _emit_failure(self, diagnostic: PeerCaptureDiagnostic) -> None:
         self._last_failure = diagnostic
-        self._notify_state_changed()
+        try:
+            self._notify_state_changed()
+        except Exception as exc:
+            self._log_loop_exception("cleanup_failed", exc, generation=diagnostic.generation)
         if self._diagnostic_sink is not None:
             try:
                 self._diagnostic_sink(diagnostic)

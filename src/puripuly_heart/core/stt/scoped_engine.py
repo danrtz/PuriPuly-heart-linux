@@ -182,6 +182,7 @@ class _StreamRecovery:
     authority_generation: int
     source_frontier: int
     pending: bool = True
+    require_speech: bool = False
 
 
 @dataclass(slots=True)
@@ -245,6 +246,7 @@ class ScopedRecognitionEngine:
     _session_retirement_requested: bool = field(init=False, default=False, repr=False)
     _source_speech_active: bool = field(init=False, default=False, repr=False)
     _last_source_speech_at_s: float | None = field(init=False, default=None, repr=False)
+    _last_native_speech_at_s: float | None = field(init=False, default=None, repr=False)
     _source_work_pending: bool = field(init=False, default=False, repr=False)
     _lifetime_task: asyncio.Task[None] | None = field(init=False, default=None, repr=False)
     _lifetime_deadline_s: float | None = field(init=False, default=None, repr=False)
@@ -386,12 +388,14 @@ class ScopedRecognitionEngine:
                 return
             recovery = self._stream_recovery
             if recovery is not None:
-                if not self._recovery_matches(recovery, owned):
+                if recovery.pending and not self._recovery_matches(recovery, owned):
                     await self.abort(reason="stream_input_ownership_changed")
                     return
                 if recovery.pending:
                     if not owned.event.chunk.size or not owned.event.capture:
                         self._stream_recovery = None
+                        return
+                    if recovery.require_speech and not owned.event.speech_observed:
                         return
                     if all(
                         span.normalized_end_sample is not None
@@ -425,7 +429,10 @@ class ScopedRecognitionEngine:
                         return
                     stream = replace(recovery.stream, provider_epoch_id=self._provider_epoch_id)
                     if not await self._run_stream_write(
-                        session, session.begin_stream(stream), watchdogs.write_timeout_s
+                        session,
+                        session.begin_stream(stream),
+                        watchdogs.write_timeout_s,
+                        recovery=recovery,
                     ):
                         return
                     if (
@@ -434,7 +441,14 @@ class ScopedRecognitionEngine:
                     ):
                         self._retire_current_session(watchdogs)
                         return
-                    self._register_recognition_stream(stream)
+                    self._register_recognition_stream(stream, owned.settings)
+                    with contextlib.suppress(Exception):
+                        logger.info(
+                            "[Recognition] stream_resumed channel=%s provider=%s epoch=%s",
+                            self.channel,
+                            owned.settings.provider_id,
+                            stream.provider_epoch_id,
+                        )
             if (
                 owned.ledger.activation_generation != owned.activation_generation
                 or owned.ledger.settings != owned.settings
@@ -550,12 +564,31 @@ class ScopedRecognitionEngine:
                 remaining.append(span if left == start else span.slice_normalized(left, end))
         return samples[skipped:], tuple(remaining)
 
-    def _register_recognition_stream(self, stream: RecognitionStreamIdentity) -> None:
+    def _register_recognition_stream(
+        self, stream: RecognitionStreamIdentity, settings: AudioSegmentSettingsSnapshot
+    ) -> None:
         if self._recognition_stream != stream:
             self._estimated_speech_scope = None
             self._estimated_last_speech_at = None
             self._recognition_stream = stream
             self._last_receipt_sequence = 0
+        recovery = self._stream_recovery
+        frontier = (
+            recovery.source_frontier
+            if recovery is not None
+            and recovery.authority_generation == self._authority_generation
+            and recovery.stream.activation_generation == stream.activation_generation
+            and recovery.stream.capture_epoch == stream.capture_epoch
+            and recovery.settings == settings
+            else 0
+        )
+        if (
+            isinstance(self._session, STTIndependentRecognitionSession)
+            and self._session.accepts_stream_input
+        ):
+            self._stream_recovery = _StreamRecovery(
+                stream, settings, self._authority_generation, frontier, pending=False
+            )
         self._recognition_authorities[stream] = self._authority_generation
         self._recognition_authorities.move_to_end(stream)
         while len(self._recognition_authorities) > 4096:
@@ -576,6 +609,9 @@ class ScopedRecognitionEngine:
         )
         if deadline is not None:
             timeout = min(timeout, max(0.0, deadline - self.monotonic_clock()))
+        current = self._stream_recovery
+        if recovery is not None and current is not None and session is self._session:
+            current.source_frontier = max(current.source_frontier, recovery.source_frontier)
         task = asyncio.create_task(awaitable)
         operations = self._operation_tasks.setdefault(id(session), set())
         operations.add(task)
@@ -588,7 +624,7 @@ class ScopedRecognitionEngine:
             raise
         if deadline is not None and self.monotonic_clock() >= deadline:
             task.cancel()
-            await self._expire_current_session()
+            await self._end_current_session()
             return False
         failure = None
         if task not in done:
@@ -618,6 +654,8 @@ class ScopedRecognitionEngine:
                 self.watchdog_resolver(recovery.settings).connect_attempts
             ):
                 recovery.authority_generation = self._authority_generation
+                recovery.pending = True
+                recovery.require_speech = False
                 self._stream_recovery = recovery
                 self._recovery_backoff_pending = True
             else:
@@ -915,7 +953,7 @@ class ScopedRecognitionEngine:
                 identity.provider_epoch_id,
                 identity.settings_scope,
             )
-            self._register_recognition_stream(stream)
+            self._register_recognition_stream(stream, settings)
             if startup_last_speech_at is not None:
                 self._estimated_speech_scope = speech_scope
                 self._estimated_last_speech_at = startup_last_speech_at
@@ -1154,7 +1192,7 @@ class ScopedRecognitionEngine:
     async def _finish_failed_turn_immediately(self, turn: _ActiveTurn) -> None:
         if turn.terminal_emitted or not turn.terminal_ready.done():
             return
-        if self.channel != "self" and not turn.local_sealed:
+        if self.channel != "self" and not turn.independent_recognition and not turn.local_sealed:
             return
         turn.local_sealed = True
         if turn is self._turn:
@@ -1177,7 +1215,9 @@ class ScopedRecognitionEngine:
             elif self._session_scope == scope:
                 if not self._session_near_ceiling():
                     return
-                self._retire_current_session()
+                self._retire_current_session(
+                    reason="provider_session_lifetime_exceeded", resume_stream=True
+                )
             else:
                 self._retire_current_session(watchdogs)
         if self.cleanup_debt:
@@ -1289,6 +1329,9 @@ class ScopedRecognitionEngine:
                         continue
                     self._last_receipt_sequence = event.identity.receipt_sequence
                     stream = event.identity.stream
+                    if event.text.strip():
+                        self._last_native_speech_at_s = self.monotonic_clock()
+                        self._schedule_lifetime_check()
                     event = replace(
                         event,
                         estimated_last_speech_at=(
@@ -1309,6 +1352,21 @@ class ScopedRecognitionEngine:
                 if isinstance(event, STTProviderEpochEnded):
                     if event.provider_epoch_id != epoch_id:
                         continue
+                    if (
+                        isinstance(session, STTIndependentRecognitionSession)
+                        and session.independent_recognition_units
+                        and session.accepts_stream_input
+                    ):
+                        async with self._input_lock:
+                            if epoch_id == self._provider_epoch_id:
+                                await self._end_current_session(
+                                    reason=event.reason or "provider_epoch_ended",
+                                    resume_stream=event.reason
+                                    not in {"cancelled", "closed", "stopped", "toggle_off"},
+                                    failed=not event.orderly and event.reason != "gemini_go_away",
+                                )
+                        await self._emit(event)
+                        return
                     idle_failure = (
                         epoch_id == self._provider_epoch_id
                         and not event.orderly
@@ -1392,9 +1450,36 @@ class ScopedRecognitionEngine:
                         self._session_retirement_requested = True
                     turn.terminal_ready.set_result(terminal)
                     await self._drain_completed_turns()
+            if (
+                isinstance(session, STTIndependentRecognitionSession)
+                and session.independent_recognition_units
+                and session.accepts_stream_input
+            ):
+                async with self._input_lock:
+                    if epoch_id == self._provider_epoch_id:
+                        await self._end_current_session(
+                            reason="provider_event_stream_ended", failed=True
+                        )
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
+            if (
+                isinstance(session, STTIndependentRecognitionSession)
+                and session.independent_recognition_units
+                and session.accepts_stream_input
+            ):
+                async with self._input_lock:
+                    if epoch_id == self._provider_epoch_id:
+                        with contextlib.suppress(Exception):
+                            logger.error(
+                                "[Recognition] receive_failed channel=%s epoch=%s",
+                                self.channel,
+                                epoch_id,
+                            )
+                        await self._end_current_session(
+                            reason="provider_event_stream_failed", failed=True
+                        )
+                return
             if epoch_id == self._provider_epoch_id or epoch_id in self._retiring_provider_epoch_ids:
                 self._session_retirement_requested = True
                 active = tuple(
@@ -1490,7 +1575,7 @@ class ScopedRecognitionEngine:
             and self.monotonic_clock() >= deadline_s
             and self._has_write_authority(session, turn)
         ):
-            await self._expire_current_session()
+            await self._end_current_session()
             return False
         if task not in done:
             if self._has_write_authority(session, turn):
@@ -1640,7 +1725,11 @@ class ScopedRecognitionEngine:
             self._episode_failures = 0
             self._recovery_backoff_pending = False
             self._terminal_failure_notified = False
-        else:
+        elif not (
+            turn.independent_recognition
+            and self._stream_recovery is not None
+            and self._stream_recovery.pending
+        ):
             self._episode_failures += 1
             if turn.settings.provider_id == "soniox" and terminal.outcome in ("failed", "degraded"):
                 if not terminal.failure_retryable:
@@ -1662,6 +1751,25 @@ class ScopedRecognitionEngine:
             self._session_retirement_requested = True
         if self._session_near_ceiling():
             self._session_retirement_requested = True
+        if (
+            turn.independent_recognition
+            and self._session_retirement_requested
+            and turn.authority_generation == self._authority_generation
+            and terminal.outcome != "cancelled"
+            and turn.identity.provider_epoch_id == self._provider_epoch_id
+        ):
+            self._retire_current_session(
+                turn.watchdogs,
+                reason=terminal.failure_reason or "provider_session_lifetime_exceeded",
+                resume_stream=True,
+            )
+        if (
+            turn.independent_recognition
+            and terminal.outcome == "failed"
+            and self._stream_recovery is not None
+            and self._stream_recovery.pending
+        ):
+            terminal = replace(terminal, recovery_pending=True)
         if should_emit:
             started_at = turn.final_wait_started_at_s
             _log_recognition_terminal(
@@ -1742,6 +1850,11 @@ class ScopedRecognitionEngine:
     def _retire_current_session(
         self,
         watchdogs: STTRecognitionWatchdogs | None = None,
+        *,
+        reason: str = "retired",
+        resume_stream: bool = False,
+        require_speech: bool = False,
+        failed: bool = False,
     ) -> None:
         self._cancel_lifetime_check()
         self._estimated_speech_scope = None
@@ -1758,6 +1871,37 @@ class ScopedRecognitionEngine:
                 pending_turn.watchdogs if pending_turn is not None else STTRecognitionWatchdogs()
             )
         epoch_id = self._provider_epoch_id
+        recovery = self._stream_recovery
+        if (
+            resume_stream
+            and recovery is not None
+            and recovery.stream.provider_epoch_id == epoch_id
+            and recovery.authority_generation == self._authority_generation
+        ):
+            recovery.pending = True
+            recovery.require_speech = require_speech
+            if failed:
+                self._episode_failures += 1
+                self._recovery_backoff_pending = True
+            if self._episode_failures >= watchdogs.connect_attempts:
+                recovery = None
+        else:
+            recovery = None
+        self._stream_recovery = recovery
+        with contextlib.suppress(Exception):
+            logger.info(
+                "[Recognition] session_retired channel=%s provider=%s epoch=%s cause=%s recovery=%s",
+                self.channel,
+                self._session_scope[0] if self._session_scope is not None else "none",
+                epoch_id or "none",
+                recognition_cause(reason),
+                (
+                    "speech"
+                    if recovery is not None and require_speech
+                    else ("next_frame" if recovery is not None else "none")
+                ),
+            )
+        self._last_native_speech_at_s = None
         if epoch_id is not None:
             self._retiring_provider_epoch_ids.add(epoch_id)
         self._session = None
@@ -1783,6 +1927,12 @@ class ScopedRecognitionEngine:
         )
         self._cleanup_tasks.add(task)
         task.add_done_callback(self._cleanup_done)
+        if (
+            resume_stream
+            and recovery is None
+            and self._episode_failures >= watchdogs.connect_attempts
+        ):
+            self._notify_terminal_failure(RuntimeError("provider_recovery_exhausted"))
 
     def _schedule_lifetime_check(self) -> None:
         opened_at = self._session_opened_at_s
@@ -1794,7 +1944,12 @@ class ScopedRecognitionEngine:
             opened_at + self._session_max_age_s if self._session_max_age_s is not None else None
         )
         idle_due_at = (
-            max(opened_at, self._last_source_speech_at_s or opened_at) + watchdogs.idle_timeout_s
+            max(
+                opened_at,
+                self._last_source_speech_at_s or opened_at,
+                self._last_native_speech_at_s or opened_at,
+            )
+            + watchdogs.idle_timeout_s
             if self.session_lifetime_enabled and not self._source_speech_active
             else None
         )
@@ -1821,7 +1976,13 @@ class ScopedRecognitionEngine:
             name="scoped-stt-session-lifetime",
         )
 
-    async def _expire_current_session(self) -> None:
+    async def _end_current_session(
+        self,
+        *,
+        reason: str = "provider_session_lifetime_exceeded",
+        resume_stream: bool = True,
+        failed: bool = False,
+    ) -> None:
         session = self._session
         if session is None:
             return
@@ -1839,19 +2000,17 @@ class ScopedRecognitionEngine:
                         identity=turn.identity,
                         outcome="failed",
                         text_authority="none",
-                        failure_reason="provider_session_lifetime_exceeded",
+                        failure_reason=reason,
                         epoch_disposition="retire",
                         failure_retryable=turn.settings.provider_id == "soniox",
                     )
                 )
             else:
-                self._set_turn_failure(
-                    turn, "provider_session_lifetime_exceeded", failure_retryable=True
-                )
+                self._set_turn_failure(turn, reason, failure_retryable=True)
             turn.write_failed = True
         for task in self._operation_tasks.get(id(session), ()):
             task.cancel()
-        self._retire_current_session()
+        self._retire_current_session(reason=reason, resume_stream=resume_stream, failed=failed)
         for turn in turns:
             await self._finish_failed_turn_immediately(turn)
 
@@ -1870,7 +2029,7 @@ class ScopedRecognitionEngine:
                     self._session_max_age_s is not None
                     and now >= opened_at + self._session_max_age_s
                 ):
-                    await self._expire_current_session()
+                    await self._end_current_session()
                     return
                 if (
                     self.session_lifetime_enabled
@@ -1879,11 +2038,20 @@ class ScopedRecognitionEngine:
                     and not self._turns
                     and now
                     >= (
-                        max(opened_at, self._last_source_speech_at_s or opened_at)
+                        max(
+                            opened_at,
+                            self._last_source_speech_at_s or opened_at,
+                            self._last_native_speech_at_s or opened_at,
+                        )
                         + watchdogs.idle_timeout_s
                     )
                 ):
-                    self._retire_current_session(watchdogs)
+                    self._retire_current_session(
+                        watchdogs,
+                        reason="provider_idle_timeout",
+                        resume_stream=True,
+                        require_speech=True,
+                    )
                     return
                 self._schedule_lifetime_check()
         except asyncio.CancelledError:
