@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
 
 from puripuly_heart.release_evidence.native_distribution import (
     NativeArtifactLayout,
@@ -17,6 +18,7 @@ from puripuly_heart.release_evidence.native_distribution import (
     finalize_soxr_wheel,
     stage_product_metadata,
     stage_sounddevice_portaudio_runtime,
+    validate_dependencies,
     verify_installed_soxr_record,
     verify_sounddevice_portaudio_runtime,
     verify_wheel_record,
@@ -54,21 +56,77 @@ def test_requirement_filter_removes_viewer_and_replaces_soxr_as_whole_stanzas(
         "six==1.17.0 \\\n    --hash=sha256:six\n"
         "proc-tap==1.1.1 ; platform_machine == 'AMD64' \\\n    --hash=sha256:proc\n"
         "psutil==7.2.2 ; sys_platform == 'win32' \\\n    --hash=sha256:psutil\n"
+        "scipy==1.18.0 ; platform_machine == 'AMD64' \\\n    --hash=sha256:scipy\n"
+        "jeepney==0.9.0 ; sys_platform == 'linux' \\\n    --hash=sha256:jeepney\n"
         "soxr==1.1.0 \\\n    --hash=sha256:soxr\n"
         "    # via product\n",
         encoding="utf-8",
     )
 
-    assert sorted(filter_requirements(source, destination)) == ["flet-desktop", "soxr"]
-    filtered = destination.read_text(encoding="utf-8")
-    assert "flet==1.0.0" in filtered
-    assert "six==1.17.0" in filtered
-    assert "viewer" not in filtered
-    assert "proc-tap==1.1.1 \\" in filtered
-    assert "psutil==7.2.2 \\" in filtered
-    assert "platform_machine" not in filtered
-    assert "sys_platform" not in filtered
-    assert "soxr==" not in filtered
+    filter_requirements(source, destination)
+    requirements = {
+        requirement.name: requirement
+        for line in destination.read_text(encoding="utf-8").splitlines()
+        if line and not line[0].isspace() and not line.startswith("#")
+        for requirement in [Requirement(line.rstrip().removesuffix("\\").strip())]
+    }
+    assert set(requirements) == {"flet", "six", "proc-tap", "psutil", "scipy"}
+    for requirement in requirements.values():
+        assert requirement.marker is None or requirement.marker.evaluate(
+            {"platform_machine": "x86_64", "sys_platform": "win32"}
+        )
+
+
+@pytest.mark.parametrize(
+    "installed",
+    [
+        {"numpy": "2.5.1", "unrelated": "1.0.0"},
+        {"numpy": "2.5.1", "scipy": "1.17.0"},
+    ],
+    ids=["missing-scipy-with-same-distribution-count", "wrong-scipy-version"],
+)
+def test_native_dependencies_reject_incomplete_locked_closure(
+    tmp_path: Path, installed: dict[str, str]
+) -> None:
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text(
+        "numpy==2.5.1\n"
+        "scipy==1.18.0 ; platform_machine == 'AMD64' and sys_platform == 'win32'\n",
+        encoding="utf-8",
+    )
+    site_packages = tmp_path / "site-packages"
+    for name, version in installed.items():
+        metadata = site_packages / f"{name}-{version}.dist-info"
+        metadata.mkdir(parents=True)
+        (metadata / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n", encoding="utf-8"
+        )
+
+    with pytest.raises(ValueError, match="scipy"):
+        validate_dependencies(site_packages, requirements)
+
+
+def test_native_dependencies_validate_windows_closure_and_custom_soxr(tmp_path: Path) -> None:
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text(
+        "scipy==1.18.0 ; platform_machine == 'AMD64' and sys_platform == 'win32'\n"
+        "soxr==1.1.0\n"
+        "flet-desktop==1.0.0\n"
+        "jeepney==0.9.0 ; sys_platform == 'linux'\n",
+        encoding="utf-8",
+    )
+    installed = {"scipy": "1.18.0", "soxr": "1.1.0", "puripuly-heart": "2.8.0"}
+    site_packages = tmp_path / "site-packages"
+    for name, version in installed.items():
+        metadata = site_packages / f"{name}-{version}.dist-info"
+        metadata.mkdir(parents=True)
+        (metadata / "METADATA").write_text(
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n", encoding="utf-8"
+        )
+
+    report = validate_dependencies(site_packages, requirements)
+
+    assert report["versions"] == installed
 
 
 def test_finalized_soxr_wheel_owns_both_native_runtime_files(tmp_path: Path) -> None:

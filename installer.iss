@@ -49,6 +49,12 @@
 #ifdef NativeExperimental
   #define PackagedApplicationRoot "app\"
   #define PackagedSoxrRoot "site-packages\soxr"
+  #ifndef NativeCleanupInclude
+    #define NativeCleanupInclude MyPackagedAppDir + "\..\native-installer-cleanup.iss"
+  #endif
+  #if !FileExists(NativeCleanupInclude)
+    #error NativeExperimental requires the generated native cleanup include. Generate it from the official legacy ownership manifest and final native artifact manifest.
+  #endif
 #else
   #define PackagedApplicationRoot ""
   #define PackagedSoxrRoot "soxr"
@@ -199,6 +205,9 @@ Source: "{#InstallerPrivacyDir}\ko.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\ja.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\zh-CN.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\zh-TW.txt"; Flags: dontcopy noencryption
+#ifdef NativeExperimental
+Source: "installer\native-cleanup.ps1"; Flags: dontcopy noencryption
+#endif
 Source: "{#MyPackagedAppDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackagedAppDir}\{#MyCliExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyStagedOverlayDir}\{#MyOverlayExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -220,10 +229,12 @@ Name: "{autodesktop}\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; Task
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 #endif
 
+#ifndef NativeExperimental
 [InstallDelete]
 ; Remove stale legacy soxr runtime names before laying down the current packaged tree.
 Type: files; Name: "{app}\soxr.dll"
 Type: files; Name: "{app}\{#PackagedSoxrRoot}\libsoxr.dll"
+#endif
 
 [UninstallDelete]
 ; Clean up user config on uninstall (optional)
@@ -257,6 +268,10 @@ const
   ParakeetV3DownloadSize = 670478772;
   ParakeetJapaneseDownloadSize = 655571161;
   LocalSttDiskSpaceMargin = 67108864;
+
+#ifdef NativeExperimental
+#include "installer\native-cleanup.iss"
+#endif
 
 function DirectoryLooksLikeRepositoryCheckout(Path: String): Boolean;
 var
@@ -1333,6 +1348,9 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
     PersistTelemetryPreference();
+#ifdef NativeExperimental
+    CompleteNativeLegacyCleanup();
+#endif
   end;
 end;
 

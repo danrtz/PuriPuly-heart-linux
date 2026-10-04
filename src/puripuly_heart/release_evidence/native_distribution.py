@@ -17,22 +17,25 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from packaging.requirements import Requirement
+
+from puripuly_heart.release_evidence.native_pe import stage_vc_runtime, validate_pe_dependencies
+
 _LAYOUT_SCHEMA = "puripuly-heart/native-artifact-layout/v1"
 _MANIFEST_SCHEMA = "puripuly-heart/native-artifact-manifest/v1"
-_REQUIRED_DISTRIBUTIONS = frozenset(
-    {
-        "filelock",
-        "pywin32-ctypes",
-        "proc-tap",
-        "psutil",
-        "puripuly-heart",
-        "repath",
-        "six",
-        "typing-extensions",
-    }
-)
+_NATIVE_MARKER_ENVIRONMENT = {
+    "implementation_name": "cpython",
+    "implementation_version": "3.14.7",
+    "os_name": "nt",
+    "platform_machine": "AMD64",
+    "platform_python_implementation": "CPython",
+    "platform_system": "Windows",
+    "python_full_version": "3.14.7",
+    "python_version": "3.14",
+    "sys_platform": "win32",
+    "extra": "",
+}
 _FORBIDDEN_DISTRIBUTIONS = frozenset({"flet-desktop", "flet-cli", "pyinstaller"})
-_FORCED_WINDOWS_REQUIREMENTS = frozenset({"proc-tap", "psutil"})
 _FORBIDDEN_PTH = frozenset({"a1_coverage.pth", "distutils-precedence.pth"})
 _SOUNDDEVICE_RUNTIME_ROOT = PurePosixPath("_sounddevice_data/portaudio-binaries")
 _SOUNDDEVICE_STANDARD_DLL = _SOUNDDEVICE_RUNTIME_ROOT / "libportaudio64bit.dll"
@@ -174,13 +177,16 @@ def filter_requirements(source: Path, destination: Path) -> list[str]:
     kept = list(preamble)
     removed: list[str] = []
     for block in requirements:
-        name = _canonical_name(block[0].split("==", 1)[0].strip())
+        requirement = Requirement(block[0].rstrip().removesuffix("\\").strip())
+        name = _canonical_name(requirement.name)
         if name in excluded:
             removed.append(name)
             continue
-        if name in _FORCED_WINDOWS_REQUIREMENTS and " ; " in block[0]:
+        if requirement.marker is not None:
+            if not requirement.marker.evaluate(_NATIVE_MARKER_ENVIRONMENT):
+                continue
             continuation = " \\" if block[0].rstrip().endswith("\\") else ""
-            block[0] = block[0].split(" ; ", 1)[0].rstrip() + continuation
+            block[0] = str(requirement).split(";", 1)[0].rstrip() + continuation
         kept.extend(block)
     if sorted(removed) != sorted(excluded):
         raise ValueError(f"requirements did not contain exactly the native exclusions: {removed}")
@@ -358,21 +364,58 @@ def stage_sounddevice_portaudio_runtime(site_packages: Path) -> dict[str, dict[s
     }
 
 
-def _distribution_names(site_packages: Path) -> set[str]:
-    names: set[str] = set()
+def _distribution_versions(site_packages: Path) -> dict[str, str]:
+    versions: dict[str, str] = {}
     for distribution in importlib.metadata.distributions(path=[str(site_packages)]):
         name = distribution.metadata.get("Name")
         if not name:
             raise ValueError(f"distribution has no Name metadata: {distribution._path}")
         canonical = _canonical_name(name)
-        if canonical in names:
+        if canonical in versions:
             raise ValueError(f"duplicate distribution metadata: {canonical}")
-        names.add(canonical)
-    return names
+        versions[canonical] = distribution.version
+    return versions
+
+
+def validate_dependencies(site_packages: Path, requirements_path: Path) -> dict[str, Any]:
+    requirements: dict[str, Requirement] = {}
+    for line in requirements_path.read_text(encoding="utf-8").splitlines():
+        if not line or line[0].isspace() or line.startswith(("#", "--")):
+            continue
+        requirement = Requirement(line.rstrip().removesuffix("\\").strip())
+        name = _canonical_name(requirement.name)
+        if name == "flet-desktop":
+            continue
+        if requirement.marker is None or requirement.marker.evaluate(_NATIVE_MARKER_ENVIRONMENT):
+            requirements[name] = requirement
+    versions = _distribution_versions(site_packages)
+    names = set(versions)
+    forbidden = sorted(names & _FORBIDDEN_DISTRIBUTIONS)
+    if forbidden:
+        raise ValueError(f"native dependency closure includes forbidden distributions: {forbidden}")
+    missing = sorted(requirements.keys() - names)
+    unexpected = sorted(names - requirements.keys() - {"puripuly-heart"})
+    mismatched = {
+        name: {"expected": str(requirement.specifier), "actual": versions[name]}
+        for name, requirement in requirements.items()
+        if name in versions and not requirement.specifier.contains(versions[name], prereleases=True)
+    }
+    if missing or unexpected or mismatched:
+        raise ValueError(
+            f"native dependency closure mismatch: missing={missing}, "
+            f"unexpected={unexpected}, versions={mismatched}"
+        )
+    return {
+        "distribution_count": len(versions),
+        "distributions": sorted(versions),
+        "versions": versions,
+        "requirements_sha256": _sha256(requirements_path),
+        "marker_environment": _NATIVE_MARKER_ENVIRONMENT,
+    }
 
 
 def validate_target(
-    target_root: Path, layout_path: Path, expected_count: int = 81
+    target_root: Path, layout_path: Path, requirements_path: Path, vc_runtime_path: Path
 ) -> dict[str, Any]:
     layout = NativeArtifactLayout.load(layout_path)
     required_paths = {
@@ -394,19 +437,7 @@ def validate_target(
     if missing:
         raise FileNotFoundError(f"native artifact is incomplete: {missing}")
     site_packages = required_paths["dependency_root"]
-    names = _distribution_names(site_packages)
-    if len(names) != expected_count:
-        raise ValueError(
-            f"native dependency closure must contain {expected_count} distributions, got {len(names)}"
-        )
-    forbidden = sorted(names & _FORBIDDEN_DISTRIBUTIONS)
-    if forbidden:
-        raise ValueError(f"native dependency closure includes forbidden distributions: {forbidden}")
-    absent = sorted(_REQUIRED_DISTRIBUTIONS - names)
-    if absent:
-        raise ValueError(
-            f"native dependency closure is missing required transitive distributions: {absent}"
-        )
+    dependencies = validate_dependencies(site_packages, requirements_path)
     product_metadata = list(site_packages.glob("puripuly_heart-*.dist-info"))
     if len(product_metadata) != 1 or (product_metadata[0] / "direct_url.json").exists():
         raise ValueError(
@@ -425,12 +456,13 @@ def validate_target(
     python_copies = sorted(path for path in target_root.rglob("python.exe") if path.is_file())
     if python_copies != [required_paths["python_executable"]]:
         raise ValueError(f"native artifact must contain one python.exe: {python_copies}")
+    pe_dependencies = validate_pe_dependencies(target_root, vc_runtime_path)
     return {
-        "distribution_count": len(names),
-        "distributions": sorted(names),
+        **dependencies,
         "python_executable_sha256": python_digest,
         "soxr_runtime": soxr_runtime,
         "portaudio_runtime": portaudio_runtime,
+        "pe_dependencies": pe_dependencies,
         "paths": {
             key: str(value.relative_to(target_root)) for key, value in required_paths.items()
         },
@@ -480,7 +512,6 @@ def compile_application(application_root: Path) -> dict[str, Any]:
 
 def validate_compliance(target_root: Path, repo_root: Path, soxr_manifest: Path) -> dict[str, Any]:
     from puripuly_heart.release_evidence.release_identity import (
-        PACKAGED_LICENSE_PATHS,
         verify_packaged_license_payloads,
         verify_soxr_packaging,
     )
@@ -490,9 +521,6 @@ def validate_compliance(target_root: Path, repo_root: Path, soxr_manifest: Path)
             target_root,
             application_root="app",
             dependency_root="site-packages",
-            license_paths=tuple(
-                path for path in PACKAGED_LICENSE_PATHS if not path.startswith("scipy/")
-            ),
         ),
         "soxr": verify_soxr_packaging(target_root, repo_root, soxr_manifest),
     }
@@ -791,6 +819,10 @@ def _parser() -> argparse.ArgumentParser:
     sounddevice = commands.add_parser("stage-sounddevice-runtime")
     sounddevice.add_argument("--site-packages", type=Path, required=True)
     sounddevice.add_argument("--output", type=Path)
+    vc_runtime = commands.add_parser("stage-vc-runtime")
+    vc_runtime.add_argument("--target-root", type=Path, required=True)
+    vc_runtime.add_argument("--cmake-build-dir", type=Path, required=True)
+    vc_runtime.add_argument("--output", type=Path, required=True)
     wheel = commands.add_parser("finalize-soxr-wheel")
     wheel.add_argument("--wheel", type=Path, required=True)
     wheel.add_argument("--dll", type=Path, required=True)
@@ -807,7 +839,8 @@ def _parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-target")
     validate.add_argument("--target-root", type=Path, required=True)
     validate.add_argument("--layout", type=Path, required=True)
-    validate.add_argument("--expected-count", type=int, default=81)
+    validate.add_argument("--requirements", type=Path, required=True)
+    validate.add_argument("--vc-runtime", type=Path, required=True)
     validate.add_argument("--output", type=Path)
     compliance = commands.add_parser("validate-compliance")
     compliance.add_argument("--target-root", type=Path, required=True)
@@ -839,6 +872,8 @@ def main(argv: list[str] | None = None) -> int:
             args.output,
             stage_sounddevice_portaudio_runtime(args.site_packages),
         )
+    elif args.command == "stage-vc-runtime":
+        _write_json(args.output, stage_vc_runtime(args.target_root, args.cmake_build_dir))
     elif args.command == "finalize-soxr-wheel":
         _write_json(None, finalize_soxr_wheel(args.wheel, args.dll, args.output))
     elif args.command == "render-template":
@@ -852,7 +887,8 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(args.output, compile_application(args.application_root))
     elif args.command == "validate-target":
         _write_json(
-            args.output, validate_target(args.target_root, args.layout, args.expected_count)
+            args.output,
+            validate_target(args.target_root, args.layout, args.requirements, args.vc_runtime),
         )
     elif args.command == "validate-compliance":
         _write_json(

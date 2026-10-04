@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import importlib
-import re
 import sys
-import tomllib
 
 import pytest
 
@@ -12,53 +10,6 @@ from puripuly_heart.config.process_capture_platform import (
     evaluate_process_capture_platform,
     get_process_capture_platform_availability,
 )
-from tests.helpers.paths import REPO_ROOT as ROOT
-
-PROCESS_CAPTURE_MARKER = (
-    "platform_system == 'Windows' and platform_python_implementation == 'CPython' "
-    "and python_version == '3.14' and platform_machine == 'AMD64'"
-)
-PROCESS_CAPTURE_LOCK_MARKER = (
-    "python_full_version == '3.14.*' and platform_machine == 'AMD64' "
-    "and platform_python_implementation == 'CPython' and sys_platform == 'win32'"
-)
-
-
-def test_process_capture_dependencies_use_the_exact_supported_platform_marker() -> None:
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    dependencies = pyproject["project"]["dependencies"]
-
-    assert f"proc-tap==1.1.1; {PROCESS_CAPTURE_MARKER}" in dependencies
-    assert f"psutil>=5.9; {PROCESS_CAPTURE_MARKER}" in dependencies
-
-
-def test_uv_lock_covers_pinned_proctap_and_windows_process_dependency() -> None:
-    uv_lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
-
-    proctap = re.search(
-        r'\[\[package\]\]\s+name = "proc-tap"\s+version = "([^"]+)"',
-        uv_lock,
-        re.MULTILINE,
-    )
-    psutil = re.search(
-        r'\[\[package\]\]\s+name = "psutil"\s+version = "([^"]+)"',
-        uv_lock,
-        re.MULTILINE,
-    )
-
-    assert proctap is not None
-    assert proctap.group(1) == "1.1.1"
-    assert psutil is not None
-    assert tuple(int(part) for part in psutil.group(1).split(".")[:2]) >= (5, 9)
-    assert "proc_tap-1.1.1-cp314-cp314-win_amd64.whl" in uv_lock
-    assert (
-        '{ name = "proc-tap", marker = "'
-        f"{PROCESS_CAPTURE_LOCK_MARKER}"
-        '", specifier = "==1.1.1" }'
-    ) in uv_lock
-    assert (
-        '{ name = "psutil", marker = "' f"{PROCESS_CAPTURE_LOCK_MARKER}" '", specifier = ">=5.9" }'
-    ) in uv_lock
 
 
 @pytest.mark.parametrize(

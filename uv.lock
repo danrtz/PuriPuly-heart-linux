@@ -1294,6 +1294,7 @@ dependencies = [
     { name = "psutil", marker = "platform_machine == 'AMD64' and platform_python_implementation == 'CPython' and sys_platform == 'win32'" },
     { name = "pyaudiowpatch", marker = "sys_platform == 'win32'" },
     { name = "python-osc" },
+    { name = "scipy", marker = "sys_platform == 'win32'" },
     { name = "sherpa-onnx" },
     { name = "sherpa-onnx-core" },
     { name = "sounddevice" },
@@ -1308,6 +1309,7 @@ build = [
     { name = "flet-cli" },
     { name = "libclang" },
     { name = "nanobind" },
+    { name = "pefile" },
     { name = "pyinstaller" },
     { name = "scikit-build-core" },
     { name = "setuptools-scm" },
@@ -1342,6 +1344,7 @@ requires-dist = [
     { name = "nanobind", marker = "extra == 'build'", specifier = ">=2" },
     { name = "numpy", specifier = "==2.5.1" },
     { name = "onnxruntime", specifier = "==1.28.0" },
+    { name = "pefile", marker = "extra == 'build'", specifier = "==2024.8.26" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7.0" },
     { name = "proc-tap", marker = "python_full_version == '3.14.*' and platform_machine == 'AMD64' and platform_python_implementation == 'CPython' and sys_platform == 'win32'", specifier = "==1.1.1" },
     { name = "psutil", marker = "python_full_version == '3.14.*' and platform_machine == 'AMD64' and platform_python_implementation == 'CPython' and sys_platform == 'win32'", specifier = ">=5.9" },
@@ -1353,6 +1356,7 @@ requires-dist = [
     { name = "python-osc", specifier = "==1.10.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "scikit-build-core", marker = "extra == 'build'", specifier = ">=0.10" },
+    { name = "scipy", marker = "sys_platform == 'win32'", specifier = "==1.18.0" },
     { name = "setuptools-scm", extras = ["toml"], marker = "extra == 'build'", specifier = ">=6.2" },
     { name = "sherpa-onnx", specifier = ">=1.13.4" },
     { name = "sherpa-onnx-core", specifier = "==1.13.4" },
@@ -1734,7 +1738,9 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a7/25/c2700dfaf6442b4effaa91af24ebce5dc9d31bb4a69706313aae70d72cd0/scipy-1.18.0.tar.gz", hash = "sha256:67b2ad2ad54c72ca6d04975a9b2df8c3638c34ddd5b28738e94fc2b57929d378", size = 30774447, upload-time = "2026-06-19T15:01:43.456Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/93/3e/902d836831474b0ab5a37d16404f7bc5fafd9efba632890e271ba952635f/scipy-1.18.0-cp314-cp314-win_amd64.whl", hash = "sha256:2d8bbdc6c817f5b4006a54d799d4f5bab6f910193cbb9a1ff310833d4d270f61", size = 37288845, upload-time = "2026-06-19T15:01:07.822Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/43/8d73b337a3bdb14daa0314f0434210747c02d79d729ce1777574a817dcf6/scipy-1.18.0-cp314-cp314-win_arm64.whl", hash = "sha256:18e9575f1569b2c54174e6159d32942e03731177f63dce7975f0a0c88d102f5b", size = 24988971, upload-time = "2026-06-19T15:01:11.076Z" },
     { url = "https://files.pythonhosted.org/packages/31/8e/f04c68e39919a010d34f2ee1367fd705b0a25a02f609d755f0bfbc0a15fc/scipy-1.18.0-cp314-cp314t-win_amd64.whl", hash = "sha256:e40baea28ae7f5475c779741e2d90b1247c78531207b49c7030e698ff81cee3f", size = 37365390, upload-time = "2026-06-19T15:01:38.091Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/19/969dc072906c84dd0a3b05dcf57ea750936087d7873549e408b35cfc3f97/scipy-1.18.0-cp314-cp314t-win_arm64.whl", hash = "sha256:368e0a705903c466aa5f08eefb39e6b1b6b2d659e7352a31fd9e2438365be0f8", size = 25279661, upload-time = "2026-06-19T15:01:40.817Z" },
 ]
 
 [[package]]

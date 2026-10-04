@@ -428,6 +428,14 @@ Upcoming work is tracked publicly on the [PuriPuly project board](https://github
 
 The Python application requires ordinary GIL-enabled CPython 3.14 on Windows x64.
 
+Windows process capture requires SciPy 1.18.0 for audio format conversion, including 44.1 kHz int16 to 48 kHz float32. SciPy is an explicit Windows runtime dependency.
+
+Run the experimental native builder, `scripts/ci/build-native-experimental.ps1`, with PowerShell 7. It evaluates lock-export markers for Windows x64 CPython 3.14.7 and validates the packaged dependency names and versions against that export, rather than a fixed package count. Missing, unexpected, or wrong-version dependencies fail the build. The separate Flet viewer is excluded; the custom SoXR package and bundled licenses, including SciPy's, are validated.
+
+The native builder retains the upstream Python DLL set and stages the selected MSVC toolchain's matching x64 `Microsoft.VC143.CRT` DLLs app-locally, including `MSVCP140_1.dll`. `vc-runtime.json` records their versions, source paths, and hashes. PE import and delay-import validation rejects missing non-OS dependencies; Windows OS/API-set libraries and GPU driver loaders remain external.
+
+Compile `NativeExperimental` installers with `NativeCleanupInclude` pointing to the builder's generated `native-installer-cleanup.iss`, beside the output directory. It is bound to the final native artifact manifest. After installing the new payload, Setup silently removes hash-matching obsolete files owned by the official 2.7.0 release. Modified, locked, linked, and unlisted files are preserved without blocking installation or showing cleanup notifications. User settings, secrets, models, extensions, and the old root `prompts` directory are never cleanup targets.
+
 Create and activate the Windows environment:
 
 ```powershell

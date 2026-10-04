@@ -245,6 +245,7 @@ company = "salee"
     ) -WorkingDirectory $repoRoot
 
     Copy-Tree -Source $fletOutput -Destination $artifactRoot
+    Copy-Tree -Source (Join-Path $fixtureRoot "build\flutter\build\build_python_$($spec.versions.python)\python\DLLs") -Destination (Join-Path $artifactRoot "DLLs")
     Remove-Item -LiteralPath (Join-Path $artifactRoot "app") -Recurse -Force
     Remove-Item -LiteralPath (Join-Path $artifactRoot "site-packages") -Recurse -Force
     New-Item -ItemType Directory -Path (Join-Path $artifactRoot "app"), (Join-Path $artifactRoot "site-packages") | Out-Null
@@ -354,8 +355,15 @@ company = "salee"
         "--application-root", (Join-Path $artifactRoot "app"), "--output", (Join-Path $evidenceRoot "bytecode.json")
     ) -WorkingDirectory $repoRoot
     Invoke-Checked -FilePath $ToolPython -ArgumentList @(
+        "-m", "puripuly_heart.release_evidence.native_distribution", "stage-vc-runtime",
+        "--target-root", $artifactRoot, "--cmake-build-dir", $consoleBuildRoot,
+        "--output", (Join-Path $evidenceRoot "vc-runtime.json")
+    ) -WorkingDirectory $repoRoot
+    Invoke-Checked -FilePath $ToolPython -ArgumentList @(
         "-m", "puripuly_heart.release_evidence.native_distribution", "validate-target",
         "--target-root", $artifactRoot, "--layout", $layoutPath,
+        "--requirements", $requirementsExportPath,
+        "--vc-runtime", (Join-Path $evidenceRoot "vc-runtime.json"),
         "--output", (Join-Path $evidenceRoot "target-validation.json")
     ) -WorkingDirectory $repoRoot
     Invoke-Checked -FilePath $ToolPython -ArgumentList @(
@@ -375,6 +383,13 @@ company = "salee"
         "--bytecode", (Join-Path $evidenceRoot "bytecode.json"),
         "--output", (Join-Path $artifactRoot "native-artifact-manifest.json")
     ) -WorkingDirectory $repoRoot
+    $cleanupIncludePath = Join-Path (Split-Path -Parent $OutputDir) "native-installer-cleanup.iss"
+    Invoke-Checked -FilePath $ToolPython -ArgumentList @(
+        "-m", "puripuly_heart.release_evidence.native_installer_cleanup",
+        "--legacy-manifest", (Join-Path $repoRoot "native\windows_host\legacy-pyinstaller-v2.7.0.json"),
+        "--native-manifest", (Join-Path $artifactRoot "native-artifact-manifest.json"),
+        "--output", $cleanupIncludePath
+    ) -WorkingDirectory $repoRoot
 
     Remove-Item -LiteralPath $OutputDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
@@ -389,3 +404,4 @@ company = "salee"
 
 Write-Host "Experimental native artifact: $OutputDir"
 Write-Host "Build evidence: $evidenceRoot"
+Write-Host "Native installer cleanup include: $cleanupIncludePath"
