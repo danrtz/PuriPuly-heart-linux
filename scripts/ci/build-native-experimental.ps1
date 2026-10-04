@@ -210,7 +210,7 @@ try {
     @"
 [project]
 name = "puripuly-heart-native-bootstrap"
-version = "2.7.0"
+version = "2.8.0"
 requires-python = ">=3.14,<3.15"
 
 [tool.flet]
@@ -233,7 +233,7 @@ company = "salee"
         "--company", "salee",
         "--org", "com.salee",
         "--description", "Real-time multilingual speech translation",
-        "--build-version", "2.7.0",
+        "--build-version", "2.8.0",
         "--build-number", "0",
         "--module-name", "product_bootstrap",
         "--template", $cookiecutterTemplateRoot,
