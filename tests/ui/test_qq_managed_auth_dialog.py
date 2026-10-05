@@ -36,7 +36,8 @@ def test_qq_managed_auth_dialog_renders_inputs_and_actions() -> None:
 
     dialog.open()
 
-    assert dialog.action_labels == ["qq_auth.close", "qq_auth.submit"]
+    assert dialog.action_labels == ["openrouter.handoff.chatgpt", "qq_auth.submit"]
+    assert dialog._dialog.modal is False
     assert page.dialog is dialog._dialog
     assert dialog._qq_identity_field is not None
     assert dialog._credential_field is not None
@@ -45,8 +46,12 @@ def test_qq_managed_auth_dialog_renders_inputs_and_actions() -> None:
     assert dialog._credential_field.label == t("qq_auth.credential.label")
     assert dialog._credential_field.helper == t("qq_auth.credential.helper")
     assert dialog._credential_field.password is True
+    assert not hasattr(dialog, "referral_id")
+    assert [
+        control.__class__.__name__ for control in dialog._dialog_result.body_column.controls
+    ].count("TextField") == 2
     assert [control.content for control in dialog._actions.controls] == [
-        t("qq_auth.close"),
+        t("openrouter.handoff.chatgpt"),
         t("qq_auth.submit"),
     ]
 
@@ -94,3 +99,47 @@ def test_qq_managed_auth_dialog_submit_waiting_error_and_cancel_states() -> None
     dialog._cancel_button.on_click(None)
     assert events == ["continue", "cancel"]
     assert page.closed == [dialog._dialog]
+
+
+def test_qq_managed_auth_dialog_outside_dismiss_closes_only_before_waiting() -> None:
+    page = DummyPage()
+    events: list[str] = []
+    dialog = _dialog(page, events)
+    dialog.open()
+
+    dialog._dialog.on_dismiss(None)
+
+    assert events == ["close"]
+    assert dialog.is_open is False
+
+    waiting_events: list[str] = []
+    waiting = _dialog(page, waiting_events)
+    waiting.open()
+    waiting.set_waiting()
+
+    assert waiting._dialog.modal is True
+    waiting._dialog.on_dismiss(None)
+    assert waiting_events == []
+    assert waiting.is_open is True
+
+    waiting.set_error("qq_auth.error.retry")
+
+    assert waiting._dialog.modal is False
+
+
+def test_qq_managed_auth_dialog_chatgpt_closes_then_invokes_callback() -> None:
+    page = DummyPage()
+    events: list[str] = []
+    dialog = QqManagedAuthDialog(
+        page,
+        on_continue=lambda: events.append("continue"),
+        on_close=lambda: events.append("close"),
+        on_chatgpt=lambda: events.append(f"chatgpt_closed={page.dialog is None}"),
+    )
+    dialog.open()
+
+    assert dialog._chatgpt_button is not None
+    dialog._chatgpt_button.on_click(None)
+
+    assert events == ["chatgpt_closed=True"]
+    assert dialog.is_open is False

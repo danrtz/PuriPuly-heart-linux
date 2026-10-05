@@ -115,7 +115,9 @@ class RequestLatency:
             {
                 "request_id": self.request_id,
                 "utterance_id": str(self.utterance_id),
-                "parent_utterance_id": str(self.parent_utterance_id) if self.parent_utterance_id else None,
+                "parent_utterance_id": (
+                    str(self.parent_utterance_id) if self.parent_utterance_id else None
+                ),
                 "channel": self.channel,
                 "kind": self.kind,
                 "source_language": self.source_language,
@@ -194,7 +196,9 @@ class AttemptLatency:
         if not isinstance(usage, Mapping):
             return
         input_details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details")
-        output_details = usage.get("output_tokens_details") or usage.get("completion_tokens_details")
+        output_details = usage.get("output_tokens_details") or usage.get(
+            "completion_tokens_details"
+        )
         self.record_usage(
             input_tokens=usage.get("input_tokens", usage.get("prompt_tokens")),
             output_tokens=usage.get("output_tokens", usage.get("completion_tokens")),
@@ -233,7 +237,11 @@ class AttemptLatency:
             "status": status,
             "attempt_ms": _milliseconds(self.started_at, ended_at),
             "network_ms": _milliseconds(self.sent_at, ended_at),
-            "ttft_ms": _milliseconds(self.sent_at, self.first_text_at) if self.first_text_at is not None else None,
+            "ttft_ms": (
+                _milliseconds(self.sent_at, self.first_text_at)
+                if self.first_text_at is not None
+                else None
+            ),
             "first_text_to_done_ms": _milliseconds(self.first_text_at, ended_at),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -241,8 +249,14 @@ class AttemptLatency:
             "reasoning_tokens": self.reasoning_tokens,
         }
         for key in (
-            "auth_ms", "connection_wait_ms", "connect_ms", "connection_reused",
-            "requested_tier", "actual_tier", "server_prompt_ms", "server_generation_ms",
+            "auth_ms",
+            "connection_wait_ms",
+            "connect_ms",
+            "connection_reused",
+            "requested_tier",
+            "actual_tier",
+            "server_prompt_ms",
+            "server_generation_ms",
             "server_generation_tps",
         ):
             value = getattr(self, key)
@@ -254,8 +268,12 @@ class AttemptLatency:
         self.request.emit("attempt_end", values)
 
 
-_REQUEST: ContextVar[RequestLatency | None] = ContextVar("translation_request_latency", default=None)
-_ATTEMPT: ContextVar[AttemptLatency | None] = ContextVar("translation_attempt_latency", default=None)
+_REQUEST: ContextVar[RequestLatency | None] = ContextVar(
+    "translation_request_latency", default=None
+)
+_ATTEMPT: ContextVar[AttemptLatency | None] = ContextVar(
+    "translation_attempt_latency", default=None
+)
 
 
 def current_request() -> RequestLatency | None:
@@ -292,8 +310,17 @@ def observe_request(
             _REQUEST.reset(token)
         return
     observation = RequestLatency(
-        sink, utterance_id, channel, kind, source_language, target_language,
-        provider_generation, input_chars, prompt_chars, context_chars, clock,
+        sink,
+        utterance_id,
+        channel,
+        kind,
+        source_language,
+        target_language,
+        provider_generation,
+        input_chars,
+        prompt_chars,
+        context_chars,
+        clock,
         parent_utterance_id,
     )
     token = _REQUEST.set(observation)
@@ -313,7 +340,10 @@ def observe_request(
 
 @contextmanager
 def observe_attempt(
-    *, provider: str, model: str | None, attempt_index: int = 0,
+    *,
+    provider: str,
+    model: str | None,
+    attempt_index: int = 0,
 ) -> Iterator[AttemptLatency | None]:
     request = current_request()
     if request is None:

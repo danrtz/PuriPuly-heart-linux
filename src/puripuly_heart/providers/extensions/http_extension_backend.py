@@ -94,9 +94,7 @@ class HttpExtensionTranslationBackend(TranslationBackend):
             secrets=secret_values,
         )
         request_observation = current_request()
-        queue_started_at = (
-            request_observation.clock() if request_observation is not None else None
-        )
+        queue_started_at = request_observation.clock() if request_observation is not None else None
         try:
             await self._semaphore.acquire()
         finally:

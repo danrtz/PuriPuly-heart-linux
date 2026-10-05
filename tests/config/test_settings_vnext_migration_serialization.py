@@ -485,7 +485,7 @@ def test_v40_deepseek_official_upgrades_41_metadata() -> None:
 
 
 @pytest.mark.parametrize("connection", ["managed", "managed_china"])
-def test_v41_new_deepseek_40_managed_choice_survives_reload(connection: str) -> None:
+def test_current_deepseek_v4_managed_choice_migrates_to_41(connection: str) -> None:
     migration = _migration()
     serialization = _serialization()
     raw = serialization.to_dict(AppSettingsVNext())
@@ -500,10 +500,44 @@ def test_v41_new_deepseek_40_managed_choice_survives_reload(connection: str) -> 
         }
     )
 
-    translated = migration.from_dict(raw).intent.translation
-    assert translated.model == "deepseek_v4_flash"
+    loaded = migration.from_dict(raw)
+    translated = loaded.intent.translation
+    assert translated.model == "deepseek_v4_flash_41"
     assert translated.connection == connection
-    assert translated.connection_history == {"deepseek_v4_flash": connection}
+    assert translated.connection_history == {"deepseek_v4_flash_41": connection}
+    assert translated.openrouter_model == "deepseek/deepseek-v4.1-flash"
+    assert translated.openrouter_selected_source == "managed"
+    assert translated.openrouter_selection_alias == "deepseek_v4_flash_41_managed"
+    assert translated.openrouter_provider_routing == "deepseek_v4_flash_41_strict"
+
+    once = serialization.to_dict(loaded)
+    twice = serialization.to_dict(migration.from_dict(once))
+    assert twice == once
+
+
+def test_deepseek_v4_managed_history_moves_without_replacing_saved_41_connection() -> None:
+    migration = _migration()
+    serialization = _serialization()
+    raw = serialization.to_dict(AppSettingsVNext())
+    raw["intent"]["translation"].update(
+        {
+            "model": "gemini_flash",
+            "connection": "official_byok",
+            "previous_llm_model": "deepseek_v4_flash",
+            "connection_history": {
+                "deepseek_v4_flash": "managed_china",
+                "deepseek_v4_flash_41": "official_byok",
+                "gemini_flash": "official_byok",
+            },
+        }
+    )
+
+    translated = migration.from_dict(raw).intent.translation
+    assert translated.model == "gemini_flash"
+    assert translated.connection == "official_byok"
+    assert translated.previous_llm_model == "deepseek_v4_flash_41"
+    assert translated.connection_history["deepseek_v4_flash_41"] == "official_byok"
+    assert "deepseek_v4_flash" not in translated.connection_history
 
 
 def test_v40_hidden_managed_openrouter_alias_upgrades_using_original_source() -> None:
@@ -688,103 +722,6 @@ def test_vnext_dict_migrates_legacy_timestamp_prompt_to_new_default() -> None:
 
     migrated = migration.from_dict(canonical)
 
-    assert migrated.intent.prompts.system_prompt_override is None
-
-
-def _prompt_with_static_optional_sections(prompt: str) -> str:
-    return prompt.replace(
-        "${targetLanguageRulesSection}\n\n${translationExamplesSection}\n\n",
-        "### Target language Rules\n"
-        "${targetLanguageRules}\n"
-        "\n"
-        "## Examples\n"
-        "${translationExamples}\n"
-        "\n",
-        1,
-    )
-
-
-def test_vnext_dict_migrates_static_optional_section_headings_to_section_placeholders() -> None:
-    from puripuly_heart.config.prompts import load_prompt_for_provider
-    from puripuly_heart.config.settings_vnext import migration, serialization
-
-    current = load_prompt_for_provider("gemini")
-    stored = _prompt_with_static_optional_sections(current)
-    canonical = serialization.to_dict(AppSettingsVNext())
-    canonical["settings_version"] = VNEXT_SETTINGS_SCHEMA_VERSION - 1
-    canonical["intent"]["prompts"]["system_prompt"] = stored
-
-    migrated = migration.from_dict(canonical)
-
-    assert stored != current
-    assert migrated.intent.prompts.system_prompt_override is None
-
-
-def test_vnext_dict_migrates_source_name_role_default_prompt_to_source_text_ref() -> None:
-    from puripuly_heart.config.prompts import load_prompt_for_provider
-    from puripuly_heart.config.settings_vnext import migration, serialization
-
-    current = load_prompt_for_provider("gemini")
-    legacy_role = (
-        "Interpret the ${sourceName} text to translate into ${targetName} naturally, preserving "
-        "the speaker's social attitude and emotion."
-    )
-    current_role = (
-        "Interpret ${sourceTextRef} to translate into ${targetName} naturally, preserving the "
-        "speaker's social attitude and emotion."
-    )
-    stored = _prompt_with_static_optional_sections(current).replace(current_role, legacy_role, 1)
-    canonical = serialization.to_dict(AppSettingsVNext())
-    canonical["settings_version"] = VNEXT_SETTINGS_SCHEMA_VERSION - 1
-    canonical["intent"]["prompts"]["system_prompt"] = stored
-
-    migrated = migration.from_dict(canonical)
-
-    assert stored != current
-    assert migrated.intent.prompts.system_prompt_override is None
-
-
-def test_vnext_dict_migrates_source_name_role_and_previous_output_default() -> None:
-    from puripuly_heart.config.prompts import load_prompt_for_provider
-    from puripuly_heart.config.settings_vnext import migration, serialization
-
-    current = load_prompt_for_provider("gemini")
-    legacy_role = (
-        "Interpret the ${sourceName} text to translate into ${targetName} naturally, preserving "
-        "the speaker's social attitude and emotion."
-    )
-    current_role = (
-        "Interpret ${sourceTextRef} to translate into ${targetName} naturally, preserving the "
-        "speaker's social attitude and emotion."
-    )
-    output_metadata_line = (
-        "* Translate only the text inside `<input>`; `<context>` and channel labels are "
-        "background metadata.\n"
-    )
-    previous_output_lines = (
-        "* Text inside `<input>` is the translation target.\n"
-        "* Text inside `<context>` is background information.\n"
-    )
-    stored = (
-        _prompt_with_static_optional_sections(current)
-        .replace(
-            current_role,
-            legacy_role,
-            1,
-        )
-        .replace(
-            output_metadata_line,
-            previous_output_lines,
-            1,
-        )
-    )
-    canonical = serialization.to_dict(AppSettingsVNext())
-    canonical["settings_version"] = VNEXT_SETTINGS_SCHEMA_VERSION - 1
-    canonical["intent"]["prompts"]["system_prompt"] = stored
-
-    migrated = migration.from_dict(canonical)
-
-    assert stored != current
     assert migrated.intent.prompts.system_prompt_override is None
 
 

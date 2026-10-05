@@ -44,7 +44,7 @@ def _dialog_with_readme_action(page: DummyPage, action) -> FounderLetterDialog:
     )
 
 
-def test_founder_letter_dialog_opens_with_two_actions() -> None:
+def test_founder_letter_dialog_opens_with_chatgpt_and_guide_actions() -> None:
     set_locale("ko")
     page = DummyPage()
 
@@ -53,11 +53,31 @@ def test_founder_letter_dialog_opens_with_two_actions() -> None:
     dialog.open()
 
     assert page.dialog is dialog._dialog
-    assert dialog._acknowledge_button is not None
-    assert dialog._cancel_button is not None
+    assert dialog._cancel_button is None
     assert len(page.opened) == 1
-    assert dialog._cancel_button.content == t("openrouter.handoff.close")
-    assert dialog._acknowledge_button.content == t("openrouter.handoff.readme")
+    assert dialog._chatgpt_button is not None
+    assert dialog._acknowledge_button is not None
+    assert dialog._chatgpt_button.content == t("openrouter.handoff.chatgpt")
+    assert dialog._acknowledge_button.content == t("openrouter.handoff.guide")
+
+
+def test_founder_letter_dialog_chatgpt_action_closes_before_continuing() -> None:
+    set_locale("ko")
+    page = DummyPage()
+    calls: list[bool] = []
+
+    dialog = FounderLetterDialog(
+        page,
+        on_readme=lambda: pytest.fail("guide must not open"),
+        on_chatgpt=lambda: calls.append(page.dialog is None),
+    )
+    dialog.open()
+
+    assert dialog._chatgpt_button is not None
+    dialog._chatgpt_button.on_click(None)
+
+    assert calls == [True]
+    assert page.closed == [dialog._dialog]
 
 
 def test_founder_letter_dialog_uses_requested_letter_copy() -> None:
@@ -70,7 +90,7 @@ def test_founder_letter_dialog_uses_requested_letter_copy() -> None:
     assert _body_text_value(page) == expected_body
 
 
-def test_founder_letter_dialog_is_modal_to_prevent_outside_dismissal() -> None:
+def test_founder_letter_dialog_dismisses_on_outside_click() -> None:
     set_locale("ko")
     page = DummyPage()
 
@@ -79,10 +99,10 @@ def test_founder_letter_dialog_is_modal_to_prevent_outside_dismissal() -> None:
     dialog.open()
 
     assert dialog._dialog is not None
-    assert dialog._dialog.modal is True
+    assert dialog._dialog.modal is False
 
 
-def test_founder_letter_dialog_close_and_readme_actions() -> None:
+def test_founder_letter_dialog_guide_action_closes_before_opening_guide() -> None:
     set_locale("ko")
     page = DummyPage()
     readme_calls: list[bool] = []
@@ -98,19 +118,6 @@ def test_founder_letter_dialog_close_and_readme_actions() -> None:
 
     assert readme_calls == [True]
     assert page.closed == [readme_dialog._dialog]
-    assert page.dialog is None
-
-    close_dialog = _dialog_with_readme_action(
-        page,
-        lambda: readme_calls.append(False),
-    )
-    close_dialog.open()
-
-    assert close_dialog._cancel_button is not None
-    close_dialog._cancel_button.on_click(None)
-
-    assert readme_calls == [True]
-    assert page.closed[-1] == close_dialog._dialog
     assert page.dialog is None
 
 

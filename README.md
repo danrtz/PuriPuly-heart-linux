@@ -27,7 +27,7 @@ cd PuriPuly-heart-linux
 scripts/linux/install-user.sh
 ```
 
-Desktop audio capture, local English/Japanese recognition and translation, captions, and failure recovery have been tested on Arch/Hyprland. The Python suite passed 6,751 tests with 53 skipped. **Physical-headset/live VRChat validation is pending**; OpenXR overlays have passed simulated-headset tests. Account-backed cloud providers have not been verified in this port.
+Desktop audio capture, local English/Japanese recognition and translation, captions, and failure recovery have been tested on Arch/Hyprland. See the [Linux validation report](docs/Linux.md#feature-and-validation-status) for test results and update-specific checks. **Physical-headset/live VRChat validation is pending**; OpenXR overlays have passed simulated-headset tests. Account-backed cloud providers have not been verified in this port.
 
 Report Linux-port problems in [this fork’s issues](https://github.com/danrtz/PuriPuly-heart-linux/issues). The feature descriptions, demonstrations and benchmarks below come from upstream; they are not additional Linux validation results.
 
@@ -71,7 +71,7 @@ So I built one that can.
 
 ## What is PuriPuly?
 
-PuriPuly is a two-way voice translator that translates your voice and the other person's voice in real time. This fork adds native Linux support to the upstream Windows application.
+PuriPuly translates your voice and the other person's voice in real time. This fork ports the upstream Windows application to native Linux.
 We aim for natural translation through LLMs.
 Beyond stiff literal translation, so real person-to-person conversation can happen.
 It works in many environments, including VRChat and Discord.
@@ -107,7 +107,9 @@ It works in many environments, including VRChat and Discord.
 ---
 
 ## Translation Comparison
-![Mean error penalty per sentence for Korean to EN / JA / ZH-Hans across 216 multi-turn samples (Gemba MQM evaluation, lower is better). Blue bars are models available in PuriPuly: 1st Gemma 4 31B (0.353), 2nd Gemma 4 26B A4B (0.387), 3rd DeepSeek-V4 Flash 0731 (0.571), 4th Gemma 4 12B QAT Q4 (0.855), 5th Gemma 4 E4B QAT Q4 (1.577). Orange bars are external baselines: Hy-MT-7B (1.863), Papago (2.699), Gemini 3.5 Live Translate (2.991), MiLMMT 46-4B (3.087), DeepL (3.914), Google Cloud Translation Basic (5.731).](docs/images/performance/2.png)
+![Mean error penalty per sentence for the full speech recognition and translation pipeline. Korean to EN / JA / ZH-Hans, 216 multi-turn samples, Gemba MQM evaluation; lower is better. Blue bars are combinations available in PuriPuly: Gemini Transcribe → Luna (0.676), Soniox STT → Luna (0.942), Qwen ASR 1.7B → Gemma 26B (1.024), Gemini Transcribe → Gemma 26B (1.084), Soniox STT → Gemma 26B (1.293), Qwen ASR 0.6B → Gemma 26B (2.374). Orange bars are external baselines: Qwen 3.8 Live Translate (2.108), Gemini 3.5 Live Translate (3.754), Soniox Translate (4.989). Judge model: Gemini 3.7 Flash.](docs/images/performance/1.png)
+
+![Mean error penalty per sentence. Korean to EN / JA / ZH-Hans, 216 multi-turn samples, Gemba MQM evaluation; lower is better. Blue bars are models available in PuriPuly: GPT 6 Luna (0.130), Gemma 4 26B A4B (0.387), DeepSeek-V4 Flash 0731 (0.571), Gemma 4 E4B QAT Q4 (1.577). Orange bars are external baselines: Qwen 3.8 Live Translate (1.392), Papago (2.699), Gemini 3.5 Translate (2.991), Soniox Translate (3.473), DeepL (3.914), Google Translation (5.731). Only results with a character error rate (CER) of 5% or less were selected for Qwen 3.8, Gemini 3.5, and Soniox. Judge model: Gemini 3.7 Flash.](docs/images/performance/2.png)
 
 - The blue bars are the models available in PuriPuly.
 - We ran the experiment using Microsoft's Gemba MQM framework.
@@ -124,13 +126,14 @@ It works in many environments, including VRChat and Discord.
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | Unlimited | Unlimited | 5,000 | 7,260 |
 | **Gemma 4 26B A4B + 31B** | 13,940 | 13,940 | 3,680 | 4,770 |
-| **DeepSeek V4 Flash (OpenRouter)** | 17,020 | 17,020 | 3,860 | 5,090 |
 | **DeepSeek V4.1 Flash** | 16,800 | 16,800 | 3,860 | 5,070 |
+| **GPT 6 Luna** | 8,680 | 8,680 | 3,170 | 3,950 |
 
 #### Other Models
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **DeepSeek V4 Flash (OpenRouter)** | 17,020 | 17,020 | 3,860 | 5,090 |
 | **Gemini 3.8 Flash** | 1,160 | 1,160 | 940 | 1,000 |
 | **Qwen 3.8 Flash** | 7,460 | 7,460 | 2,990 | 3,680 |
 
@@ -142,13 +145,14 @@ It works in many environments, including VRChat and Discord.
 |---|---|---|---|---|
 | **Gemma 4 E4B (Local)** | $0 | $0 | ~$0.0002 | ~$0.00014 |
 | **Gemma 4 26B A4B + 31B** | ~$0.00007 | ~$0.00007 | ~$0.0003 | ~$0.00021 |
-| **DeepSeek V4 Flash (OpenRouter)** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
 | **DeepSeek V4.1 Flash** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
+| **GPT 6 Luna** | ~$0.00012 | ~$0.00012 | ~$0.0003 | ~$0.00025 |
 
 #### Other Models
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **DeepSeek V4 Flash (OpenRouter)** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
 | **Gemini 3.8 Flash** | ~$0.0009 | ~$0.0009 | ~$0.0011 | ~$0.0010 |
 | **Qwen 3.8 Flash** | ~$0.0001 | ~$0.0001 | ~$0.0003 | ~$0.00027 |
 
@@ -156,6 +160,7 @@ It works in many environments, including VRChat and Discord.
 *   *Uses per Dollar is derived from the un-rounded values in the Cost per Utterance table.*
 *   *All costs and usage counts are approximate.*
 *   *DeepSeek V4.1 Flash assumes a 70% cache hit rate; V4 Flash (OpenRouter) assumes 60%.*
+*   *GPT 6 Luna uses OpenAI API pricing with no cache discount assumed; when connected through ChatGPT, it uses your Codex limits instead of API charges.*
 *   *Qwen API costs are based on the Beijing region.*
 *   *Pricing as of September 25, 2026.*
 
@@ -195,11 +200,11 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 
 ---
 
-For Linux-port problems, use [this fork’s issue tracker](https://github.com/danrtz/PuriPuly-heart-linux/issues). The upstream author's contact is [Twitter/X](https://x.com/kapitalismho).
+For Linux-port problems, use [this fork’s issue tracker](https://github.com/danrtz/PuriPuly-heart-linux/issues). The upstream author’s contact is [Twitter/X](https://x.com/kapitalismho).
 
 ## Usage
 
-**Linux:** use the [Linux first-use instructions](docs/Linux.md#first-use). The Windows installer and Discord onboarding below describe the upstream distribution; local Linux models do not require a cloud account.
+**Linux:** follow the [Linux first-use instructions](docs/Linux.md#first-use). The Windows download and onboarding instructions below describe upstream; local models do not require a cloud account.
 
 1. Download the latest version from the [Download page](https://github.com/kapitalismho/PuriPuly-heart/releases/latest).
 2. Install PuriPuly.
@@ -215,7 +220,8 @@ For Linux-port problems, use [this fork’s issue tracker](https://github.com/da
 For bidirectional control setup and the stable parameter ABI, see [VRChat OSC controls](docs/vrchat-osc.md).
 
 ### If audio capture does not work
-On Linux, check the PipeWire/PulseAudio device selection and capture guidance in [the Linux guide](docs/Linux.md). The MME instructions below apply to Windows.
+
+On Linux, use the PipeWire/PulseAudio capture guidance in [the Linux guide](docs/Linux.md). The MME instructions below apply to Windows.
 
 If audio capture does not work, open **Settings > General** and follow these steps.
 
@@ -427,8 +433,6 @@ The tier transition may take a moment.
 
 ## Architecture
 
-![PuriPuly Heart hexagonal architecture: core runtimes surrounded by eight port adapters](docs/architecture-light.png)
-
 See [`docs/architecture.md`](docs/architecture.md).
 
 ## Roadmap
@@ -439,111 +443,37 @@ Upcoming work is tracked publicly on the [PuriPuly project board](https://github
 
 ## Development
 
-### Environments
+For native x86-64 Linux development, follow [the Linux guide](docs/Linux.md). The application requires standard GIL-enabled CPython 3.14. The instructions below describe upstream Windows x64 development with [uv](https://docs.astral.sh/uv/). Run them from the repository root.
 
-| Surface                    | Recommended environment | Documentation                                          |
-| -------------------------- | ----------------------- | ------------------------------------------------------ |
-| Python desktop application | Linux / Windows         | [Linux guide](docs/Linux.md); Windows below             |
-| Broker service             | Linux                   | [`broker/README.md`](broker/README.md)                 |
-| Native VR overlay          | Linux / Windows         | [Linux OpenXR](docs/Linux.md); [upstream Windows](native/overlay/README.md) |
-
-### Python Environment
-
-The Python application requires ordinary GIL-enabled CPython 3.14. For native x86-64 Linux builds, follow [the Linux guide](docs/Linux.md), which uses `.venv` and builds the platform runtimes. The following environment instructions are for upstream Windows development.
-
-Create and activate the Windows environment:
+### Setup
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+uv sync --frozen --extra dev
 ```
 
-Install the application and development dependencies:
-
-```powershell
-python -m pip install --upgrade pip
-pip install -e ".[dev]"
-```
-
-`uv` may be used instead:
-
-```powershell
-uv sync --dev
-```
-
-For separate WSL development work, `.venv-wsl` may be used when available. This is separate from the native Linux installer above.
-
-```bash
-UV_PROJECT_ENVIRONMENT=.venv-wsl uv sync --dev
-```
-
-Repositories configured with `direnv` may run commands through:
-
-```bash
-direnv exec . <command>
-```
-
-### Running the Application
-
-Run the Flet desktop application:
-
-```powershell
-python -m puripuly_heart.main run-gui
-```
-
-The equivalent `uv` command is:
+### GUI
 
 ```powershell
 uv run python -m puripuly_heart.main run-gui
 ```
 
-Developer preview controls for hidden UI states are enabled with:
+### CLI
+
+The CLI can run the application without a GUI or control an already-running application. See the [CLI guide](docs/cli.md) for commands.
 
 ```powershell
-python -m puripuly_heart.main run-gui --debug-ui-preview
+uv run python -m puripuly_heart.main cli --help
 ```
 
-### Python Verification
-
-Format the Python sources and tests:
+### Verification
 
 ```powershell
-black src tests
+uv run black --check src tests
+uv run ruff check src tests
+uv run python -m pytest
 ```
 
-Check formatting without modifying files:
-
-```powershell
-black --check src tests
-```
-
-Run lint checks:
-
-```powershell
-ruff check src tests
-```
-
-Run the complete Python test suite:
-
-```powershell
-python -m pytest
-```
-
-Run a focused test file or directory during development:
-
-```powershell
-python -m pytest tests/path/to/test_file.py
-```
-
-### Other Surfaces
-
-Broker documentation is maintained in [`broker/README.md`](broker/README.md).
-
-Native VR overlay documentation is maintained in [`native/overlay/README.md`](native/overlay/README.md).
-
-Custom HTTP API extension documentation is maintained in [`docs/http-extensions.md`](docs/http-extensions.md). For the JSON Schema required for connection, see [`docs/http-extension.schema.json`](docs/http-extension.schema.json).
-
-VRChat OSC controls are documented in [`docs/vrchat-osc.md`](docs/vrchat-osc.md).
+[Broker development (Linux)](broker/README.md) · [VR overlay development (Windows)](native/overlay/README.md)
 
 ---
 

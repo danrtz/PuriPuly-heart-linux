@@ -132,9 +132,10 @@ Peer output must not reach the VRChat chatbox.
 - Capture owners retain generation-bound segment ledgers and freeze provider and endpoint settings for admitted segments (`core/audio/ownership.py`).
 - `OwnedVadEvent` carries local segment identity; Gemini and its Rolling member also receive generation-owned `OwnedStreamInput` from the same permitted normalized frames. All scoped PCM, including VAD pre-roll, deduplicates by source range within its recognition stream. Initial unseen context and unseen suffixes are preserved; already-submitted context is not replayed.
 - Gemini `STTProviderInputTerminal` retires an audio slot after submission, without claiming a transcript or server completion. Independently received `STTRecognitionUnitTerminal` supplies text with channel, capture/activation generation, provider epoch, settings scope, and receipt identity.
+- Independent Gemini finals, including the Rolling member, freeze an approximate last-speech origin from the latest VAD-positive real capture frame observed by the scoped engine. Each channel keeps one timestamp and its capture/settings scope; startup preserves the pending same-scope observation, while stream/provider retirement, capture changes, mute, and discontinuity reset it. Silence and local input submission do not advance or erase it. No per-utterance matching, provider-offset map, or artificial speech-end event is introduced.
 - Input terminal metadata goes directly to the bound capture callback, independently of deferred recognition delivery, so a slow text consumer cannot retain audio slots or lose their retirement on text-buffer overflow.
 - Input retirement also clears that exact local segment's VAD/timing bookkeeping; native unit identities are never used to guess a local segment. Failed open inputs are failure-sealed, and later VAD events cannot reopen their retired slots.
-- A failed independent audio write retires its provider epoch before recovery. The next valid retained source frame can admit a replacement recognition stream through `begin_stream`, without inventing a local speech segment or waiting for a new `SpeechStart`. Recovery excludes the failed write's entire source range because remote delivery is unknown, then forwards only definitely-unsent audio under the existing capture retention budget.
+- Failed independent stream writes, receive failures, provider epoch completion, and maximum session age retire the affected epoch before recovery. The next valid retained source frame can admit a replacement recognition stream through `begin_stream`, without inventing a local speech segment or waiting for a new `SpeechStart`. Recovery excludes every already-submitted source range, including the failed write's entire range because remote delivery is unknown, then forwards only definitely-unsent audio under the existing capture retention budget.
 - Recovery opening and stream admission are bounded and recheck live capture authority after awaits. Generation, settings, capture-epoch, mute, stop, and discontinuity invalidation prevent stale recovery; exhausted connection or physical cleanup failure does not trigger a new attempt for every queued frame. Capture owners supply live `OwnedStreamInput.is_current` guards, and Rolling preserves the same stream ownership contract.
 - Queued PCM remains capture-epoch guarded. Ordered boundary controls retain generation authority but are not invalidated when a subsequent frame updates the current capture epoch; a discontinuity must retire the previous stream even while its writer was delayed.
 - `ListenDeliveryController` owns peer segmentation independently of provider readiness (`core/audio/listen_delivery.py`). Deadline seals serialize with the current frame's VAD processing, continuous-input enqueue, and owned-event dispatch, so a timer cannot seal a segment before its already-produced frame is accounted for and queued.
@@ -142,9 +143,11 @@ Peer output must not reach the VRChat chatbox.
 - `SmartTurnInferenceOwner` owns peer endpoint inference for supported languages and rejects retired results (`core/audio/smart_turn.py`).
 
 Orderly capture completion drains recognition when provider ingress is ready. At normal source end, Peer first waits for any in-flight provider setup to settle: successful startup drains the retained finite input, while a returned pending result aborts and releases dispatch work before source/provider teardown, without fabricating readiness. Stop or discontinuity invalidates affected work.
+Peer dispatch failures cannot be hidden by abort or teardown failures. Queued retention and expiry work are released, the capture owner publishes a fault and deactivates, and application effective-state presentation refreshes for every capture kind. Cleanup errors preserve the original failure; cancellation remains cancellation, and failed resource release retains cleanup debt.
 Gemini requests automatic server activity detection with `prefix_padding_ms=500` and `silence_duration_ms=400`. These provider settings do not alter local VAD/SmartTurn policies, capture pre-roll, continuous PCM coverage, or native-final-only text admission; no artificial silence or repeated audio is added.
-Gemini local endpoints enqueue `audio_stream_end` through the same ordered writer as audio; they do not stop the receiver or block subsequent input waiting for text. Mute, discontinuity, source change, and explicit stop retire the affected stream. Stream-only queued audio does not count as pending local speech for idle lifetime extension.
+Gemini local endpoints enqueue `audio_stream_end` through the same ordered writer as audio; they do not stop the receiver or block subsequent input waiting for text. Mute, discontinuity, source change, and explicit stop retire the affected stream. Stream-only queued audio does not count as pending local speech for idle lifetime extension. Accepted nonempty native finals refresh a separate idle-activity clock without changing the approximate last-speech origin used for latency. True idle retirement stays disconnected through silent frames and permits the next VAD-positive frame to resume the same live capture scope without requiring a new local segment.
 Consecutive fences without newly written audio are coalesced by that writer. A server GoAway notice with positive `timeLeft` leaves audio and final reception live until the first bounded deadline or socket closure; duplicate notices cannot extend the deadline. Event pressure preserves already-accepted finals and reserves one bounded retirement-control slot rather than clearing accepted text.
+Gemini transport failures and epoch retirement retain structured channel, epoch, operation, allowlisted exception class, bounded numeric code/status, and retirement reason through persisted-log redaction. Raw exception messages, provider responses, transcript text, and tracebacks are excluded. Scoped stream retirement/resumption and Peer runtime/cleanup failures likewise emit metadata-only diagnostics.
 An unchanged effective SELF intent preserves its active capture generation. A new capture generation or capture epoch starts a fresh native stream even when provider settings are unchanged. SELF readiness is tracked separately from text authority: current input failure or the end of either the ready or latest submitted epoch disconnects readiness, including before that epoch's first native final. The ended stream is fenced before publishing the state change, so already-accepted finals may still drain without reviving an ended or superseded stream.
 
 ### Managed translation
@@ -274,6 +277,8 @@ Do not retain references across replacement unless the API explicitly allows it.
 
 `SettingsView` consumes only frozen surface snapshots and emits focused typed intents. The settings application owner replays those intents onto the latest canonical settings before persistence and runtime application.
 
+`intent.osc.activation_notice_enabled` defaults to `true` and controls only the Talk and Listen activation chatbox notices. The General tab's fifth row exposes one direct on/off card and two empty cards; its existing four rows are unchanged. Notice-only edits persist through `ActivationNoticeSettingsIntent`, then synchronously update the active output owner without preparing or restarting capture, providers, or overlays. Failed persistence restores the committed settings projection and leaves the output policy unchanged.
+
 
 Contains user selections, not active runtime resources.
 
@@ -358,7 +363,14 @@ GPT 6 Luna over the `chatgpt` connection uses the user's ChatGPT plan through Si
 
 - `ChatGptAccountOwner` runs the loopback OAuth flow (PKCE, dynamic client registration, ID-token verification) and never routes through the Broker.
 - `ChatGptSession` is shared across provider rebuilds. The secret store keeps only the refresh token, issued client ID, host ID, and account label; access tokens stay in memory because they exceed the Windows credential size limit.
-- `ChatGptPlanLLMProvider` owns a pool of Responses API WebSocket connections. One connection serves one request at a time, so concurrent Self, Peer, and hedged requests use separate connections. The hedged attempt reuses the primary provider's pool instead of building a second provider, so it starts on an already-open connection. Connections are replaced after a token refresh and closed with the provider. `LlmConnectionReadinessOwner` prepares connections while translation is on, independently of Talk and Listen, so manual text can reuse them. Turning translation off detaches idle connections immediately and closes them concurrently; in-flight ones close after their response. Detached-connection cleanup finishes before cancellation propagates. Cancelling preparation closes partially opened connections and releases reserved pool slots; closing the readiness owner cannot advance into queued preparation (`app/services/llm_connection_readiness.py`, `providers/llm/chatgpt_plan.py`).
+- `ChatGptPlanLLMProvider` owns a Responses API WebSocket pool with six prepared connections and a six-connection limit. Opening, reserved, running, draining, and closing connections all retain their pool slots until ownership ends.
+- Logical requests share one FIFO admission queue across Self and Peer. At an event-loop boundary, the pool first gives queued requests one ready idle connection each, then gives remaining idle connections to newly admitted requests in FIFO order, at most one extra each. There is no batching timer, mandatory pair, or later upgrade from one attempt to two.
+- `FallbackRacingLLMProvider` uses the core `LLMRequestAdmissionPort` and per-request `LLMRequestExecution` contract to start the granted one or two attempts immediately and publish the first complete success. ChatGPT has no 1,700 ms hedge timer. A single granted attempt may re-enter FIFO admission once with a one-attempt recovery after failure; a paired request cannot start a third attempt. Existing authentication retry behavior remains separate. Direct `ChatGptPlanLLMProvider.translate()` stays single-attempt.
+- `LlmConnectionReadinessOwner` prepares the pool while translation is on, independently of Talk and Listen. Pipeline installation and provider replacement also synchronize readiness, so initial and replacement providers can prepare before their first translation.
+- Cancelling an attempt stops delivery to its caller without closing a running exchange. The provider drains it under the original 30-second response timeout and returns the connection only after successful completion. A cancelled waiter sends no abandoned request, and unused reservations return exactly once. Draining responses retain their pool slots and continue to consume upstream usage. Admission wait remains observable as connection wait, separately from the logical concurrency semaphore queue.
+- Errors, response timeouts, and obsolete token generations retire connections. Turning translation off cancels queued admission and opening work, retires idle and unused reserved connections, and lets in-flight exchanges close after their responses instead of returning to the pool. Retired reservations cannot send or reopen the old pool generation. Provider close cancels and joins owned exchanges and cleanup, including background drains.
+- Detached-connection cleanup finishes before cancellation propagates. Cancelling preparation closes partially opened connections and releases reserved pool slots; closing the readiness owner cannot advance into queued preparation (`app/services/llm_connection_readiness.py`, `providers/llm/chatgpt_plan.py`).
+- ChatGPT login permission failures use a warning snackbar. Inference errors use the dashboard's primary text slot: structured eligibility and usage-limit codes select dedicated subscription and Codex-limit guidance; without a subscription code, HTTP 403 and 429 select the same respective messages. Explicit subscription codes retain precedence, other providers keep their own classification, and unanimous parallel-attempt failures preserve the dedicated message (`core/error_messages.py`, `ui/event_dispatch.py`).
 
 Cloud translation may use bounded hedged attempts according to resolved runtime policy, not persisted fallback selections (`config/runtime_resolution.py`, `core/llm/fallback_racing.py`).
 
@@ -375,7 +387,7 @@ Peer translations may execute concurrently, but source-context preparation and p
 
 Self speculative selection remains in the Self owner. Once a turn is admitted, the turn lifecycle owns subsequent translation and publication.
 
-Implementation: `core/orchestrator/translation_turn.py`, `core/orchestrator/translation_request.py`, `providers/llm/chatgpt_plan.py`. Behavior tests: `tests/core/test_translation_turn_owner.py`, `tests/core/test_translation_request_owner.py`, `tests/core/test_hedged_attempts.py`.
+Implementation: `core/orchestrator/translation_turn.py`, `core/orchestrator/translation_request.py`, `core/llm/provider.py`, `core/llm/fallback_racing.py`, `providers/llm/chatgpt_plan.py`. Behavior tests: `tests/core/test_translation_turn_owner.py`, `tests/core/test_translation_request_owner.py`, `tests/core/test_hedged_attempts.py`, `tests/providers/test_chatgpt_plan_provider.py`, `tests/app/test_chatgpt_adaptive_dispatch.py`.
 
 ## Output
 
@@ -390,12 +402,18 @@ Implementation: `core/orchestrator/translation_turn.py`, `core/orchestrator/tran
 
 Delivery boundaries:
 
-- Peer UI and overlay destinations have independent bounded queues and writers.
+- Self/manual and Peer UI publications use independently bounded writer lanes owned by `TranslationUiMessageQueue` and `OutputRuntime`, sharing the production capacity-one consumer queue and destination-sequence authority. UI admission does not wait for consumption or gate Self source Presenter application and otherwise eligible translation execution. Peer overlay delivery remains independently bounded.
 - Self chatbox delivery owns its bounded admission and expiry policy.
+- `OutputRuntime.activation_notice_enabled` gates the immediate Talk notice and queued Listen disclosure before destination handoff. Disabled notices produce an `activation_notice_disabled` routing outcome; enabling the preference does not replay them. Ordinary Self output, typing, subtitles, errors, and the initial Peer consent requirement are unchanged. Pipeline construction and recreation initialize this policy from canonical settings; Talk's existing activation eligibility and cooldown remain owned by the Self translation channel.
 - Output handoff releases translation ordering without waiting for display. Sink failure does not replay recognition or translation.
 - Peer publications retain activation generation and `source_order` through output. For turn-bound providers this follows segment order; independent Gemini finals use receipt-ordered admission into the same monotonic publication sequence. Retiring an activation cancels its deliveries and rejects late work.
-- Independent Hybrid peer text without speaker evidence is `uncertain` and uses the existing gray fallback, without a speaker hold or guessed identity. Legacy non-diarized providers keep their existing gold style; first-readable presentation remains pinned.
+- Peer text without speaker runs, including independent Gemini finals, is `non_diarized` and uses the existing gold style without a speaker hold or guessed identity. Explicit uncertain or missing speaker attribution keeps the gray fallback; first-readable presentation remains pinned.
 - Destination admission and presenter application receipts are explicit; neither is a remote display acknowledgement.
+- E2E summaries measure last source speech to the first successful Self chatbox page send or the Peer presenter application receipt. Gemini's frozen approximate origin propagates through the existing latency timeline without waiting for local `SpeechEnd`; its summaries include `estimated=true`. Missing speech observations remain unmeasured. A newer utterance observed before an older native final can underestimate the older result's latency; these estimates are not exact utterance attribution.
+
+Self/manual UI delivery retains 32 waiting events plus one active event. Peer retains eight waiting batches plus an active batch, each with at most 32 outstanding events including its active write. Delivered Peer payloads are released; this is not a limit on lifetime batch emissions or provider segmentation. Each lane owns one writer with a five-second write timeout. Including the queue and active consumer, these boundaries retain at most 323 distinct event payloads. Capacity exhaustion, write failure, retirement, replacement, and shutdown receive explicit destination-local routing dispositions rather than replaying recognition or translation. `accepted_handoff` means admission; `ui_queue_submitted` means local queue submission, not UI application or physical display.
+
+Optional `UIEvent` delivery authority rejects retired, replaced, or duplicate callbacks. A shared sequence prevents delayed older Self/manual/Peer events from replacing newer visible dashboard state while preserving authorized logical history and error handling. Source retirement preserves manual isolation. Queue replacement joins both UI writers without retiring other output destinations. Synchronous UI bridge replacement retires destination authority and cancels both writers; their completion callbacks clear ownership and restart accepted current-destination work even when cancellation occurs before a coroutine starts. Closed owners never restart writers. Context preparation, predecessor ordering, execution slots, and speculative reuse remain translation-owner constraints, independent of UI consumption.
 
 Caption and overlay settings control destinations, not peer capture. Conversation errors share publication identity; runtime session status uses a separate path.
 
@@ -414,7 +432,7 @@ Destination adapters must not bypass routing policy.
 Each destination has independent admission and delivery state. Replacing one
 destination must not block or retire work for the others.
 
-Implementation: `core/runtime/output.py`. Behavior tests: `tests/core/runtime/test_output_runtime.py`.
+Implementation: `core/runtime/output.py`, `core/orchestrator/translation_output_projection.py`, `ui/event_dispatch.py`. Behavior tests: `tests/core/runtime/test_output_runtime.py`, `tests/core/test_translation_ui_delivery.py`, `tests/core/test_self_ui_isolation.py`.
 
 ### Overlays
 
@@ -433,7 +451,11 @@ Linux validation includes a render-only PNG CLI and `native/overlay/tests/linux_
 
 `OverlayPresenter` owns provider-independent Peer subtitle admission and pacing (`core/overlay/presenter.py`); output retains bounded waiting work.
 
-Behavior tests: `tests/core/test_overlay_presenter.py`.
+SELF source-first presentation uses normalized stable contributions when available and authoritative terminal or independent results otherwise. Source remains the primary line; translation updates the same logical caption. Active text is already readable and is not prematurely finalized to obtain rendering protection. Merge/speculation, sticky preview translation, active-row protection, and existing late-result/expiry rules remain independent of native retries.
+
+Changed, visible active SELF captions establish stream-phase freshness through `OverlayPresenter` and `NativeRetryIntentProjection`. Same-target updates advance trigger generation without renewing the stream episode's deadline or completed count. Semantic finalization enters the final phase; a changed final translation retains its distinct final episode. Unchanged content does not trigger freshness. Native alone schedules the existing bounded retries; desktop rendering has no retry cadence. Scene coalescing may display source and translation together without an original-only dwell or render acknowledgement.
+
+Behavior tests: `tests/core/test_overlay_presenter.py`, `tests/core/test_overlay_active_freshness.py`, `tests/core/test_overlay_bridge.py`, and `native/overlay/tests/runtime.rs`. Software application/submission evidence is not physical HMD freshness evidence.
 
 ## Runtime Logging
 
@@ -445,6 +467,7 @@ Behavior tests: `tests/core/test_overlay_presenter.py`.
 
 - `SessionRuntimeLoggingService` owns bounded asynchronous file delivery. Producers must not block on file I/O.
 - Basic-audience records reach the console and Logs view. Selected technical diagnostics are file-only and metadata-only; accepted conversation uses a separate secret-protected path.
+- Capture basic logs report input stalls/resumption and VAD speech boundaries, not periodic frame/speech-presence summaries. Peer VAD diagnostic windows remain available.
 - Queue pressure prioritizes warning, error, and terminal evidence. Logging does not guarantee complete persistence.
 - The writer retains ownership through stream closure; replacement must not race a retiring writer.
 - Persisted records include calendar date and process ID. Recognition terminals correlate channel, utterance, provider epoch/turn, activation generation, watchdog timing, and recovery decisions. Self capture failures identify the actual active-intent transition; peer expiry records sealed wait and TTL.
@@ -453,7 +476,10 @@ Behavior tests: `tests/core/test_overlay_presenter.py`.
 - These summaries go through the existing asynchronous file writer only, not the Logs view, console, control log events, or structured diagnostic fanout. An unavailable or closed logging service drops them without a console fallback. Basic E2E and conversation logging remain unchanged.
 - `request_ms` covers backend execution through completion-authority checks and normalization, not preparation, scheduling, capture, or output delivery. `queue_ms` measures permit acquisition. Attempts identify provider, configured/actual model, transport, outcome, and elapsed time; `winner_attempt` is zero-based. Cancelled hedge summaries can follow their correlated request summary.
 - `network_ms` runs from the latest send to attempt closure, including response processing and connection release. `ttft_ms` records only the first nonempty streamed text; `first_text_to_done_ms` runs from that text to attempt closure. Nonstreaming responses leave these text timings `none`, never substituting headers or full-response time.
+- A cancelled ChatGPT attempt summary ends when its caller is cancelled; the provider-owned background drain is excluded and emits no second attempt summary.
 - Auth, connection-pool wait, actual handshake/reuse, service tier, response usage, and local server timings are recorded only where observable. Usage is provider-reported, not estimated; unavailable/ambiguous counts remain `none`. Source, prompt, and context contribute character counts only. Summaries contain no text, headers, URLs, credentials, or external error prose.
+
+Startup logging and latency imports remain safe for render-only desktop and preview dispatch. The LLM provider and racing contracts keep annotation-only domain-model imports behind `TYPE_CHECKING`; configuring logging must not load domain models, provider adapters, secrets, or STT. The real-process dispatch checks in `tests/app/test_desktop_overlay_runner.py` enforce this boundary.
 
 
 Implementation: `core/runtime_logging.py`, `core/llm/latency.py`, `app/services/application_runtime_logging.py`. Behavior tests: `tests/core/test_runtime_logging.py`, `tests/core/test_file_logging.py`, `tests/core/test_llm_latency.py`.
@@ -464,6 +490,11 @@ Implementation: `core/runtime_logging.py`, `core/llm/latency.py`, `app/services/
 - Features resolve runtime paths through this boundary, not process flags or the working directory.
 - Bootstrap selects shared runtime, UI asset, and framework storage paths before application startup.
 - Packaging does not change feature ownership or application logging policy.
+- Native packaging retains upstream Python DLLs and stages the compiler-matched VC++ runtime app-locally. Release validation checks PE import and delay-import closure without using host-installed non-OS DLLs; source/version/hash evidence lives with the build evidence.
+- Native packaging uses its staged embedded Python to precompile both application and dependency sources as optimization-0, checked-hash bytecode before the final artifact manifest is generated. Startup consumes the packaged caches without writing to the installed directories; source changes still invalidate their caches.
+- The native Windows runner and console executable embed the canonical `data/icons/icon.ico` from the Python application. The runner uses that resource for its initial window/taskbar icon; native builds do not maintain separate icon artwork.
+- Native installers require Inno Setup 7.1.0 or newer to compile and install extended-length dependency bytecode paths; the native release workflow pins 7.1.0.
+- Native installer cleanup runs silently after payload installation. Its final-manifest-bound ownership plan contains only obsolete official 2.7.0 files; same-handle hash verification and deletion preserve changed, inaccessible, or linked candidates and continue independent candidates. Unlisted files and writable user-data roots, including legacy root prompts, remain outside cleanup ownership.
 
 ## Lifecycle
 

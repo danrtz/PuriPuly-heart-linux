@@ -139,6 +139,7 @@ def _prepare_vnext_migration_dict(data: Mapping[str, Any]) -> dict[str, Any]:
             translation,
             migrate_saved_connections=migrate_deepseek_saved_connections,
         )
+        _migrate_retired_deepseek_v4_managed_path(translation)
         _consolidate_cloud_gemma_translation(
             translation, retained_combined_history=retained_combined_history
         )
@@ -374,96 +375,6 @@ def _shared_default_prompt() -> str:
     from puripuly_heart.config.provider_values import LLMProviderName
 
     return load_prompt_for_provider(LLMProviderName.GEMINI.value)
-
-
-def _prompt_matches_legacy_timestamp_default(prompt: str) -> bool:
-    context_line = "* `<context>` is a multilingual history of prior utterances.\n"
-    chronological_line = "* Context entries are ordered chronologically from older to newer.\n"
-    timestamp_line = (
-        "* Treat timestamps and speaker hints as metadata for tracking conversation flow.\n"
-    )
-    input_channel_line = "* For this request, `<input>` is a `[${inputChannel}]` utterance.\n"
-    output_metadata_line = (
-        "* Translate only the text inside `<input>`; `<context>` and channel labels are "
-        "background metadata.\n"
-    )
-    previous_output_lines = (
-        "* Text inside `<input>` is the translation target.\n"
-        "* Text inside `<context>` is background information.\n"
-    )
-    previous_default = LEGACY_TIMESTAMP_PROMPT.replace(
-        context_line,
-        context_line + chronological_line,
-        1,
-    ).replace(timestamp_line, "", 1)
-    p0_default = previous_default.replace(
-        chronological_line,
-        chronological_line + input_channel_line,
-        1,
-    )
-    previous_output_default = _shared_default_prompt().replace(
-        output_metadata_line,
-        previous_output_lines,
-        1,
-    )
-    current_role_line = (
-        "Interpret ${sourceTextRef} to translate into ${targetName} naturally, preserving the "
-        "speaker's social attitude and emotion."
-    )
-    legacy_source_name_role_line = (
-        "Interpret the ${sourceName} text to translate into ${targetName} naturally, preserving "
-        "the speaker's social attitude and emotion."
-    )
-    static_optional_sections = (
-        "### Target language Rules\n"
-        "${targetLanguageRules}\n"
-        "\n"
-        "## Examples\n"
-        "${translationExamples}\n"
-        "\n"
-    )
-    static_sections_default = _shared_default_prompt().replace(
-        "${targetLanguageRulesSection}\n\n${translationExamplesSection}\n\n",
-        static_optional_sections,
-        1,
-    )
-    source_name_role_default = static_sections_default.replace(
-        current_role_line,
-        legacy_source_name_role_line,
-        1,
-    )
-    source_name_role_previous_output_default = source_name_role_default.replace(
-        output_metadata_line,
-        previous_output_lines,
-        1,
-    )
-    static_sections_previous_output_default = static_sections_default.replace(
-        output_metadata_line,
-        previous_output_lines,
-        1,
-    )
-    return prompt in {
-        LEGACY_TIMESTAMP_PROMPT,
-        previous_default,
-        p0_default,
-        previous_output_default,
-        static_sections_default,
-        static_sections_previous_output_default,
-        source_name_role_default,
-        source_name_role_previous_output_default,
-    }
-
-
-def _migrate_force_default_prompt(prompts: dict[str, Any]) -> None:
-    prompts["system_prompt"] = _shared_default_prompt()
-
-
-def _migrate_legacy_timestamp_prompt(prompts: dict[str, Any]) -> None:
-    raw_system_prompt = prompts.get("system_prompt")
-    if isinstance(raw_system_prompt, str) and _prompt_matches_legacy_timestamp_default(
-        raw_system_prompt
-    ):
-        prompts["system_prompt"] = _shared_default_prompt()
 
 
 def _stored_system_prompt(data: Mapping[str, Any]) -> str:
@@ -786,6 +697,40 @@ def _migrate_deepseek_translation(
     deepseek = translation.get("deepseek")
     if isinstance(deepseek, dict) and deepseek.get("llm_model") == "deepseek-v4-flash":
         deepseek["llm_model"] = "deepseek-flash"
+
+
+_RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS = frozenset({"managed", "managed_china"})
+
+
+def _migrate_retired_deepseek_v4_managed_path(translation: dict[str, Any]) -> None:
+    history = translation.get("connection_history")
+    history_map = history if isinstance(history, dict) else None
+    primary_connection = translation.get("connection")
+    retired_primary = (
+        translation.get("model") == "deepseek_v4_flash"
+        and primary_connection in _RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS
+    )
+    retired_history = False
+    if retired_primary:
+        translation["model"] = "deepseek_v4_flash_41"
+        translation["openrouter_model"] = "deepseek/deepseek-v4.1-flash"
+        translation["openrouter_selected_source"] = "managed"
+        translation["openrouter_selection_alias"] = "deepseek_v4_flash_41_managed"
+        translation["openrouter_provider_routing"] = "deepseek_v4_flash_41_strict"
+        if history_map is not None:
+            history_map["deepseek_v4_flash_41"] = primary_connection
+            if history_map.get("deepseek_v4_flash") in _RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS:
+                history_map.pop("deepseek_v4_flash", None)
+    elif history_map is not None:
+        saved_connection = history_map.get("deepseek_v4_flash")
+        if saved_connection in _RETIRED_DEEPSEEK_V4_MANAGED_CONNECTIONS:
+            retired_history = True
+            history_map.pop("deepseek_v4_flash", None)
+            history_map.setdefault("deepseek_v4_flash_41", saved_connection)
+    if translation.get("previous_llm_model") == "deepseek_v4_flash" and (
+        retired_primary or retired_history
+    ):
+        translation["previous_llm_model"] = "deepseek_v4_flash_41"
 
 
 def _migrate_legacy_openrouter_model_translation(translation: dict[str, Any]) -> None:

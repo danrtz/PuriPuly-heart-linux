@@ -22,6 +22,7 @@ from puripuly_heart.core.orchestrator.ports import (
     format_basic_latency_summary,
 )
 from puripuly_heart.core.overlay.diagnostics import OverlayDiagnosticsRecorder
+from puripuly_heart.core.stt.backend import STTRecognitionUnit
 from puripuly_heart.domain.models import ChannelId
 
 _LATENCY_SUMMARY_OUTPUT_STAGES = (
@@ -78,6 +79,7 @@ class LatencyStageDiagnostic:
     target_language: str | None = None
     turn_generation: int | None = None
     turn_order: int | None = None
+    estimated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +199,8 @@ class _LatencyTimeline:
     pending_sources: set[UUID] = field(default_factory=set)
     clear_requested: bool = False
     awaiting_speech_end: bool = False
+    last_speech_estimated: bool = False
+    speech_anchor_complete: bool = False
 
 
 @dataclass(slots=True)
@@ -406,6 +410,31 @@ class TranslationLatencyDiagnosticsOwner:
             return
         recorder.record_stt(event, **fields)
 
+    def record_recognition_latency(self, unit: STTRecognitionUnit) -> None:
+        channel = unit.identity.stream.channel
+        utterance_id = unit.identity.unit_id
+        timeline = self._get_timeline(channel, utterance_id, create=True)
+        assert timeline is not None
+        timeline.speech_anchor_complete = True
+        if unit.estimated_last_speech_at is not None:
+            self.record_latency_stage(
+                LatencyStageDiagnostic(
+                    channel=channel,
+                    utterance_id=utterance_id,
+                    stage="last_speech",
+                    timestamp=unit.estimated_last_speech_at,
+                    publish_now=False,
+                    estimated=True,
+                )
+            )
+        self.record_latency_stage(
+            LatencyStageDiagnostic(
+                channel=channel,
+                utterance_id=utterance_id,
+                stage="stt_final",
+            )
+        )
+
     def record_latency_stage(self, diagnostic: LatencyStageDiagnostic) -> None:
         timeline = self._get_timeline(
             diagnostic.channel,
@@ -428,6 +457,8 @@ class TranslationLatencyDiagnosticsOwner:
         timeline.stage_times[diagnostic.stage] = (
             self.clock.now() if diagnostic.timestamp is None else diagnostic.timestamp
         )
+        if diagnostic.stage == "last_speech":
+            timeline.last_speech_estimated = diagnostic.estimated
         if diagnostic.stage == "speech_end":
             timeline.awaiting_speech_end = False
         if diagnostic.publish_now:
@@ -474,7 +505,11 @@ class TranslationLatencyDiagnosticsOwner:
                 return
             self._inherit_stage_times(output_timeline, source_timeline)
             pending_sources = source_timeline.pending_sources
-            if not pending_sources and "speech_end" not in source_timeline.stage_times:
+            if (
+                not pending_sources
+                and "speech_end" not in source_timeline.stage_times
+                and not source_timeline.speech_anchor_complete
+            ):
                 pending_sources = {source_id}
             for pending_id in pending_sources:
                 if pending_id == output_id:
@@ -487,11 +522,17 @@ class TranslationLatencyDiagnosticsOwner:
 
     @staticmethod
     def _inherit_stage_times(output: _LatencyTimeline, source: _LatencyTimeline) -> None:
+        output.speech_anchor_complete |= source.speech_anchor_complete
         for stage in ("last_speech", "speech_end", "stt_final"):
             source_time = source.stage_times.get(stage)
             if source_time is None:
                 continue
             existing_time = output.stage_times.get(stage)
+            if stage == "last_speech":
+                if existing_time is None or source_time > existing_time:
+                    output.last_speech_estimated = source.last_speech_estimated
+                elif source_time == existing_time:
+                    output.last_speech_estimated |= source.last_speech_estimated
             output.stage_times[stage] = (
                 source_time if existing_time is None else max(existing_time, source_time)
             )
@@ -506,7 +547,7 @@ class TranslationLatencyDiagnosticsOwner:
                 self._discard_latency_timeline(channel, utterance_id)
                 return
             self._inherit_stage_times(timeline, source)
-            if "speech_end" in source.stage_times:
+            if "speech_end" in source.stage_times or source.speech_anchor_complete:
                 timeline.pending_sources.remove(source_id)
                 self._release_latency_source(channel, source_id, utterance_id)
 
@@ -784,6 +825,7 @@ class TranslationLatencyDiagnosticsOwner:
                     channel=channel,
                     endpoint=endpoint,
                     elapsed_ms=elapsed_ms,
+                    estimated=timeline.last_speech_estimated,
                 )
             )
         )

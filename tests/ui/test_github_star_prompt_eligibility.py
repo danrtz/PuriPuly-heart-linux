@@ -83,7 +83,7 @@ def _settings_for_connection(connection: str) -> AppSettingsVNext:
     settings = AppSettingsVNext()
     model = settings.intent.translation.model
     if connection == "managed_china":
-        model = "deepseek_v4_flash"
+        model = "deepseek_v4_flash_41"
     elif connection == "official_byok":
         model = "deepseek_v4_flash_41"
     elif connection == "ollama":

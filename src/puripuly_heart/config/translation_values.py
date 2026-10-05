@@ -35,11 +35,7 @@ TRANSLATION_CONNECTIONS_BY_MODEL: dict[
         TranslationConnection.MANAGED,
         TranslationConnection.OPENROUTER,
     ),
-    TranslationModel.DEEPSEEK_V4_FLASH: (
-        TranslationConnection.MANAGED,
-        TranslationConnection.MANAGED_CHINA,
-        TranslationConnection.OPENROUTER,
-    ),
+    TranslationModel.DEEPSEEK_V4_FLASH: (TranslationConnection.OPENROUTER,),
     TranslationModel.DEEPSEEK_V4_FLASH_41: (
         TranslationConnection.MANAGED,
         TranslationConnection.MANAGED_CHINA,

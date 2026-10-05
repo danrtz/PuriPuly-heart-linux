@@ -726,8 +726,9 @@ class PeerApplicationOwner:
             )
         if diagnostic.capture_kind == "process":
             self._process_warning_reason = self.warning_reason_for_diagnostic(diagnostic)
-            self._activation_starting = False
-            self.presentation_changed()
+        self._activation_starting = False
+        self.sync_effective_flags()
+        self.presentation_changed()
 
     @staticmethod
     def warning_reason_for_diagnostic(diagnostic: PeerCaptureDiagnostic) -> str:

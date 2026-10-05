@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from puripuly_heart.config.overlay_calibration import OverlayCalibration
 from puripuly_heart.core.audio.ownership import AudioSegmentIdentity
 from puripuly_heart.core.clock import FakeClock
 from puripuly_heart.core.messages import UserErrorReport
@@ -18,6 +19,7 @@ from puripuly_heart.core.orchestrator.translation_channel_callbacks import (
 from puripuly_heart.core.orchestrator.translation_request import PreparedTranslationRequest
 from puripuly_heart.core.orchestrator.translation_turn import TranslationOutputSubmission
 from puripuly_heart.core.osc.chatbox_paginator import ChatboxPaginator
+from puripuly_heart.core.overlay.presenter import OverlayPresenter
 from puripuly_heart.core.stt.backend import (
     STTProviderEpochEnded,
     STTProviderInputTerminal,
@@ -29,10 +31,15 @@ from puripuly_heart.core.stt.backend import (
     STTTextContribution,
 )
 from puripuly_heart.core.vad.gating import SpeechEnd
-from puripuly_heart.domain.events import STTFinalEvent, STTSessionState, UIEventType
+from puripuly_heart.domain.events import (
+    STTFinalEvent,
+    STTSessionState,
+    STTSessionStateEvent,
+    UIEventType,
+)
 from puripuly_heart.domain.models import OSCMessage, Transcript
 from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
-from tests.core.test_self_translation_low_latency import FakeLLMProvider
+from tests.core.test_self_translation_low_latency import BlockingLLMProvider, FakeLLMProvider
 from tests.core.test_translation_owner_branch_coverage import (
     _make_runtime_logging_capture,
     _runtime_log_messages,
@@ -78,6 +85,61 @@ def test_self_waiting_output_attaches_admitted_context_texts() -> None:
 
     assert filled.context_texts == ("어제 뭐 했어",)
     assert already.context_texts == ()
+
+
+@pytest.mark.asyncio
+async def test_activation_notice_preference_preserves_self_cooldown_without_replay() -> None:
+    clock = FakeClock()
+    osc = RecordingOscQueue()
+    harness = compose_translation_test_harness(stt=None, llm=None, osc=osc, clock=clock)
+    owner = harness.self_owner
+    ready = STTSessionStateEvent(state=STTSessionState.STREAMING)
+    try:
+        await harness.start()
+        harness.output_runtime.activation_notice_enabled = False
+        owner.mark_promo_eligible()
+        await owner.handle_stt_event(ready)
+
+        assert osc.immediate_messages == []
+        assert owner._last_promo_time is None
+        assert harness.output_runtime.routing_decisions[-1].reason == "activation_notice_disabled"
+
+        harness.output_runtime.activation_notice_enabled = True
+        await owner.handle_stt_event(ready)
+        assert osc.immediate_messages == []
+
+        clock.advance(5.0)
+        owner.mark_promo_eligible()
+        await owner.handle_stt_event(ready)
+        assert osc.immediate_messages == ["PuriPuly ON!"]
+        assert owner._last_promo_time == 5.0
+
+        clock.advance(30.0)
+        harness.output_runtime.activation_notice_enabled = False
+        owner.mark_promo_eligible()
+        await owner.handle_stt_event(ready)
+        harness.output_runtime.activation_notice_enabled = True
+        owner.mark_promo_eligible()
+        await owner.handle_stt_event(ready)
+        assert osc.immediate_messages == ["PuriPuly ON!"]
+        assert owner._last_promo_time == 5.0
+
+        clock.advance(301.0)
+        harness.output_runtime.activation_notice_enabled = False
+        owner.mark_promo_eligible()
+        await owner.handle_stt_event(ready)
+        assert owner._last_promo_time == 5.0
+        assert harness.output_runtime.routing_decisions[-1].reason == "activation_notice_disabled"
+
+        harness.output_runtime.activation_notice_enabled = True
+        await owner.handle_stt_event(ready)
+        assert osc.immediate_messages == ["PuriPuly ON!"]
+        owner.mark_promo_eligible()
+        await owner.handle_stt_event(ready)
+        assert osc.immediate_messages == ["PuriPuly ON!", "PuriPuly ON!"]
+        assert owner._last_promo_time == clock.now()
+    finally:
+        await harness.stop()
 
 
 @pytest.mark.asyncio
@@ -563,6 +625,83 @@ async def test_scoped_request_keeps_suffix_after_early_publication() -> None:
 
     assert successor.parts == ["B"]
     assert identity not in harness.self_owner._scoped_publication_ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["self", "peer"])
+@pytest.mark.parametrize("speech_at", [8.0, None])
+async def test_native_latency_uses_frozen_anchor_without_waiting_for_local_end(
+    channel: Literal["self", "peer"], speech_at: float | None
+) -> None:
+    clock = FakeClock(_now=10.0)
+    logging, log_stream = _make_runtime_logging_capture()
+    sender = FakeSender()
+    paginator = ChatboxPaginator(sender=sender, clock=clock)
+    overlay = OverlayPresenter(calibration=OverlayCalibration(), clock=clock)
+    llm = BlockingLLMProvider(response_text="translated")
+    harness = compose_translation_test_harness(
+        stt=None,
+        llm=llm,
+        osc=paginator,
+        clock=clock,
+        overlay_sink=overlay,
+        runtime_logging=logging,
+        peer_translation_enabled=True,
+        low_latency_mode=True,
+    )
+    paginator.stage_recorder = harness.translation_diagnostics.record_chatbox_stage
+    stream = RecognitionStreamIdentity(channel, 1, 0, "epoch", ("gemini_transcribe",))
+    unit = STTRecognitionUnit(
+        RecognitionUnitIdentity(stream, uuid4(), 1),
+        "source",
+        estimated_last_speech_at=speech_at,
+    )
+    owner = harness.self_owner if channel == "self" else harness.peer_owner
+    try:
+        await harness.start()
+        harness.output_runtime.activate_peer_generation(1)
+        await owner.handle_recognition_unit(unit)
+        await asyncio.wait_for(llm.started.wait(), timeout=1.0)
+        assert not any(
+            "[Basic][Latency]" in message for message in _runtime_log_messages(log_stream)
+        )
+        clock.advance(1.0)
+        llm.release.set()
+        await asyncio.wait_for(harness.translation_turns.wait_for_idle(), timeout=1.0)
+        await asyncio.wait_for(harness.output_runtime.wait_for_peer_output_idle(), timeout=1.0)
+        if channel == "self":
+            assert sender.sent == ["source (translated)"]
+            endpoint = "chatbox_send"
+        else:
+            assert sender.sent == []
+            assert [
+                (block.primary_text, block.secondary_text) for block in overlay.snapshot().blocks
+            ] == [("translated", "source")]
+            endpoint = "overlay_applied"
+        summaries = [
+            dict(field.split("=", 1) for field in message.split()[1:])
+            for message in _runtime_log_messages(log_stream)
+            if message.startswith("[Basic][Latency]")
+        ]
+        expected = (
+            []
+            if speech_at is None
+            else [
+                {
+                    "channel": channel,
+                    "endpoint": endpoint,
+                    f"last_speech_to_{endpoint}_ms": "3000",
+                    "estimated": "true",
+                }
+            ]
+        )
+        assert summaries == expected
+        assert not harness.translation_diagnostics.snapshot().timeline_keys
+    finally:
+        llm.release.set()
+        await harness.stop()
+        await overlay.close()
+        logging.close()
 
 
 @pytest.mark.asyncio

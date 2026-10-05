@@ -456,6 +456,7 @@ class PeerTranslationChannelOwner:
         stream = unit.identity.stream
         if stream.channel != "peer":
             raise ValueError("Peer translation owner received non-Peer recognition unit")
+        self.diagnostics.record_recognition_latency(unit)
         order = self._allocate_publication_order(stream.activation_generation)
         transcript = recognition_transcript(
             unit,

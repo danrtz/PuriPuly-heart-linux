@@ -49,6 +49,7 @@ def format_basic_latency_summary(
     channel: str,
     endpoint: str,
     elapsed_ms: int,
+    estimated: bool = False,
 ) -> str:
     metric_name = f"last_speech_to_{endpoint}_ms"
     parts = [
@@ -56,6 +57,8 @@ def format_basic_latency_summary(
         f"endpoint={endpoint}",
         f"{metric_name}={elapsed_ms}",
     ]
+    if estimated:
+        parts.append("estimated=true")
     return f"[Basic][Latency] {' '.join(parts)}"
 
 

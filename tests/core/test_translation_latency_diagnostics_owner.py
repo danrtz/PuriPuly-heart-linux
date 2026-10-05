@@ -19,7 +19,9 @@ from puripuly_heart.core.orchestrator.translation_diagnostics import (
     TranslationLatencyDiagnosticsOwner,
 )
 from puripuly_heart.core.osc.chatbox_paginator import ChatboxPaginator
-from puripuly_heart.domain.models import OSCMessage
+from puripuly_heart.core.stt.backend import STTRecognitionUnit
+from puripuly_heart.domain.models import ChannelId, OSCMessage
+from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 from tests.helpers.fakes import FakeSender
 
 
@@ -81,6 +83,143 @@ def make_owner(
         runtime_logging=runtime_logging,
         overlay_diagnostics=overlay_diagnostics,
     )
+
+
+@pytest.mark.parametrize(
+    "channel,stage,endpoint",
+    [
+        ("self", "self_chatbox_send", "chatbox_send"),
+        ("peer", "peer_overlay_applied", "overlay_applied"),
+    ],
+)
+@pytest.mark.parametrize(
+    "anchor,expected_ms",
+    [(8.0, 8000), (0.0, 16000), (None, None), (17.0, None)],
+)
+def test_native_recognition_measures_frozen_anchor_at_actual_endpoint(
+    channel: ChannelId,
+    stage: str,
+    endpoint: str,
+    anchor: float | None,
+    expected_ms: int | None,
+) -> None:
+    clock = FakeClock(_now=10.0)
+    logging = RuntimeLogging()
+    owner = make_owner(clock=clock, runtime_logging=logging)
+    stream = RecognitionStreamIdentity(channel, 1, 1, "epoch", ("gemini_transcribe",))
+    unit = STTRecognitionUnit(
+        RecognitionUnitIdentity(stream, uuid4(), 1),
+        "native final",
+        estimated_last_speech_at=anchor,
+    )
+    clock.advance(5.0)
+    owner.record_recognition_latency(unit)
+    owner.retain_latency_until_output(channel, unit.identity.unit_id)
+    owner.clear_latency_timeline(channel, unit.identity.unit_id)
+    clock.advance(1.0)
+    owner.record_output_latency_stage(LatencyStageDiagnostic(channel, unit.identity.unit_id, stage))
+
+    if expected_ms is None:
+        assert logging.basic == []
+    else:
+        assert len(logging.basic) == 1
+        fields = dict(part.split("=", 1) for part in logging.basic[0].split()[1:])
+        assert fields["channel"] == channel
+        assert fields["endpoint"] == endpoint
+        assert fields[f"last_speech_to_{endpoint}_ms"] == str(expected_ms)
+        assert fields["estimated"] == "true"
+    assert owner.snapshot().timeline_keys == frozenset()
+
+
+@pytest.mark.parametrize(
+    "channel,stage,endpoint",
+    [
+        ("self", "self_chatbox_send", "chatbox_send"),
+        ("peer", "peer_overlay_applied", "overlay_applied"),
+    ],
+)
+@pytest.mark.parametrize("anchor", [8.0, None])
+def test_native_recognition_fanout_finishes_without_local_speech_end(
+    channel: ChannelId,
+    stage: str,
+    endpoint: str,
+    anchor: float | None,
+) -> None:
+    logging = RuntimeLogging()
+    owner = make_owner(runtime_logging=logging)
+    stream = RecognitionStreamIdentity(channel, 1, 1, "epoch", ("gemini_transcribe",))
+    unit = STTRecognitionUnit(
+        RecognitionUnitIdentity(stream, uuid4(), 1),
+        "native final",
+        estimated_last_speech_at=anchor,
+    )
+    source_id = unit.identity.unit_id
+    publication_id, first_id, second_id = (uuid4() for _ in range(3))
+    owner.record_recognition_latency(unit)
+    owner.inherit_latency(LatencyInheritanceDiagnostic(channel, publication_id, (source_id,)))
+    for output_id in (first_id, second_id):
+        owner.inherit_latency(LatencyInheritanceDiagnostic(channel, output_id, (publication_id,)))
+        owner.retain_latency_until_output(channel, output_id)
+        owner.clear_latency_timeline(channel, output_id)
+    owner.clear_latency_timeline(channel, publication_id)
+    owner.clear_latency_timeline(channel, source_id)
+    assert owner.snapshot().timeline_keys == frozenset({(channel, first_id), (channel, second_id)})
+    owner.record_output_latency_stage(
+        LatencyStageDiagnostic(channel, first_id, stage, timestamp=11.0)
+    )
+    assert owner.snapshot().timeline_keys == frozenset({(channel, second_id)})
+    owner.record_output_latency_stage(
+        LatencyStageDiagnostic(channel, second_id, stage, timestamp=13.0)
+    )
+
+    if anchor is None:
+        assert logging.basic == []
+    else:
+        fields = [
+            dict(part.split("=", 1) for part in message.split()[1:]) for message in logging.basic
+        ]
+        assert [int(row[f"last_speech_to_{endpoint}_ms"]) for row in fields] == [3000, 5000]
+        assert all(row["estimated"] == "true" for row in fields)
+    assert owner.snapshot().timeline_keys == frozenset()
+
+
+@pytest.mark.parametrize(
+    "estimated_anchor,expected_ms,estimated",
+    [(8.0, 1000, False), (9.0, 1000, True), (9.5, 500, True)],
+)
+def test_merged_anchor_preserves_estimate_metadata_for_latest_speech(
+    estimated_anchor: float, expected_ms: int, estimated: bool
+) -> None:
+    logging = RuntimeLogging()
+    owner = make_owner(runtime_logging=logging)
+    stream = RecognitionStreamIdentity("self", 1, 1, "epoch", ("gemini_transcribe",))
+    unit = STTRecognitionUnit(
+        RecognitionUnitIdentity(stream, uuid4(), 1),
+        "native final",
+        estimated_last_speech_at=estimated_anchor,
+    )
+    owner.record_recognition_latency(unit)
+    exact_id, output_id = uuid4(), uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", exact_id, "last_speech", timestamp=9.0)
+    )
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", exact_id, "speech_end", timestamp=9.4)
+    )
+    owner.inherit_latency(
+        LatencyInheritanceDiagnostic("self", output_id, (unit.identity.unit_id, exact_id))
+    )
+    owner.clear_latency_timeline("self", unit.identity.unit_id)
+    owner.clear_latency_timeline("self", exact_id)
+    owner.record_output_latency_stage(
+        LatencyStageDiagnostic("self", output_id, "self_chatbox_send", timestamp=10.0)
+    )
+
+    assert len(logging.basic) == 1
+    fields = dict(part.split("=", 1) for part in logging.basic[0].split()[1:])
+    assert int(fields["last_speech_to_chatbox_send_ms"]) == expected_ms
+    assert ("estimated" in fields) is estimated
+    assert owner.snapshot().timeline_keys == frozenset()
 
 
 def test_owner_summarizes_actual_delayed_chatbox_send_from_last_speech() -> None:
@@ -253,6 +392,7 @@ def test_late_source_end_reaches_committed_outputs_after_source_cleanup() -> Non
     assert len(logging.basic) == 2
     assert "last_speech_to_chatbox_send_ms=3500" in logging.basic[0]
     assert "last_speech_to_chatbox_send_ms=5500" in logging.basic[1]
+    assert all("estimated=" not in message for message in logging.basic)
     assert owner.snapshot().timeline_keys == frozenset()
 
 

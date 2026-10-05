@@ -31,7 +31,7 @@
   #error MyAppDataDirName must be one safe LocalApplicationData child directory name without traversal, roots, or separators.
 #endif
 #define MyAppDataRoot "{localappdata}\" + MyAppDataDirName
-#define MyAppVersion "2.7.0"
+#define MyAppVersion "2.8.0"
 #define MyAppPublisher "salee"
 #define MyAppURL "https://github.com/kapitalismho/PuriPuly-heart"
 #ifndef MyAppExeName
@@ -47,8 +47,17 @@
   #define MyStagedOverlayDir "build\overlay"
 #endif
 #ifdef NativeExperimental
+  #if VER < EncodeVer(7, 1, 0)
+    #error Native packaging requires Inno Setup 7.1.0 or newer for extended-length bytecode paths.
+  #endif
   #define PackagedApplicationRoot "app\"
   #define PackagedSoxrRoot "site-packages\soxr"
+  #ifndef NativeCleanupInclude
+    #define NativeCleanupInclude MyPackagedAppDir + "\..\native-installer-cleanup.iss"
+  #endif
+  #if !FileExists(NativeCleanupInclude)
+    #error NativeExperimental requires the generated native cleanup include. Generate it from the official legacy ownership manifest and final native artifact manifest.
+  #endif
 #else
   #define PackagedApplicationRoot ""
   #define PackagedSoxrRoot "soxr"
@@ -59,7 +68,7 @@
 #define ParakeetJapaneseManifestRelativePath PackagedApplicationRoot + "puripuly_heart\data\models\parakeet-tdt-ctc-0.6b-ja-int8-sherpa.manifest.json"
 
 #define InstallerPrivacyDir "installer\privacy"
-#define CanonicalSettingsVersion 50
+#define CanonicalSettingsVersion 51
 #ifdef InstallerSmokeAppDataRoot
   #if (Len(InstallerSmokeAppDataRoot) < 3) || (Copy(InstallerSmokeAppDataRoot, 2, 2) != ":/")
     #error InstallerSmokeAppDataRoot must be an absolute drive path using forward slashes
@@ -199,6 +208,9 @@ Source: "{#InstallerPrivacyDir}\ko.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\ja.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\zh-CN.txt"; Flags: dontcopy noencryption
 Source: "{#InstallerPrivacyDir}\zh-TW.txt"; Flags: dontcopy noencryption
+#ifdef NativeExperimental
+Source: "installer\native-cleanup.ps1"; Flags: dontcopy noencryption
+#endif
 Source: "{#MyPackagedAppDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyPackagedAppDir}\{#MyCliExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyStagedOverlayDir}\{#MyOverlayExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -220,10 +232,12 @@ Name: "{autodesktop}\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; Task
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 #endif
 
+#ifndef NativeExperimental
 [InstallDelete]
 ; Remove stale legacy soxr runtime names before laying down the current packaged tree.
 Type: files; Name: "{app}\soxr.dll"
 Type: files; Name: "{app}\{#PackagedSoxrRoot}\libsoxr.dll"
+#endif
 
 [UninstallDelete]
 ; Clean up user config on uninstall (optional)
@@ -257,6 +271,10 @@ const
   ParakeetV3DownloadSize = 670478772;
   ParakeetJapaneseDownloadSize = 655571161;
   LocalSttDiskSpaceMargin = 67108864;
+
+#ifdef NativeExperimental
+#include "installer\native-cleanup.iss"
+#endif
 
 function DirectoryLooksLikeRepositoryCheckout(Path: String): Boolean;
 var
@@ -1333,6 +1351,9 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then begin
     PersistTelemetryPreference();
+#ifdef NativeExperimental
+    CompleteNativeLegacyCleanup();
+#endif
   end;
 end;
 

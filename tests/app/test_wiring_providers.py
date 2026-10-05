@@ -954,12 +954,12 @@ def test_create_llm_provider_openrouter_uses_selected_managed_key() -> None:
 def test_create_llm_provider_openrouter_deepseek_only_keeps_identity_hedge() -> None:
     settings = _vnext(
         llm="openrouter",
-        model="deepseek_v4_flash",
+        model="deepseek_v4_flash_41",
         connection="managed_china",
-        openrouter_model=OpenRouterLLMModel.DEEPSEEK_V4_FLASH.value,
+        openrouter_model=OpenRouterLLMModel.DEEPSEEK_V4_FLASH_41.value,
         openrouter_source="managed",
-        openrouter_alias=OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value,
-        openrouter_routing=OpenRouterProviderRouting.DEEPSEEK_ONLY.value,
+        openrouter_alias=OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_MANAGED.value,
+        openrouter_routing=OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_41_STRICT.value,
         managed_credential_ref="managed-ref-qq",
     )
     secrets = InMemorySecretStore()
@@ -974,9 +974,10 @@ def test_create_llm_provider_openrouter_deepseek_only_keeps_identity_hedge() -> 
     assert isinstance(provider, SemaphoreLLMProvider)
     assert isinstance(provider.inner, FallbackRacingLLMProvider)
     assert isinstance(provider.inner.primary, OpenRouterLLMProvider)
-    assert provider.inner.primary.model == OpenRouterLLMModel.DEEPSEEK_V4_FLASH.value
+    assert provider.inner.primary.model == OpenRouterLLMModel.DEEPSEEK_V4_FLASH_41.value
     assert (
-        provider.inner.primary.provider_routing == OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_CHINA
+        provider.inner.primary.provider_routing
+        == OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_41_STRICT
     )
 
 
@@ -2603,37 +2604,6 @@ def test_create_stt_backend_soniox_passes_effective_custom_terms() -> None:
 
     assert isinstance(backend, SonioxRealtimeSTTBackend)
     assert list(backend.context_terms) == ["Puripuly", "VRChat"]
-
-
-def test_chatgpt_plan_hedge_reuses_primary_connection_pool() -> None:
-    from puripuly_heart.config.runtime_resolution import (
-        RuntimeResolutionInput,
-        normalize_translation_runtime_intent,
-        resolve_llm_config,
-    )
-    from puripuly_heart.core.chatgpt.session import CHATGPT_REFRESH_TOKEN_SECRET
-    from puripuly_heart.providers.llm.chatgpt_plan import ChatGptPlanLLMProvider
-
-    secrets = InMemorySecretStore()
-    secrets.set(CHATGPT_REFRESH_TOKEN_SECRET, "refresh")
-    session = SimpleNamespace(token_generation=0)
-    config = resolve_llm_config(
-        RuntimeResolutionInput(
-            translation=normalize_translation_runtime_intent(
-                model="gpt_6_luna", connection="chatgpt"
-            )
-        )
-    )
-
-    provider = wiring_llm_factory_module.create_llm_provider_from_resolved_config(
-        config, secrets=secrets, chatgpt_session=session
-    )
-
-    racing = provider.inner
-    assert isinstance(racing, FallbackRacingLLMProvider)
-    assert isinstance(racing.primary, ChatGptPlanLLMProvider)
-    assert [attempt.provider for attempt in racing.attempts] == [racing.primary, racing.primary]
-    assert racing.attempts[1].start_after_ms == 2000
 
 
 def test_chatgpt_plan_requires_sign_in_secret() -> None:

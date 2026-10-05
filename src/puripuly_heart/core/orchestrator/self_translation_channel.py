@@ -169,6 +169,7 @@ class SelfTranslationChannelOwner:
     async def reset_provider_channel(self, channel: str = "self") -> None:
         if channel != "self":
             raise ValueError("Self translation owner cannot reset a non-Self channel")
+        self.output_projection.retire_self_ui_speech()
         merge_buffer = self.runtime.merge_buffer
         speculative_attempt = merge_buffer.speculative_attempt if merge_buffer is not None else None
         secondary_task = (
@@ -359,10 +360,7 @@ class SelfTranslationChannelOwner:
         if unit.identity.stream.channel != "self":
             raise ValueError("Self translation owner received non-Self recognition unit")
         transcript = recognition_transcript(unit, created_at=self.clock.now())
-        self._record_latency_stage(
-            utterance_id=transcript.utterance_id,
-            stage="stt_final",
-        )
+        self.diagnostics.record_recognition_latency(unit)
         await self._handle_transcript(transcript, is_final=True, source="Mic")
         await self._ensure_translation(
             transcript,

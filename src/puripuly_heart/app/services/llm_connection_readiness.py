@@ -46,15 +46,23 @@ class LlmConnectionReadinessOwner:
     translation_enabled: Callable[[], bool]
     _task: asyncio.Task[bool] | None = field(init=False, default=None, repr=False)
     _task_action: str | None = field(init=False, default=None, repr=False)
+    _task_provider: object | None = field(init=False, default=None, repr=False)
 
     def sync(self) -> None:
         action = "prepare" if self.translation_enabled() else "release"
+        provider = self.llm_provider()
         task = self._task
-        if task is not None and not task.done() and self._task_action == action:
+        if (
+            task is not None
+            and not task.done()
+            and self._task_action == action
+            and self._task_provider is provider
+        ):
             return
         self._task_action = action
+        self._task_provider = provider
         self._task = asyncio.get_running_loop().create_task(
-            self._run(action, task), name=f"llm-connection-{action}"
+            self._run(action, provider, task), name=f"llm-connection-{action}"
         )
 
     async def close(self) -> None:
@@ -65,14 +73,16 @@ class LlmConnectionReadinessOwner:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
 
-    async def _run(self, action: str, previous: asyncio.Task[bool] | None) -> bool:
+    async def _run(
+        self, action: str, provider: object | None, previous: asyncio.Task[bool] | None
+    ) -> bool:
         if previous is not None:
             with contextlib.suppress(Exception):
                 await previous
         try:
             if action == "prepare":
-                return await prepare_llm_connections(self.llm_provider())
-            return await release_llm_connections(self.llm_provider())
+                return await prepare_llm_connections(provider)
+            return await release_llm_connections(provider)
         except Exception:
             return False
 

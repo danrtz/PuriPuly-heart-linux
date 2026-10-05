@@ -175,11 +175,11 @@ def test_deepseek_managed_keeps_single_prompt(monkeypatch) -> None:
     assert view._prompt_editor.value == "GEMINI CUSTOM"
     assert pending is not None
     assert _translation(pending).model == TranslationModel.DEEPSEEK_V4_FLASH.value
-    assert _translation(pending).connection == TranslationConnection.MANAGED.value
+    assert _translation(pending).connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
         _translation(pending).openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value
     )
     assert _prompt(pending) == "GEMINI CUSTOM"
 
@@ -349,7 +349,10 @@ def test_settings_view_llm_modal_lists_logical_translation_models_once(
     assert TranslationModel.MANAGED_GEMMA.value not in values
 
     managed = {option.value: option for option in options}
-    assert managed[TranslationModel.GPT_6_LUNA.value].description == ""
+    assert managed[TranslationModel.GPT_6_LUNA.value].description == t(
+        "settings.translation_model.gpt_6_luna.description"
+    )
+    assert managed[TranslationModel.GPT_6_LUNA.value].description
     deepseek_v4_flash = managed[TranslationModel.DEEPSEEK_V4_FLASH.value]
     assert deepseek_v4_flash.section == t("settings.translation_model.section.others")
     assert deepseek_v4_flash.description == ""
@@ -433,16 +436,47 @@ def test_combined_gemma_connection_modal_lists_managed_and_openrouter(monkeypatc
     assert all(option.description == "" for option in captured["options"])
 
 
+def test_luna_connection_modal_describes_chatgpt_connection(monkeypatch) -> None:
+    settings = _settings(
+        model=TranslationModel.GPT_6_LUNA.value,
+        connection=TranslationConnection.CHATGPT.value,
+        history={TranslationModel.GPT_6_LUNA.value: TranslationConnection.CHATGPT.value},
+    )
+    view = _make_settings_view(monkeypatch)
+    view.load_from_settings(settings, config_path=Path("settings.json"))
+    attach_dummy_page(monkeypatch, view)
+    captured: dict[str, object] = {}
+
+    class DummyModal:
+        def __init__(self, _page, _title, options, _on_select, **_kwargs):
+            captured["options"] = options
+            captured["show_description"] = _kwargs.get("show_description")
+
+        def open(self, current: str) -> None:
+            captured["current"] = current
+
+    monkeypatch.setattr(settings_view, "SettingsModal", DummyModal)
+
+    view._on_translation_connection_click(None)
+
+    descriptions = {option.value: option.description for option in captured["options"]}
+    assert captured["show_description"] is True
+    assert descriptions == {
+        TranslationConnection.CHATGPT.value: t(
+            "settings.translation_connection.chatgpt.description"
+        ),
+        TranslationConnection.OPENROUTER.value: "",
+        TranslationConnection.OFFICIAL_BYOK.value: "",
+    }
+    assert descriptions[TranslationConnection.CHATGPT.value]
+
+
 @pytest.mark.parametrize(
     ("model", "expected_connections"),
     [
         (
             TranslationModel.DEEPSEEK_V4_FLASH,
-            [
-                TranslationConnection.MANAGED,
-                TranslationConnection.MANAGED_CHINA,
-                TranslationConnection.OPENROUTER,
-            ],
+            [TranslationConnection.OPENROUTER],
         ),
         (
             TranslationModel.DEEPSEEK_V4_FLASH_41,
@@ -460,10 +494,15 @@ def test_deepseek_connection_modal_exposes_version_specific_choices(
     model: TranslationModel,
     expected_connections: list[TranslationConnection],
 ) -> None:
+    connection = (
+        TranslationConnection.OPENROUTER
+        if model == TranslationModel.DEEPSEEK_V4_FLASH
+        else TranslationConnection.MANAGED
+    )
     settings = _settings(
         model=model.value,
-        connection=TranslationConnection.MANAGED.value,
-        history={model.value: TranslationConnection.MANAGED.value},
+        connection=connection.value,
+        history={model.value: connection.value},
     )
     view = _make_settings_view(monkeypatch)
     view.load_from_settings(settings, config_path=Path("settings.json"))
@@ -483,7 +522,7 @@ def test_deepseek_connection_modal_exposes_version_specific_choices(
     assert [option.value for option in captured["options"]] == [
         connection.value for connection in expected_connections
     ]
-    assert captured["current"] == TranslationConnection.MANAGED.value
+    assert captured["current"] == connection.value
 
 
 def test_settings_view_keeps_gemini_model_without_provider_switch(monkeypatch) -> None:

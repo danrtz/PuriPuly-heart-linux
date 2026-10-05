@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
   <img src="https://img.shields.io/badge/python-3.12-yellow" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform" />
@@ -87,7 +87,9 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 ---
 
 ## 翻译比较
-![韩语→英语/日语/中文（简体）翻译的每句平均错误惩罚图表。216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的模型：第 1 名 Gemma 4 31B (0.353)，第 2 名 Gemma 4 26B A4B (0.387)，第 3 名 DeepSeek-V4 Flash 0731 (0.571)，第 4 名 Gemma 4 12B QAT Q4 (0.855)，第 5 名 Gemma 4 E4B QAT Q4 (1.577)。橙色柱状图是外部基线：Hy-MT-7B (1.863)、Papago (2.699)、Gemini 3.5 Live Translate (2.991)、MiLMMT 46-4B (3.087)、DeepL (3.914)、Google Cloud Translation Basic (5.731)。](docs/images/performance/2.png)
+![语音识别与翻译完整流程的每句平均错误惩罚图表。韩语→英语/日语/中文（简体），216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的组合：Gemini Transcribe → Luna (0.676)、Soniox STT → Luna (0.942)、Qwen ASR 1.7B → Gemma 26B (1.024)、Gemini Transcribe → Gemma 26B (1.084)、Soniox STT → Gemma 26B (1.293)、Qwen ASR 0.6B → Gemma 26B (2.374)。橙色柱状图是外部基线：Qwen 3.8 Live Translate (2.108)、Gemini 3.5 Live Translate (3.754)、Soniox Translate (4.989)。评估模型：Gemini 3.7 Flash。](docs/images/performance/1.png)
+
+![每句平均错误惩罚图表。韩语→英语/日语/中文（简体），216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的模型：GPT 6 Luna (0.130)、Gemma 4 26B A4B (0.387)、DeepSeek-V4 Flash 0731 (0.571)、Gemma 4 E4B QAT Q4 (1.577)。橙色柱状图是外部基线：Qwen 3.8 Live Translate (1.392)、Papago (2.699)、Gemini 3.5 Translate (2.991)、Soniox Translate (3.473)、DeepL (3.914)、Google Translation (5.731)。Qwen 3.8、Gemini 3.5 和 Soniox 仅选取字符错误率（CER）不超过 5% 的结果。评估模型：Gemini 3.7 Flash。](docs/images/performance/2.png)
 
 - 蓝色柱状图是PuriPuly中可用的模型。
 - 我们使用微软的 Gemba MQM 框架进行实验。
@@ -104,13 +106,14 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 |---|---|---|---|---|
 | **Gemma 4 E4B (本地)** | 无限制 | 无限制 | 5,000 次 | 7,260 次 |
 | **Gemma 4 26B A4B + 31B** | 13,940 次 | 13,940 次 | 3,680 次 | 4,770 次 |
-| **DeepSeek V4 Flash (OpenRouter)** | 17,020 次 | 17,020 次 | 3,860 次 | 5,090 次 |
 | **DeepSeek V4.1 Flash** | 16,800 次 | 16,800 次 | 3,860 次 | 5,070 次 |
+| **GPT 6 Luna** | 8,680 次 | 8,680 次 | 3,170 次 | 3,950 次 |
 
 #### 其他模型
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **DeepSeek V4 Flash (OpenRouter)** | 17,020 次 | 17,020 次 | 3,860 次 | 5,090 次 |
 | **Gemini 3.8 Flash** | 1,160 次 | 1,160 次 | 940 次 | 1,000 次 |
 | **Qwen 3.8 Flash** | 7,460 次 | 7,460 次 | 2,990 次 | 3,680 次 |
 
@@ -122,13 +125,14 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 |---|---|---|---|---|
 | **Gemma 4 E4B (本地)** | 0 元 | 0 元 | ~0.001 元 | ~0.001 元 |
 | **Gemma 4 26B A4B + 31B** | ~0.0005 元 | ~0.0005 元 | ~0.002 元 | ~0.0015 元 |
-| **DeepSeek V4 Flash (OpenRouter)** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
 | **DeepSeek V4.1 Flash** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
+| **GPT 6 Luna** | ~0.0008 元 | ~0.0008 元 | ~0.002 元 | ~0.0018 元 |
 
 #### 其他模型
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **DeepSeek V4 Flash (OpenRouter)** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
 | **Gemini 3.8 Flash** | ~0.006 元 | ~0.006 元 | ~0.008 元 | ~0.007 元 |
 | **Qwen 3.8 Flash** | ~0.001 元 | ~0.001 元 | ~0.002 元 | ~0.002 元 |
 
@@ -136,6 +140,7 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 *   *每 1 美元可用次数以「每次发言成本」表中四舍五入前的计算值为准*
 *   *所有费用与可用次数均为近似计算*
 *   *DeepSeek V4.1 Flash 假设缓存命中率为 70%，V4 Flash（OpenRouter）为 60%*
+*   *GPT 6 Luna 按 OpenAI API 价格计算，假设无缓存折扣；通过 ChatGPT 连接时不产生 API 费用，而是使用 Codex 额度*
 *   *Qwen API 计费以北京区域为准*
 *   *资费标准截至：2026 年 9 月 25 日*
 *   *1 美元 ≈ 7.2 元人民币*
@@ -399,8 +404,6 @@ PuriPuly 与云端 STT 结合时能提供最佳体验。
 
 ## 架构
 
-![PuriPuly Heart 六边形架构图](docs/architecture-light.png)
-
 参见 [`docs/architecture.md`](docs/architecture.md)。
 
 ## 路线图
@@ -411,117 +414,37 @@ PuriPuly 与云端 STT 结合时能提供最佳体验。
 
 ## 开发
 
-### 环境
+需要 Windows x64、启用常规 GIL 的 CPython 3.14 和 [uv](https://docs.astral.sh/uv/)。请在仓库根目录运行以下命令。
 
-| 领域 | 推荐环境 | 文档 |
-|---|---|---|
-| Python 桌面应用 | Windows | 本节 |
-| Broker 服务 | Linux | [`broker/README.md`](broker/README.md) |
-| 原生 VR 浮层 | Windows | [`native/overlay/README.md`](native/overlay/README.md) |
-
-### Python 环境
-
-Python 应用需要 Python 3.12 或 3.13。
-
-创建并激活 Windows 环境：
+### 安装
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+uv sync --frozen --extra dev
 ```
 
-安装应用和开发依赖：
-
-```powershell
-python -m pip install --upgrade pip
-pip install -e ".[dev]"
-```
-
-也可以使用 `uv`：
-
-```powershell
-uv sync --dev
-```
-
-安装仓库钩子：
-
-```powershell
-pre-commit install
-```
-
-在 Linux 或 WSL 中工作时，请使用 `.venv-wsl`（如果可用）。
-
-```bash
-UV_PROJECT_ENVIRONMENT=.venv-wsl uv sync --dev
-```
-
-配置了 `direnv` 的仓库可通过以下命令运行：
-
-```bash
-direnv exec . <command>
-```
-
-### 运行应用
-
-运行 Flet 桌面应用：
-
-```powershell
-python -m puripuly_heart.main run-gui
-```
-
-等效的 `uv` 命令：
+### GUI
 
 ```powershell
 uv run python -m puripuly_heart.main run-gui
 ```
 
-隐藏 UI 状态的开发者预览控件通过以下命令启用：
+### CLI
+
+CLI 可以在无 GUI 模式下启动应用，也可以控制已运行的应用。详细命令请参阅 [CLI 指南](docs/cli.md)。
 
 ```powershell
-python -m puripuly_heart.main run-gui --debug-ui-preview
+uv run python -m puripuly_heart.main cli --help
 ```
 
-### Python 验证
-
-格式化 Python 源码和测试：
+### 验证
 
 ```powershell
-black src tests
+uv run black --check src tests
+uv run ruff check src tests
+uv run python -m pytest
 ```
 
-仅检查格式而不修改文件：
-
-```powershell
-black --check src tests
-```
-
-运行代码检查：
-
-```powershell
-ruff check src tests
-```
-
-运行完整的 Python 测试套件：
-
-```powershell
-python -m pytest
-```
-
-开发时运行指定的测试文件或目录：
-
-```powershell
-python -m pytest tests/path/to/test_file.py
-```
-
-### 其他领域
-
-Broker 文档维护于 [`broker/README.md`](broker/README.md)。
-
-原生 VR 浮层文档维护于 [`native/overlay/README.md`](native/overlay/README.md)。
-
-自定义 HTTP API 扩展文档维护于 [`docs/http-extensions.md`](docs/http-extensions.md)。连接所需的 JSON Schema 请参阅 [`docs/http-extension.schema.json`](docs/http-extension.schema.json)。
-
-VRChat OSC 控制请参阅 [`docs/vrchat-osc.md`](docs/vrchat-osc.md)。
+[Broker 开发（Linux）](broker/README.md) · [VR 浮层开发（Windows）](native/overlay/README.md)
 
 ---
 

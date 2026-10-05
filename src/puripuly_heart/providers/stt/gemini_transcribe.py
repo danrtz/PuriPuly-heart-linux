@@ -138,33 +138,111 @@ def gemini_transcribe_language_codes(source_language: str | None) -> list[str]:
     return [mapped] if mapped else []
 
 
-def _recv_failure_fields(exc: BaseException) -> tuple[str, object, object, str]:
-    exception_class = type(exc).__name__
-    api_code = getattr(exc, "code", None)
-    api_status = getattr(exc, "status", None)
-    return exception_class, api_code, api_status, _recv_message_kind(exc, api_code, api_status)
+_SAFE_EXCEPTION_CLASSES = frozenset(
+    {
+        "APIError",
+        "ClientError",
+        "ServerError",
+        "GoAway",
+        "GoAwayError",
+        "BrokenPipeError",
+        "ConnectionError",
+        "ConnectionResetError",
+        "ConnectionAbortedError",
+        "ConnectionClosed",
+        "ConnectionClosedError",
+        "ConnectionClosedOK",
+        "InvalidStatus",
+        "InvalidStatusCode",
+        "OSError",
+        "RuntimeError",
+        "TimeoutError",
+        "TypeError",
+        "ValueError",
+        "ValidationError",
+    }
+)
+_SAFE_API_STATUSES = frozenset(
+    {
+        "OK",
+        "CANCELLED",
+        "UNKNOWN",
+        "INVALID_ARGUMENT",
+        "DEADLINE_EXCEEDED",
+        "NOT_FOUND",
+        "ALREADY_EXISTS",
+        "PERMISSION_DENIED",
+        "RESOURCE_EXHAUSTED",
+        "FAILED_PRECONDITION",
+        "ABORTED",
+        "OUT_OF_RANGE",
+        "UNIMPLEMENTED",
+        "INTERNAL",
+        "UNAVAILABLE",
+        "DATA_LOSS",
+        "UNAUTHENTICATED",
+        "GO_AWAY",
+    }
+)
+_SAFE_RETIREMENT_REASONS = frozenset(
+    {
+        "gemini_write_failed",
+        "gemini_receive_failed",
+        "gemini_go_away",
+        "gemini_connection_ended",
+        "gemini_recognition_buffer_overflow",
+        "gemini_write_cancelled",
+    }
+)
 
 
-def _recv_message_kind(exc: BaseException, api_code: object, api_status: object) -> str:
-    class_name = type(exc).__name__.lower().replace("_", "")
-    status_text = str(api_status or "").lower()
-    if "goaway" in class_name or "go_away" in status_text:
-        return "go_away"
-    if (
-        "connection" in class_name
-        or "closed" in class_name
-        or "websocket" in class_name
-        or "unavailable" in status_text
+def _transport_failure_fields(exc: BaseException | None) -> tuple[str, int | str, str, str]:
+    if exc is None:
+        return "none", "none", "none", "none"
+    name = type(exc).__name__
+    exception_class = name if name in _SAFE_EXCEPTION_CLASSES else "unclassified"
+    code = getattr(exc, "code", None)
+    if code is None:
+        code = getattr(getattr(exc, "rcvd", None), "code", None)
+    if code is None:
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+    api_code = code if type(code) is int and 0 <= code <= 4999 else "none"
+    status = getattr(exc, "status", None)
+    api_status = (
+        status
+        if type(status) is str and status in _SAFE_API_STATUSES
+        else ("none" if status is None else "unclassified")
+    )
+    if exception_class in {"GoAway", "GoAwayError"} or api_status == "GO_AWAY":
+        message_kind = "go_away"
+    elif (
+        isinstance(exc, ConnectionError)
+        or exception_class in {"ConnectionClosed", "ConnectionClosedError", "ConnectionClosedOK"}
+        or api_status == "UNAVAILABLE"
     ):
-        return "connection_closed"
-    if (
+        message_kind = "connection_closed"
+    elif isinstance(exc, TimeoutError) or api_status == "DEADLINE_EXCEEDED":
+        message_kind = "timeout"
+    elif (
         api_code in {400, 422}
-        or "invalid" in status_text
-        or "validation" in class_name
-        or "invalidargument" in class_name
+        or api_status == "INVALID_ARGUMENT"
+        or exception_class == "ValidationError"
     ):
-        return "validation"
-    return "other"
+        message_kind = "validation"
+    else:
+        message_kind = "other"
+    return exception_class, api_code, api_status, message_kind
+
+
+def _safe_epoch(value: str | None) -> str:
+    if (
+        value
+        and len(value) <= 64
+        and value.isascii()
+        and all(character.isalnum() or character in "._-" for character in value)
+    ):
+        return value
+    return "none"
 
 
 @dataclass(slots=True)
@@ -488,9 +566,9 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
             raise
         except Exception as exc:
             self._resolve_write(getattr(item, "completion", None), exc)
-            logger.exception("Gemini Transcribe Live send loop error")
+            self._log_transport_diagnostic("transport_failure", "send", exception=exc)
             self._put_event(exc)
-            self._scoped_transport_failure("gemini_write_failed")
+            self._scoped_transport_failure("gemini_write_failed", exception=exc)
         finally:
             self._fail_pending_writes()
 
@@ -507,17 +585,9 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            exception_class, api_code, api_status, message_kind = _recv_failure_fields(exc)
-            logger.exception(
-                "Gemini Transcribe Live recv loop error exception_class=%s "
-                "api_code=%s api_status=%s message_kind=%s",
-                exception_class,
-                api_code,
-                api_status,
-                message_kind,
-            )
+            self._log_transport_diagnostic("transport_failure", "receive", exception=exc)
             self._put_event(exc)
-            self._scoped_transport_failure("gemini_receive_failed")
+            self._scoped_transport_failure("gemini_receive_failed", exception=exc)
         finally:
             self._put_event(None)
             if not self._stopped:
@@ -630,10 +700,50 @@ class _GeminiTranscribeLiveSession(STTBackendSession):
                 return
             self._resolve_write(getattr(item, "completion", None), error)
 
-    def _scoped_transport_failure(self, reason: str, *, orderly: bool = False) -> None:
+    def _log_transport_diagnostic(
+        self,
+        event: str,
+        operation: str,
+        *,
+        reason: str = "none",
+        exception: BaseException | None = None,
+    ) -> None:
+        channel = (
+            self._stream.channel
+            if self._stream is not None
+            else (self._scoped_request.channel if self._scoped_request is not None else "none")
+        )
+        exception_class, api_code, api_status, message_kind = _transport_failure_fields(exception)
+        logger.log(
+            logging.ERROR if exception is not None else logging.INFO,
+            "[GeminiTranscribe] %s provider=gemini_transcribe channel=%s epoch=%s "
+            "operation=%s reason=%s exception_class=%s api_code=%s api_status=%s "
+            "message_kind=%s go_away=%s",
+            event,
+            channel if channel in {"self", "peer"} else "none",
+            _safe_epoch(self._event_projection.provider_epoch_id),
+            operation,
+            reason if reason in _SAFE_RETIREMENT_REASONS else "none",
+            exception_class,
+            api_code,
+            api_status,
+            message_kind,
+            str(self._go_away_active).lower(),
+        )
+
+    def _scoped_transport_failure(
+        self,
+        reason: str,
+        *,
+        orderly: bool = False,
+        exception: BaseException | None = None,
+    ) -> None:
         self._cancel_go_away_timer()
         if self._protocol_failed:
             return
+        self._log_transport_diagnostic(
+            "epoch_retired", "retire", reason=reason, exception=exception
+        )
         self._protocol_failed = True
         request, self._scoped_request = self._scoped_request, None
         if request is not None:

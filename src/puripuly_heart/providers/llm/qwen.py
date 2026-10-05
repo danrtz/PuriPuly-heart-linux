@@ -378,7 +378,9 @@ class DashScopeQwenClient:
                     output_tokens = usage.get("output_tokens")
                     observation.record_usage(
                         input_tokens=(
-                            input_tokens if isinstance(input_tokens, int) and input_tokens > 0 else None
+                            input_tokens
+                            if isinstance(input_tokens, int) and input_tokens > 0
+                            else None
                         ),
                         output_tokens=(
                             output_tokens
