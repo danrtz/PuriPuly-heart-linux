@@ -1,6 +1,6 @@
 # PuriPuly Heart on Linux
 
-This fork ports [kapitalismho/PuriPuly-heart](https://github.com/kapitalismho/PuriPuly-heart) to native Linux while keeping its interface, translation providers, conversation routing and settings model. It starts from upstream `991ef0bdf06d744ebb6e7aa6d8df5d4ee5f8ca46` (2.7.0). The development branch is `linux-port`.
+This fork ports [kapitalismho/PuriPuly-heart](https://github.com/kapitalismho/PuriPuly-heart) to native Linux while keeping its interface, translation providers, conversation routing and settings model. It started from upstream `991ef0bdf06d744ebb6e7aa6d8df5d4ee5f8ca46` (2.7.0) and now integrates upstream `0f9ed03e` (2.8.0). The development branch is `linux-port`.
 
 The original project and this derivative are licensed under **AGPL-3.0-or-later**. Original attribution, licenses and third-party notices remain in the repository. This is an independent fork, not an official upstream Linux release.
 
@@ -92,7 +92,7 @@ For VR subtitles, select the active WiVRn/Monado OpenXR runtime and start the he
 | Microphone and output capture | Native PulseAudio protocol capture; real 44.1 kHz microphone and output-monitor frames and clean shutdown verified. |
 | Per-application listening | Captures a selected playback stream, follows process descendants and refreshed streams. A controlled 48 kHz stereo playback test and process-exit cleanup passed. Live VRChat/Discord session checks remain separate. |
 | Local CPU speech recognition | Real Qwen model loading and English/Japanese recognition passed. Real microphone TALK start/stop and recorded speech through VAD → recognition → local translation also passed. |
-| Local Vulkan speech recognition | Real RX 7900 XT discovery, model activation, English/Japanese recognition, authenticated IPC and shutdown passed. TALK correctly waits for speech before loading; full Japanese VAD → GPU recognition → English translation passed. |
+| Local Vulkan speech recognition | Real RX 7900 XT discovery, model activation, English/Japanese recognition, authenticated IPC and shutdown passed. In 2.8.0, TALK prepares the GPU backend before capture is admitted, so startup failures are reported before listening begins. The original full Japanese VAD → GPU recognition → English translation check passed; see the update validation below. |
 | Peer LISTEN pipeline | A public Japanese recording passed through the production conversion, VAD, GPU recognition and English translation pipeline with OSC disabled. Original/translated history labels and clean stop were verified; user consent and application audio were not changed. |
 | Local CPU/GPU translation | Real Gemma English↔Japanese translation passed with original prompts, prefix caching, CPU MTP and native server shutdown. |
 | Cloud speech/translation and account connections | Existing adapters and UI are retained. Provider-specific end-to-end checks require configured accounts and were not performed for this port. |
@@ -118,7 +118,7 @@ These short functional checks used public speech samples and simple conversation
 
 CPU and GPU produced the same Japanese speech transcription and preserved the meaning of both translation samples. Translation times exclude first-time model/prefix preparation. First translation preparation took approximately 1.28 seconds on Vulkan and 5.19 seconds on CPU in this test. Other audio, message lengths, hardware and simultaneous games change these results.
 
-The full Python suite passed 6,751 tests with 53 skipped after the stability fixes below. Native validation passed 10 speech-worker and 252 overlay tests. Regressions cover capture startup, device selection, peer-language labels, OSC transitions and failure recovery. The installed desktop launcher, saved settings, real microphone start/stop, caption controls and credential storage were also checked. Physical headset and account-backed cloud services remain outside these completed checks.
+The initial 2.7.0 Linux stability pass completed 6,751 Python tests with 53 skipped. Native validation passed 10 speech-worker and 252 overlay tests. Regressions cover capture startup, device selection, peer-language labels, OSC transitions and failure recovery. The installed desktop launcher, saved settings, real microphone start/stop, caption controls and credential storage were also checked. Physical headset and account-backed cloud services remain outside these completed checks.
 
 ### Stability pass — October 3, 2026
 
@@ -144,6 +144,16 @@ The longer translation run also exposed unnecessary RAM growth from llama.cpp's 
 | Installed GUI idle | Over 60 seconds, the Python host used about 0.77% of one CPU core and the Flet child used 0%; file-descriptor counts stayed at 20/30 and combined RSS changed by about 24 KiB. Capture remained off. |
 
 These bounded checks use isolated settings, public recorded speech and generated silence. They do not establish physical-headset compatibility, cloud-account operation or multi-day reliability. Detailed local probe results are retained under the ignored `diagnostics/stability/` directory.
+
+### Upstream 2.8.0 integration — October 5, 2026
+
+This update incorporates 19 upstream commits from `991ef0bd` through `0f9ed03e`. It retains the Linux adapters and stability fixes while adding upstream speech diagnostics and recovery, independent caption delivery, ChatGPT connection-pool admission and model-specific prompts, the activation-notice setting, and revised provider/account UI. Upstream's Windows-native packaging changes remain Windows-specific.
+
+The previous permissive GPU ingress workaround is replaced by upstream's explicit backend preparation. Recorded-audio validation exposed one additional case: selecting GPU recognition while stopped could leave an attached but unprepared provider, causing the next TALK activation to fail with `gpu_not_ready`. The readiness adapter now requires a ready GPU with the self channel active, so the normal capture-start path prepares that dormant provider before admitting audio. Regression coverage includes both idle GPU and already-active peer cases; existing peer ownership remains intact.
+
+The refreshed `uv.lock` includes Linux `python-xlib` and cross-platform `psutil`, while keeping Windows capture dependencies platform-specific. A separate checkout and virtual environment were used throughout; the installed app and user settings were not updated.
+
+The Linux speech worker, GTK shim and OpenXR overlay built successfully. Native tests passed 10 speech-worker and 254 overlay cases, including Python-to-native caption lifecycle checks. The overlay test suite requires `uv` on PATH; the Linux application installer itself does not. The rebuilt overlay passed an isolated Monado simulated-headset run with caption updates, visibility changes and clean shutdown. Recorded Japanese GPU self/peer sessions, live CPU↔GPU handoffs, forced speech-worker termination and manual recovery, and English CPU/GPU self/peer recognition plus local translation passed in an 88-second run. Twelve fixture sources closed, no worker processes survived shutdown, and no user microphone or live VRChat OSC was used. The final Python suite passed 7,137 tests with 68 skipped; Ruff, the locked dependency environment, shell syntax and diff checks also passed. Physical-headset/live VRChat, cloud-account and Windows artifact checks remain unverified.
 
 ## Updates and removal
 

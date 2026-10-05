@@ -104,16 +104,18 @@ DEFAULT_WINDOW_HEIGHT = FOUNDATION_DESIGN_TOKENS.window.height
 APP_CONTENT_PADDING = FOUNDATION_DESIGN_TOKENS.spacing.page
 APP_LOGS_CONTENT_PADDING = ft.Padding.symmetric(vertical=APP_CONTENT_PADDING)
 FOUNDER_CONTACT_URL = "https://x.com/kapitalismho"
-FOUNDER_README_BASE_URL = "https://github.com/kapitalismho/PuriPuly-heart/blob/main"
+FOUNDER_README_BASE_URL = "https://github.com/kapitalismho/PuriPuly-heart/blob/dev"
 FOUNDER_README_PATH_BY_LOCALE = {
     "ko": "docs/readme/README.ko.md",
     "zh-CN": "docs/readme/README.zh-CN.md",
     "ja": "docs/readme/README.ja.md",
+    "ru": "docs/readme/README.ru.md",
 }
 FOUNDER_README_API_KEYS_ANCHOR_BY_LOCALE = {
     "ko": "자신의-api-키-사용하기",
     "zh-CN": "使用您自己的-api-密钥",
     "ja": "自分のapiキーを使う",
+    "ru": "свои-api-ключи",
 }
 FOUNDER_README_DEFAULT_API_KEYS_ANCHOR = "using-your-own-api-keys"
 DEBUG_PREVIEW_TALK_TOGETHER_PASS_ID = "7KQ9M2"
@@ -1633,7 +1635,12 @@ class TranslatorApp:
             return
         self._run_chatgpt_connect(enable_translation=False)
 
-    def _run_chatgpt_connect(self, *, enable_translation: bool) -> None:
+    def _run_chatgpt_connect(
+        self,
+        *,
+        enable_translation: bool,
+        select_translation: bool = False,
+    ) -> None:
         async def _task() -> None:
             self._refresh_chatgpt_account_card()
             try:
@@ -1653,12 +1660,27 @@ class TranslatorApp:
                     )
                 return
             self._show_snackbar(t("chatgpt_auth.success"), COLOR_SUCCESS)
-            if enable_translation:
-                enable_result = await self.application.set_translation_enabled(True)
-                if self.application.translation_enable_succeeded(enable_result):
-                    self._set_dashboard_translation_visual_state(True)
+            await self._continue_with_chatgpt_translation(
+                select_translation=select_translation,
+                enable_translation=enable_translation,
+            )
 
         self._run_page_task(_task)
+
+    async def _continue_with_chatgpt_translation(
+        self,
+        *,
+        select_translation: bool,
+        enable_translation: bool,
+    ) -> None:
+        if select_translation:
+            if not await self.application.select_chatgpt_translation():
+                return
+            self.application.refresh_settings_after_openrouter_pkce_success()
+        if enable_translation:
+            enable_result = await self.application.set_translation_enabled(True)
+            if self.application.translation_enable_succeeded(enable_result):
+                self._set_dashboard_translation_visual_state(True)
 
     def _on_chatgpt_sign_out(self) -> None:
         async def _task() -> None:
@@ -1697,11 +1719,13 @@ class TranslatorApp:
             on_byok = self._close_discord_managed_auth_dialog
             on_close = self._close_discord_managed_auth_dialog
             on_cancel = self._close_discord_managed_auth_dialog
+            on_chatgpt = None
         else:
             on_continue = self._start_discord_managed_auth
             on_byok = self._on_discord_managed_auth_byok
             on_close = self._close_discord_managed_auth_dialog
             on_cancel = self._cancel_discord_managed_auth
+            on_chatgpt = self._start_chatgpt_translation_handoff
 
         dialog = DiscordManagedAuthDialog(
             self.page,
@@ -1709,6 +1733,7 @@ class TranslatorApp:
             on_byok=on_byok,
             on_close=on_close,
             on_cancel=on_cancel,
+            on_chatgpt=on_chatgpt,
         )
         self._discord_managed_auth_dialog = dialog
         dialog.open()
@@ -1720,6 +1745,7 @@ class TranslatorApp:
             on_continue=self._start_qq_managed_auth,
             on_close=self._close_qq_managed_auth_dialog,
             on_cancel=self._cancel_qq_managed_auth,
+            on_chatgpt=self._start_chatgpt_translation_handoff,
         )
         self._qq_managed_auth_dialog = dialog
         dialog.open()
@@ -1747,10 +1773,6 @@ class TranslatorApp:
         dialog = getattr(self, "_qq_managed_auth_dialog", None)
         qq_identity = getattr(dialog, "qq_identity", "")
         credential = getattr(dialog, "credential", "")
-        raw_referral_id = getattr(dialog, "referral_id", "")
-        referral_id = (
-            raw_referral_id if isinstance(raw_referral_id, str) and raw_referral_id else None
-        )
         set_waiting = getattr(dialog, "set_waiting", None)
         if callable(set_waiting):
             set_waiting()
@@ -1764,7 +1786,6 @@ class TranslatorApp:
                 result = await application.start_qq_managed_auth_from_dialog(
                     qq_identity=qq_identity,
                     credential=credential,
-                    referral_id=referral_id,
                 )
             except asyncio.CancelledError:
                 return
@@ -1842,10 +1863,6 @@ class TranslatorApp:
 
     def _start_discord_managed_auth(self) -> None:
         dialog = getattr(self, "_discord_managed_auth_dialog", None)
-        raw_referral_id = getattr(dialog, "referral_id", "")
-        referral_id = (
-            raw_referral_id if isinstance(raw_referral_id, str) and raw_referral_id else None
-        )
         set_waiting = getattr(dialog, "set_waiting", None)
         if callable(set_waiting):
             set_waiting()
@@ -1866,7 +1883,6 @@ class TranslatorApp:
                 ok = await application.start_discord_managed_auth_from_dialog(
                     on_callback_received=_mark_callback_received,
                     on_recovery_started=_mark_recovery_started,
-                    referral_id=referral_id,
                 )
                 if not ok:
                     self.mark_discord_managed_auth_failed(generation)
@@ -2019,9 +2035,34 @@ class TranslatorApp:
     def _on_founder_letter_readme(self) -> None:
         webbrowser.open(founder_readme_url_for_locale(get_locale()))
 
+    def _start_chatgpt_translation_handoff(self) -> None:
+        snapshot = self.application.chatgpt_account_snapshot()
+        if snapshot.in_progress:
+            self.application.reopen_chatgpt_authorization_url()
+            return
+        if snapshot.signed_in:
+
+            async def _task() -> None:
+                await self._continue_with_chatgpt_translation(
+                    select_translation=True,
+                    enable_translation=True,
+                )
+
+            self._run_page_task(_task)
+            return
+        self.show_chatgpt_auth_dialog()
+        dialog = getattr(self, "_chatgpt_auth_dialog", None)
+        if dialog is not None:
+            dialog.set_waiting()
+        self._run_chatgpt_connect(enable_translation=True, select_translation=True)
+
     def show_founder_letter_dialog(self) -> None:
         self._mark_launch_high_priority_feedback_shown("usage_exhaustion")
-        dialog = FounderLetterDialog(self.page, on_readme=self._on_founder_letter_readme)
+        dialog = FounderLetterDialog(
+            self.page,
+            on_readme=self._on_founder_letter_readme,
+            on_chatgpt=self._start_chatgpt_translation_handoff,
+        )
         self._founder_letter_dialog = dialog
         dialog.open()
 

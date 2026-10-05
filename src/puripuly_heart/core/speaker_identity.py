@@ -31,8 +31,6 @@ class PeerSpeakerIdentityAllocator:
             attribution = run.attribution
         elif transcript.final_speaker_runs:
             attribution = SpeakerAttribution("mixed")
-        elif transcript.recognition_origins:
-            attribution = SpeakerAttribution("uncertain")
         else:
             attribution = SpeakerAttribution("non_diarized")
         order = (

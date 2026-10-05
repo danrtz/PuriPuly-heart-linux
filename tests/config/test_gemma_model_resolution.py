@@ -113,15 +113,15 @@ def test_dormant_gemma_alias_cannot_override_active_non_gemma_product() -> None:
     config = runtime_resolution.resolve_llm_config(
         runtime_resolution.RuntimeResolutionInput(
             translation=runtime_resolution.TranslationRuntimeIntent(
-                model="deepseek_v4_flash",
+                model="deepseek_v4_flash_41",
                 connection="managed",
             ),
             openrouter=router,
         )
     )
-    assert config.primary.model == llm_profiles.OPENROUTER_MODEL_DEEPSEEK_V4_FLASH
+    assert config.primary.model == llm_profiles.OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41
     assert config.primary.credential.reference == "openrouter:managed"
-    assert config.primary.provider_routing == "deepseek_v4_flash_latency"
+    assert config.primary.provider_routing == "deepseek_v4_flash_41_strict"
     assert config.attempts[2].target.model == llm_profiles.OPENROUTER_MODEL_GEMMA_4_31B_IT
     assert config.attempts[2].target.provider_routing == "gemma4_31b_modelrun_only"
 

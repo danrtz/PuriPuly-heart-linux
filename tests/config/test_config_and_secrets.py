@@ -73,9 +73,11 @@ def test_public_translation_connection_helpers_match_model_matrix() -> None:
         TranslationConnection.OPENROUTER,
     )
     assert supported_translation_connections(TranslationModel.DEEPSEEK_V4_FLASH) == (
-        TranslationConnection.MANAGED,
-        TranslationConnection.MANAGED_CHINA,
         TranslationConnection.OPENROUTER,
+    )
+    assert (
+        default_translation_connection(TranslationModel.DEEPSEEK_V4_FLASH)
+        == TranslationConnection.OPENROUTER
     )
     assert supported_translation_connections(TranslationModel.DEEPSEEK_V4_FLASH_41) == (
         TranslationConnection.MANAGED,

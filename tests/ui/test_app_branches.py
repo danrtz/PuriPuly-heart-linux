@@ -20,6 +20,10 @@ import puripuly_heart.ui.app as app_module
 from puripuly_heart.app.adapters.settings_vnext_canonical_persistence import (
     SettingsVNextCanonicalPersistenceAdapter,
 )
+from puripuly_heart.app.ports.chatgpt_account import (
+    ChatGptAccountSnapshot,
+    ChatGptConnectResult,
+)
 from puripuly_heart.app.ports.settings_view import (
     OpenRouterPkceTarget,
     OverlaySettingsSnapshot,
@@ -2058,7 +2062,9 @@ def test_debug_preview_founder_letter_opens_dialog_with_readme_action(
     )
 
     class FakeFounderLetterDialog:
-        def __init__(self, page, *, on_readme=None, on_connect=None, on_contact=None):
+        def __init__(
+            self, page, *, on_readme=None, on_chatgpt=None, on_connect=None, on_contact=None
+        ):
             captured["page"] = page
             captured["on_readme"] = on_readme
             captured["on_connect"] = on_connect
@@ -2086,8 +2092,106 @@ def test_debug_preview_founder_letter_opens_dialog_with_readme_action(
 
     assert app._founder_letter_dialog is not None
     assert opened_urls == [
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/docs/readme/README.ko.md#자신의-api-키-사용하기"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/docs/readme/README.ko.md#자신의-api-키-사용하기"
     ]
+
+
+class _LetterChatGptApplication:
+    def __init__(self, *, signed_in: bool) -> None:
+        self.signed_in = signed_in
+        self.calls: list[str] = []
+
+    def chatgpt_account_snapshot(self):
+        return ChatGptAccountSnapshot(signed_in=self.signed_in, email=None, in_progress=False)
+
+    def cancel_chatgpt_sign_in(self) -> None:
+        self.calls.append("cancel")
+
+    async def connect_chatgpt(self):
+        self.calls.append("connect")
+        return ChatGptConnectResult(succeeded=True, first_sign_in=True)
+
+    async def select_chatgpt_translation(self):
+        self.calls.append("select")
+        return True
+
+    def refresh_settings_after_openrouter_pkce_success(self):
+        self.calls.append("refresh")
+        return True
+
+    async def set_translation_enabled(self, enabled: bool):
+        self.calls.append(f"enable:{enabled}")
+        return True
+
+    def translation_enable_succeeded(self, result):
+        return bool(result)
+
+
+def _letter_chatgpt_app(
+    monkeypatch: pytest.MonkeyPatch, *, signed_in: bool
+) -> tuple[TranslatorApp, _LetterChatGptApplication, list, list[str]]:
+    app = TranslatorApp.__new__(TranslatorApp)
+    app.page = DummyPage()
+    application = _LetterChatGptApplication(signed_in=signed_in)
+    app._ui_application = application
+    tasks: list = []
+    dialog_events: list[str] = []
+
+    class FakeChatGptAuthDialog:
+        def __init__(self, _page, **_callbacks):
+            self.is_open = False
+
+        def open(self) -> None:
+            self.is_open = True
+            dialog_events.append("open")
+
+        def set_waiting(self) -> None:
+            dialog_events.append("waiting")
+
+        def close(self) -> None:
+            self.is_open = False
+            dialog_events.append("close")
+
+    monkeypatch.setattr(app_module, "ChatGptAuthDialog", FakeChatGptAuthDialog)
+    monkeypatch.setattr(app, "_run_page_task", tasks.append, raising=False)
+    monkeypatch.setattr(app, "_show_snackbar", lambda *_args, **_kwargs: None, raising=False)
+    monkeypatch.setattr(
+        app, "_mark_launch_high_priority_feedback_shown", lambda *_args: None, raising=False
+    )
+    monkeypatch.setattr(
+        app,
+        "_set_dashboard_translation_visual_state",
+        lambda enabled: application.calls.append(f"visual:{enabled}"),
+        raising=False,
+    )
+    return app, application, tasks, dialog_events
+
+
+def test_founder_letter_chatgpt_signs_in_then_switches_to_luna_and_enables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, application, tasks, dialog_events = _letter_chatgpt_app(monkeypatch, signed_in=False)
+
+    app._start_chatgpt_translation_handoff()
+    assert dialog_events == ["open", "waiting"]
+    assert len(tasks) == 1
+    asyncio.run(tasks[0]())
+
+    assert dialog_events == ["open", "waiting", "close"]
+    assert application.calls == ["connect", "select", "refresh", "enable:True", "visual:True"]
+
+
+def test_founder_letter_chatgpt_when_signed_in_switches_without_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, application, tasks, dialog_events = _letter_chatgpt_app(monkeypatch, signed_in=True)
+
+    app._start_chatgpt_translation_handoff()
+    assert len(tasks) == 1
+    asyncio.run(tasks[0]())
+
+    assert dialog_events == []
+    assert application.calls == ["select", "refresh", "enable:True", "visual:True"]
 
 
 def test_founder_readme_url_for_locale_uses_origin_readme_pages() -> None:
@@ -2095,22 +2199,25 @@ def test_founder_readme_url_for_locale_uses_origin_readme_pages() -> None:
 
     assert callable(resolver)
     assert resolver("ko") == (
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/docs/readme/README.ko.md#자신의-api-키-사용하기"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/docs/readme/README.ko.md#자신의-api-키-사용하기"
     )
     assert resolver("zh-CN") == (
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/docs/readme/README.zh-CN.md#使用您自己的-api-密钥"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/docs/readme/README.zh-CN.md#使用您自己的-api-密钥"
     )
     assert resolver("ja") == (
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/docs/readme/README.ja.md#自分のapiキーを使う"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/docs/readme/README.ja.md#自分のapiキーを使う"
+    )
+    assert resolver("ru") == (
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/docs/readme/README.ru.md#свои-api-ключи"
     )
     assert resolver("en") == (
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/README.md#using-your-own-api-keys"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/README.md#using-your-own-api-keys"
     )
     assert resolver("fr") == (
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/README.md#using-your-own-api-keys"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/README.md#using-your-own-api-keys"
     )
     assert resolver(None) == (
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/README.md#using-your-own-api-keys"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/README.md#using-your-own-api-keys"
     )
 
 
@@ -2174,7 +2281,7 @@ def test_debug_preview_peer_translation_eula_opens_preview_safe_dialog(
     assert not hasattr(app, "controller")
 
 
-def test_debug_preview_discord_auth_opens_dialog_with_close_only_actions(
+def test_debug_preview_discord_auth_actions_only_close_the_preview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = TranslatorApp.__new__(TranslatorApp)
@@ -2222,7 +2329,7 @@ def test_debug_preview_discord_auth_opens_dialog_with_close_only_actions(
         assert dialog._dialog is app.page.opened[-1]
         return dialog, dialog._dialog
 
-    for button_attr in ("_continue_button", "_close_button"):
+    for button_attr in ("_continue_button", "_chatgpt_button"):
         dialog, opened_dialog = open_preview_dialog()
         getattr(dialog, button_attr).on_click(None)
         assert app.page.closed[-1] is opened_dialog
@@ -2258,7 +2365,7 @@ def test_debug_preview_qq_auth_states_are_pure_ui_without_tasks_or_persistence(
     initial_dialog._continue_button.on_click(None)
     assert app.page.tasks == []
     assert initial_dialog._error_text.value == app_module.t("qq_auth.error.invalid_input")
-    initial_dialog._close_button.on_click(None)
+    initial_dialog._chatgpt_button.on_click(None)
     assert app.page.closed[-1] is initial_dialog._dialog
 
     app._preview_qq_auth_recoverable_error()
@@ -2311,11 +2418,11 @@ def test_discord_managed_auth_byok_clears_managed_china_translation_state() -> N
     app = TranslatorApp.__new__(TranslatorApp)
     settings = _vnext(
         llm="openrouter",
-        model=TranslationModel.DEEPSEEK_V4_FLASH.value,
+        model=TranslationModel.DEEPSEEK_V4_FLASH_41.value,
         connection=TranslationConnection.MANAGED_CHINA.value,
         openrouter_source="managed",
-        openrouter_alias=OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value,
-        openrouter_model=OpenRouterLLMModel.DEEPSEEK_V4_FLASH.value,
+        openrouter_alias=OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_MANAGED.value,
+        openrouter_model=OpenRouterLLMModel.DEEPSEEK_V4_FLASH_41.value,
         openrouter_routing=OpenRouterProviderRouting.DEEPSEEK_ONLY.value,
         connection_history={
             TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED_CHINA.value,
@@ -2328,7 +2435,7 @@ def test_discord_managed_auth_byok_clears_managed_china_translation_state() -> N
     target = app._build_managed_openrouter_byok_target()
 
     assert target is not None
-    assert target.selection_alias is OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK
+    assert target.selection_alias is OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_BYOK
 
 
 @pytest.mark.asyncio
@@ -3628,7 +3735,9 @@ def test_show_founder_letter_dialog_opens_with_locale_readme_action(
     previous_locale = i18n_module.get_locale()
 
     class FakeFounderLetterDialog:
-        def __init__(self, page, *, on_readme=None, on_connect=None, on_contact=None):
+        def __init__(
+            self, page, *, on_readme=None, on_chatgpt=None, on_connect=None, on_contact=None
+        ):
             captured["page"] = page
             captured["on_readme"] = on_readme
             captured["on_connect"] = on_connect
@@ -3663,7 +3772,7 @@ def test_show_founder_letter_dialog_opens_with_locale_readme_action(
 
     assert pkce_calls == []
     assert opened_urls == [
-        "https://github.com/kapitalismho/PuriPuly-heart/blob/main/docs/readme/README.ko.md#자신의-api-키-사용하기"
+        "https://github.com/kapitalismho/PuriPuly-heart/blob/dev/docs/readme/README.ko.md#자신의-api-키-사용하기"
     ]
 
 
@@ -3676,7 +3785,9 @@ def test_show_founder_letter_dialog_does_not_prepare_byok_alias_when_opened(
     pkce_calls: list[tuple[AppSettingsVNext, str]] = []
 
     class FakeFounderLetterDialog:
-        def __init__(self, _page, *, on_readme=None, on_connect=None, on_contact=None):
+        def __init__(
+            self, _page, *, on_readme=None, on_chatgpt=None, on_connect=None, on_contact=None
+        ):
             captured["page"] = _page
             captured["on_readme"] = on_readme
             captured["on_connect"] = on_connect

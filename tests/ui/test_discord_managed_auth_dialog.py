@@ -79,7 +79,7 @@ def test_discord_managed_auth_dialog_declares_initial_action_labels() -> None:
     dialog = _dialog(page)
 
     assert dialog.action_labels == [
-        "discord_auth.close",
+        "openrouter.handoff.chatgpt",
         "discord_auth.continue",
     ]
 
@@ -116,7 +116,7 @@ def test_discord_managed_auth_dialog_uses_warm_document_layout(
     body_text = body_column.controls[0]
     action_row = _action_row(page)
 
-    assert len(body_column.controls) == 2
+    assert len(body_column.controls) == 1
     assert body_text.value == "value:discord_auth.body"
     assert body_text.size == warm_document_dialog.BODY_TEXT_SIZE
     assert body_text.selectable is True
@@ -125,7 +125,7 @@ def test_discord_managed_auth_dialog_uses_warm_document_layout(
         "TextButton",
     ]
     assert [button.content for button in action_row.controls] == [
-        "value:discord_auth.close",
+        "value:openrouter.handoff.chatgpt",
         "value:discord_auth.continue",
     ]
     assert [_button_text_size(button) for button in action_row.controls] == [
@@ -141,95 +141,14 @@ def test_discord_managed_auth_dialog_uses_warm_document_layout(
     ]
 
 
-def test_discord_managed_auth_dialog_renders_optional_referral_id_field() -> None:
-    set_locale("en")
-    page = DummyPage()
-    dialog = _dialog(page)
-
-    dialog.open()
-
-    field = dialog._referral_id_field
-    toggle = dialog._referral_toggle
-    label = dialog._referral_toggle_label
-    assert field is not None
-    assert toggle is not None
-    assert label is not None
-    assert field.label == t("discord_auth.referral_id.label")
-    assert field.helper == t("discord_auth.referral_id.helper")
-    assert getattr(field, "hint_text", None) in (None, "")
-    assert field.value == ""
-    assert field.visible is False
-    assert label.value == t("discord_auth.referral_id.expand")
-    assert label.size == 24
-    assert dialog._continue_button is not None
-    assert not getattr(dialog._continue_button, "disabled", False)
-
-
-def test_discord_managed_auth_dialog_expands_referral_id_field_on_demand() -> None:
-    set_locale("en")
-    page = DummyPage()
-    dialog = _dialog(page)
-    dialog.open()
-
-    assert dialog._referral_id_field is not None
-    assert dialog._referral_toggle is not None
-    assert dialog._referral_toggle_label is not None
-    assert dialog._referral_id_field.visible is False
-
-    dialog._referral_toggle.on_click(None)
-
-    assert dialog._referral_id_field.visible is True
-    assert dialog._referral_toggle_label.value == t("discord_auth.referral_id.collapse")
-    dialog._referral_id_field.value = "7KQ9M2"
-    assert dialog.referral_id == "7KQ9M2"
-
-    dialog._referral_toggle.on_click(None)
-
-    assert dialog._referral_id_field.visible is False
-    assert dialog._referral_toggle_label.value == t("discord_auth.referral_id.expand")
-    assert dialog.referral_id == "7KQ9M2"
-
-
-def test_discord_managed_auth_dialog_scales_referral_id_field_content() -> None:
-    page = DummyPage()
-    dialog = _dialog(page)
-
-    dialog.open()
-
-    field = dialog._referral_id_field
-    assert field is not None
-    assert field.height is None
-    assert field.dense is False
-    assert field.content_padding is not None
-    assert field.bgcolor is None
-    assert field.border[ft.ControlState.FOCUSED].side.color == COLOR_PRIMARY
-
-
-def test_discord_managed_auth_dialog_referral_field_is_present_before_page_open(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_discord_managed_auth_dialog_offers_no_invite_code_entry() -> None:
     page = SnapshotOpenPage()
     dialog = _dialog(page)
 
     dialog.open()
 
-    assert page.body_control_classes_at_open == ["Text", "Column"]
-
-
-def test_discord_managed_auth_dialog_invalid_looking_referral_id_does_not_block_continue() -> None:
-    page = DummyPage()
-    events: list[str] = []
-    dialog = _dialog(page, events)
-    dialog.open()
-
-    assert dialog._referral_id_field is not None
-    dialog._referral_id_field.value = "not a referral id"
-    assert dialog.referral_id == "not a referral id"
-    assert dialog._continue_button is not None
-    dialog._continue_button.on_click(None)
-
-    assert events == ["continue"]
-    assert page.closed == []
+    assert page.body_control_classes_at_open == ["Text"]
+    assert not hasattr(dialog, "referral_id")
 
 
 def test_discord_managed_auth_dialog_waiting_state_uses_waiting_labels() -> None:
@@ -246,25 +165,6 @@ def test_discord_managed_auth_dialog_waiting_state_uses_waiting_labels() -> None
     assert dialog._cancel_button is not None
     assert [control.content for control in dialog._actions.controls] == [t("discord_auth.cancel")]
     assert dialog._cancel_button is dialog._actions.controls[0]
-
-
-def test_discord_managed_auth_dialog_removes_referral_field_when_waiting() -> None:
-    page = DummyPage()
-    dialog = _dialog(page)
-
-    dialog.open()
-    assert dialog._dialog_result is not None
-    body_column = dialog._dialog_result.body_column
-    section = dialog._referral_section
-    assert section is not None
-    assert section in body_column.controls
-
-    dialog.set_waiting()
-
-    assert section not in body_column.controls
-    assert dialog._referral_id_field is None
-    assert dialog._referral_section is None
-    assert body_column.controls == [dialog._body_text]
 
 
 def test_discord_managed_auth_dialog_callback_received_expands_body() -> None:
@@ -302,7 +202,7 @@ def test_discord_managed_auth_dialog_callback_received_requires_open_waiting_dia
     assert dialog._body_text.value == waiting_body
 
 
-def test_discord_managed_auth_dialog_opens_one_modal_dialog_on_page() -> None:
+def test_discord_managed_auth_dialog_dismisses_outside_until_waiting() -> None:
     set_locale("en")
     page = DummyPage()
     dialog = _dialog(page)
@@ -312,13 +212,44 @@ def test_discord_managed_auth_dialog_opens_one_modal_dialog_on_page() -> None:
     assert page.dialog is dialog._dialog
     assert len(page.opened) == 1
     assert dialog._dialog is not None
-    assert dialog._dialog.modal is True
+    assert dialog._dialog.modal is False
     assert dialog._continue_button is not None
     assert dialog._byok_button is None
-    assert dialog._close_button is not None
+    assert dialog._close_button is None
     assert dialog._actions is not None
-    assert dialog._close_button is dialog._actions.controls[0]
+    assert dialog._chatgpt_button is dialog._actions.controls[0]
     assert dialog._continue_button is dialog._actions.controls[1]
+
+    dialog.set_waiting()
+
+    assert dialog._dialog.modal is True
+
+
+def test_discord_managed_auth_dialog_outside_dismiss_notifies_close_once() -> None:
+    page = DummyPage()
+    events: list[str] = []
+    dialog = _dialog(page, events)
+    dialog.open()
+
+    dialog._dialog.on_dismiss(None)
+    dialog._dialog.on_dismiss(None)
+
+    assert events == ["close"]
+    assert dialog.is_open is False
+    assert page.closed == []
+
+
+def test_discord_managed_auth_dialog_ignores_dismiss_while_waiting() -> None:
+    page = DummyPage()
+    events: list[str] = []
+    dialog = _dialog(page, events)
+    dialog.open()
+    dialog.set_waiting()
+
+    dialog._dialog.on_dismiss(None)
+
+    assert events == []
+    assert dialog.is_open is True
 
 
 def test_discord_managed_auth_dialog_open_is_idempotent() -> None:
@@ -349,23 +280,25 @@ def test_discord_managed_auth_dialog_continue_does_not_close_before_callback() -
     assert page.dialog is dialog._dialog
 
 
-def test_discord_managed_auth_dialog_close_closes_then_invokes_callback() -> None:
+def test_discord_managed_auth_dialog_chatgpt_closes_then_invokes_callback() -> None:
     page = DummyPage()
     events: list[str] = []
-    close_dialog = DiscordManagedAuthDialog(
+    dialog = DiscordManagedAuthDialog(
         page,
         on_continue=lambda: events.append("continue"),
-        on_byok=lambda: events.append(f"byok_closed={page.dialog is None}"),
-        on_close=lambda: events.append(f"close_closed={page.dialog is None}"),
+        on_byok=lambda: events.append("byok"),
+        on_close=lambda: events.append("close"),
+        on_chatgpt=lambda: events.append(f"chatgpt_closed={page.dialog is None}"),
     )
-    close_dialog.open()
+    dialog.open()
 
-    assert close_dialog._close_button is not None
-    close_dialog._close_button.on_click(None)
+    assert dialog._chatgpt_button is not None
+    dialog._chatgpt_button.on_click(None)
 
-    assert events == ["close_closed=True"]
-    assert page.closed[-1] == close_dialog._dialog
+    assert events == ["chatgpt_closed=True"]
+    assert page.closed[-1] == dialog._dialog
     assert page.dialog is None
+    assert dialog.is_open is False
 
 
 def test_discord_managed_auth_dialog_waiting_cancel_behavior() -> None:

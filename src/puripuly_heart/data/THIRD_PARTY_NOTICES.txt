@@ -23,6 +23,7 @@ Runtime/bundled notice-sensitive components:
 - certifi: MPL-2.0.
 - NumPy and SciPy binary wheels bundle OpenBLAS, LAPACK, and compiler runtime notices. NumPy carries its wheel-provided notices in the packaged distribution; SciPy's wheel-provided license bundle is included under `puripuly_heart\data\licenses\SCIPY-1.18.0-LICENSE.txt`.
 - CPython 3.14.7: the official distribution LICENSE.txt is packaged under `puripuly_heart\data\licenses\PYTHON-3.14.7-LICENSE.txt`.
+- Microsoft Visual C++ Runtime: native Windows builds include the x64 Microsoft.VC143.CRT DLLs from the selected Visual Studio toolchain's official redist directory, deployed app-locally under Microsoft's Visual Studio license and redistribution terms. Exact versions, source paths, and SHA256 hashes are recorded in the build's `vc-runtime.json`; redistribution guidance: https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170 .
 - Native Python wheels: LICENSE, COPYING, NOTICE, AUTHORS, and third-party notice payloads from the locked distributions are retained under their upstream package or `.dist-info` paths as detailed below.
 - sounddevice 0.5.5: releases retain its standard PortAudio runtime and upstream license metadata, but intentionally omit the ASIO-only DLL. `SD_ENABLE_ASIO=1` is unsupported in this distribution.
 - OpenVR runtime DLL: BSD-3-Clause.

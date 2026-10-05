@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "puripuly-heart"
-version = "2.7.0"
+version = "2.8.0"
 description = "LLM-based real-time translator for VRChat"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -16,6 +16,7 @@ license-files = [
 requires-python = ">=3.14,<3.15"
 dependencies = [
   "numpy==2.5.1",
+  "scipy==1.18.0; platform_system == 'Windows'",
   "janus>=2.0",
   "cryptography==46.0.7",
   "python-osc==1.10.2",
@@ -59,6 +60,7 @@ build = [
   "flet-cli==1.0.0",
   "libclang>=18.1",
   "pyinstaller==6.21.0",
+  "pefile==2024.8.26",
   "scikit-build-core>=0.10",
   "nanobind>=2",
   "setuptools_scm[toml]>=6.2",

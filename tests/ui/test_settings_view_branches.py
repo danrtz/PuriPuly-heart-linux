@@ -16,6 +16,7 @@ pytest.importorskip("flet")
 from puripuly_heart.app.services.settings_application import settings_view_surface_snapshots
 from puripuly_heart.core.managed_openrouter_release import TalkTogetherPassStatus
 
+from puripuly_heart.app.ports.chatgpt_account import ChatGptAccountSnapshot
 from puripuly_heart.app.ports.settings_view import (
     CustomSttEndpointEdit,
     ManagedReferralEdit,
@@ -2870,19 +2871,19 @@ def test_on_llm_selected_updates_deepseek_model_with_default_managed_connection(
     assert _llm(settings) == LLMProviderName.GEMINI.value
     assert pending is not None
     assert pending.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH.value
-    assert pending.intent.translation.connection == TranslationConnection.MANAGED.value
+    assert pending.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value
     )
     assert pending.intent.prompts.system_prompt_override == "G"
     assert view._prompt_editor.value == "G"
     assert view._llm_text.content.value == t("provider.deepseek_v4_flash")
     assert view._translation_connection_text.content.value == t(
-        "settings.translation_connection.managed"
+        "settings.translation_connection.openrouter"
     )
-    assert view._managed_trial_usage_bar.visible is True
+    assert view._managed_trial_usage_bar.visible is False
     assert settings.intent.prompts.system_prompt_override == "G"
     assert view.has_provider_changes is True
 
@@ -3089,20 +3090,20 @@ def test_on_llm_selected_sets_deepseek_managed_connection_and_label(
 
     assert pending is not None
     assert pending.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH.value
-    assert pending.intent.translation.connection == TranslationConnection.MANAGED.value
+    assert pending.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value
     )
     assert pending.intent.translation.openrouter_model == OpenRouterLLMModel.DEEPSEEK_V4_FLASH.value
     assert (
         pending.intent.translation.openrouter_selected_source
-        == OpenRouterCredentialSource.MANAGED.value
+        == OpenRouterCredentialSource.BYOK.value
     )
     assert view._llm_text.content.value == t("provider.deepseek_v4_flash")
     assert view._translation_connection_text.content.value == t(
-        "settings.translation_connection.managed"
+        "settings.translation_connection.openrouter"
     )
     assert view._prompt_editor.value == "G"
 
@@ -3346,10 +3347,10 @@ def test_on_translation_connection_selected_stages_deepseek_managed_china_routin
     settings = AppSettingsVNext()
     settings = _vnext(
         settings,
-        model=TranslationModel.DEEPSEEK_V4_FLASH,
+        model=TranslationModel.DEEPSEEK_V4_FLASH_41,
         connection=TranslationConnection.MANAGED,
         connection_history={
-            TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED,
+            TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED,
         },
     )
 
@@ -3361,9 +3362,10 @@ def test_on_translation_connection_selected_stages_deepseek_managed_china_routin
     pending = view.build_provider_apply_settings()
 
     assert pending is not None
+    assert pending.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH_41.value
     assert pending.intent.translation.connection == TranslationConnection.MANAGED_CHINA.value
     assert (
-        pending.intent.translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH.value]
+        pending.intent.translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH_41.value]
         == TranslationConnection.MANAGED_CHINA
     )
     assert _llm(pending) == LLMProviderName.OPENROUTER.value
@@ -3373,11 +3375,11 @@ def test_on_translation_connection_selected_stages_deepseek_managed_china_routin
     )
     assert (
         pending.intent.translation.openrouter_selection_alias
-        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value
+        == OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_MANAGED.value
     )
     assert (
         pending.intent.translation.openrouter_provider_routing
-        == OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_CHINA.value
+        == OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_41_STRICT.value
     )
     assert view._translation_connection_text.content.value == t(
         "settings.translation_connection.managed_china"
@@ -4839,49 +4841,6 @@ def test_audio_change_updates_desktop_loopback_controls(monkeypatch: pytest.Monk
     assert changed[-1].intent.desktop_audio.vad_speech_threshold == 0.72
 
 
-def test_general_tab_keeps_fixed_three_slot_rows_with_vrchat_osc_card(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from puripuly_heart.ui.components.settings.settings_unit_card import SettingsUnitCard
-
-    view, _ = _make_settings_view(monkeypatch)
-    general_controls = _subtab_controls(view, "general")
-
-    assert len(general_controls) == 4
-    assert {len(control.content.controls) for control in general_controls} == {3}
-    assert _row_card_titles(general_controls[0]) == [
-        t("settings.section.ui"),
-        t("settings.chatbox_include_source"),
-        t("settings.osc.connection.title"),
-    ]
-    assert _row_card_titles(general_controls[1]) == [
-        t("settings.audio_host_api"),
-        t("settings.section.microphone_audio"),
-        t("settings.section.loopback_audio"),
-    ]
-    assert _row_card_titles(general_controls[2]) == [
-        t("settings.microphone_test"),
-        t("settings.section.self_vad_sensitivity"),
-        t("settings.section.peer_vad_sensitivity"),
-    ]
-    assert _row_card_titles(general_controls[3]) == [
-        t("settings.clipboard_auto_translate"),
-        t("settings.vrc_mic_intercept"),
-        t("settings.telemetry.title"),
-    ]
-
-    osc_card = general_controls[0].content.controls[2]
-    assert osc_card is view._vrchat_osc_card
-    assert isinstance(osc_card, SettingsUnitCard)
-    assert osc_card.height == SettingsUnitCard.DEFAULT_HEIGHT
-    assert osc_card.expand is True
-    osc_column = _wrapped_card_column(osc_card)
-    value_slot = osc_column.controls[1]
-    assert isinstance(value_slot, ft.Container)
-    assert value_slot.content is view._osc_connection_text
-    assert view._osc_connection_text.content.value == t("settings.osc.mode.automatic")
-
-
 def test_api_translation_connection_row_places_cloud_free_tier_card(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5257,6 +5216,75 @@ def test_apply_locale_updates_all_settings_clickable_value_fonts_to_zh_cn(
             assert control.content.font_family == zh_font
     finally:
         i18n_module.set_locale(previous_locale)
+
+
+def test_apply_locale_relocalizes_chatgpt_account_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous_locale = i18n_module.get_locale()
+    i18n_module.set_locale("en")
+    try:
+        view, _ = _make_settings_view(monkeypatch)
+        view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+        view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+
+        i18n_module.set_locale("ko")
+        view.apply_locale()
+
+        ko_font = font_for_language("ko")
+        assert view._chatgpt_account_title.value == t("settings.chatgpt_account.title")
+        assert not view._chatgpt_account_status.visible
+        for button, key in (
+            (view._chatgpt_connect_button, "settings.chatgpt_account.connect"),
+            (view._chatgpt_usage_button, "settings.chatgpt_account.manage_usage"),
+            (view._chatgpt_sign_out_button, "settings.chatgpt_account.sign_out"),
+        ):
+            assert button.content == t(key)
+            assert button.style.text_style.font_family == ko_font
+    finally:
+        i18n_module.set_locale(previous_locale)
+
+
+@pytest.mark.parametrize(
+    ("email", "expected_text"),
+    [
+        (
+            "user@example.com",
+            lambda: t("settings.chatgpt_account.account_email", email="user@example.com"),
+        ),
+        (None, lambda: t("settings.chatgpt_account.connected")),
+    ],
+)
+def test_signed_in_chatgpt_card_shows_account_line_instead_of_description(
+    monkeypatch: pytest.MonkeyPatch,
+    email: str | None,
+    expected_text: Callable[[], str],
+) -> None:
+    view, _ = _make_settings_view(monkeypatch)
+    view.load_from_settings(AppSettingsVNext(), config_path=Path("settings.json"))
+    view._on_llm_selected(TranslationModel.GPT_6_LUNA.value)
+    view._chatgpt_intents = SimpleNamespace(
+        account_snapshot=lambda: ChatGptAccountSnapshot(signed_in=True, email=email)
+    )
+
+    view.refresh_chatgpt_account()
+
+    assert not view._chatgpt_account_status.visible
+    assert view._chatgpt_account_email.visible
+    assert view._chatgpt_account_email.value == expected_text()
+    assert view._chatgpt_account_email.size == view._chatgpt_usage_button.style.text_style.size
+    assert view._chatgpt_usage_button.visible
+    assert view._chatgpt_sign_out_button.visible
+    assert not view._chatgpt_connect_button.visible
+
+    view._chatgpt_intents = SimpleNamespace(
+        account_snapshot=lambda: ChatGptAccountSnapshot(signed_in=False)
+    )
+    view.refresh_chatgpt_account()
+
+    assert not view._chatgpt_account_status.visible
+    assert not view._chatgpt_account_email.visible
+    assert view._chatgpt_connect_button.visible
 
 
 def test_overlay_distance_step_buttons_apply_immediately(

@@ -1852,6 +1852,10 @@ def compose_application_runtime(
         translation_enabled=translation_runtime_enabled,
     )
 
+    def on_llm_availability_changed(needs_key: bool) -> None:
+        presentation.set_dashboard_translation_needs_key(needs_key)
+        llm_connection_readiness.sync()
+
     provider_runtime: ProviderRuntimeComponents = compose_provider_runtime(
         config_path=config_path,
         settings=settings,
@@ -1885,7 +1889,7 @@ def compose_application_runtime(
         managed_release=managed_release,
         managed_delegate_ready=managed_delegate_ready,
         runtime_logging=runtime_logging,
-        translation_needs_key_sink=(presentation.set_dashboard_translation_needs_key),
+        translation_needs_key_sink=on_llm_availability_changed,
         usage_refresh=refresh_managed_usage,
         failure_sink=log_error,
         success_sink=log_basic,
@@ -1910,6 +1914,7 @@ def compose_application_runtime(
             presentation.show_founder_letter_dialog()
 
     def on_translation_runtime_state_changed() -> None:
+        llm_connection_readiness.sync()
         require_vrc_mic_sync().publish_delta()
         current_overlay = overlay
         if current_overlay is not None:
@@ -1987,6 +1992,7 @@ def compose_application_runtime(
 
     def install_pipeline(components: RuntimePipelineComponents) -> None:
         pipeline.install(components)
+        llm_connection_readiness.sync()
 
     pipeline_launcher = RuntimePipelineLauncher(
         config_path=config_path,

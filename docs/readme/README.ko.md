@@ -10,7 +10,7 @@
 
 <p align="center">
 
-  <img src="https://img.shields.io/badge/version-2.7.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="Version" />
 
   <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
 
@@ -70,7 +70,7 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 - **LLM 기반 현지화** — 슬랭, 구어체, 반말/존댓말까지 자연스럽게
 - **맥락 기억** — 문맥을 고려한 자연스러운 대화 흐름 유지
 - **양방향 음성 번역** — 상대 음성도 같이 번역, VR 자막 오버레이 지원
-- **디스코드로 시작** — 복잡한 설정 과정 없이 최적의 옵션으로 사용 가능
+- **설정 없이 바로 사용** — 복잡한 설정 과정 없이 ChatGPT 혹은 디스코드 인증을 통해 바로 사용 가능
 - **가장 강력한 로컬 풀스택** — Parakeet에서 Gemma 4까지, 지금 가장 효율적인 모델을 탑재
 
 ## 자주 묻는 질문
@@ -94,7 +94,9 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 
 ## 번역 품질 비교
 
-![한국어 → 영어/일본어/중국어(간체) 번역에 대한 문장당 평균 에러 페널티 차트. 216개 멀티턴 샘플, Gemba MQM 평가, 낮을수록 좋음. 파란색 막대는 PuriPuly에서 사용할 수 있는 모델: 1위 Gemma 4 31B (0.353), 2위 Gemma 4 26B A4B (0.387), 3위 DeepSeek-V4 Flash 0731 (0.571), 4위 Gemma 4 12B QAT Q4 (0.855), 5위 Gemma 4 E4B QAT Q4 (1.577). 주황색 막대는 외부 베이스라인: Hy-MT-7B (1.863), Papago (2.699), Gemini 3.5 Live Translate (2.991), MiLMMT 46-4B (3.087), DeepL (3.914), Google Cloud Translation Basic (5.731).](../images/performance/2.png)
+![음성 인식과 번역을 결합한 전체 파이프라인의 문장당 평균 에러 페널티 차트. 한국어 → 영어/일본어/중국어(간체), 216개 멀티턴 샘플, Gemba MQM 평가, 낮을수록 좋음. 파란색 막대는 PuriPuly에서 사용할 수 있는 조합: Gemini Transcribe → Luna (0.676), Soniox STT → Luna (0.942), Qwen ASR 1.7B → Gemma 26B (1.024), Gemini Transcribe → Gemma 26B (1.084), Soniox STT → Gemma 26B (1.293), Qwen ASR 0.6B → Gemma 26B (2.374). 주황색 막대는 외부 비교 대상: Qwen 3.8 Live Translate (2.108), Gemini 3.5 Live Translate (3.754), Soniox Translate (4.989). 평가 모델: Gemini 3.7 Flash.](../images/performance/1.png)
+
+![문장당 평균 에러 페널티 차트. 한국어 → 영어/일본어/중국어(간체), 216개 멀티턴 샘플, Gemba MQM 평가, 낮을수록 좋음. 파란색 막대는 PuriPuly에서 사용할 수 있는 모델: GPT 6 Luna (0.130), Gemma 4 26B A4B (0.387), DeepSeek-V4 Flash 0731 (0.571), Gemma 4 E4B QAT Q4 (1.577). 주황색 막대는 외부 비교 대상: Qwen 3.8 Live Translate (1.392), Papago (2.699), Gemini 3.5 Translate (2.991), Soniox Translate (3.473), DeepL (3.914), Google Translation (5.731). Qwen 3.8, Gemini 3.5, Soniox는 문자 오류율(CER) 5% 이하인 결과만 선별. 평가 모델: Gemini 3.7 Flash.](../images/performance/2.png)
 
 - 파란색 막대 그래프들이 PuriPuly에서 사용할 수 있는 모델이에요.
 - 마이크로소프트의 Gemba MQM 프레임워크를 사용해서 실험했어요.
@@ -112,8 +114,8 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 | ------------------------- | --------- | ------------------- | ------ | ---------- |
 | **Gemma 4 E4B (Local)**   | 무제한       | 무제한                 | 5,000회 | 7,260회     |
 | **Gemma 4 26B A4B + 31B** | 13,940회 | 13,940회 | 3,680회 | 4,770회 |
-| **DeepSeek V4 Flash (OpenRouter)** | 17,020회   | 17,020회             | 3,860회 | 5,090회     |
 | **DeepSeek V4.1 Flash**   | 16,800회   | 16,800회             | 3,860회 | 5,070회     |
+| **GPT 6 Luna** | 8,680회 | 8,680회 | 3,170회 | 3,950회 |
 
 
 #### 기타 모델
@@ -121,6 +123,7 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 
 | LLM \ ASR                    | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 | ---------------------------- | --------- | ------------------- | ------ | ---------- |
+| **DeepSeek V4 Flash (OpenRouter)** | 17,020회   | 17,020회             | 3,860회 | 5,090회     |
 | **Gemini 3.8 Flash**         | 1,160회    | 1,160회              | 940회   | 1,000회     |
 | **Qwen 3.8 Flash**           | 7,460회    | 7,460회              | 2,990회 | 3,680회     |
 
@@ -134,8 +137,8 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 | ------------------------- | --------- | ------------------- | ------ | ---------- |
 | **Gemma 4 E4B (Local)**   | 0원        | 0원                  | ~0.3원  | ~0.2원      |
 | **Gemma 4 26B A4B + 31B** | ~0.1원 | ~0.1원 | ~0.4원 | ~0.3원 |
-| **DeepSeek V4 Flash (OpenRouter)** | ~0.08원    | ~0.08원              | ~0.4원  | ~0.3원      |
 | **DeepSeek V4.1 Flash**   | ~0.08원    | ~0.08원              | ~0.4원  | ~0.3원      |
+| **GPT 6 Luna** | ~0.16원 | ~0.16원 | ~0.4원 | ~0.4원 |
 
 
 #### 기타 모델
@@ -143,6 +146,7 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 
 | LLM \ ASR                    | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 | ---------------------------- | --------- | ------------------- | ------ | ---------- |
+| **DeepSeek V4 Flash (OpenRouter)** | ~0.08원    | ~0.08원              | ~0.4원  | ~0.3원      |
 | **Gemini 3.8 Flash**         | ~1.2원     | ~1.2원               | ~1.5원  | ~1.4원      |
 | **Qwen 3.8 Flash**            | ~0.2원     | ~0.2원               | ~0.5원  | ~0.4원      |
 
@@ -151,6 +155,7 @@ VRChat, Discord를 포함하여 여러 환경에서 사용 가능해요.
 - *1달러 당 사용 가능 횟수는 발화당 비용 테이블의 반올림 전 계산값 기준*
 - *모든 비용과 사용 가능 횟수는 근사치 계산*
 - *DeepSeek V4.1 Flash는 캐시 히트율 70%, V4 Flash는 60% 가정 / 피크 타임은 고려하지 않음*
+- *GPT 6 Luna는 OpenAI API 요금 기준, 캐시 할인 미적용 가정 / ChatGPT로 연결하면 API 요금 대신 Codex 한도를 사용해요*
 - *Qwen API 비용은 베이징 리전 기준*
 - *요금표 기준: 2026년 9월 25일*
 - *1 달러 = 1400원*
@@ -469,121 +474,43 @@ Authorize 버튼을 눌렀는데도 인증이 안되어 있다면 재시도 하�
 
 ## 아키텍처
 
-![PuriPuly Heart 헥사고널 아키텍처 다이어그램](../architecture-light.png)
-
 [`docs/architecture.md`](../architecture.md)를 참고하세요.
 
 ---
 
 ## 개발
 
-### 환경
+Windows x64, 일반 GIL 활성 CPython 3.14, [uv](https://docs.astral.sh/uv/)가 필요해요. 저장소 루트에서 실행하세요.
 
-
-| 영역            | 권장 환경   | 문서                                                     |
-| ------------- | ------- | ------------------------------------------------------ |
-| Python 데스크톱 앱 | Windows | 지금 섹션                                                  |
-| Broker 서비스    | Linux   | [`broker/README.md`](../../broker/README.md)                 |
-| 네이티브 VR 오버레이  | Windows | [`native/overlay/README.md`](../../native/overlay/README.md) |
-
-
-### Python 환경
-
-Python 앱에는 일반 GIL 활성 CPython 3.14(Windows x64)가 필요해요.
-
-Windows 환경을 만들고 활성화하세요:
+### 설치
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
+uv sync --frozen --extra dev
 ```
 
-앱과 개발 의존성을 설치하세요:
-
-```powershell
-python -m pip install --upgrade pip
-pip install -e ".[dev]"
-```
-
-`uv`를 사용해도 됩니다:
-
-```powershell
-uv sync --dev
-```
-
-Linux 또는 WSL에서 작업할 때는 `.venv-wsl`이 있으면 사용하세요.
-
-```bash
-UV_PROJECT_ENVIRONMENT=.venv-wsl uv sync --dev
-```
-
-`direnv`로 구성된 저장소에서는 다음 명령으로 실행할 수 있어요:
-
-```bash
-direnv exec . <command>
-```
-
-### 앱 실행
-
-Flet 데스크톱 앱을 실행하세요:
-
-```powershell
-python -m puripuly_heart.main run-gui
-```
-
-동일한 `uv` 명령은:
+### GUI
 
 ```powershell
 uv run python -m puripuly_heart.main run-gui
 ```
 
-숨겨진 UI 상태를 위한 개발자 미리보기 컨트롤은 다음으로 활성화해요:
+### CLI
+
+CLI로 GUI 없이 앱을 실행하거나 이미 실행 중인 앱을 제어할 수 있어요. 자세한 명령은 [CLI 안내](../cli.md)를 참고하세요.
 
 ```powershell
-python -m puripuly_heart.main run-gui --debug-ui-preview
+uv run python -m puripuly_heart.main cli --help
 ```
 
-### Python 검증
-
-Python 소스와 테스트를 포맷하세요:
+### 검증
 
 ```powershell
-black src tests
+uv run black --check src tests
+uv run ruff check src tests
+uv run python -m pytest
 ```
 
-파일을 수정하지 않고 포맷을 확인하려면:
-
-```powershell
-black --check src tests
-```
-
-린트 검사를 실행하세요:
-
-```powershell
-ruff check src tests
-```
-
-전체 Python 테스트 스위트를 실행하세요:
-
-```powershell
-python -m pytest
-```
-
-개발 중 특정 테스트 파일이나 디렉터리를 실행하려면:
-
-```powershell
-python -m pytest tests/path/to/test_file.py
-```
-
-### 기타 영역
-
-Broker 문서는 [`broker/README.md`](../../broker/README.md)에서 관리해요.
-
-네이티브 VR 오버레이 문서는 [`native/overlay/README.md`](../../native/overlay/README.md)에서 관리해요.
-
-커스텀 HTTP API 확장 문서는 [`docs/http-extensions.md`](../http-extensions.md)에서 관리해요. 연결에 필요한 JSON Schema는 [`docs/http-extension.schema.json`](../http-extension.schema.json)를 참조하세요.
-
-VRChat OSC 컨트롤은 [`docs/vrchat-osc.md`](../vrchat-osc.md)를 참조하세요.
+[Broker 개발(Linux)](../../broker/README.md) · [VR 오버레이 개발(Windows)](../../native/overlay/README.md)
 
 ---
 

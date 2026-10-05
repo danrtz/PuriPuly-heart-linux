@@ -27,7 +27,7 @@ _QQ_IDENTITY_MAX_LENGTH = 128
 
 class QqManagedAuthDialog:
     action_labels = [
-        "qq_auth.close",
+        "openrouter.handoff.chatgpt",
         "qq_auth.submit",
     ]
     waiting_action_labels = ["qq_auth.cancel"]
@@ -39,11 +39,13 @@ class QqManagedAuthDialog:
         on_continue: Callable[[], None],
         on_close: Callable[[], None],
         on_cancel: Callable[[], None] | None = None,
+        on_chatgpt: Callable[[], None] | None = None,
     ) -> None:
         self._page = page
         self._on_continue = on_continue
         self._on_close = on_close
         self._on_cancel = on_cancel
+        self._on_chatgpt = on_chatgpt
         self._dialog: ft.AlertDialog | None = None
         self._is_open = False
         self._is_waiting = False
@@ -51,11 +53,10 @@ class QqManagedAuthDialog:
         self._body_text: ft.Text | None = None
         self._actions: ft.Row | None = None
         self._continue_button: ft.TextButton | None = None
-        self._close_button: ft.TextButton | None = None
+        self._chatgpt_button: ft.TextButton | None = None
         self._cancel_button: ft.TextButton | None = None
         self._qq_identity_field: ft.TextField | None = None
         self._credential_field: ft.TextField | None = None
-        self._referral_id_field: ft.TextField | None = None
         self._error_text: ft.Text | None = None
 
     @property
@@ -74,10 +75,6 @@ class QqManagedAuthDialog:
     def credential(self) -> str:
         return self._field_value(self._credential_field)
 
-    @property
-    def referral_id(self) -> str:
-        return self._field_value(self._referral_id_field).strip().upper()
-
     def open(self) -> None:
         if self._dialog is not None and self._is_open:
             return
@@ -92,10 +89,6 @@ class QqManagedAuthDialog:
             helper_key="qq_auth.credential.helper",
             password=True,
         )
-        self._referral_id_field = self._build_text_field(
-            "discord_auth.referral_id.label",
-            helper_key="discord_auth.referral_id.helper",
-        )
         self._error_text = ft.Text(
             "",
             size=18,
@@ -109,33 +102,27 @@ class QqManagedAuthDialog:
             extra_body_controls=[
                 self._qq_identity_field,
                 self._credential_field,
-                self._referral_id_field,
                 self._error_text,
             ],
             body_spacing=44,
             action_top_margin=24,
-            actions=[
-                WarmDocumentDialogAction(
-                    label=t("qq_auth.close"),
-                    on_select=lambda: self._close_then(self._on_close),
-                    close_before_action=False,
-                ),
-                WarmDocumentDialogAction(
-                    label=t("qq_auth.submit"),
-                    on_select=self._submit,
-                    close_before_action=False,
-                ),
-            ],
+            modal=False,
+            on_dismiss=self._handle_dismiss,
+            actions=self._entry_actions(),
         )
         self._dialog = self._dialog_result.dialog
         self._body_text = self._dialog_result.body_text
         self._actions = self._dialog_result.action_row
-        self._close_button, self._continue_button = self._dialog_result.initial_action_buttons[0:2]
+        self._chatgpt_button, self._continue_button = self._dialog_result.initial_action_buttons[
+            0:2
+        ]
         self._cancel_button = None
         self._is_open = True
 
     def set_waiting(self) -> None:
         self._is_waiting = True
+        if self._dialog is not None:
+            self._dialog.modal = True
         self._set_fields_disabled(True)
         self._set_error_key(None)
         if self._dialog_result is None or self._body_text is None:
@@ -153,31 +140,20 @@ class QqManagedAuthDialog:
             ]
         )
         self._continue_button = None
-        self._close_button = None
+        self._chatgpt_button = None
         self._cancel_button = waiting_buttons[0]
         self._update_page_if_possible()
 
     def set_error(self, message_key: str, **message_kwargs: object) -> None:
         self._is_waiting = False
+        if self._dialog is not None:
+            self._dialog.modal = False
         self._set_fields_disabled(False)
         if self._body_text is not None:
             self._body_text.value = join_body_paragraphs(split_body_paragraphs(t("qq_auth.body")))
         if self._dialog_result is not None:
-            buttons = self._dialog_result.set_actions(
-                [
-                    WarmDocumentDialogAction(
-                        label=t("qq_auth.close"),
-                        on_select=lambda: self._close_then(self._on_close),
-                        close_before_action=False,
-                    ),
-                    WarmDocumentDialogAction(
-                        label=t("qq_auth.submit"),
-                        on_select=self._submit,
-                        close_before_action=False,
-                    ),
-                ]
-            )
-            self._close_button, self._continue_button = buttons[0:2]
+            buttons = self._dialog_result.set_actions(self._entry_actions())
+            self._chatgpt_button, self._continue_button = buttons[0:2]
             self._cancel_button = None
         self._set_error_key(message_key, **message_kwargs)
         self._update_page_if_possible()
@@ -228,6 +204,26 @@ class QqManagedAuthDialog:
             return False
         return True
 
+    def _entry_actions(self) -> list[WarmDocumentDialogAction]:
+        return [
+            WarmDocumentDialogAction(
+                label=t("openrouter.handoff.chatgpt"),
+                on_select=lambda: self._close_then(self._on_chatgpt or self._on_close),
+                close_before_action=False,
+            ),
+            WarmDocumentDialogAction(
+                label=t("qq_auth.submit"),
+                on_select=self._submit,
+                close_before_action=False,
+            ),
+        ]
+
+    def _handle_dismiss(self) -> None:
+        if not self._is_open or self._is_waiting:
+            return
+        self._is_open = False
+        self._on_close()
+
     def _cancel_waiting(self) -> None:
         self.close()
         if self._on_cancel is not None:
@@ -243,7 +239,6 @@ class QqManagedAuthDialog:
         for field in (
             self._qq_identity_field,
             self._credential_field,
-            self._referral_id_field,
         ):
             if field is not None:
                 field.disabled = disabled

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from copy import copy
 from dataclasses import replace
 from uuid import uuid4
 
@@ -11,6 +13,8 @@ from puripuly_heart.core.audio.ownership import (
     AudioSegmentIdentity,
     AudioSegmentSettingsSnapshot,
 )
+from puripuly_heart.core.diagnostic_validation import DIAGNOSTIC_SINK_PERSISTED_LOGS
+from puripuly_heart.core.runtime_logging import _DiagnosticRedactionFilter
 from puripuly_heart.core.stt.backend import (
     STTProviderEpochEnded,
     STTProviderInputTerminal,
@@ -200,6 +204,125 @@ def _span(start: int, end: int, *, epoch: int = 1) -> tuple[AudioCaptureSpan, ..
             normalized_end_sample=end,
         ),
     )
+
+
+class _PrivateStatus:
+    def __str__(self) -> str:
+        raise AssertionError("Provider status must not be rendered")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation", "ownership"),
+    [
+        ("receive", "stream"),
+        ("receive", "request"),
+        ("receive", "none"),
+        ("send", "stream"),
+        ("send", "request"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("code", "status", "safe_code", "safe_status", "kind"),
+    [
+        (400, "INVALID_ARGUMENT", "400", "INVALID_ARGUMENT", "validation"),
+        (503, "UNAVAILABLE", "503", "UNAVAILABLE", "connection_closed"),
+        (
+            "private-code",
+            "UNAVAILABLE private-status api_key=private-key\nprivate-transcript " * 100,
+            "none",
+            "unclassified",
+            "other",
+        ),
+        (True, ["private-status"], "none", "unclassified", "other"),
+        (1006, _PrivateStatus(), "1006", "unclassified", "other"),
+        (999999999, None, "none", "none", "other"),
+    ],
+)
+@pytest.mark.parametrize(
+    "error_type",
+    [RuntimeError, type("private-exception-name" * 100, (RuntimeError,), {})],
+    ids=["runtime_error", "external_error"],
+)
+async def test_transport_failure_preserves_private_safe_metadata_and_retires_consumer(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    ownership: str,
+    code: object,
+    status: object,
+    safe_code: str,
+    safe_status: str,
+    kind: str,
+    error_type: type[RuntimeError],
+) -> None:
+    error = error_type("private-message api_key=private-key private-transcript private-audio")
+    error.code = code
+    error.status = status
+    session, live = await _session()
+    try:
+        if ownership == "stream":
+            await session.begin_stream(RecognitionStreamIdentity("self", 1, 1, "epoch", ()))
+        elif ownership == "request":
+            await session.begin_turn(_request(1))
+        with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.stt.gemini_transcribe"):
+            if operation == "send":
+
+                async def fail_send(**kwargs) -> None:
+                    raise error
+
+                monkeypatch.setattr(live, "send_realtime_input", fail_send)
+                with pytest.raises(RuntimeError) as raised:
+                    await session.send_stream_audio(b"aa", source_ranges=_span(0, 1))
+                assert raised.value is error
+                assert not session.recognition_source_covers(_span(0, 1))
+            else:
+                live.push(error)
+            if ownership == "request":
+                terminal = await _next(session)
+                assert isinstance(terminal, STTProviderInputTerminal)
+                assert (terminal.outcome, terminal.epoch_disposition) == ("failed", "retire")
+            ended = await _next(session)
+            assert isinstance(ended, STTProviderEpochEnded)
+            assert not ended.orderly
+            with pytest.raises(RuntimeError):
+                await session.begin_turn(_request(2))
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "puripuly_heart.providers.stt.gemini_transcribe"
+        ]
+        assert records
+        redaction = _DiagnosticRedactionFilter(DIAGNOSTIC_SINK_PERSISTED_LOGS)
+        fields = []
+        for record in records:
+            assert record.exc_info is None
+            assert record.exc_text is None
+            assert record.stack_info is None
+            persisted = copy(record)
+            assert redaction.filter(persisted)
+            message = persisted.getMessage()
+            assert message == record.getMessage()
+            assert "private-" not in message
+            assert len(message) < 1024
+            metadata = dict(token.split("=", 1) for token in message.split()[2:])
+            assert all(len(value) <= 64 for value in metadata.values())
+            assert metadata["provider"] == "gemini_transcribe"
+            assert metadata["channel"] == (
+                "self" if ownership == "stream" else ("peer" if ownership == "request" else "none")
+            )
+            assert metadata["epoch"] == "epoch"
+            assert metadata["exception_class"] == (
+                "RuntimeError" if error_type is RuntimeError else "unclassified"
+            )
+            assert metadata["api_code"] == safe_code
+            assert metadata["api_status"] == safe_status
+            assert metadata["message_kind"] == kind
+            fields.append(metadata)
+        assert any(metadata["operation"] == operation for metadata in fields)
+        assert any(metadata["reason"] == ended.reason for metadata in fields)
+    finally:
+        await session.close()
 
 
 @pytest.mark.asyncio
@@ -778,9 +901,12 @@ async def test_duplicate_go_away_cannot_extend_first_deadline() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("time_left", [None, "0s"])
-async def test_go_away_without_positive_grace_retires_immediately(time_left: str | None) -> None:
+@pytest.mark.parametrize("time_left", [None, "0s", "private-time-left api_key=private-key"])
+async def test_go_away_without_positive_grace_retires_immediately(
+    caplog: pytest.LogCaptureFixture, time_left: str | None
+) -> None:
     session, live = await _session()
+    caplog.set_level(logging.INFO, logger="puripuly_heart.providers.stt.gemini_transcribe")
     try:
         await session.begin_turn(_request(1))
         live.push(_go_away(time_left=time_left))
@@ -790,6 +916,23 @@ async def test_go_away_without_positive_grace_retires_immediately(time_left: str
         assert isinstance(await _next(session), STTProviderEpochEnded)
         with pytest.raises(RuntimeError, match="closed"):
             await session.begin_turn(_request(2))
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "puripuly_heart.providers.stt.gemini_transcribe"
+        ]
+        assert records
+        redaction = _DiagnosticRedactionFilter(DIAGNOSTIC_SINK_PERSISTED_LOGS)
+        for record in records:
+            persisted = copy(record)
+            assert redaction.filter(persisted)
+            message = persisted.getMessage()
+            assert message == record.getMessage()
+            assert "private-" not in message
+            assert record.exc_info is None
+            metadata = dict(token.split("=", 1) for token in message.split()[2:])
+            assert metadata["reason"] == terminal.failure_reason
+            assert metadata["go_away"] == "true"
     finally:
         await session.close()
 

@@ -245,6 +245,7 @@ def make_owner(
     sink: FakeVadSink | None = None,
     smart_turn_owner=None,
     diagnostics: list | None = None,
+    state_changes: list | None = None,
     clock=None,
 ) -> tuple[
     PeerCaptureSessionOwner,
@@ -281,6 +282,7 @@ def make_owner(
         run_audio_loop=run_audio_loop or default_loop,
         vad_sink=vad_sink,
         smart_turn_owner=smart_turn_owner,
+        state_changed=state_changes.append if state_changes is not None else None,
         diagnostic_sink=diagnostics.append if diagnostics is not None else None,
     )
     return owner, admission_port, resolver_port, provider_port, created_sources, vad_sink
@@ -2955,6 +2957,327 @@ async def test_source_and_vad_failures_are_contained_and_release_provider() -> N
     assert source_snapshot.has_source is False
     assert vad_snapshot.failure_reason.value == "vad_failed"
     assert vad_snapshot.has_vad is False
+
+
+@pytest.mark.parametrize("failure_path", ["submit", "finish"])
+@pytest.mark.parametrize("cleanup_failure", [False, True])
+async def test_dispatch_failure_faults_active_capture_and_releases_queue(
+    failure_path: str,
+    cleanup_failure: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from puripuly_heart.core.audio.ownership import CaptureStreamInput
+    from tests.core.test_stt_scoped_engine import span
+
+    begin = asyncio.Event()
+    dispatch_entered = asyncio.Event()
+    fail_dispatch = asyncio.Event()
+    queue_ready = asyncio.Event()
+    resume_loop = asyncio.Event()
+    primary = ValueError("transcript=private audio=private credential=private")
+    guards = []
+    diagnostics = []
+    state_changes = []
+
+    class FailingSink:
+        async def handle_owned_vad_event(self, _event: object) -> None:
+            dispatch_entered.set()
+            await fail_dispatch.wait()
+            raise primary
+
+        async def handle_stream_input(self, _event: object) -> None:
+            raise AssertionError("queued stream must not dispatch")
+
+    async def run_loop(**kwargs) -> None:
+        guard = kwargs["sink"]
+        ledger = kwargs["segment_ledger"]
+        guards.append(guard)
+        await begin.wait()
+        for index in range(2):
+            segment_id = uuid4()
+            owned_start = ledger.observe_vad_event(
+                SpeechStart(
+                    segment_id,
+                    pre_roll=np.empty(0, dtype=np.float32),
+                    chunk=np.ones(8, dtype=np.float32),
+                    chunk_capture=(span(1, index * 8, (index + 1) * 8),),
+                ),
+                now_monotonic_s=float(index),
+            )
+            await guard.handle_owned_vad_event(owned_start)
+            if index == 0:
+                await dispatch_entered.wait()
+                await guard.handle_stream_input(
+                    CaptureStreamInput(np.ones(8, dtype=np.float32), (span(1, 16, 24),))
+                )
+            await guard.handle_owned_vad_event(
+                ledger.observe_vad_event(SpeechEnd(segment_id), now_monotonic_s=float(index) + 0.5)
+            )
+        queue_ready.set()
+        await resume_loop.wait()
+        if failure_path == "submit":
+            await guard.handle_stream_input(
+                CaptureStreamInput(np.ones(8, dtype=np.float32), (span(1, 24, 32),))
+            )
+
+    source = FailingCloseSource() if cleanup_failure else FakeSource()
+    owner, _admission, _resolver, provider, *_ = make_owner(
+        source_factory=lambda _config, _target: source,
+        run_audio_loop=run_loop,
+        sink=FailingSink(),
+        diagnostics=diagnostics,
+        state_changes=state_changes,
+    )
+    caplog.set_level(logging.ERROR, logger="puripuly_heart.core.runtime.peer_channel")
+    try:
+        active = await owner.apply_intent(
+            make_config(provider_id="gemini_transcribe"), enabled=True
+        )
+        assert active.state is PeerCaptureSessionState.RUNNING
+        assert active.effective_active is True
+        generation = active.generation
+        loop_task = owner.loop_task
+        assert loop_task is not None
+        ledger = owner.segment_ledger
+        assert ledger is not None
+        begin.set()
+        await asyncio.wait_for(queue_ready.wait(), timeout=1.0)
+        guard = guards[0]
+        expiry_task = guard._expiry_task
+        assert expiry_task is not None
+        assert guard.retention_budget.used_bytes > 0
+        assert guard._queue
+        fail_dispatch.set()
+        await wait_until(lambda: guard._worker.done())
+        resume_loop.set()
+        if cleanup_failure:
+            with pytest.raises(ExceptionGroup) as caught:
+                await asyncio.wait_for(asyncio.shield(loop_task), timeout=1.0)
+            assert caught.value.exceptions[0] is primary
+            assert isinstance(caught.value.exceptions[1], RuntimeError)
+        else:
+            await asyncio.wait_for(asyncio.shield(loop_task), timeout=1.0)
+        await wait_until(lambda: any(item.event.value == "failure" for item in diagnostics))
+
+        snapshot = owner.snapshot
+        assert snapshot.state is PeerCaptureSessionState.FAULTED
+        assert snapshot.desired_active is False
+        assert snapshot.effective_active is False
+        assert snapshot.failure_reason.value == "session_failed"
+        assert snapshot.has_source is False
+        assert snapshot.has_vad is False
+        assert snapshot.has_loop_task is False
+        assert snapshot.cleanup_debt == int(cleanup_failure)
+        assert source.close_calls == 1
+        assert provider.releases[-1] == ("abort", None)
+        assert guard.retention_budget.used_bytes == 0
+        assert not guard._queue
+        assert guard._queued_pcm_samples == 0
+        assert guard._queued_control_events == 0
+        assert guard._expiry_task is None
+        assert expiry_task.cancelled()
+        assert ledger.snapshots == ()
+        assert [item.outcome for item in ledger.terminal_receipts] == ["cancelled", "cancelled"]
+        assert state_changes[-1].state is PeerCaptureSessionState.FAULTED
+        assert state_changes[-1].effective_active is False
+        failures = [item for item in diagnostics if item.event.value == "failure"]
+        assert len(failures) == 1
+        assert failures[0].generation == generation
+        evidence = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "puripuly_heart.core.runtime.peer_channel"
+        ]
+        assert (
+            f"[PeerRuntime] runtime_failed channel=peer generation={generation} "
+            "exception_class=ValueError"
+        ) in evidence
+        if cleanup_failure:
+            assert (
+                f"[PeerRuntime] cleanup_failed channel=peer generation={generation} "
+                "exception_class=RuntimeError"
+            ) in evidence
+            assert any(message.startswith("[PeerRuntime] loop_failed ") for message in evidence)
+        else:
+            assert not any(message.startswith("[PeerRuntime] loop_failed ") for message in evidence)
+        assert all("private" not in message for message in evidence)
+    finally:
+        begin.set()
+        fail_dispatch.set()
+        resume_loop.set()
+        await owner.close()
+
+
+@pytest.mark.parametrize("stop_method", ["disable", "cancel"])
+async def test_cancellation_after_dispatch_failure_remains_cancellation(
+    stop_method: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from puripuly_heart.core.audio.ownership import CaptureStreamInput
+    from tests.core.test_stt_scoped_engine import span
+
+    begin = asyncio.Event()
+    dispatch_entered = asyncio.Event()
+    fail_dispatch = asyncio.Event()
+    queued = asyncio.Event()
+    guards = []
+    diagnostics = []
+
+    class FailingSink(FakeVadSink):
+        async def handle_stream_input(self, _event: object) -> None:
+            dispatch_entered.set()
+            await fail_dispatch.wait()
+            raise ValueError("private provider response")
+
+    async def run_loop(**kwargs) -> None:
+        guard = kwargs["sink"]
+        guards.append(guard)
+        await begin.wait()
+        await guard.handle_stream_input(
+            CaptureStreamInput(np.ones(8, dtype=np.float32), (span(1, 0, 8),))
+        )
+        await dispatch_entered.wait()
+        await guard.handle_stream_input(
+            CaptureStreamInput(np.ones(8, dtype=np.float32), (span(1, 8, 16),))
+        )
+        queued.set()
+        await asyncio.Event().wait()
+
+    owner, _admission, _resolver, provider, sources, *_ = make_owner(
+        run_audio_loop=run_loop, sink=FailingSink(), diagnostics=diagnostics
+    )
+    caplog.set_level(logging.ERROR, logger="puripuly_heart.core.runtime.peer_channel")
+    config = make_config(provider_id="gemini_transcribe")
+    try:
+        await owner.apply_intent(config, enabled=True)
+        loop_task = owner.loop_task
+        assert loop_task is not None
+        begin.set()
+        await asyncio.wait_for(queued.wait(), timeout=1.0)
+        guard = guards[0]
+        assert guard.retention_budget.used_bytes > 0
+        fail_dispatch.set()
+        await wait_until(lambda: guard._worker.done())
+        if stop_method == "cancel":
+            loop_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await loop_task
+        await owner.apply_intent(config, enabled=False)
+
+        assert loop_task.cancelled()
+        assert owner.snapshot.state is PeerCaptureSessionState.STOPPED
+        assert owner.snapshot.effective_active is False
+        assert owner.snapshot.failure_reason is None
+        assert sources[0].close_calls == 1
+        assert provider.releases[-1] == ("abort", None)
+        assert guard.retention_budget.used_bytes == 0
+        assert not guard._queue
+        assert not any(item.event.value == "failure" for item in diagnostics)
+        evidence = [record.getMessage() for record in caplog.records]
+        assert any(
+            message.startswith("[PeerRuntime] cleanup_failed ")
+            and message.endswith("exception_class=ValueError")
+            for message in evidence
+        )
+        assert not any(message.startswith("[PeerRuntime] runtime_failed ") for message in evidence)
+        assert not any(message.startswith("[PeerRuntime] loop_failed ") for message in evidence)
+        assert all("private" not in message for message in evidence)
+    finally:
+        begin.set()
+        fail_dispatch.set()
+        await owner.close()
+
+
+@pytest.mark.parametrize("exception_name", ["Unsafe Class\nprivate", "E" * 129, "비공개Error"])
+async def test_runtime_exception_class_is_bounded_metadata(
+    exception_name: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from puripuly_heart.core.runtime_logging import _is_metadata_only_text
+
+    fail_loop = asyncio.Event()
+    failure_type = type(exception_name, (RuntimeError,), {})
+
+    async def run_loop(**_kwargs) -> None:
+        await fail_loop.wait()
+        raise failure_type("private transcript credential provider status")
+
+    owner, _admission, _resolver, provider, sources, *_ = make_owner(run_audio_loop=run_loop)
+    caplog.set_level(logging.ERROR, logger="puripuly_heart.core.runtime.peer_channel")
+    try:
+        active = await owner.apply_intent(make_config(), enabled=True)
+        loop_task = owner.loop_task
+        assert loop_task is not None
+        fail_loop.set()
+        await asyncio.wait_for(asyncio.shield(loop_task), timeout=1.0)
+        assert owner.snapshot.state is PeerCaptureSessionState.FAULTED
+        assert owner.snapshot.failure_reason.value == "session_failed"
+        assert sources[0].close_calls == 1
+        assert provider.releases[-1] == ("abort", None)
+        records = [
+            record
+            for record in caplog.records
+            if record.name == "puripuly_heart.core.runtime.peer_channel"
+        ]
+        assert len(records) == 1
+        assert records[0].getMessage() == (
+            f"[PeerRuntime] runtime_failed channel=peer generation={active.generation} "
+            "exception_class=UnknownError"
+        )
+        assert _is_metadata_only_text(records[0].getMessage())
+        assert records[0].exc_info is None
+    finally:
+        fail_loop.set()
+        await owner.close()
+
+
+async def test_unexpected_loop_completion_cleanup_failure_is_observable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    finish_loop = asyncio.Event()
+
+    class FailingDrainProvider(FakeProvider):
+        async def release(self, *, mode: str, release_backend_after=None) -> None:
+            await super().release(mode=mode, release_backend_after=release_backend_after)
+            if mode == "drain":
+                raise OSError("private provider response")
+
+    async def run_loop(**_kwargs) -> None:
+        await finish_loop.wait()
+
+    provider = FailingDrainProvider()
+    owner, _admission, _resolver, _provider, sources, *_ = make_owner(
+        run_audio_loop=run_loop, provider=provider
+    )
+    caplog.set_level(logging.ERROR, logger="puripuly_heart.core.runtime.peer_channel")
+    try:
+        active = await owner.apply_intent(make_config(), enabled=True)
+        loop_task = owner.loop_task
+        assert loop_task is not None
+        finish_loop.set()
+        with pytest.raises(OSError):
+            await asyncio.wait_for(asyncio.shield(loop_task), timeout=1.0)
+        await wait_until(
+            lambda: any(
+                record.getMessage().startswith("[PeerRuntime] loop_failed ")
+                for record in caplog.records
+            )
+        )
+        assert owner.snapshot.state is PeerCaptureSessionState.STOPPED
+        assert owner.snapshot.desired_active is False
+        assert owner.snapshot.effective_active is False
+        assert owner.snapshot.has_source is False
+        assert owner.snapshot.has_loop_task is False
+        assert sources[0].close_calls == 1
+        assert provider.releases[-1] == ("drain", None)
+        assert (
+            f"[PeerRuntime] loop_failed channel=peer generation={active.generation} "
+            "exception_class=OSError"
+        ) in [record.getMessage() for record in caplog.records]
+        assert all("private" not in record.getMessage() for record in caplog.records)
+    finally:
+        finish_loop.set()
+        await owner.close()
 
 
 async def test_terminal_process_loss_faults_and_allows_retry() -> None:

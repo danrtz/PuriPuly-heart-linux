@@ -94,7 +94,7 @@ async def test_translation_model_control_materializes_provider_and_connection() 
     assert result is applied[0]
     updated = applied[0]
     assert updated.intent.translation.model == TranslationModel.DEEPSEEK_V4_FLASH.value
-    assert updated.intent.translation.connection == TranslationConnection.MANAGED.value
+    assert updated.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert (
         provider_llm_for_translation(
             updated.intent.translation.model,
@@ -244,9 +244,10 @@ async def test_osc_model_only_restores_regional_managed_connection_history() -> 
     )
     await application.set_translation_model("gpt_6_luna")
     assert current.intent.translation.connection == "chatgpt"
-    await application.set_translation_model("deepseek_v4_flash")
+    await application.set_translation_model("deepseek_v4_flash_41")
+    assert current.intent.translation.model == "deepseek_v4_flash_41"
     assert current.intent.translation.connection == "managed_china"
-    assert current.intent.translation.connection_history["deepseek_v4_flash"] == "managed_china"
+    assert current.intent.translation.connection_history["deepseek_v4_flash_41"] == "managed_china"
     runtime = resolve_llm_config(runtime_resolution_input_from_vnext(current)).primary
     assert runtime.credential.reference == "openrouter:managed_qq"
 

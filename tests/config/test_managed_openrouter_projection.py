@@ -119,14 +119,14 @@ def test_byok_target_projects_managed_qwen_without_mutating_source() -> None:
 
 def test_byok_target_clears_managed_china_translation_state() -> None:
     settings = _vnext(
-        model=TranslationModel.DEEPSEEK_V4_FLASH.value,
+        model=TranslationModel.DEEPSEEK_V4_FLASH_41.value,
         connection=TranslationConnection.MANAGED_CHINA.value,
         openrouter_source="managed",
-        openrouter_alias=OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_MANAGED.value,
-        openrouter_model=OpenRouterLLMModel.DEEPSEEK_V4_FLASH.value,
-        openrouter_routing=OpenRouterProviderRouting.DEEPSEEK_ONLY.value,
+        openrouter_alias=OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_MANAGED.value,
+        openrouter_model=OpenRouterLLMModel.DEEPSEEK_V4_FLASH_41.value,
+        openrouter_routing=OpenRouterProviderRouting.DEEPSEEK_V4_FLASH_41_STRICT.value,
         connection_history={
-            TranslationModel.DEEPSEEK_V4_FLASH.value: TranslationConnection.MANAGED_CHINA.value,
+            TranslationModel.DEEPSEEK_V4_FLASH_41.value: TranslationConnection.MANAGED_CHINA.value,
         },
     )
 
@@ -137,13 +137,13 @@ def test_byok_target_clears_managed_china_translation_state() -> None:
         OpenRouterCredentialSource.BYOK.value
     )
     assert target.intent.translation.openrouter_selection_alias == (
-        OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_BYOK.value
+        OpenRouterSelectionAlias.DEEPSEEK_V4_FLASH_41_BYOK.value
     )
     assert target.intent.translation.openrouter_provider_routing == (
         OpenRouterProviderRouting.DEFAULT.value
     )
     assert target.intent.translation.connection == TranslationConnection.OPENROUTER.value
     assert (
-        target.intent.translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH.value]
+        target.intent.translation.connection_history[TranslationModel.DEEPSEEK_V4_FLASH_41.value]
         == TranslationConnection.OPENROUTER.value
     )

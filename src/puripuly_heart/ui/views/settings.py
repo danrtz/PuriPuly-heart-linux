@@ -26,6 +26,7 @@ from puripuly_heart.app.ports.settings_secrets import (
     SettingsSecretsPort,
 )
 from puripuly_heart.app.ports.settings_view import (
+    ActivationNoticeSettingsIntent,
     AudioInputSettingsIntent,
     AudioSettingsIntent,
     ChatboxSourceSettingsIntent,
@@ -306,6 +307,9 @@ _TRANSLATION_CONNECTION_LABEL_KEYS = {
     TranslationConnection.OFFICIAL_BYOK: "settings.translation_connection.official_byok",
     TranslationConnection.OLLAMA: "settings.translation_connection.ollama",
     TranslationConnection.CUSTOM_HTTP: "settings.translation_connection.custom_http",
+}
+_TRANSLATION_CONNECTION_DESCRIPTION_KEYS = {
+    TranslationConnection.CHATGPT: "settings.translation_connection.chatgpt.description",
 }
 _TRANSLATION_MODELS = (
     TranslationModel.MANAGED_GEMMA,
@@ -739,6 +743,7 @@ class SettingsView(ft.Column):
             self._chatbox_source_text,
             self._osc_connection_text,
             self._clipboard_auto_translate_text,
+            self._activation_notice_button,
             self._microphone_test_text,
             self._vrc_mic_text,
             self._mic_audio_text,
@@ -1365,9 +1370,18 @@ class SettingsView(ft.Column):
             color=COLOR_SECONDARY,
         )
         self._chatgpt_account_status = ft.Text(
-            t("settings.chatgpt_account.signed_out"),
+            "",
             size=18,
             color=COLOR_ON_BACKGROUND,
+            visible=False,
+        )
+        self._chatgpt_account_email = ft.Text(
+            "",
+            size=20,
+            color=COLOR_ON_BACKGROUND,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            visible=False,
         )
         self._chatgpt_connect_button = self._build_action_button(
             t("settings.chatgpt_account.connect"),
@@ -1392,6 +1406,7 @@ class SettingsView(ft.Column):
                     self._chatgpt_account_title,
                     ft.Container(height=4),
                     self._chatgpt_account_status,
+                    self._chatgpt_account_email,
                     ft.Row(
                         [
                             self._chatgpt_usage_button,
@@ -1593,6 +1608,22 @@ class SettingsView(ft.Column):
             value=self._telemetry_enabled_text,
         )
 
+        self._activation_notice_title = ft.Text(
+            t("settings.activation_notice.title"),
+            size=24,
+            weight=ft.FontWeight.BOLD,
+            color=COLOR_SECONDARY,
+        )
+        self._activation_notice_button = self._build_clickable_text(
+            t("settings.option.on"),
+            self._on_activation_notice_click,
+        )
+        self._activation_notice_button.disabled = True
+        self._activation_notice_card = self._wrap_unit_card(
+            title=self._activation_notice_title,
+            value=self._activation_notice_button,
+        )
+
         self._vrc_mic_text = self._build_clickable_text(
             t("settings.vrc_mic.on"),
             self._on_vrc_mic_click,
@@ -1733,6 +1764,9 @@ class SettingsView(ft.Column):
                 clipboard_auto_translate=clipboard_auto_translate_card,
                 vrchat_mic_intercept=vrc_mic_card,
                 telemetry_enabled=self._telemetry_enabled_card,
+                activation_notice=self._activation_notice_card,
+                activation_notice_middle=self._wrap_empty_unit_card(),
+                activation_notice_trailing=self._wrap_empty_unit_card(),
             ),
             placeholder_factory=lambda: self._vrchat_osc_card,
         )
@@ -3025,8 +3059,8 @@ class SettingsView(ft.Column):
         return t(_TRANSLATION_CONNECTION_LABEL_KEYS[connection])
 
     def _translation_connection_display_description(self, connection: TranslationConnection) -> str:
-        _ = connection
-        return ""
+        key = _TRANSLATION_CONNECTION_DESCRIPTION_KEYS.get(connection)
+        return t(key) if key else ""
 
     def _set_translation_connection_text(self, text: str) -> None:
         text_control = self._translation_connection_text.content
@@ -3115,6 +3149,16 @@ class SettingsView(ft.Column):
             self._telemetry_enabled_text,
             self._telemetry_enabled_display_label(settings),
         )
+
+    def _sync_activation_notice_card(self) -> None:
+        settings = self._general_snapshot
+        enabled = settings.activation_notice_enabled if settings is not None else True
+        self._set_unit_card_value_text(
+            self._activation_notice_button,
+            t("settings.option.on" if enabled else "settings.option.off"),
+        )
+        self._activation_notice_button.disabled = settings is None
+        _update_control_if_mounted(self._activation_notice_button)
 
     def _active_prompt_key_for_settings(
         self,
@@ -3881,6 +3925,7 @@ class SettingsView(ft.Column):
             else "settings.clipboard_auto_translate.off"
         )
         self._sync_telemetry_enabled_card(general)
+        self._sync_activation_notice_card()
         # Prompt
         provider_name = self._active_prompt_key()
         self._prompt_editor.set_provider(provider_name)
@@ -5131,15 +5176,24 @@ class SettingsView(ft.Column):
         snapshot = intents.account_snapshot() if intents is not None else None
         signed_in = bool(snapshot is not None and snapshot.signed_in)
         in_progress = bool(snapshot is not None and snapshot.in_progress)
-        if signed_in and snapshot is not None and snapshot.email:
-            status = t("settings.chatgpt_account.signed_in", email=snapshot.email)
-        elif signed_in:
-            status = t("settings.chatgpt_account.signed_in_no_email")
-        elif in_progress:
-            status = t("settings.chatgpt_account.in_progress")
-        else:
-            status = t("settings.chatgpt_account.signed_out")
-        self._chatgpt_account_status.value = status
+        email = snapshot.email if snapshot is not None else None
+        self._chatgpt_account_title.value = t("settings.chatgpt_account.title")
+        self._chatgpt_account_status.value = (
+            t("settings.chatgpt_account.in_progress") if in_progress else ""
+        )
+        self._chatgpt_account_status.visible = in_progress
+        self._chatgpt_account_email.value = (
+            t("settings.chatgpt_account.account_email", email=email)
+            if email
+            else t("settings.chatgpt_account.connected")
+        )
+        self._chatgpt_account_email.visible = signed_in
+        _set_text_button_label(
+            self._chatgpt_usage_button, t("settings.chatgpt_account.manage_usage")
+        )
+        _set_text_button_label(
+            self._chatgpt_sign_out_button, t("settings.chatgpt_account.sign_out")
+        )
         _set_text_button_label(
             self._chatgpt_connect_button,
             t(
@@ -6601,6 +6655,17 @@ class SettingsView(ft.Column):
             self._clipboard_auto_translate_text.update()
         self._emit_settings_changed(ClipboardSettingsIntent(new_value))
 
+    def _on_activation_notice_click(self, e) -> None:
+        if self._general_snapshot is None or self._activation_notice_button.disabled:
+            return
+        enabled = not self._general_snapshot.activation_notice_enabled
+        self._general_snapshot = replace(
+            self._general_snapshot,
+            activation_notice_enabled=enabled,
+        )
+        self._sync_activation_notice_card()
+        self._emit_settings_changed(ActivationNoticeSettingsIntent(enabled))
+
     def _on_telemetry_enabled_click(self, e) -> None:
         _ = e
         if not is_control_mounted(self) or self._general_snapshot is None:
@@ -6805,6 +6870,8 @@ class SettingsView(ft.Column):
         self._chatbox_source_title.value = t("settings.chatbox_include_source")
         self._clipboard_auto_translate_title.value = t("settings.clipboard_auto_translate")
         self._telemetry_enabled_title.value = t("settings.telemetry.title")
+        self._activation_notice_title.value = t("settings.activation_notice.title")
+        self._sync_activation_notice_card()
         self._peer_provider_title.value = t("settings.section.peer_stt")
         self._gpu_device_title.value = t("settings.gpu_device.asr")
         self._gpu_llm_title.value = t("settings.gpu_device.llm")
@@ -6853,6 +6920,15 @@ class SettingsView(ft.Column):
             self._api_guide_btn.style = self._get_button_style(ui_font)
         if self._openrouter_pkce_button:
             self._sync_openrouter_pkce_button_state(display_settings)
+        self._chatgpt_connect_button.style = self._get_button_style(
+            ui_font,
+            size=20,
+            default_color=COLOR_NEUTRAL_DARK,
+            disabled_color=COLOR_NEUTRAL_DARK,
+        )
+        self._chatgpt_usage_button.style = self._get_button_style(ui_font, size=20)
+        self._chatgpt_sign_out_button.style = self._get_button_style(ui_font, size=20)
+        self._sync_chatgpt_account_card()
         self._sync_clickable_text_control_fonts(ui_font)
         for glyph_text in (
             getattr(self, "_overlay_distance_decrease_glyph", None),
