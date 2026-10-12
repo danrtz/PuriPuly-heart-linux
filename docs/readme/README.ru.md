@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.8.2-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
   <img src="https://img.shields.io/badge/python-3.14-yellow" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform" />
@@ -253,7 +253,9 @@ PuriPuly работает лучше всего с облачным STT.
 <details>
 <summary><h3>Если кнопка Authorize не сработала</h3></summary>
 
-Попробуйте ещё раз или создайте API-ключ вручную:
+Можно обойти авторизацию в браузере: создайте API-ключ по инструкции ниже и вставьте его в поле OpenRouter API Key. Нажмите вне поля для сохранения и проверки; повторно нажимать кнопку авторизации не нужно.
+
+Ошибки сети, прокси, TLS-сертификата или сервиса не означают, что ключ недействителен. Приложение различает эти сбои и автоматически записывает безопасные диагностические данные без ключа и кода авторизации. Поддерживаются SOCKS5-прокси; нативная версия Windows сохраняет явно заданные настройки сертификатов CA. Проверка сертификатов остаётся включённой, а недоступный прокси не обходится автоматически.
 
 6. Нажмите на аккаунт в правом верхнем углу → вкладка API Keys → кнопка Create.
    ![step6](../images/openrouter/6.png)

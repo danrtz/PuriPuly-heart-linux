@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 from uuid import UUID
 
-import websockets
 from websockets.exceptions import InvalidStatus
 
 from puripuly_heart.config.runtime_resolution import OPENAI_MODEL_GPT_6_LUNA
+from puripuly_heart.core import network_clients
 from puripuly_heart.core.chatgpt.oauth import ChatGptAuthError, ChatGptReauthRequired
 from puripuly_heart.core.chatgpt.session import ChatGptAccessTokenPort
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
@@ -50,7 +50,7 @@ WebSocketConnector = Callable[[str, Mapping[str, str]], Awaitable[Any]]
 
 
 async def _connect_websocket(url: str, headers: Mapping[str, str]) -> Any:
-    return await websockets.connect(
+    return await network_clients.external_websocket_connect(
         url,
         additional_headers=dict(headers),
         max_size=None,

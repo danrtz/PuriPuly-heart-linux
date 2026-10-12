@@ -2170,6 +2170,65 @@ def test_load_writes_system_prompt_backup_and_resets_prompt(tmp_path: Path) -> N
     assert result.backup_path.read_bytes() == original_bytes
 
 
+def test_load_backs_up_custom_prompt_override_and_resets_it(tmp_path: Path) -> None:
+    compat = _compat()
+    serialization = _serialization()
+    fixed_now = datetime(2026, 6, 9, 1, 2, 3, tzinfo=timezone.utc)
+    path = tmp_path / "settings.json"
+    raw = serialization.to_dict(AppSettingsVNext())
+    raw["settings_version"] = 51
+    raw["intent"]["prompts"] = {"system_prompt_override": "keep this custom override"}
+    original_bytes = _write_json_bytes(path, raw)
+
+    result = compat.load_vnext_settings(path, now=fixed_now)
+
+    assert result.status == compat.SettingsPersistenceStatus.SUCCESS
+    assert result.settings is not None
+    assert result.settings.intent.prompts.system_prompt_override is None
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["settings_version"] == VNEXT_SETTINGS_SCHEMA_VERSION
+    assert persisted["intent"]["prompts"] == {"system_prompt_override": None}
+    prompt_backup = tmp_path / "system_prompt.pre-v51.20260609T010203Z.txt"
+    assert prompt_backup.read_text(encoding="utf-8") == "keep this custom override"
+    assert result.backup_path is not None
+    assert result.backup_path.read_bytes() == original_bytes
+
+
+def test_load_skips_system_prompt_backup_without_prompt_override(tmp_path: Path) -> None:
+    compat = _compat()
+    serialization = _serialization()
+    fixed_now = datetime(2026, 6, 9, 1, 2, 3, tzinfo=timezone.utc)
+    path = tmp_path / "settings.json"
+    raw = serialization.to_dict(AppSettingsVNext())
+    raw["settings_version"] = 51
+    raw["intent"]["prompts"] = {"system_prompt_override": None}
+    _write_json_bytes(path, raw)
+
+    result = compat.load_vnext_settings(path, now=fixed_now)
+
+    assert result.status == compat.SettingsPersistenceStatus.SUCCESS
+    assert result.migrated is True
+    assert result.settings is not None
+    assert result.settings.intent.prompts.system_prompt_override is None
+    assert not list(tmp_path.glob("system_prompt*.txt"))
+
+
+def test_load_keeps_custom_prompt_override_on_current_version(tmp_path: Path) -> None:
+    compat = _compat()
+    serialization = _serialization()
+    path = tmp_path / "settings.json"
+    raw = serialization.to_dict(AppSettingsVNext())
+    raw["intent"]["prompts"] = {"system_prompt_override": "keep this custom override"}
+    _write_json_bytes(path, raw)
+
+    result = compat.load_vnext_settings(path)
+
+    assert result.status == compat.SettingsPersistenceStatus.SUCCESS
+    assert result.settings is not None
+    assert result.settings.intent.prompts.system_prompt_override == "keep this custom override"
+    assert not list(tmp_path.glob("system_prompt*.txt"))
+
+
 def test_load_skips_system_prompt_backup_when_already_default(tmp_path: Path) -> None:
     from puripuly_heart.config.prompts import load_prompt_for_provider
 

@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.8.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.8.2-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
   <img src="https://img.shields.io/badge/python-3.14-yellow" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform" />
@@ -252,7 +252,9 @@ PuriPulyはクラウドSTTと組み合わせると最良の体験になります
 <details>
 <summary><h3>Authorizeボタンを押しても認証されない場合</h3></summary>
 
-Authorizeボタンを押しても認証されない場合は、再試行するか、以下の手順で直接APIキーを発行して貼り付けてください。
+以下の手順でAPIキーを発行し、OpenRouter API Key欄に貼り付けると、ブラウザー認証を省略できます。入力欄の外をクリックすると保存と検証が行われます。認証ボタンをもう一度押す必要はありません。
+
+ネットワーク、プロキシ、TLS証明書、サービスのエラーは、キーが無効であることを意味しません。アプリは失敗の種類を区別し、キーや認証コードを含まない安全な診断情報を自動記録します。SOCKS5プロキシに対応し、Windowsネイティブ版は明示的なCA証明書設定を維持します。証明書検証を無効にしたり、接続できないプロキシを自動的に迂回したりしません。
 
 6. 右上のアカウントをクリックし、左のAPI Keysタブを開いて、中央のCreateボタンを押します。
    ![step6](../images/openrouter/6.png)

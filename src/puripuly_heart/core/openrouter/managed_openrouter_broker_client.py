@@ -25,7 +25,7 @@ from puripuly_heart.app.ports.broker_client import (
     QqManagedStatusResult,
 )
 from puripuly_heart.config.provider_values import normalize_owned_referral_id
-from puripuly_heart.core import messages
+from puripuly_heart.core import messages, network_clients
 
 from .managed_openrouter_release import (
     ManagedOpenRouterChallengeSuccess,
@@ -521,7 +521,7 @@ class HttpManagedOpenRouterBrokerClient:
         async with self._client_lock:
             if self._client is None:
                 normalized_base_url = self.base_url.strip().rstrip("/")
-                self._client = httpx.AsyncClient(
+                self._client = network_clients.external_async_client(
                     base_url=normalized_base_url,
                     timeout=self.timeout,
                     transport=self.transport,

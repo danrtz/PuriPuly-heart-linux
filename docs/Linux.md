@@ -1,6 +1,6 @@
 # PuriPuly Heart on Linux
 
-This fork ports [kapitalismho/PuriPuly-heart](https://github.com/kapitalismho/PuriPuly-heart) to native Linux while keeping its interface, translation providers, conversation routing and settings model. It started from upstream `991ef0bdf06d744ebb6e7aa6d8df5d4ee5f8ca46` (2.7.0) and now integrates upstream `0f9ed03e` (2.8.0). The development branch is `linux-port`.
+This fork ports [kapitalismho/PuriPuly-heart](https://github.com/kapitalismho/PuriPuly-heart) to native Linux while keeping its interface, translation providers, conversation routing and settings model. It started from upstream `991ef0bdf06d744ebb6e7aa6d8df5d4ee5f8ca46` (2.7.0) and now integrates upstream `eac4fb46` (2.8.2 development snapshot). The development branch is `linux-port`.
 
 The original project and this derivative are licensed under **AGPL-3.0-or-later**. Original attribution, licenses and third-party notices remain in the repository. This is an independent fork, not an official upstream Linux release.
 
@@ -47,7 +47,7 @@ To rebuild native components separately:
 scripts/linux/build-native.sh
 ```
 
-GPU ASR uses `transcribe-cpp` 0.1.3 with Vulkan. The script disables its automatic system BLAS dependency because the upstream Rust bindings do not link that optional library correctly on Linux. Vulkan acceleration remains enabled.
+GPU ASR uses `transcribe-cpp` 0.1.3 with Vulkan. The script disables its automatic system BLAS dependency because the upstream Rust bindings do not link that optional library correctly on Linux. Vulkan acceleration remains enabled. Upstream dynamic-backend DLL packaging is enabled only on Windows; the Linux worker retains its statically linked inference backend.
 
 Local translation uses official llama.cpp **b10423**, commit `a94d563ed801d1da1b8c2432946de07d0231bb3d`, Linux CPU and Vulkan archives. Download sizes and SHA-256 digests are pinned and checked before extraction. The preparation command can also run independently:
 
@@ -154,6 +154,20 @@ The previous permissive GPU ingress workaround is replaced by upstream's explici
 The refreshed `uv.lock` includes Linux `python-xlib` and cross-platform `psutil`, while keeping Windows capture dependencies platform-specific. A separate checkout and virtual environment were used throughout; the installed app and user settings were not updated.
 
 The Linux speech worker, GTK shim and OpenXR overlay built successfully. Native tests passed 10 speech-worker and 254 overlay cases, including Python-to-native caption lifecycle checks. The overlay test suite requires `uv` on PATH; the Linux application installer itself does not. The rebuilt overlay passed an isolated Monado simulated-headset run with caption updates, visibility changes and clean shutdown. Recorded Japanese GPU self/peer sessions, live CPU↔GPU handoffs, forced speech-worker termination and manual recovery, and English CPU/GPU self/peer recognition plus local translation passed in an 88-second run. Twelve fixture sources closed, no worker processes survived shutdown, and no user microphone or live VRChat OSC was used. The final Python suite passed 7,137 tests with 68 skipped; Ruff, the locked dependency environment, shell syntax and diff checks also passed. Physical-headset/live VRChat, cloud-account and Windows artifact checks remain unverified.
+
+### Upstream 2.8.2 integration — October 12, 2026
+
+This update incorporates 31 upstream commits after `0f9ed03e` through `eac4fb46`, based on the merged Linux 2.8.0 update. It includes Soniox bearer-header authentication, asynchronous Deepgram connections with bounded shutdown, shared TLS/proxy handling and connection diagnostics, OpenRouter authentication reporting, translation continuity during provider replacement, and a longer shared conversation context (60 seconds / five entries). Upstream Windows-native archive and installer changes remain platform-specific.
+
+Upstream settings version 52 backs up and clears older custom system-prompt overrides so the revised two-person conversation prompts take effect. Review your prompt backup before restoring an override after upgrading. This validation used isolated settings and did not migrate the installed application's configuration.
+
+Linux retains its statically linked Vulkan speech engine; Windows alone enables the new dynamic-backend DLL packaging and runtime inventory. Package assets use upstream's filesystem resource resolver while preserving Linux OpenXR messages and virtual-environment interpreter paths. The architecture map follows upstream's shorter structure and retains the Linux adapter boundaries.
+
+The new shared network layer initially let Requests inherit OpenSSL-specific `SSL_CERT_FILE`/`SSL_CERT_DIR` overrides on Linux. Requests now loads system trust explicitly unless its own `REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` override is provided, preserving the independent policies exercised by upstream. Local HTTPS regressions verify rejection without the matching trust policy and acceptance with it. Windows updater tests explicitly select that platform, and the archived-interpreter fixture stages Linux's zlib extension so it can decompress the standard-library archive.
+
+The Linux worker, GTK shim and OpenXR overlay built successfully. All 10 native speech-worker tests and 254 native overlay tests passed. The rebuilt overlay passed an isolated Monado simulated-headset check, including caption revisions, visibility and shutdown. Recorded Japanese and English speech passed self/peer recognition and local translation, CPU↔GPU handoffs, and deliberate worker termination/recovery in a 93-second run. All 12 fixture sources closed with zero surviving workers. No microphone recording, live VRChat OSC or cloud-account requests were used.
+
+The final full Python suite passed 7,474 tests with 73 skipped (37 warnings); the focused connection/packaging suite passed 128 tests. Ruff, compileall, shell syntax, locked dependency consistency and diff checks passed. Physical-headset/live VRChat, cloud-account, fresh desktop visual and Windows release-artifact checks remain unverified. The installed checkout and settings were unchanged.
 
 ## Updates and removal
 
