@@ -15,9 +15,11 @@ from puripuly_heart.config.llm_profiles import (
     OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41,
     OPENROUTER_MODEL_GPT_6_LUNA,
 )
+from puripuly_heart.core import network_clients
 from puripuly_heart.core.error_messages import format_error_report_for_log, provider_failure_report
 from puripuly_heart.core.llm.latency import current_attempt
 from puripuly_heart.core.observability import ProviderObservationPort
+from puripuly_heart.core.openrouter.authentication import OpenRouterAuthenticationError
 from puripuly_heart.core.openrouter_credentials import normalize_managed_openrouter_user_identifier
 from puripuly_heart.core.openrouter_metadata import OpenRouterKeyMetadata
 from puripuly_heart.core.openrouter_routing import (
@@ -373,21 +375,29 @@ class OpenRouterLLMProvider:
         if not api_key:
             return False
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with network_clients.external_async_client(timeout=10.0) as client:
                 response = await client.get(
                     _OPENROUTER_KEY_URL,
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
-                return response.status_code == 200
-        except Exception:
+        except Exception as exc:
+            raise OpenRouterAuthenticationError.from_exception(
+                exc, stage="key_verification"
+            ) from None
+        if response.status_code == 200:
+            return True
+        if response.status_code == 401:
             return False
+        raise OpenRouterAuthenticationError.from_status(
+            response.status_code, stage="key_verification"
+        )
 
     @staticmethod
     async def fetch_key_metadata(api_key: str) -> OpenRouterKeyMetadata | None:
         if not api_key:
             return None
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with network_clients.external_async_client(timeout=10.0) as client:
                 response = await client.get(
                     _OPENROUTER_KEY_URL,
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -443,7 +453,7 @@ class HttpxOpenRouterClient:
 
         async with self._client_lock:
             if self._client is None:
-                self._client = httpx.AsyncClient(timeout=self.timeout)
+                self._client = network_clients.external_async_client(timeout=self.timeout)
             return self._client
 
     def _build_request_body(
@@ -482,6 +492,7 @@ class HttpxOpenRouterClient:
                 {"role": "user", "content": user_message},
             ],
             "reasoning": {"effort": "none"},
+            "temperature": 0.6,
             "provider": _build_provider_preferences(
                 self.provider_routing,
                 model=self.model,
@@ -491,8 +502,6 @@ class HttpxOpenRouterClient:
         }
         if explicit_cache:
             request_body["prompt_cache_options"] = {"mode": "explicit", "ttl": "30m"}
-        if self.model != OPENROUTER_MODEL_GPT_6_LUNA:
-            request_body["temperature"] = 0.6
         if len(self.models) == 1:
             request_body["model"] = self.models[0]
         else:

@@ -32,6 +32,8 @@ function Invoke-Checked {
         [string]$WorkingDirectory = $PWD
     )
     Push-Location $WorkingDirectory
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-Host "Starting: $FilePath $($ArgumentList -join ' ')"
     try {
         & $FilePath @ArgumentList
         if ($LASTEXITCODE -ne 0) {
@@ -39,6 +41,8 @@ function Invoke-Checked {
         }
     } finally {
         Pop-Location
+        $timer.Stop()
+        Write-Host ("Ended after {0:F3}s: {1}" -f $timer.Elapsed.TotalSeconds, $FilePath)
     }
 }
 
@@ -229,6 +233,9 @@ requires-python = ">=3.14,<3.15"
 org = "com.salee"
 product = "PuriPuly <3"
 company = "salee"
+
+[tool.flet.flutter.pubspec.dependency_overrides]
+jni_flutter = "1.0.3"
 "@ | Set-Content -LiteralPath (Join-Path $fixtureRoot "pyproject.toml") -Encoding utf8
 
     $env:FLET_CACHE_DIR = $fletCache
@@ -315,6 +322,9 @@ company = "salee"
     Get-ChildItem -LiteralPath (Join-Path $artifactRoot "app") -Directory -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
     Get-ChildItem -LiteralPath (Join-Path $artifactRoot "app") -File -Filter "*.pyc" -Recurse | Remove-Item -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot "native\windows_host\product_bootstrap.py") -Destination (Join-Path $artifactRoot "app\product_bootstrap.py") -Force
+    foreach ($module in @("_puripuly_native_runtime.py", "sitecustomize.py")) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "native\windows_host\$module") -Destination (Join-Path $artifactRoot "app\$module") -Force
+    }
     Copy-Tree -Source (Join-Path $repoRoot "examples\http_extensions") -Destination (Join-Path $artifactRoot "examples\http_extensions")
 
     Invoke-Checked -FilePath $ToolPython -ArgumentList @(
@@ -328,11 +338,8 @@ company = "salee"
     Invoke-Checked -FilePath $cargoCommand -ArgumentList @(
         "build", "--manifest-path", (Join-Path $repoRoot "native\overlay\Cargo.toml"), "--locked", "--release", "--bin", "PuriPulyHeartOverlay", "--target-dir", $overlayTarget
     ) -WorkingDirectory $repoRoot
-    Invoke-Checked -FilePath $cargoCommand -ArgumentList @(
-        "build", "--manifest-path", (Join-Path $repoRoot "native\gpu_worker\Cargo.toml"), "--locked", "--release", "--bin", "PuriPulyHeartGpuWorker", "--target-dir", $gpuTarget
-    ) -WorkingDirectory $repoRoot
+    & (Join-Path $PSScriptRoot "build-gpu-worker-release.ps1") -TargetDir $gpuTarget -OutputDir $artifactRoot
     Copy-Item -LiteralPath (Join-Path $overlayTarget "release\PuriPulyHeartOverlay.exe") -Destination $artifactRoot -Force
-    Copy-Item -LiteralPath (Join-Path $gpuTarget "release\PuriPulyHeartGpuWorker.exe") -Destination $artifactRoot -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot "third_party\openvr\win64\openvr_api.dll") -Destination $artifactRoot -Force
     $cmakeCommand = (Get-Command cmake -ErrorAction Stop).Source
     Invoke-Checked -FilePath $cmakeCommand -ArgumentList @(
@@ -367,9 +374,28 @@ company = "salee"
         "--target-root", $artifactRoot, "--cmake-build-dir", $consoleBuildRoot,
         "--output", (Join-Path $evidenceRoot "vc-runtime.json")
     ) -WorkingDirectory $repoRoot
-    Invoke-Checked -FilePath (Join-Path $artifactRoot "python.exe") -ArgumentList @(
-        "-m", "puripuly_heart.release_evidence.native_distribution", "compile-runtime",
+    $compilePythonPath = $env:PYTHONPATH
+    $compilePythonHome = $env:PYTHONHOME
+    try {
+        $env:PYTHONHOME = $artifactRoot
+        $env:PYTHONPATH = "$(Join-Path $repoRoot 'src');$(Join-Path $artifactRoot 'site-packages')"
+        Invoke-Checked -FilePath (Join-Path $artifactRoot "python.exe") -ArgumentList @(
+            "-s", "-m", "puripuly_heart.release_evidence.native_distribution", "compile-runtime",
+            "--target-root", $artifactRoot, "--layout", $layoutPath,
+            "--output", (Join-Path $evidenceRoot "bytecode.json")
+        ) -WorkingDirectory $repoRoot
+    } finally {
+        $env:PYTHONPATH = $compilePythonPath
+        if ($null -eq $compilePythonHome) {
+            Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+        } else {
+            $env:PYTHONHOME = $compilePythonHome
+        }
+    }
+    Invoke-Checked -FilePath $ToolPython -ArgumentList @(
+        "-m", "puripuly_heart.release_evidence.native_distribution", "bundle-runtime",
         "--target-root", $artifactRoot, "--layout", $layoutPath,
+        "--bytecode", (Join-Path $evidenceRoot "bytecode.json"),
         "--output", (Join-Path $evidenceRoot "bytecode.json")
     ) -WorkingDirectory $repoRoot
     Invoke-Checked -FilePath $ToolPython -ArgumentList @(

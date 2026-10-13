@@ -65,8 +65,8 @@ class TranslationRuntimeConfig:
     peer_hangover_s: float = 0.6
     context_time_window_s: float = 30.0
     context_max_entries: int = 3
-    integrated_context_time_window_s: float = 40.0
-    integrated_context_max_entries: int = 4
+    integrated_context_time_window_s: float = 60.0
+    integrated_context_max_entries: int = 5
     low_latency_mode: bool = False
     low_latency_merge_gap_ms: int = 600
     low_latency_spec_retry_max: int = 1

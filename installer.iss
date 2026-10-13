@@ -31,7 +31,7 @@
   #error MyAppDataDirName must be one safe LocalApplicationData child directory name without traversal, roots, or separators.
 #endif
 #define MyAppDataRoot "{localappdata}\" + MyAppDataDirName
-#define MyAppVersion "2.8.0"
+#define MyAppVersion "2.8.2"
 #define MyAppPublisher "salee"
 #define MyAppURL "https://github.com/kapitalismho/PuriPuly-heart"
 #ifndef MyAppExeName
@@ -52,6 +52,7 @@
   #endif
   #define PackagedApplicationRoot "app\"
   #define PackagedSoxrRoot "site-packages\soxr"
+  #define AppShortcutIdentity 'AppUserModelID: "com.salee.PuriPulyHeart";'
   #ifndef NativeCleanupInclude
     #define NativeCleanupInclude MyPackagedAppDir + "\..\native-installer-cleanup.iss"
   #endif
@@ -61,14 +62,16 @@
 #else
   #define PackagedApplicationRoot ""
   #define PackagedSoxrRoot "soxr"
+  #define AppShortcutIdentity ""
 #endif
+#define AppIconRelativePath PackagedApplicationRoot + "puripuly_heart\data\icons\icon.ico"
 #define NotoCjkFontRelativePath PackagedApplicationRoot + "puripuly_heart\data\fonts\NotoSansCJK-Medium.ttc"
 #define LocalSttManifestRelativePath PackagedApplicationRoot + "puripuly_heart\data\models\qwen3-asr-0.6b-int8-sherpa.manifest.json"
 #define ParakeetV3ManifestRelativePath PackagedApplicationRoot + "puripuly_heart\data\models\parakeet-tdt-0.6b-v3-int8-sherpa.manifest.json"
 #define ParakeetJapaneseManifestRelativePath PackagedApplicationRoot + "puripuly_heart\data\models\parakeet-tdt-ctc-0.6b-ja-int8-sherpa.manifest.json"
 
 #define InstallerPrivacyDir "installer\privacy"
-#define CanonicalSettingsVersion 51
+#define CanonicalSettingsVersion 52
 #ifdef InstallerSmokeAppDataRoot
   #if (Len(InstallerSmokeAppDataRoot) < 3) || (Copy(InstallerSmokeAppDataRoot, 2, 2) != ":/")
     #error InstallerSmokeAppDataRoot must be an absolute drive path using forward slashes
@@ -196,11 +199,6 @@ korean.PrivacyPolicyLoadFailed=개인정보처리방침을 불러올 수 없습�
 japanese.PrivacyPolicyLoadFailed=プライバシーポリシーを読み込めません。インストールを続行できません。
 chinesesimplified.PrivacyPolicyLoadFailed=无法加载隐私政策。无法继续安装。
 chinesetraditional.PrivacyPolicyLoadFailed=無法載入隱私權政策。無法繼續安裝。
-english.TelemetryProfileUnsafe=Setup cannot safely identify the profile that will run PuriPuly. Start Setup without Run as administrator.
-korean.TelemetryProfileUnsafe=PuriPuly를 실행할 프로필을 안전하게 확인할 수 없습니다. 관리자 권한으로 실행하지 말고 설치 프로그램을 시작하세요.
-japanese.TelemetryProfileUnsafe=PuriPulyを実行するプロファイルを安全に特定できません。「管理者として実行」を使わずにセットアップを開始してください。
-chinesesimplified.TelemetryProfileUnsafe=安装程序无法安全确定将运行PuriPuly的用户配置文件。请不要使用“以管理员身份运行”来启动安装程序。
-chinesetraditional.TelemetryProfileUnsafe=安裝程式無法安全判斷將執行PuriPuly的使用者設定檔。請不要使用「以系統管理員身分執行」來啟動安裝程式。
 
 [Files]
 Source: "{#InstallerPrivacyDir}\en.txt"; Flags: dontcopy noencryption
@@ -226,10 +224,10 @@ Source: "{#ProcessCaptureSmokeArtifactRoot}\*"; DestDir: "{app}\process-capture-
 
 [Icons]
 #ifndef InstallerSmokeAppDataRoot
-Name: "{group}\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#AppIconRelativePath}"; {#AppShortcutIdentity}
 Name: "{group}\{cm:UninstallProgram,{#MyAppGroupName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
+Name: "{autodesktop}\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#AppIconRelativePath}"; Tasks: desktopicon; {#AppShortcutIdentity}
+Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppGroupName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#AppIconRelativePath}"; Tasks: quicklaunchicon; {#AppShortcutIdentity}
 #endif
 
 #ifndef NativeExperimental
@@ -1150,8 +1148,7 @@ end;
 
 function ProbeExistingTelemetryPreference(
   var Exists: Boolean;
-  var Enabled: Boolean;
-  var UnsafeProfile: Boolean
+  var Enabled: Boolean
 ): Boolean;
 var
   PowerShellPath: String;
@@ -1160,15 +1157,11 @@ var
 begin
   Exists := False;
   Enabled := True;
-  UnsafeProfile := False;
   PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   if ResolveInstallerTelemetryConfigPath() <> '' then begin
     PowerShellScript := '$p=''' + ResolveInstallerTelemetryConfigPath() + ''';';
   end else begin
     PowerShellScript :=
-      '$identity=[Security.Principal.WindowsIdentity]::GetCurrent();' +
-      '$principal=New-Object Security.Principal.WindowsPrincipal($identity);' +
-      'if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 24 };' +
       '$base=$env:LOCALAPPDATA;' +
       'if ([string]::IsNullOrWhiteSpace($base)) { $base=$env:APPDATA };' +
       'if ([string]::IsNullOrWhiteSpace($base)) { $base=Join-Path $HOME ''AppData\Local'' };' +
@@ -1207,7 +1200,6 @@ begin
   if not Result then begin
     exit;
   end;
-  UnsafeProfile := ResultCode = 24;
   Exists := ResultCode <> 22;
   if ResultCode = 20 then begin
     Enabled := True;
@@ -1302,13 +1294,9 @@ procedure LoadExistingTelemetryPreference();
 var
   Exists: Boolean;
   Enabled: Boolean;
-  UnsafeProfile: Boolean;
 begin
   TelemetryEnabled := True;
-  if not ProbeExistingTelemetryPreference(Exists, Enabled, UnsafeProfile) then begin
-    if UnsafeProfile then begin
-      RaiseException(CustomMessage('TelemetryProfileUnsafe'));
-    end;
+  if not ProbeExistingTelemetryPreference(Exists, Enabled) then begin
     RaiseException(CustomMessage('TelemetryPreferenceReadFailed'));
   end;
   if Exists then begin
