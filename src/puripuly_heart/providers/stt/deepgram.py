@@ -1,18 +1,20 @@
-"""Deepgram Realtime STT Backend using official SDK v5.
+"""Deepgram Realtime STT Backend using the official SDK.
 
 WebSocket-based Speech-to-Text using Deepgram's nova-3 model.
-Uses the official deepgram-sdk v5 with manual KeepAlive messages (every 5 seconds)
+Uses the official deepgram-sdk with manual KeepAlive messages (every 5 seconds)
 to prevent the 10-second timeout (NET-0001 error).
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Sequence
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
+from puripuly_heart.core.messages import ErrorDiagnostics
 from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
 from puripuly_heart.core.stt.backend import (
     LEGACY_STT_SESSION_PROJECTION,
@@ -26,6 +28,7 @@ from puripuly_heart.core.stt.backend import (
     STTProviderTurnUpdate,
     STTSessionProjection,
 )
+from puripuly_heart.core.stt.diagnostics import recognition_failure_diagnostics
 from puripuly_heart.core.stt.session_projection import STTSessionEventProjection
 
 logger = logging.getLogger(__name__)
@@ -34,7 +37,7 @@ _DEEPGRAM_KEYTERM_MODEL = "nova-3"
 
 @dataclass(slots=True)
 class DeepgramRealtimeSTTBackend(STTBackend):
-    """Deepgram Realtime STT Backend using official SDK v5."""
+    """Deepgram Realtime STT Backend using the official SDK."""
 
     api_key: str
     language: str  # Required: passed from wiring.py via get_deepgram_language()
@@ -145,6 +148,9 @@ class _DeepgramSDKSession(STTBackendSession):
         return self.model.strip().lower() == _DEEPGRAM_KEYTERM_MODEL
 
     def _build_transcript_event(self, result: Any) -> STTBackendTranscriptEvent | None:
+        message_type = getattr(result, "type", None)
+        if message_type is not None and message_type != "Results":
+            return None
         speech_final = getattr(result, "speech_final", False)
         is_final = getattr(result, "is_final", False)
         metadata = getattr(result, "metadata", None)
@@ -153,9 +159,13 @@ class _DeepgramSDKSession(STTBackendSession):
         )
         channel = getattr(result, "channel", None)
         alternatives = getattr(channel, "alternatives", None)
+        if message_type == "Results" and (channel is None or alternatives is None):
+            raise ValueError("deepgram result shape invalid")
         if alternatives:
             alternative = alternatives[0]
-            raw_transcript = str(getattr(alternative, "transcript", "") or "")
+            raw_transcript = getattr(alternative, "transcript", "") or ""
+            if not isinstance(raw_transcript, str):
+                raise TypeError("deepgram transcript shape invalid")
         elif from_finalize:
             raw_transcript = ""
         else:
@@ -211,6 +221,21 @@ class _DeepgramSDKSession(STTBackendSession):
                         assembly="append",
                         text=text,
                         provenance=provenance,
+                        observed_at=asyncio.get_running_loop().time(),
+                    )
+                )
+        if self._event_projection.channel == "peer" and not from_finalize:
+            sequence = self._event_projection.next_update_sequence(identity)
+            if sequence is not None:
+                self._event_projection.put_update(
+                    STTProviderTurnUpdate(
+                        identity=identity,
+                        sequence=sequence,
+                        stability="provisional",
+                        assembly="replace",
+                        text=" ".join(self._scoped_fragments + ([] if is_final else [text])),
+                        provenance=provenance,
+                        observed_at=asyncio.get_running_loop().time(),
                     )
                 )
         if from_finalize:
@@ -234,6 +259,7 @@ class _DeepgramSDKSession(STTBackendSession):
         epoch_disposition: str,
         degraded_reason: str | None = None,
         empty_is_success: bool = True,
+        failure_diagnostics: ErrorDiagnostics | None = None,
     ) -> None:
         identity = self._event_projection.active_identity
         if identity is None:
@@ -254,6 +280,15 @@ class _DeepgramSDKSession(STTBackendSession):
         else:
             outcome = "final" if text else "empty"
             authority = "authoritative"
+        if outcome in {"failed", "degraded"} and failure_diagnostics is None:
+            failure_diagnostics = recognition_failure_diagnostics(
+                None,
+                provider="deepgram",
+                channel=self._event_projection.channel or self.stream_label or "unknown",
+                operation="seal",
+                reason=degraded_reason or "deepgram_transport_error",
+                identity=identity,
+            )
         self._event_projection.terminal(
             STTProviderTurnTerminal(
                 identity=identity,
@@ -263,12 +298,31 @@ class _DeepgramSDKSession(STTBackendSession):
                 failure_reason=degraded_reason,
                 epoch_disposition=epoch_disposition,
                 provenance=tuple(self._scoped_provenance),
+                failure_diagnostics=failure_diagnostics,
             )
         )
         self._scoped_fragments.clear()
         self._scoped_provenance.clear()
 
-    def _scoped_transport_end(self, orderly: bool, reason: str) -> None:
+    def _scoped_transport_end(
+        self, orderly: bool, reason: str, exception: BaseException | None = None
+    ) -> None:
+        diagnostics = (
+            None
+            if orderly
+            else recognition_failure_diagnostics(
+                exception,
+                provider="deepgram",
+                channel=self._event_projection.channel or self.stream_label or "unknown",
+                operation={
+                    "deepgram_protocol_failed": "protocol",
+                    "deepgram_write_failed": "send",
+                    "deepgram_keepalive_failed": "send",
+                }.get(reason, "receive"),
+                reason=reason,
+                identity=self._event_projection.active_identity,
+            )
+        )
         identity = self._event_projection.active_identity
         provider_turn_id = identity.provider_turn_id if identity is not None else None
         if identity is not None:
@@ -282,11 +336,13 @@ class _DeepgramSDKSession(STTBackendSession):
                     epoch_disposition="retire",
                     degraded_reason=reason,
                     empty_is_success=False,
+                    failure_diagnostics=diagnostics,
                 )
         self._event_projection.end_epoch(
             orderly=orderly,
             reason=reason,
             provider_turn_id=provider_turn_id,
+            failure_diagnostics=diagnostics,
         )
 
     async def _emit_test_final(
@@ -336,7 +392,7 @@ class _DeepgramSDKSession(STTBackendSession):
                 "encoding": "linear16",
                 "sample_rate": self.sample_rate_hz,
                 "channels": 1,
-                "interim_results": False,
+                "interim_results": self.stream_label == "peer",
                 "punctuate": True,
                 "vad_events": False,
                 "endpointing": False,
@@ -354,12 +410,7 @@ class _DeepgramSDKSession(STTBackendSession):
             ):
 
                 def on_message(result: Any) -> None:
-                    try:
-                        event = self._build_transcript_event(result)
-                        if event is not None:
-                            self._put_event(event)
-                    except Exception as exc:
-                        logger.debug("Deepgram parse failed cause=%s", type(exc).__name__)
+                    self._handle_message(result)
 
                 def on_error(error: Any) -> None:
                     if not self._stopped:
@@ -370,7 +421,15 @@ class _DeepgramSDKSession(STTBackendSession):
                         )
                         logger.warning("Deepgram transport failed")
                         self._report_error(exc)
-                        self._scoped_transport_end(False, "deepgram_transport_error")
+                        self._scoped_transport_end(
+                            False,
+                            (
+                                "deepgram_protocol_failed"
+                                if isinstance(exc, json.JSONDecodeError)
+                                else "deepgram_transport_error"
+                            ),
+                            exc,
+                        )
                         self._stopped = True
 
                 def on_close(close_event: Any) -> None:
@@ -417,6 +476,7 @@ class _DeepgramSDKSession(STTBackendSession):
             if not self._connected.is_set():
                 self._startup_error = exc
             self._report_error(exc)
+            self._scoped_transport_end(False, "deepgram_transport_error", exc)
         finally:
             self._stopped = True
             self._startup_done.set()
@@ -430,11 +490,17 @@ class _DeepgramSDKSession(STTBackendSession):
             raise
         except Exception as exc:
             self._report_error(exc)
-            self._scoped_transport_end(False, "deepgram_transport_error")
+            self._scoped_transport_end(
+                False,
+                (
+                    "deepgram_protocol_failed"
+                    if isinstance(exc, ValueError | TypeError)
+                    else "deepgram_transport_error"
+                ),
+                exc,
+            )
 
     async def _send_loop(self, connection: Any) -> None:
-        from deepgram.extensions.types.sockets import ListenV1ControlMessage
-
         data: bytes | object | _AudioWrite = _STOP
         try:
             while True:
@@ -446,9 +512,9 @@ class _DeepgramSDKSession(STTBackendSession):
                 payload = data.payload if isinstance(data, _AudioWrite) else data
                 async with self._send_lock:
                     if payload is _FINALIZE:
-                        await connection.send_control(ListenV1ControlMessage(type="Finalize"))
+                        await connection.send_finalize()
                     elif payload is _CLOSE_STREAM:
-                        await connection.send_control(ListenV1ControlMessage(type="CloseStream"))
+                        await connection.send_close_stream()
                     elif isinstance(payload, bytes):
                         await connection.send_media(payload)
                 self._resolve_write(getattr(data, "completion", None), None)
@@ -461,26 +527,36 @@ class _DeepgramSDKSession(STTBackendSession):
             logger.warning("Deepgram writer failed cause=%s", type(exc).__name__)
             self._resolve_write(getattr(data, "completion", None), exc)
             self._report_error(exc)
-            self._scoped_transport_end(False, "deepgram_write_failed")
+            self._scoped_transport_end(False, "deepgram_write_failed", exc)
         finally:
             self._fail_pending_writes()
 
     async def _keepalive_loop(self, connection: Any) -> None:
-        from deepgram.extensions.types.sockets import ListenV1ControlMessage
-
         try:
             while not self._stopped:
                 await asyncio.sleep(5.0)
                 if self._stopped:
                     return
                 async with self._send_lock:
-                    await connection.send_control(ListenV1ControlMessage(type="KeepAlive"))
+                    await connection.send_keep_alive()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.debug("Deepgram keepalive failed cause=%s", type(exc).__name__)
             self._report_error(exc)
-            self._scoped_transport_end(False, "deepgram_keepalive_failed")
+            self._scoped_transport_end(False, "deepgram_keepalive_failed", exc)
+
+    def _handle_message(self, result: Any) -> None:
+        if self._stopped:
+            return
+        try:
+            event = self._build_transcript_event(result)
+            if event is not None:
+                self._put_event(event)
+        except Exception as exc:
+            self._report_error(exc)
+            self._scoped_transport_end(False, "deepgram_protocol_failed", exc)
+            self._stopped = True
 
     def _report_error(self, exc: BaseException) -> None:
         if self._error_reported:
@@ -564,12 +640,20 @@ class _DeepgramSDKSession(STTBackendSession):
             await asyncio.sleep(self.drain_timeout_s)
         except asyncio.CancelledError:
             return
-        except Exception:
+        except Exception as exc:
             if self._event_projection.is_current(identity):
                 self._terminalize_scoped(
                     epoch_disposition="retire",
                     degraded_reason="deepgram_close_stream_failed",
                     empty_is_success=False,
+                    failure_diagnostics=recognition_failure_diagnostics(
+                        exc,
+                        provider="deepgram",
+                        channel=self.stream_label or "self",
+                        operation="seal",
+                        reason="deepgram_close_stream_failed",
+                        identity=identity,
+                    ),
                 )
             return
         if self._event_projection.is_current(identity):

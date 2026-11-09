@@ -13,7 +13,9 @@ from puripuly_heart.core.runtime_logging import (
     RuntimeLoggingSinks,
     install_headless_console_privacy_filter,
 )
+from puripuly_heart.domain.events import SelfTurnPresentation
 from puripuly_heart.ui.event_dispatch import UIEventBridge
+from puripuly_heart.ui.event_projection import HistoryProjection
 from puripuly_heart.ui.i18n import available_locales, get_locale, set_locale, t
 
 logger = logging.getLogger(__name__)
@@ -21,13 +23,9 @@ logger = logging.getLogger(__name__)
 
 class _HeadlessDashboard:
     def __init__(self) -> None:
-        self.status: str | None = None
         self.transcript: str | None = None
         self.translation: str | None = None
         self.issue: str | None = None
-
-    def publish_status(self, status: str) -> None:
-        self.status = status
 
     def publish_transcript(
         self, text: str, *, language_code: str | None = None, debug_prefix: str | None = None
@@ -41,6 +39,21 @@ class _HeadlessDashboard:
         self.translation = text
         return True
 
+    def publish_self_turn(self, snapshot: SelfTurnPresentation) -> bool:
+        self.transcript = snapshot.source_text
+        self.translation = (
+            "\n".join(
+                target.translation.text
+                for target in snapshot.targets
+                if target.status == "ready"
+                and target.source_revision == snapshot.source_revision
+                and target.translation is not None
+                and snapshot.status not in ("cancelled", "expired")
+            )
+            or None
+        )
+        return True
+
     def publish_error(self, text: str) -> None:
         self.issue = text
 
@@ -49,6 +62,12 @@ class _HeadlessHistory:
     def append_entry(
         self, source: str, text: str, *, translated: bool = False, language_code: str | None = None
     ) -> None:
+        pass
+
+    def publish_self_turn(self, snapshot: SelfTurnPresentation, *, source: str) -> None:
+        pass
+
+    def publish_peer_caption(self, history: HistoryProjection) -> None:
         pass
 
 
@@ -138,6 +157,9 @@ class HeadlessApplicationPresentation:
     def set_dashboard_stt_enabled(self, enabled: bool) -> None:
         self._remember("stt_enabled", enabled)
 
+    def set_dashboard_capture_status(self, status: str) -> None:
+        self._remember("capture_status", status)
+
     def set_dashboard_translation_needs_key(self, needs_key: bool) -> None:
         self._remember("translation_needs_key", needs_key)
 
@@ -146,6 +168,9 @@ class HeadlessApplicationPresentation:
 
     def set_dashboard_peer_needs_key(self, needs_key: bool) -> None:
         self._remember("peer_needs_key", needs_key)
+
+    def set_dashboard_launch_input_hint(self, *, first_launch: bool) -> None:
+        self._remember("launch_input_hint_first_launch", first_launch)
 
     def dashboard_translation_enabled(self) -> bool:
         return bool(self.projections.get("translation_enabled", False))
@@ -235,15 +260,12 @@ class HeadlessApplicationPresentation:
         *,
         visible: bool,
         remaining_percent: int | None,
-        referral_id: str | None,
-        pass_status: object | None,
     ) -> None:
         self._remember(
             "managed_key",
             {
                 "visible": visible,
                 "remaining_percent": remaining_percent,
-                "pass_status": pass_status,
             },
         )
 
@@ -284,10 +306,6 @@ class HeadlessApplicationPresentation:
         return False
 
     def show_founder_letter_dialog(self) -> bool:
-        return False
-
-    def show_local_qwen_hallucination_dialog(self) -> bool:
-        self._remember("model_action_required", "local_qwen_consent")
         return False
 
     async def close_after_launch_tasks(self) -> None:

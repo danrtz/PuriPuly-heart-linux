@@ -1,3 +1,4 @@
+import random
 from typing import Callable
 
 import flet as ft
@@ -7,12 +8,14 @@ from puripuly_heart.ui.flet_runtime import (
     run_control_method,
     update_control_if_mounted,
 )
+from puripuly_heart.ui.fonts import TypeFace, metrics_strut_typeface
 from puripuly_heart.ui.i18n import t
 from puripuly_heart.ui.theme import (
     COLOR_DISPLAY_SOURCE,
     COLOR_NEUTRAL_DARK,
     COLOR_SECONDARY,
     COLOR_SURFACE,
+    text_style,
 )
 
 # CJK (Chinese, Japanese, Korean) characters start at this Unicode point.
@@ -24,12 +27,28 @@ DISPLAY_SOURCE_WEIGHT = ft.FontWeight.W_500
 DISPLAY_MESSAGE_WEIGHT = ft.FontWeight.BOLD
 
 DISPLAY_CARD_PADDING = 32
+DISPLAY_INPUT_TEXT_SIZE = 20
 
 DISPLAY_TEXT_WIDTH = 526
 DISPLAY_TEXT_HEIGHT = 210
 DISPLAY_LINE_HEIGHT_RATIO = 1.4
 DISPLAY_WEIGHTED_UNIT_WIDTH_RATIO = 0.55
 DISPLAY_SIZE_CANDIDATES: tuple[int, ...] = (48, 44, 40, 36, 32, 28, 24, 20, 16)
+
+DISPLAY_INPUT_HINT_KEY = "display.input_hint"
+DISPLAY_INPUT_HINT_KEYS: tuple[str, ...] = (
+    DISPLAY_INPUT_HINT_KEY,
+    "display.input_hint_tip.cloud_stt",
+    "display.input_hint_tip.tab_swap",
+    "display.input_hint_tip.earmuffs",
+    "display.input_hint_tip.puri_help",
+)
+
+
+def choose_input_hint_key(*, first_launch: bool, rng: random.Random | None = None) -> str:
+    if first_launch:
+        return DISPLAY_INPUT_HINT_KEY
+    return (rng or random).choice(DISPLAY_INPUT_HINT_KEYS)
 
 
 def _weighted_len(text: str) -> int:
@@ -61,6 +80,8 @@ def _status_label(status: str) -> str:
         return t("display.connected")
     if status == "stopping":
         return t("display.stopping")
+    if status == "failed":
+        return t("display.failed")
     return t("display.disconnected")
 
 
@@ -69,6 +90,14 @@ def _apply_debug_prefix(text: str, debug_prefix: str | None) -> str:
     if not prefix or not text:
         return text
     return f"{prefix} {text}"
+
+
+def _content_face(font_family: str | None, letter_spacing: float | None) -> TypeFace:
+    return TypeFace(font_family, letter_spacing)
+
+
+def _display_tracking(letter_spacing: float | None) -> float:
+    return 0 if letter_spacing is None else letter_spacing
 
 
 class DisplayCard(ft.Container):
@@ -92,8 +121,8 @@ class DisplayCard(ft.Container):
         self._showing_status = True
         self._source_value = _status_label(self._status)
         self._translation_value: str | None = None
-        self._source_font_family: str | None = None
-        self._translation_font_family: str | None = None
+        self._source_face = TypeFace(None, None)
+        self._translation_face: TypeFace | None = None
         self._debug_prefix: str | None = None
         self._notice_value: str | None = None
         self._notice_action: Callable[[], None] | None = None
@@ -102,6 +131,7 @@ class DisplayCard(ft.Container):
         self._source_as_message = False
         self._translation_is_visible = False
         self.input_is_focused = False
+        self._input_hint_key = DISPLAY_INPUT_HINT_KEY
 
         initial_size, initial_max_lines = _display_layout_for_length(
             _weighted_len(self._source_value)
@@ -125,7 +155,7 @@ class DisplayCard(ft.Container):
         )
 
         self._input_field = ft.TextField(
-            hint_text=t("display.input_hint"),
+            hint_text=t(self._input_hint_key),
             border={
                 state: ft.NoInputBorder()
                 for state in (
@@ -135,9 +165,14 @@ class DisplayCard(ft.Container):
                     ft.ControlState.DISABLED,
                 )
             },
-            text_size=20,
+            text_size=DISPLAY_INPUT_TEXT_SIZE,
+            strut_style=ft.StrutStyle(
+                size=DISPLAY_INPUT_TEXT_SIZE,
+                font_family=metrics_strut_typeface().font_family,
+                force_strut_height=True,
+            ),
             color=COLOR_NEUTRAL_DARK,
-            hint_style=ft.TextStyle(color=COLOR_SECONDARY, italic=True),
+            hint_style=text_style(color=COLOR_SECONDARY, italic=True),
             expand=True,
             on_submit=self._handle_submit,
             on_change=self._handle_input_change,
@@ -223,6 +258,11 @@ class DisplayCard(ft.Container):
         if self._on_input_activity is not None:
             self._on_input_activity(bool(has_text))
 
+    def set_input_hint_key(self, key: str) -> None:
+        self._input_hint_key = key
+        self._input_field.hint_text = t(key)
+        update_control_if_mounted(self._input_field)
+
     def focus_input(self) -> None:
         run_control_method(self._input_field, "focus")
 
@@ -232,6 +272,7 @@ class DisplayCard(ft.Container):
         is_error: bool = False,
         font_family: str | None = None,
         *,
+        letter_spacing: float | None = None,
         debug_prefix: str | None = None,
         as_translation: bool = False,
     ):
@@ -239,10 +280,10 @@ class DisplayCard(ft.Container):
         _ = is_error
         self._showing_status = False
         self._source_value = text
-        self._source_font_family = font_family
+        self._source_face = _content_face(font_family, letter_spacing)
         self._source_as_message = bool(as_translation)
         self._translation_value = None
-        self._translation_font_family = None
+        self._translation_face = None
         self._debug_prefix = debug_prefix
         self._turn_size_cap = _display_layout_for_length(
             _weighted_len(_apply_debug_prefix(text or "", debug_prefix))
@@ -254,28 +295,61 @@ class DisplayCard(ft.Container):
         text: str | None,
         font_family: str | None = None,
         *,
+        letter_spacing: float | None = None,
         debug_prefix: str | None = None,
     ) -> None:
         """Replace the visible slot with the translation."""
         self._showing_status = False
         self._source_as_message = False
         self._translation_value = text or None
-        self._translation_font_family = font_family if text else None
+        self._translation_face = (
+            _content_face(font_family, letter_spacing) if self._translation_value else None
+        )
         self._debug_prefix = debug_prefix
         self._sync_display()
 
-    def set_status(self, status: str, font_family: str | None = None):
-        """Update connection status display."""
+    def set_turn(
+        self,
+        source_text: str,
+        translation_text: str | None,
+        *,
+        source_face: TypeFace,
+        translation_face: TypeFace,
+        new_turn: bool,
+    ) -> None:
+        self._showing_status = False
+        self._source_as_message = False
+        self._source_value = source_text
+        self._source_face = source_face
+        self._translation_value = translation_text or None
+        self._translation_face = translation_face if translation_text else None
+        self._debug_prefix = None
+        if new_turn or self._turn_size_cap is None:
+            self._turn_size_cap = _display_layout_for_length(_weighted_len(source_text))[0]
+        self._sync_display()
+
+    def set_status(
+        self,
+        status: str,
+        font_family: str | None = None,
+        *,
+        letter_spacing: float | None = None,
+        replace_content: bool = False,
+    ) -> bool:
+        """Update capture readiness without replacing existing content."""
         self._status = status
+        if not self._showing_status and not replace_content:
+            return False
         self._showing_status = True
         self._source_as_message = False
         self._source_value = _status_label(status)
-        self._source_font_family = font_family
+        self._source_face = _content_face(font_family, letter_spacing)
         self._translation_value = None
-        self._translation_font_family = None
+        self._translation_face = None
         self._debug_prefix = None
         self._turn_size_cap = None
         self._sync_display()
+        return True
 
     def set_notice(
         self,
@@ -305,10 +379,17 @@ class DisplayCard(ft.Container):
         self._input_field.value = ""
         update_control_if_mounted(self._input_field)
 
-    def set_input_font(self, font_family: str | None) -> None:
+    def set_input_font(
+        self,
+        font_family: str | None,
+        *,
+        letter_spacing: float | None = None,
+    ) -> None:
         # Force strict system fallback if None (to break theme inheritance)
         final_font = font_family if font_family else ""
-        self._input_field.text_style = ft.TextStyle(font_family=final_font)
+        self._input_field.text_style = text_style(
+            _content_face(final_font, _display_tracking(letter_spacing)),
+        )
         # Hint style is now managed separately by apply_locale (using UI font)
         update_control_if_mounted(self._input_field)
 
@@ -317,25 +398,26 @@ class DisplayCard(ft.Container):
         *,
         display_font_family: str | None = None,
         input_font_family: str | None = None,
+        display_letter_spacing: float | None = None,
+        input_letter_spacing: float | None = None,
     ) -> None:
-        self._input_field.hint_text = t("display.input_hint")
-
+        self._input_field.hint_text = t(self._input_hint_key)
         # Explicitly set hint font to UI font (Display font)
-        self._input_field.hint_style = ft.TextStyle(
+        self._input_field.hint_style = text_style(
+            _content_face(display_font_family or "", _display_tracking(display_letter_spacing)),
             color=COLOR_SECONDARY,
             italic=True,
-            font_family=display_font_family,
         )
 
         if input_font_family is not None:
-            self.set_input_font(input_font_family)
+            self.set_input_font(input_font_family, letter_spacing=input_letter_spacing)
         else:
             update_control_if_mounted(self._input_field)
         if self._showing_status:
             self._source_value = _status_label(self._status)
-            self._source_font_family = display_font_family
+            self._source_face = _content_face(display_font_family, display_letter_spacing)
             self._translation_value = None
-            self._translation_font_family = None
+            self._translation_face = None
             self._sync_display()
 
             return
@@ -346,17 +428,17 @@ class DisplayCard(ft.Container):
         )
         if notice_blocks:
             visible_text = self._notice_value or ""
-            font_family = self._source_font_family
+            face = self._source_face
             showing_translation = False
             showing_source = False
         elif self._translation_value:
             visible_text = _apply_debug_prefix(self._translation_value, self._debug_prefix)
-            font_family = self._translation_font_family
+            face = self._translation_face or TypeFace(None, None)
             showing_translation = True
             showing_source = False
         else:
             visible_text = _apply_debug_prefix(self._source_value or "", self._debug_prefix)
-            font_family = self._source_font_family
+            face = self._source_face
             showing_translation = False
             showing_source = not self._showing_status
 
@@ -376,7 +458,10 @@ class DisplayCard(ft.Container):
         self._display_text.weight = (
             DISPLAY_MESSAGE_WEIGHT if show_as_message else DISPLAY_SOURCE_WEIGHT
         )
-        self._display_text.font_family = font_family
+        self._display_text.font_family = face.font_family
+        self._display_text.style = ft.TextStyle(
+            letter_spacing=_display_tracking(face.letter_spacing)
+        )
 
         display_update_issued = is_control_mounted(self._display_text)
 

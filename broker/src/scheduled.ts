@@ -4,6 +4,7 @@ import {
   deliverManagedCleanupIncident,
 } from './abuse-monitoring';
 import type { BrokerBindings } from './contract';
+import { createManagedCleanupBudget, SCHEDULED_MANAGED_DELIVERY_LIMIT, type ManagedCleanupBudget } from './managed-cleanup';
 import { sendDailyReport, type DailyReportPayload } from './discord-alerts';
 import {
   acknowledgeManagedKeyDeliveryCleanupClaim,
@@ -17,14 +18,13 @@ import type {
   BrokerAbuseControlsConfigValue,
   ManagedKeyDeliveryRecord,
 } from './persistence';
-import { processManagedReferralSettlementJobs } from './managed-referral-settlement';
-import { hasOtherLiveOperation, sweepStaleManagedOperations } from './managed-operation';
+
+import { hasOtherLiveOperation, markOperationActiveOnAck, sweepStaleManagedOperations } from './managed-operation';
 import { runNetworkIdentityBackfill } from './network-identity-migration';
 import { resolveNetworkIdentitySecrets } from './network-identity';
-import {
-  applyReferralRewardRetention,
-  reconcileStaleReferralRewards,
-} from './referral';
+import { deleteExpiredChallengePreflightInstallations } from './preflight-retention';
+import { deleteExpiredPuriProofNonces } from './puri-token';
+
 import {
   applyAppActiveDayRetention,
   getAppUsageDailyMetrics,
@@ -77,26 +77,18 @@ export async function handleScheduled(
 ): Promise<void> {
   const now = new Date(controller.scheduledTime);
   const failures: unknown[] = [];
+  const cleanupBudget = createManagedCleanupBudget();
 
   await runScheduledPhase(failures, () =>
-    reconcileStaleManagedKeyDeliveries(env, now),
+    reconcileStaleManagedKeyDeliveries(env, now, cleanupBudget),
   );
-  await runScheduledPhase(failures, () =>
-    processManagedReferralSettlementJobs(env, { now }),
-  );
-  await runScheduledPhase(failures, () => sweepStaleManagedOperations(env, now));
+  await runScheduledPhase(failures, () => sweepStaleManagedOperations(env, now, undefined, cleanupBudget));
   await runScheduledPhase(failures, () =>
     runNetworkIdentityBackfill(
       env.BROKER_DB,
       resolveNetworkIdentitySecrets(env as unknown as Record<string, unknown>),
       now,
     ),
-  );
-  await runScheduledPhase(failures, () =>
-    reconcileStaleReferralRewards(env.BROKER_DB, { nowIso: now.toISOString() }),
-  );
-  await runScheduledPhase(failures, () =>
-    applyReferralRewardRetention(env.BROKER_DB, now),
   );
 
   let controls: BrokerAbuseControlsConfigValue | null = null;
@@ -131,6 +123,10 @@ async function applyScheduledRetention(db: D1Database, now: Date): Promise<void>
   await runScheduledPhase(failures, () =>
     applyAppActiveDayRetention(db, now),
   );
+  await runScheduledPhase(failures, () =>
+    deleteExpiredChallengePreflightInstallations(db, { now }),
+  );
+  await runScheduledPhase(failures, () => deleteExpiredPuriProofNonces(db, now));
   throwFirstScheduledFailure(failures);
 }
 
@@ -159,15 +155,24 @@ export async function reconcileStaleManagedKeyDeliveries(
     | 'DISCORD_IMMEDIATE_ALERT_WEBHOOK_URL'
   >,
   now: Date,
+  budget: ManagedCleanupBudget = createManagedCleanupBudget(),
 ): Promise<{ expired: number; cleanupRequired: number }> {
   let expired = 0;
   let cleanupRequired = 0;
   const staleDeliveries = await listStalePendingManagedKeyDeliveries(env.BROKER_DB, {
     now,
-    limit: 50,
+    limit: Math.min(SCHEDULED_MANAGED_DELIVERY_LIMIT, budget.remainingCandidates),
   });
   const nowIso = now.toISOString();
   for (const delivery of staleDeliveries) {
+    if (budget.remainingCandidates === 0 || budget.remainingProviderPages === 0) break;
+    budget.remainingCandidates -= 1;
+    if (delivery.status === 'acknowledged') {
+      if (!(await markOperationActiveOnAck(env.BROKER_DB, delivery.delivery_id, now))) {
+        throw new Error('failed to reconcile acknowledged managed operation');
+      }
+      continue;
+    }
     if (await isManagedKeyDeliveryFinalized(env.BROKER_DB, delivery)) {
       const repaired =
         delivery.status === 'pending'
@@ -185,8 +190,10 @@ export async function reconcileStaleManagedKeyDeliveries(
       if (!repaired) {
         throw new Error('failed to reconcile finalized managed key delivery');
       }
+      await markOperationActiveOnAck(env.BROKER_DB, delivery.delivery_id, now);
       continue;
     }
+    if (delivery.operation_id && delivery.attempt_index) continue;
     const claimed = await claimStaleManagedKeyDeliveryCleanup(env.BROKER_DB, {
       delivery,
       claimedAt: nowIso,
@@ -269,7 +276,7 @@ async function completeDeliveryCleanup(
         `DELETE FROM openrouter_entitlements
           WHERE managed_credential_ref = ?
             AND status IN ('pending_release', 'active')
-            AND discord_issue_status IN ('delivery_pending', 'active')
+            AND discord_issue_status IN ('delivery_pending', 'active', 'cleanup_required')
             AND EXISTS (
               SELECT 1 FROM managed_key_deliveries
                WHERE delivery_id = ?
@@ -290,7 +297,7 @@ async function completeDeliveryCleanup(
           `DELETE FROM discord_identities
             WHERE discord_user_ref = ?
               AND entitlement_installation_id = ?
-              AND status IN ('issuing', 'active')
+              AND status IN ('issuing', 'active', 'cleanup_required')
               AND EXISTS (
                 SELECT 1 FROM managed_key_deliveries
                  WHERE delivery_id = ?
@@ -309,34 +316,6 @@ async function completeDeliveryCleanup(
     }
     const results = await db.batch([
       ...statements,
-      db.prepare(
-        `UPDATE referral_rewards
-            SET referred_bonus_status = 'failed', referrer_bonus_status = 'failed', failure_reason = 'issue_delivery_failed', updated_at = ?
-          WHERE referred_managed_credential_ref IS NULL
-            AND referred_bonus_status = 'reserved'
-            AND referred_installation_id = ?
-            AND (
-              operation_id IS NULL
-              OR EXISTS (
-                SELECT 1 FROM managed_operations
-                 WHERE operation_id = referral_rewards.operation_id
-                   AND state = 'FAILED'
-              )
-            )
-            AND EXISTS (
-              SELECT 1 FROM managed_key_deliveries
-               WHERE delivery_id = ?
-                 AND status = 'expired'
-                 AND failure_reason = ?
-                 AND failed_at = ?
-            )`,
-      ).bind(
-        nowIso,
-        delivery.installation_id ?? '',
-        delivery.delivery_id,
-        STALE_DELIVERY_CLEANUP_CLAIM_REASON,
-        nowIso,
-      ),
       db.prepare(
         `UPDATE managed_key_deliveries
             SET failed_at = ?, failure_reason = 'ack_expired_child_key_cleaned'
@@ -358,7 +337,7 @@ async function completeDeliveryCleanup(
       db.prepare(
         `DELETE FROM qq_managed_entitlements
           WHERE managed_credential_ref = ?
-            AND status IN ('delivery_pending', 'active')
+            AND status IN ('delivery_pending', 'active', 'cleanup_required')
             AND EXISTS (
               SELECT 1 FROM managed_key_deliveries
                WHERE delivery_id = ?
@@ -368,39 +347,6 @@ async function completeDeliveryCleanup(
             )`,
       ).bind(
         delivery.managed_credential_ref,
-        delivery.delivery_id,
-        STALE_DELIVERY_CLEANUP_CLAIM_REASON,
-        nowIso,
-      ),
-      db.prepare(
-        `UPDATE referral_rewards
-            SET referred_bonus_status = 'failed',
-                referrer_bonus_status = 'failed',
-                failure_reason = 'issue_delivery_failed',
-                updated_at = ?
-          WHERE referred_source = 'qq'
-            AND referred_subject_ref = ?
-            AND referred_installation_id IS ?
-            AND referred_bonus_status = 'reserved'
-            AND (
-              operation_id IS NULL
-              OR EXISTS (
-                SELECT 1 FROM managed_operations
-                 WHERE operation_id = referral_rewards.operation_id
-                   AND state = 'FAILED'
-              )
-            )
-            AND EXISTS (
-              SELECT 1 FROM managed_key_deliveries
-               WHERE delivery_id = ?
-                 AND status = 'expired'
-                 AND failure_reason = ?
-                 AND failed_at = ?
-            )`,
-      ).bind(
-        nowIso,
-        delivery.subject_ref ?? '',
-        delivery.installation_id,
         delivery.delivery_id,
         STALE_DELIVERY_CLEANUP_CLAIM_REASON,
         nowIso,
@@ -518,40 +464,6 @@ async function markDeliveryCleanupRequired(
         nowIso,
       ),
       db.prepare(
-        `UPDATE referral_rewards
-            SET referred_bonus_status = 'failed',
-                referrer_bonus_status = 'failed',
-                failure_reason = 'issue_delivery_failed',
-                updated_at = ?
-          WHERE referred_source = 'qq'
-            AND referred_subject_ref = ?
-            AND referred_installation_id IS ?
-            AND referred_bonus_status = 'reserved'
-            AND referred_managed_credential_ref IS NULL
-            AND (
-              operation_id IS NULL
-              OR EXISTS (
-                SELECT 1 FROM managed_operations
-                 WHERE operation_id = referral_rewards.operation_id
-                   AND state = 'FAILED'
-              )
-            )
-            AND EXISTS (
-              SELECT 1 FROM managed_key_deliveries
-               WHERE delivery_id = ?
-                 AND status = 'expired'
-                 AND failure_reason = ?
-                 AND failed_at = ?
-            )`,
-      ).bind(
-        nowIso,
-        delivery.subject_ref ?? '',
-        delivery.installation_id,
-        delivery.delivery_id,
-        STALE_DELIVERY_CLEANUP_CLAIM_REASON,
-        nowIso,
-      ),
-      db.prepare(
         `UPDATE managed_key_deliveries
             SET status = 'cleanup_required',
                 failed_at = ?,
@@ -568,7 +480,7 @@ async function markDeliveryCleanupRequired(
       ),
     ]);
     return {
-      incidentRecorded: Number(results[2]?.meta.changes ?? 0) === 1,
+      incidentRecorded: Number(results[1]?.meta.changes ?? 0) === 1,
       ownerRecorded: Number(results[0]?.meta.changes ?? 0) === 1,
     };
   }
@@ -697,13 +609,6 @@ export async function runDailyReport(
   return { ok: true, payload, sent: true };
 }
 
-export async function buildDailySummaryPacket(
-  db: BrokerBindings['BROKER_DB'],
-  now: Date,
-): Promise<DailyReportPayload> {
-  const window = resolveDailyReportWindow(now);
-  return buildDailySummaryPacketForWindow(db, window);
-}
 
 async function buildDailySummaryPacketForDate(
   db: BrokerBindings['BROKER_DB'],

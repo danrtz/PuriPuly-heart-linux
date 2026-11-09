@@ -5,12 +5,6 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
-from puripuly_heart.core.local_asr_provider_runtime import (
-    ProviderRuntimeBuildRequest,
-    ProviderRuntimeChannel,
-    ProviderRuntimeGpuRecoveryRequest,
-    ProviderRuntimeTerminalFailureSink,
-)
 
 from puripuly_heart.app.services.gpu_provider_recovery import (
     GpuProviderRecoveryChannelPlan,
@@ -22,6 +16,12 @@ from puripuly_heart.config.resolved import (
     CREDENTIAL_SOURCE_NONE,
     ResolvedCredentialRequirement,
     ResolvedSTTConfig,
+)
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
+    ProviderRuntimeBuildRequest,
+    ProviderRuntimeChannel,
+    ProviderRuntimeGpuRecoveryRequest,
+    ProviderRuntimeTerminalFailureSink,
 )
 
 
@@ -430,9 +430,6 @@ async def test_idle_application_retry_resets_failed_runtime_without_restarting_c
         self_owner_factory=no_capture_factory,
         peer_owner_provider=no_capture_factory,
         self_state_sink=no_capture_factory,
-        ensure_self_switch=no_capture_action,
-        refresh_self=no_capture_action,
-        refresh_peer=no_capture_action,
     )
     request = GpuProviderRecoveryApplicationRequest(
         device_id="vk:0",
@@ -445,6 +442,9 @@ async def test_idle_application_retry_resets_failed_runtime_without_restarting_c
         peer_config_factory=no_capture_factory,
         self_request_factory=no_capture_factory,
         peer_request_factory=no_capture_factory,
+        ensure_self_switch=no_capture_action,
+        refresh_self=no_capture_action,
+        refresh_peer=no_capture_action,
     )
     result = await owner.recover(lambda: request)
     assert result.status == ("applied" if retry_required else "skipped")

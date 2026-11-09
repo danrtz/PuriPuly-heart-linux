@@ -180,6 +180,9 @@ class X11WindowApi:
 
 
 class LinuxWindowZOrderPort(WindowsWindowZOrderPort):
+    def _start_topmost_watch(self, hwnd, pid, generation, loop) -> None:
+        self.stop_topmost_watch()
+
     def __init__(self, *, api=None, **kwargs) -> None:
         super().__init__(api=api or X11WindowApi(), **kwargs)
 

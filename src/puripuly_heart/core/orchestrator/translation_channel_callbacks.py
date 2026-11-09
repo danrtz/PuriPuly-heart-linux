@@ -25,7 +25,9 @@ from puripuly_heart.core.stt.backend import (
     STTProviderInputTerminal,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
+    STTRecognitionUnit,
     STTRecognitionUnitTerminal,
+    scoped_event_for_delivery,
 )
 from puripuly_heart.core.stt.recognition_units import RecognitionConsumptionLedger
 from puripuly_heart.domain.events import STTSessionState, STTSessionStateEvent
@@ -79,12 +81,16 @@ class TranslationChannelOwnerCallbacks:
         self._self_capture = owner
 
     async def self_event_handler(self, event: object) -> None:
+        event = scoped_event_for_delivery(event)
+        if event is None:
+            return
         if isinstance(event, STTProviderInputTerminal):
             if event.channel != "self":
                 raise ValueError("Self input terminal belongs to another channel")
             if self._self_capture is not None:
                 self._self_capture.note_input_terminal(event)
-            self._require_self().release_input_segment(event.identity.segment.segment_id)
+            if self._self_scoped_event_is_current(event):
+                self._require_self().release_input_segment(event)
             await self._after_self_input_terminal(event)
             return
         if isinstance(event, STTProviderEpochEnded):
@@ -94,6 +100,9 @@ class TranslationChannelOwnerCallbacks:
             await self._admit_recognition_unit(event, channel="self")
             return
         await self._before_self_event(event)
+        event = scoped_event_for_delivery(event)
+        if event is None:
+            return
         self._stt_sessions.record(event)
         await self._require_self().handle_stt_event(event)
         await self._after_self_event(event)
@@ -122,7 +131,7 @@ class TranslationChannelOwnerCallbacks:
             await self._publish_self_session_state(STTSessionState.DISCONNECTED)
 
     def _self_scoped_event_is_current(
-        self, event: STTProviderTurnUpdate | STTProviderTurnTerminal
+        self, event: STTProviderTurnUpdate | STTProviderTurnTerminal | STTProviderInputTerminal
     ) -> bool:
         return (
             self._self_capture is None
@@ -215,12 +224,12 @@ class TranslationChannelOwnerCallbacks:
                         self._supersede_self_stream(self._self_last_input_stream)
                     self._self_ready_stream = stream
                 await self._publish_self_session_state(STTSessionState.STREAMING)
+            if channel == "peer":
+                await self._require_peer().handle_recognition_unit_terminal(event)
+                return
             if event.outcome != "final" or not event.unit.text:
                 return
-            if channel == "self":
-                await self._require_self().handle_recognition_unit(event.unit)
-            else:
-                await self._require_peer().handle_recognition_unit(event.unit)
+            await self._require_self().handle_recognition_unit(event.unit)
 
     def _recognition_stream_is_current(self, stream: RecognitionStreamIdentity) -> bool:
         if stream.channel == "self":
@@ -251,12 +260,20 @@ class TranslationChannelOwnerCallbacks:
         if isinstance(event, STTRecognitionUnitTerminal):
             await self._admit_recognition_unit(event, channel="peer")
             return
+        if isinstance(event, STTRecognitionUnit):
+            if self._recognition_stream_is_current(event.identity.stream):
+                await self._require_peer().handle_recognition_unit(event)
+            return
         if isinstance(event, STTProviderTurnUpdate):
+            await self._require_peer().handle_provider_update(event)
             return
         if isinstance(event, STTProviderEpochEnded):
+            async with self._recognition_locks["peer"]:
+                await self._require_peer().handle_provider_epoch_ended(event)
             return
         if isinstance(event, STTProviderTurnTerminal):
             async with self._recognition_locks["peer"]:
+                event = scoped_event_for_delivery(event)
                 admissions = self._require_peer_capture().admit_provider_terminal(event)
                 peer = self._require_peer()
                 for receipt, terminal in admissions:
@@ -270,7 +287,8 @@ class TranslationChannelOwnerCallbacks:
             if event.channel == "self":
                 if self._self_capture is not None:
                     self._self_capture.note_input_terminal(event)
-                self._require_self().release_input_segment(event.identity.segment.segment_id)
+                if self._self_scoped_event_is_current(event):
+                    self._require_self().release_input_segment(event)
                 await self._after_self_input_terminal(event)
             else:
                 admissions = self._require_peer_capture().note_input_terminal(event)
@@ -286,6 +304,9 @@ class TranslationChannelOwnerCallbacks:
             return
         if isinstance(event, STTProviderEpochEnded):
             await self._after_self_epoch_ended(event)
+            if self._peer is not None:
+                async with self._recognition_locks["peer"]:
+                    await self._peer.handle_provider_epoch_ended(event)
             return
         self._stt_sessions.record(event)
         if getattr(event, "channel", None) == "self" or isinstance(

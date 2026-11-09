@@ -14,6 +14,10 @@ from puripuly_heart.app.ports.canonical_settings_persistence import (
     CanonicalSettingsPersistenceError,
 )
 from puripuly_heart.config.settings_vnext import serialization
+from puripuly_heart.config.settings_vnext.compat import (
+    SettingsPersistenceError,
+    SettingsPersistenceStatus,
+)
 from puripuly_heart.config.settings_vnext.facade import load_vnext_settings
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext, with_telemetry_enabled
 
@@ -96,6 +100,7 @@ def test_installer_preference_uses_supported_legacy_telemetry_migration(
             }
         ),
     ],
+    ids=["invalid-json", "unsupported-version"],
 )
 def test_invalid_existing_settings_stop_preference_persistence_without_replacement(
     tmp_path: Path, content: str
@@ -117,7 +122,7 @@ def test_save_failure_is_reported_instead_of_succeeding(monkeypatch, tmp_path: P
         lambda *_args: SimpleNamespace(
             ok=False,
             status="save_failed",
-            error=SimpleNamespace(message="blocked"),
+            error=SettingsPersistenceError(SettingsPersistenceStatus.SAVE_FAILED, "blocked"),
         ),
     )
 

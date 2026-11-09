@@ -1,27 +1,28 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from pathlib import Path
 
-from puripuly_heart.app import wiring_llm_factory as _llm_factory
-from puripuly_heart.app.adapters.peer_capture_provider import PeerCaptureProviderAdapter
-from puripuly_heart.app.adapters.self_capture_provider import SelfCaptureProviderAdapter
+from puripuly_heart.app.adapters.peer_capture.peer_capture_provider import (
+    PeerCaptureProviderAdapter,
+)
+from puripuly_heart.app.adapters.self_capture.self_capture_provider import (
+    SelfCaptureProviderAdapter,
+)
 from puripuly_heart.app.adapters.sync_secret_store import (
     SyncSecretStore,
     SyncSecretStoreAdapter,
 )
 from puripuly_heart.app.ports.provider_channel_runtime import ProviderChannelResetPort
 from puripuly_heart.app.ports.secret_store import SecretStorePort
-from puripuly_heart.config.resolved import ResolvedLLMConfig
-from puripuly_heart.core.chatgpt.session import ChatGptAccessTokenPort
-from puripuly_heart.core.llm.provider import LLMProvider
-from puripuly_heart.core.local_asr_provider_runtime import LocalASRProviderRuntimePort
-from puripuly_heart.core.local_stt_huggingface_xet_adapter import (
+from puripuly_heart.app.wiring import wiring_llm_factory as _llm_factory
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import LocalASRProviderRuntimePort
+from puripuly_heart.core.local_asr.local_stt_huggingface_xet_adapter import (
     HuggingFaceXetDownloadAdapter,
 )
-from puripuly_heart.core.local_translation.runtime import ManagedGemmaRuntimeOwner
-from puripuly_heart.core.observability import ProviderObservationPort
-from puripuly_heart.core.openrouter_credentials import load_managed_openrouter_user_identifier
+from puripuly_heart.core.openrouter.openrouter_credentials import (
+    load_managed_openrouter_user_identifier as load_managed_openrouter_user_identifier,
+)
 from puripuly_heart.core.peer_capture import (
     PeerCaptureAdmissionPort,
     PeerCaptureTargetResolverPort,
@@ -42,10 +43,9 @@ from puripuly_heart.core.runtime.self_capture import (
     SelfCaptureVadFactory,
 )
 from puripuly_heart.core.self_capture import SelfCaptureAdmissionPort
-from puripuly_heart.core.storage.secrets import SecretStore
 
 from .wiring_composition import (
-    create_microphone_test_capture_adapter,
+    create_audio_test_capture_adapter,
     create_peer_capture_admission_adapter,
     create_peer_capture_audio_loop_adapter,
     create_peer_capture_source_adapter,
@@ -61,9 +61,9 @@ from .wiring_composition import (
 )
 from .wiring_llm_factory import (
     MANAGED_OPENROUTER_RELEASE_SERVICE_REQUIRED_ERROR,
-    LlmFactoryResolvedExtras,
     _LazyFactoryLLMProvider,
     create_llm_provider,
+    create_llm_provider_from_resolved_config,
 )
 from .wiring_local_asr_provider_runtime import (
     LocalASRProviderRuntimeFactory,
@@ -74,7 +74,6 @@ from .wiring_managed_auth_factory import (
     DiscordOAuthAuthAdapter,
     ManagedIdentityPreflightAdapter,
     ManagedIdentityStateAdapter,
-    apply_discord_issue_result_to_managed_state,
     build_managed_identity_state_port,
     build_openrouter_credential_runtime_config,
     build_openrouter_credential_runtime_config_from_vnext,
@@ -201,34 +200,6 @@ _openrouter_provider_from_resolved_fields = _llm_factory._openrouter_provider_fr
 _qwen_api_key_for_resolved_credential = _llm_factory._qwen_api_key_for_resolved_credential
 
 
-def create_llm_provider_from_resolved_config(
-    config: ResolvedLLMConfig,
-    *,
-    secrets: SecretStore,
-    managed_release_service: object | None = None,
-    managed_delegate_ready: Callable[[], object] | None = None,
-    runtime_logging: ProviderObservationPort | None = None,
-    extras: LlmFactoryResolvedExtras | None = None,
-    managed_gemma_runtime: ManagedGemmaRuntimeOwner | None = None,
-    managed_gemma_release: Callable[[], Awaitable[None]] | None = None,
-    qwen_low_latency_mode: bool = True,
-    chatgpt_session: ChatGptAccessTokenPort | None = None,
-) -> LLMProvider:
-    _llm_factory.load_managed_openrouter_user_identifier = load_managed_openrouter_user_identifier
-    return _llm_factory.create_llm_provider_from_resolved_config(
-        config,
-        secrets=secrets,
-        managed_release_service=managed_release_service,
-        managed_delegate_ready=managed_delegate_ready,
-        runtime_logging=runtime_logging,
-        extras=extras,
-        managed_gemma_runtime=managed_gemma_runtime,
-        managed_gemma_release=managed_gemma_release,
-        qwen_low_latency_mode=qwen_low_latency_mode,
-        chatgpt_session=chatgpt_session,
-    )
-
-
 def create_local_asr_provisioning_owner(
     *,
     model_root: Path | None = None,
@@ -273,7 +244,7 @@ __all__ = (
     "create_llm_provider",
     "create_llm_provider_from_resolved_config",
     "create_local_asr_provisioning_owner",
-    "create_microphone_test_capture_adapter",
+    "create_audio_test_capture_adapter",
     "create_peer_capture_admission_adapter",
     "create_peer_capture_audio_loop_adapter",
     "create_peer_capture_source_adapter",
@@ -303,7 +274,6 @@ __all__ = (
     "DiscordOAuthAuthAdapter",
     "ManagedIdentityPreflightAdapter",
     "ManagedIdentityStateAdapter",
-    "apply_discord_issue_result_to_managed_state",
     "build_managed_identity_state_port",
     "build_openrouter_credential_runtime_config",
     "build_openrouter_credential_runtime_config_from_vnext",

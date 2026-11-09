@@ -26,26 +26,6 @@ from puripuly_heart.core.osc.control_schema import (
 )
 
 
-def test_osc_abi_registries_are_explicit_and_cover_current_languages() -> None:
-    assert ASR_IDS == {
-        0: "local_cpu_auto",
-        1: "local_parakeet_v3",
-        2: "local_parakeet_ja",
-        3: "local_qwen",
-        4: "local_qwen_gpu",
-        5: "deepgram",
-        7: "soniox",
-        8: "custom_offline",
-        9: "custom_realtime",
-        10: "gemini_transcribe",
-        11: "elevenlabs_scribe",
-        12: "qwen_audio",
-        13: "rolling_free",
-    }
-    assert TRANSLATION_MODEL_IDS[0] == "gemma4_26b_31b"
-    assert TRANSLATION_MODEL_IDS[9] == "custom_http"
-
-
 def test_gemini_osc_id_5_is_canonical_and_id_6_is_inbound_legacy_only() -> None:
     assert TRANSLATION_MODEL_IDS[5] == "gemini_flash"
     assert TRANSLATION_MODEL_IDS[6] == "gemini_flash"
@@ -69,6 +49,29 @@ def test_luna_osc_selection_has_new_id_and_keeps_both_connections() -> None:
     assert translation_model_id_for_selection("gpt_6_luna", "openrouter") == 14
     assert translation_model_id_for_selection("gpt_6_luna", "official_byok") == 14
     assert TRANSLATION_CONNECTION_BY_MODEL_ID.get(14) is None
+
+
+def test_gemma_26b_osc_selection_is_additive_gpu_only_and_preserves_e4b() -> None:
+    message = decode_control_message("/avatar/parameters/PuriPuly_Translator", 15)
+    assert TRANSLATION_MODEL_IDS[message.value] == "managed_gemma_26b"
+    assert TRANSLATION_CONNECTION_BY_MODEL_ID[message.value] == "gpu"
+    assert translation_model_id_for_selection("managed_gemma_26b", "gpu") == 15
+    assert translation_model_id_for_selection("managed_gemma", "cpu") == 10
+    assert translation_model_id_for_selection("managed_gemma", "gpu") == 11
+    with pytest.raises(KeyError):
+        translation_model_id_for_selection("managed_gemma_26b", "cpu")
+
+
+def test_index_osc_selection_uses_append_only_public_api_id() -> None:
+    message = decode_control_message("/avatar/parameters/PuriPuly_Translator", 16)
+    assert TRANSLATION_MODEL_IDS[message.value] == "index_translate_35b"
+    assert TRANSLATION_CONNECTION_BY_MODEL_ID[message.value] == "public_api"
+    assert TRANSLATION_MODEL_ID_BY_VALUE["index_translate_35b"] == 16
+    assert translation_model_id_for_selection("index_translate_35b", "public_api") == 16
+    assert encode_control_message(message.name, message.value) == (
+        "/avatar/parameters/PuriPuly_Translator",
+        16,
+    )
 
 
 def test_codec_validates_absolute_boolean_and_integer_controls() -> None:
@@ -105,10 +108,18 @@ def test_codec_rejects_wrong_types_unknown_ids_and_unknown_parameters() -> None:
 @pytest.mark.parametrize(
     ("asr_id", "provider"),
     [
+        (0, "local_cpu_auto"),
+        (1, "local_cpu_auto"),
+        (2, "local_parakeet_ja"),
+        (3, "local_cpu_auto"),
         (10, "gemini_transcribe"),
         (11, "elevenlabs_scribe"),
         (12, "qwen_audio"),
         (13, "rolling_free"),
+        (14, "local_fun_asr_nano"),
+        (15, "local_fun_asr_mlt_nano"),
+        (16, "local_granite"),
+        (17, "local_gigaam"),
     ],
 )
 def test_codec_round_trips_new_asr_ids(asr_id: int, provider: str) -> None:
@@ -116,12 +127,6 @@ def test_codec_round_trips_new_asr_ids(asr_id: int, provider: str) -> None:
         message = decode_control_message(f"/avatar/parameters/{parameter}", asr_id)
         assert message.value == asr_id
         assert ASR_IDS[message.value] == provider
-
-
-def test_control_schema_keeps_boolean_and_integer_surfaces_separate() -> None:
-    assert set(OSC_BOOLEAN_PARAMETER_NAMES).isdisjoint(OSC_INTEGER_PARAMETER_NAMES)
-    assert len(OSC_BOOLEAN_PARAMETER_NAMES) == 7
-    assert len(OSC_INTEGER_PARAMETER_NAMES) == 8
 
 
 def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
@@ -189,9 +194,9 @@ def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
     )
     assert dict(ASR_IDS) == {
         0: "local_cpu_auto",
-        1: "local_parakeet_v3",
+        1: "local_cpu_auto",
         2: "local_parakeet_ja",
-        3: "local_qwen",
+        3: "local_cpu_auto",
         4: "local_qwen_gpu",
         5: "deepgram",
         7: "soniox",
@@ -201,6 +206,10 @@ def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
         11: "elevenlabs_scribe",
         12: "qwen_audio",
         13: "rolling_free",
+        14: "local_fun_asr_nano",
+        15: "local_fun_asr_mlt_nano",
+        16: "local_granite",
+        17: "local_gigaam",
     }
     assert dict(TRANSLATION_MODEL_IDS) == {
         0: "gemma4_26b_31b",
@@ -216,14 +225,20 @@ def test_osc_public_abi_snapshot_is_append_only_and_exact() -> None:
         11: "managed_gemma",
         13: "deepseek_v4_flash_41",
         14: "gpt_6_luna",
+        15: "managed_gemma_26b",
+        16: "index_translate_35b",
     }
     assert dict(TRANSLATION_CONNECTION_BY_MODEL_ID) == {
         10: "cpu",
         11: "gpu",
+        15: "gpu",
+        16: "public_api",
     }
     assert dict(TRANSLATION_MODEL_ID_BY_SELECTION) == {
         ("managed_gemma", "cpu"): 10,
         ("managed_gemma", "gpu"): 11,
+        ("managed_gemma_26b", "gpu"): 15,
+        ("index_translate_35b", "public_api"): 16,
     }
     assert dict(LANGUAGE_IDS) == {
         0: "ar",

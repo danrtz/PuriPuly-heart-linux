@@ -42,6 +42,7 @@ from puripuly_heart.app.wiring.wiring_stt_factory import (
     build_peer_capture_session_config_from_vnext,
     build_peer_stt_provider_request,
     build_self_capture_session_config_from_vnext,
+    build_self_stt_provider_request_from_config,
     build_self_stt_provider_request_from_vnext,
 )
 from puripuly_heart.config.provider_values import STTProviderName
@@ -79,6 +80,7 @@ from puripuly_heart.core.stt.backend import (
 from puripuly_heart.core.stt.rolling import RollingProviderDefinition, RollingSTTBackend
 from puripuly_heart.core.stt.scoped_engine import ScopedRecognitionEngine
 from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart
+from puripuly_heart.domain.events import UIEventType
 from puripuly_heart.ui.views.settings import SettingsView
 from tests.core.runtime.test_local_asr_provider_runtime import (
     FakeGpuRuntimeFactory,
@@ -94,6 +96,8 @@ class _TransportSession:
         self.speech_ends: list[object] = []
         self.terminal_text = terminal_text
         self._events: asyncio.Queue[object] = asyncio.Queue()
+        self.defer_terminal = False
+        self.pending_terminal: STTProviderTurnTerminal | None = None
 
     async def begin_turn(self, _request: STTProviderTurnRequest) -> None:
         return None
@@ -103,14 +107,19 @@ class _TransportSession:
 
     async def seal_turn(self, identity: STTProviderTurnIdentity, **kwargs) -> None:
         self.speech_ends.append((kwargs.get("trailing_silence_ms"), kwargs.get("reason")))
-        await self._events.put(
-            STTProviderTurnTerminal(
-                identity,
-                "final" if self.terminal_text else "empty",
-                text=self.terminal_text,
-                text_authority="authoritative",
-            )
+        self.pending_terminal = STTProviderTurnTerminal(
+            identity,
+            "final" if self.terminal_text else "empty",
+            text=self.terminal_text,
+            text_authority="authoritative",
         )
+        if not self.defer_terminal:
+            await self.complete_turn()
+
+    async def complete_turn(self) -> None:
+        assert self.pending_terminal is not None
+        await self._events.put(self.pending_terminal)
+        self.pending_terminal = None
 
     async def turn_events(self):
         while True:
@@ -239,6 +248,7 @@ class _ChannelReset:
 
 
 class _Peer:
+    runtime = None
     last_provider_signature = None
     last_runtime_signature = None
     last_intent_enabled = False
@@ -247,10 +257,13 @@ class _Peer:
     def effective_enabled(self) -> bool:
         return False
 
+    def desired_active(self, _state) -> bool:
+        return False
+
     def activation_requested(self, *, intent_enabled: bool, eula_accepted: bool) -> bool:
         return bool(intent_enabled and eula_accepted)
 
-    def capture_runtime_convergence(self, _config) -> None:
+    def capture_runtime_convergence(self, _config, _state=None) -> None:
         return None
 
 
@@ -303,7 +316,7 @@ def _peer_settings(provider: str) -> AppSettingsVNext:
 async def test_local_scope_change_and_capture_restart_replace_engines_without_losing_recognition() -> (
     None
 ):
-    settings = _settings(STTProviderName.LOCAL_QWEN.value)
+    settings = _settings(STTProviderName.LOCAL_FUN_ASR_MLT_NANO.value)
     settings_holder = {"settings": settings}
     runtime_factory = _RuntimeFactory()
     runtime_factory.provider_factory.terminal_text = "recognized"
@@ -421,8 +434,10 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings_owner = compose_settings_owner(tmp_path / "settings.json")
+    settings_owner.persistence.persist(
+        settings_owner.path, _settings(STTProviderName.ROLLING_FREE.value)
+    )
     settings_owner.start()
-    settings_owner.canonical = _settings(STTProviderName.ROLLING_FREE.value)
     harness_factory = _RuntimeFactory()
     harness = compose_translation_test_harness(
         stt=None,
@@ -444,10 +459,8 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
     async def run_audio_loop(**_kwargs):
         await asyncio.Event().wait()
 
-    def request_factory(config, _warmup):
-        current = settings_owner.canonical
-        assert current is not None
-        return build_self_stt_provider_request_from_vnext(current)
+    def request_factory(config, warmup):
+        return build_self_stt_provider_request_from_config(config, warmup=warmup)
 
     config_a = build_self_capture_session_config_from_vnext(settings_owner.canonical)
     capture_owner = SelfCaptureSessionOwner(
@@ -460,8 +473,10 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         vad_sink=harness.self_owner,
     )
 
-    async def replace_self_stt(smooth: bool) -> None:
-        await self_application.replace_provider(smooth_local=smooth)
+    async def replace_self_stt(settings: AppSettingsVNext, smooth: bool) -> None:
+        await self_application.replace_provider_with_config(
+            build_self_capture_session_config_from_vnext(settings), smooth_local=smooth
+        )
 
     self_application = SelfCaptureApplicationOwner(
         settings_provider=lambda: SelfCaptureApplicationSettings(
@@ -472,7 +487,6 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         runtime_available=lambda: True,
         capture_owner=lambda: capture_owner,
         capture_owner_if_created=lambda: capture_owner,
-        persist_manual_fallback=lambda: True,
         reset_local_pending=lambda: None,
         clear_gpu_pending=lambda: None,
         overlay_state_provider=lambda: "off",
@@ -506,7 +520,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         self_capture_provider=lambda: capture_owner,
         self_capture_owner=lambda: capture_owner,
         peer=lambda: peer,
-        peer_desired=lambda _settings: False,
+        peer_state=lambda _settings: None,
         canonical_settings=lambda value: value,
         clear_local_pending=lambda: None,
         sync_local_notice=lambda: None,
@@ -515,7 +529,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         dashboard_managed_pending_sink=lambda _value: None,
         sync_effective_flags=lambda: None,
         refresh_overlay=lambda: None,
-        refresh_peer_runtime=_noop,
+        refresh_peer_runtime=lambda _settings: _noop(),
         replace_self_stt=replace_self_stt,
         self_state_sink=lambda _snapshot: None,
         self_availability=lambda snapshot: snapshot.provider_status.value == "ready",
@@ -529,7 +543,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         success_sink=lambda _message: None,
         additional_signature_sink=lambda _settings: None,
     )
-    components.sync_signatures(settings_owner.canonical)
+    components.sync_stt_signatures(settings_owner.canonical)
 
     results = SettingsTransactionResultOwner()
     provider_application = ProviderApplicationOwner(
@@ -542,11 +556,10 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         apply_order24=lambda _value: _false(),
         remember_order22=lambda _value: None,
         mutation_service_provider=lambda: None,
-        save_failure_sink=lambda _message: None,
         results=results,
         sync_memory=lambda _value: None,
         capture_runtime_signatures=components.capture_signatures_before_canonical_mutation,
-        sync_signatures=components.sync_signatures,
+        sync_stt_signatures=components.sync_stt_signatures,
         consume_superseded_settings=lambda _value: False,
         active_local_asr_change=lambda _base, _next: False,
         compensate_local_asr=lambda **_kwargs: _noop(),
@@ -575,7 +588,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         peer_capture=SimpleNamespace(),
         settings=ui_settings,
         provider=ui_provider,
-        microphone=SimpleNamespace(),
+        audio_test=SimpleNamespace(),
         overlay=SimpleNamespace(),
         managed=SimpleNamespace(),
         engagement=SimpleNamespace(),
@@ -587,8 +600,6 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
         osc_state_publisher=lambda: None,
     )
 
-    monkeypatch.setattr(SettingsView, "_populate_host_apis", lambda self: None)
-    monkeypatch.setattr(SettingsView, "_refresh_microphones", lambda self: None)
     monkeypatch.setattr(SettingsView, "update", lambda self: None)
     monkeypatch.setattr(SettingsView, "_load_secrets", lambda self, *_args: None)
     settings_view = SettingsView()
@@ -619,7 +630,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
 
     original_refresh_self_stt = components.runtime.refresh_self_stt
     original_self_runtime_convergence = components.runtime.self_runtime_convergence
-    components.runtime.refresh_self_stt = _noop
+    components.runtime.refresh_self_stt = lambda _settings: _noop()
     components.runtime.self_runtime_convergence = lambda _settings: False
     await boundary.apply_provider_intent(soniox_intent)
     stale_result = results.current
@@ -708,12 +719,7 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
             ),
         ),
     )
-    unrelated_plan = components.runtime.build_plan(
-        unrelated_settings,
-        force_rebuild_llm=False,
-    )
-    assert unrelated_plan.should_refresh_self_stt is False
-    await components.runtime.apply(unrelated_settings, unrelated_plan)
+    await provider_application.apply(unrelated_settings, persist_settings=False)
     assert len(harness_factory.provider_factory.providers) == provider_count_before_disable
     assert runtime.snapshot.channel_for("self").provider_id == detached_channel.provider_id
     assert capture_owner.snapshot.desired_active is False
@@ -725,30 +731,74 @@ async def test_provider_apply_intent_full_vertical_rolling_gemini_soniox_reverse
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("initial_provider_id", "next_provider_id", "active_turn"),
+    ("initial_provider_id", "next_provider_id", "active_turn", "change_capture", "final_pending"),
     (
         (
             STTProviderName.SONIOX.value,
             STTProviderName.GEMINI_TRANSCRIBE.value,
             True,
+            False,
+            False,
         ),
         (
             STTProviderName.GEMINI_TRANSCRIBE.value,
             STTProviderName.SONIOX.value,
             True,
+            False,
+            False,
         ),
         (
             STTProviderName.SONIOX.value,
             STTProviderName.GEMINI_TRANSCRIBE.value,
             False,
+            False,
+            False,
+        ),
+        (
+            STTProviderName.SONIOX.value,
+            STTProviderName.SONIOX.value,
+            False,
+            True,
+            False,
+        ),
+        (
+            STTProviderName.SONIOX.value,
+            STTProviderName.GEMINI_TRANSCRIBE.value,
+            True,
+            False,
+            True,
+        ),
+        (
+            STTProviderName.SONIOX.value,
+            STTProviderName.SONIOX.value,
+            True,
+            True,
+            False,
+        ),
+        (
+            STTProviderName.SONIOX.value,
+            STTProviderName.SONIOX.value,
+            False,
+            False,
+            False,
         ),
     ),
-    ids=("soniox-to-gemini-active", "gemini-to-soniox-active", "idle"),
+    ids=(
+        "soniox-to-gemini-active",
+        "gemini-to-soniox-active",
+        "idle",
+        "capture-change",
+        "final-pending",
+        "active-capture-change",
+        "soniox-speaker-change",
+    ),
 )
-async def test_peer_provider_handoff_commits_from_owned_speech_end_and_routes_next_turn(
+async def test_peer_settings_apply_routes_next_turn_without_toggling_listen(
     initial_provider_id: str,
     next_provider_id: str,
     active_turn: bool,
+    change_capture: bool,
+    final_pending: bool,
 ) -> None:
     harness_factory = _RuntimeFactory()
     harness = compose_translation_test_harness(
@@ -795,7 +845,31 @@ async def test_peer_provider_handoff_commits_from_owned_speech_end_and_routes_ne
     initial_config = build_peer_capture_session_config_from_vnext(
         _peer_settings(initial_provider_id)
     )
-    next_config = build_peer_capture_session_config_from_vnext(_peer_settings(next_provider_id))
+    next_settings = _peer_settings(next_provider_id)
+    if change_capture:
+        next_settings = replace(
+            next_settings,
+            intent=replace(
+                next_settings.intent,
+                desktop_audio=replace(
+                    next_settings.intent.desktop_audio, output_device="different-output-device"
+                ),
+            ),
+        )
+    elif initial_provider_id == next_provider_id:
+        next_settings = replace(
+            next_settings,
+            intent=replace(
+                next_settings.intent,
+                stt=replace(
+                    next_settings.intent.stt,
+                    soniox=replace(
+                        next_settings.intent.stt.soniox, enable_speaker_diarization=False
+                    ),
+                ),
+            ),
+        )
+    next_config = build_peer_capture_session_config_from_vnext(next_settings)
     sequence = 0
 
     def owned(event):
@@ -863,24 +937,38 @@ async def test_peer_provider_handoff_commits_from_owned_speech_end_and_routes_ne
             await wait_until(
                 lambda: bool(old_transport.sessions) and not initial_engine.is_at_turn_boundary
             )
+            if final_pending:
+                old_transport.sessions[-1].defer_terminal = True
+                await guarded_sink.handle_owned_vad_event(owned(SpeechEnd(old_utterance_id)))
+                await wait_until(lambda: bool(old_transport.sessions[-1].speech_ends))
 
         apply_next = asyncio.create_task(capture.apply_intent(next_config, enabled=True))
-        if active_turn:
+        if active_turn and not change_capture:
             await wait_until(
                 lambda: runtime.snapshot.channel_for("peer").pending_handoff or apply_next.done()
             )
             assert apply_next.done() is False
             assert runtime.snapshot.channel_for("peer").pending_handoff is True
             assert capture.snapshot.provider_id == initial_provider_id
-            await guarded_sink.handle_owned_vad_event(owned(SpeechEnd(old_utterance_id)))
+            if final_pending:
+                await old_transport.sessions[-1].complete_turn()
+            else:
+                await guarded_sink.handle_owned_vad_event(owned(SpeechEnd(old_utterance_id)))
 
         applied = await asyncio.wait_for(apply_next, timeout=2.0)
         assert applied.provider_id == next_provider_id
         assert applied.runtime_signature == next_config.runtime_signature
         assert runtime.snapshot.channel_for("peer").provider_id == next_provider_id
         assert runtime.snapshot.channel_for("peer").pending_handoff is False
-        if active_turn:
+        assert applied.desired_active is True
+        assert applied.effective_active is True
+        if active_turn and not change_capture:
             assert old_transport.sessions[-1].speech_ends
+
+        if change_capture:
+            assert capture.source is sources[1]
+            await guarded_sink.abort()
+            guarded_sink = capture.guard_vad_sink()
 
         new_engine = runtime.current_provider("peer")
         assert isinstance(new_engine, ScopedRecognitionEngine)
@@ -888,15 +976,25 @@ async def test_peer_provider_handoff_commits_from_owned_speech_end_and_routes_ne
         new_transport = harness_factory.provider_factory.transports[-1]
         assert new_transport is not old_transport
         assert new_transport.sessions == []
+        new_transport.terminal_text = "recognized after applying settings"
         next_utterance_id = uuid4()
         await guarded_sink.handle_owned_vad_event(owned(frame_event(next_utterance_id, start=True)))
         await guarded_sink.handle_owned_vad_event(
             owned(frame_event(next_utterance_id, start=False))
         )
         await wait_until(lambda: bool(new_transport.sessions))
+        if change_capture and active_turn:
+            assert old_transport.sessions[-1].closed.is_set()
         assert len(old_transport.sessions) == (1 if active_turn else 0)
         await guarded_sink.handle_owned_vad_event(owned(SpeechEnd(next_utterance_id)))
         await wait_until(lambda: bool(new_transport.sessions[-1].speech_ends))
+        async with asyncio.timeout(2.0):
+            while True:
+                event = await harness.ui_events.get()
+                if event.type is UIEventType.TRANSCRIPT_FINAL:
+                    assert event.channel == "peer"
+                    assert event.payload.text == "recognized after applying settings"
+                    break
     finally:
         if guarded_sink is not None:
             await guarded_sink.abort()

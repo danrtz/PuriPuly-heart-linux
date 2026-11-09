@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -24,7 +25,9 @@ from puripuly_heart.ui.desktop_overlay_surface.contract import (
     _DESKTOP_CAPTION_CJK_WIDTH_EM,
     _DESKTOP_CAPTION_DYNAMIC_WIDTH_SAFETY,
     _DESKTOP_CAPTION_EMOJI_WIDTH_EM,
+    _DESKTOP_CAPTION_FIT_OVERFLOW_TOLERANCE,
     _DESKTOP_CAPTION_FONT_FAMILY,
+    _DESKTOP_CAPTION_FONT_SCALES,
     _DESKTOP_CAPTION_LATIN_NARROW_WIDTH_EM,
     _DESKTOP_CAPTION_LATIN_WIDE_WIDTH_EM,
     _DESKTOP_CAPTION_LINE_HEIGHT,
@@ -135,7 +138,7 @@ def build_desktop_caption_plan(
     secondary_region_height = (
         secondary_font_size * _DESKTOP_CAPTION_LINE_HEIGHT * _DESKTOP_CAPTION_SECONDARY_MAX_LINES
     )
-    return DesktopCaptionPlan(
+    plan = DesktopCaptionPlan(
         slots=slots,
         lines=lines,
         size_preset=preset.id,
@@ -161,6 +164,7 @@ def build_desktop_caption_plan(
         speaker_divider_fill_height=primary_font_size * _DESKTOP_SPEAKER_DIVIDER_FILL_EM,
         speaker_divider_outline_width=primary_font_size * _DESKTOP_SPEAKER_DIVIDER_OUTLINE_EM,
     )
+    return _caption_plan_with_fitted_fonts(plan)
 
 
 def desktop_empty_lock_action_label(locale: str | None) -> str:
@@ -251,14 +255,19 @@ def build_desktop_caption_surface(plan: DesktopCaptionPlan) -> Any:
         )
     slot_controls = [_build_flet_caption_slot(ft, plan, slot) for slot in plan.slots]
     if slot_controls:
+        peer_only_slot = len(plan.slots) == 1 and plan.slots[0].channel == "peer"
         slot_stack_height = (plan.slot_height * len(slot_controls)) + (
             plan.slot_gap * max(0, len(slot_controls) - 1)
         )
+        if peer_only_slot:
+            slot_stack_height = plan.window_height
         stack_controls.append(
             ft.Column(
                 controls=slot_controls,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                alignment=ft.MainAxisAlignment.CENTER,
+                alignment=(
+                    ft.MainAxisAlignment.END if peer_only_slot else ft.MainAxisAlignment.CENTER
+                ),
                 spacing=plan.slot_gap,
                 tight=True,
                 width=plan.window_width,
@@ -971,6 +980,7 @@ def _caption_line(
     uses_cjk_font_policy = _desktop_caption_uses_cjk_font_policy(text, language)
     return DesktopCaptionLine(
         text=text,
+        ruby=block.primary_ruby if text == block.primary_text else block.secondary_ruby,
         role=role,
         slot=slot,
         color=_desktop_caption_color_for_channel(block.channel, block.speaker_style),
@@ -1014,11 +1024,59 @@ def _caption_card_width_memory_key(slot: DesktopCaptionSlot) -> tuple[str, str, 
     return (slot.block_id, slot.occupant_key, slot.appearance_seq)
 
 
-def _estimated_caption_line_width(text: str, font_size: int) -> float:
+def _caption_plan_with_fitted_fonts(
+    plan: DesktopCaptionPlan,
+    font_scale_ceiling_by_region: Mapping[tuple[str, int, str], float] | None = None,
+) -> DesktopCaptionPlan:
+    fitted_slots: list[DesktopCaptionSlot] = []
+    for slot in plan.slots:
+        text_width = (
+            plan.text_width
+            if plan.full_window_background_visible
+            else slot.card_text_width or plan.text_width
+        )
+        fitted_lines: list[DesktopCaptionLine] = []
+        for line in slot.lines:
+            font_size = (
+                plan.primary_font_size if line.slot == "primary" else plan.secondary_font_size
+            )
+            scale = _caption_font_scale(line, font_size=font_size, text_width=text_width)
+            if font_scale_ceiling_by_region is not None:
+                key = (slot.occupant_key, slot.appearance_seq, line.slot)
+                scale = min(scale, font_scale_ceiling_by_region.get(key, 1.0))
+            fitted_lines.append(replace(line, font_size=font_size * scale, font_scale=scale))
+        fitted_slots.append(replace(slot, lines=tuple(fitted_lines)))
+    return replace(
+        plan,
+        slots=tuple(fitted_slots),
+        lines=tuple(line for slot in fitted_slots for line in slot.lines),
+    )
+
+
+def _caption_font_scale(
+    line: DesktopCaptionLine,
+    *,
+    font_size: float,
+    text_width: float,
+) -> float:
+    estimated_widths = tuple(
+        _estimated_caption_line_width(text, font_size) for text in line.text.split("\n")
+    )
+    tolerated_width = max(1.0, text_width) * _DESKTOP_CAPTION_FIT_OVERFLOW_TOLERANCE
+    for scale in _DESKTOP_CAPTION_FONT_SCALES:
+        estimated_lines = sum(
+            max(1, math.ceil(width * scale / tolerated_width)) for width in estimated_widths
+        )
+        if estimated_lines <= line.max_lines:
+            return scale
+    return _DESKTOP_CAPTION_FONT_SCALES[-1]
+
+
+def _estimated_caption_line_width(text: str, font_size: float) -> float:
     return sum(_estimated_caption_char_width(char, font_size) for char in text)
 
 
-def _estimated_caption_char_width(char: str, font_size: int) -> float:
+def _estimated_caption_char_width(char: str, font_size: float) -> float:
     codepoint = ord(char)
     if char.isspace():
         return font_size * _DESKTOP_CAPTION_SPACE_WIDTH_EM
@@ -1291,6 +1349,8 @@ def _build_flet_text(
     line: DesktopCaptionLine,
     text_width: float,
 ) -> Any:
+    if line.ruby:
+        return _build_ruby_text(ft, line, text_width)
     return ft.Text(
         value=line.text,
         width=text_width,
@@ -1309,6 +1369,77 @@ def _build_flet_text(
             font_family=line.font_family,
             foreground=None,
         ),
+    )
+
+
+def _build_ruby_text(ft: Any, line: DesktopCaptionLine, width: float) -> Any:
+    size = line.font_size * line.line_height / 1.7
+    rows: list[list[tuple[str, str, float]]] = [[]]
+    row_width = 0.0
+    for segment in line.ruby:
+        units = (
+            [(segment.text, segment.reading)]
+            if segment.reading
+            else [(char, "") for char in segment.text]
+        )
+        for base, reading in units:
+            unit_width = (
+                max(
+                    _estimated_caption_line_width(base, size),
+                    _estimated_caption_line_width(reading, size * 0.46),
+                )
+                + size * 0.04
+            )
+            if row_width + unit_width > width and rows[-1]:
+                rows.append([])
+                row_width = 0.0
+            rows[-1].append((base, reading, min(unit_width, width)))
+            row_width += unit_width
+    visible = rows[: line.max_lines]
+    if len(rows) > line.max_lines and visible[-1]:
+        visible[-1][-1] = ("…", "", size)
+    controls = []
+    for row in visible:
+        cells = []
+        for base, reading, unit_width in row:
+
+            def text(value: str, font_size: float, height: float) -> Any:
+                return ft.Container(
+                    content=ft.Text(
+                        value=value,
+                        size=font_size,
+                        font_family=line.font_family,
+                        color=line.color,
+                        weight=_flet_font_weight(ft, line.weight),
+                        no_wrap=True,
+                        text_align=ft.TextAlign.CENTER,
+                        style=ft.TextStyle(height=1.0),
+                    ),
+                    width=unit_width,
+                    height=height,
+                    alignment=ft.Alignment.CENTER,
+                )
+
+            cells.append(
+                ft.Column(
+                    controls=[
+                        text(base, size, size * 1.17),
+                        text(reading, size * 0.46, size * 0.53),
+                    ],
+                    spacing=0,
+                    width=unit_width,
+                )
+            )
+        controls.append(
+            ft.Row(
+                controls=cells,
+                spacing=0,
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            )
+        )
+    return ft.Column(
+        controls=controls, spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=width
     )
 
 
@@ -1481,10 +1612,16 @@ def _apply_retained_desktop_caption_plan(
     )
     model.full_background.border_radius = plan.border_radius
     visible_slot_count = len(plan.slots)
+    peer_only_slot = visible_slot_count == 1 and plan.slots[0].channel == "peer"
     model.slot_column.visible = bool(visible_slot_count)
     model.slot_column.width = plan.window_width
     model.slot_column.height = (plan.slot_height * visible_slot_count) + (
         plan.slot_gap * max(0, visible_slot_count - 1)
+    )
+    if peer_only_slot:
+        model.slot_column.height = plan.window_height
+    model.slot_column.alignment = (
+        ft.MainAxisAlignment.END if peer_only_slot else ft.MainAxisAlignment.CENTER
     )
     model.slot_column.spacing = plan.slot_gap
     for index, slot_container in enumerate(model.slot_containers):
@@ -1621,6 +1758,10 @@ def _apply_retained_caption_line(
         displayed_line,
         center_primary_region=center,
     )
+    if displayed_line.ruby:
+        region.content = _build_ruby_text(ft, displayed_line, width)
+        return
+    region.content = text
     text.value = displayed_line.text
     text.width = width
     text.font_family = displayed_line.font_family

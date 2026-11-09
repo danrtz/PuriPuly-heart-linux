@@ -3,18 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from uuid import uuid4
 
-from puripuly_heart.core.local_asr_provider_runtime import (
+from puripuly_heart.config.resolved import (
+    ResolvedCredentialRequirement,
+    ResolvedSTTConfig,
+)
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
     LocalASRProviderRuntimeCallbacks,
     LocalASRProviderRuntimeSnapshot,
     ProviderRuntimeBuildRequest,
     ProviderRuntimeChannelSnapshot,
     ProviderRuntimeGpuSnapshot,
     ProviderRuntimeMutationResult,
-)
-
-from puripuly_heart.config.resolved import (
-    ResolvedCredentialRequirement,
-    ResolvedSTTConfig,
 )
 from puripuly_heart.core.runtime.local_asr_provider_runtime import (
     LocalASRProviderRuntimeOwner,
@@ -36,9 +35,9 @@ class FakeOscQueue:
     def set_typing_reason(self, reason: str, active: bool) -> None:
         _ = reason, active
 
-    def send_immediate(self, text: str) -> bool:
+    def send_immediate(self, text: str) -> tuple[bool, None]:
         _ = text
-        return True
+        return True, None
 
     def process_due(self) -> None:
         return

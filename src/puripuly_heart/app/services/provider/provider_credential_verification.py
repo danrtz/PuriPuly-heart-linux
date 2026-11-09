@@ -1,32 +1,29 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
-from typing import Final, Literal
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from typing import Final
 
-from puripuly_heart.app.ports.provider_verifier import ProviderVerifierPort
+from puripuly_heart.app.ports.provider_verifier import (
+    ProviderCredentialVerificationOutcome,
+    ProviderCredentialVerificationStatus,
+    ProviderVerifierPort,
+)
 from puripuly_heart.config.alibaba_connection import (
     AlibabaConnection,
     AlibabaRegionalSettings,
     resolve_alibaba_connection,
 )
+from puripuly_heart.core.diagnostics import emit_failure
 from puripuly_heart.core.error_messages import (
-    format_error_report_for_log,
     openrouter_auth_failure_report,
+    provider_failure_report,
+    stt_failure_report,
 )
-from puripuly_heart.core.openrouter.authentication import OpenRouterAuthenticationError
 
-ProviderCredentialVerificationStatus = Literal[
-    "verified",
-    "failed",
-    "empty",
-    "unknown",
-    "error",
-]
-ProviderCredentialVerificationDiagnosticsSink = Callable[
-    [str, Mapping[str, object], BaseException | None],
-    None,
-]
+logger = logging.getLogger(__name__)
+
 ProviderCredentialSelectedModelProvider = Callable[[str], str | None]
 ProviderCredentialConnectionProvider = Callable[[str], AlibabaConnection]
 ProviderCredentialVerificationErrorSink = Callable[[str, str], None]
@@ -61,17 +58,9 @@ class ProviderCredentialVerificationRequest:
     low_latency: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderCredentialVerificationOutcome:
-    status: ProviderCredentialVerificationStatus
-    provider: str
-    error_text: str | None = None
-
-
 @dataclass(slots=True)
 class ProviderCredentialVerificationOwner:
     verifier: ProviderVerifierPort
-    diagnostics_sink: ProviderCredentialVerificationDiagnosticsSink | None = None
 
     @property
     def owner_name(self) -> str:
@@ -102,10 +91,6 @@ class ProviderCredentialVerificationOwner:
             )
         except Exception as exc:
             return self._error_outcome(request.provider, exc)
-        if provider == "openrouter" and not verified:
-            self._openrouter_report(
-                OpenRouterAuthenticationError.from_status(401, stage="key_verification")
-            )
         return ProviderCredentialVerificationOutcome(
             status=(PROVIDER_CREDENTIAL_VERIFIED if verified else PROVIDER_CREDENTIAL_FAILED),
             provider=request.provider,
@@ -151,47 +136,35 @@ class ProviderCredentialVerificationOwner:
         exception: BaseException,
     ) -> ProviderCredentialVerificationOutcome:
         if provider == "openrouter" and isinstance(exception, Exception):
-            return ProviderCredentialVerificationOutcome(
-                status=PROVIDER_CREDENTIAL_ERROR,
-                provider=provider,
-                error_text=self._openrouter_report(exception),
+            report = openrouter_auth_failure_report(exception, stage="key_verification")
+        elif provider in {"deepgram", "gemini_transcribe", "elevenlabs_scribe", "soniox"}:
+            report = stt_failure_report(
+                exception, provider=provider, operation="key_verification", channel=""
             )
-        alibaba = provider.startswith("alibaba_")
-        self._emit(
-            "provider_credential_verification_failed",
-            {"provider": provider, "error_type": type(exception).__name__},
-            None if alibaba else exception,
+        else:
+            report = provider_failure_report(
+                exception, provider=provider, operation="key_verification"
+            )
+        diagnostics = replace(
+            report.diagnostics,
+            channel=None,
+            fields={
+                **{
+                    key: value
+                    for key, value in report.diagnostics.fields.items()
+                    if key != "channel"
+                },
+                "verification_scope": "key_probe",
+                "recognition_readiness": "unobserved",
+            },
         )
+        emit_failure(logger, diagnostics, stage="key_verification")
         return ProviderCredentialVerificationOutcome(
             status=PROVIDER_CREDENTIAL_ERROR,
             provider=provider,
-            error_text=("Alibaba verification failed" if alibaba else str(exception)),
+            error_text=report.message.key,
+            diagnostics=diagnostics,
         )
-
-    def _openrouter_report(self, exception: Exception) -> str:
-        report = openrouter_auth_failure_report(exception, stage="key_verification")
-        self._emit(
-            "provider_credential_verification_failed",
-            {
-                "provider": "openrouter",
-                "error_type": report.diagnostics.fields["exception_type"],
-                "report": "[OpenRouterAuth] failed " + format_error_report_for_log(report),
-            },
-        )
-        return report.message.key
-
-    def _emit(
-        self,
-        event: str,
-        metadata: Mapping[str, object],
-        exception: BaseException | None = None,
-    ) -> None:
-        if self.diagnostics_sink is None:
-            return
-        try:
-            self.diagnostics_sink(event, metadata, exception)
-        except Exception:
-            return
 
 
 @dataclass(slots=True)
@@ -206,7 +179,7 @@ class ProviderCredentialVerificationInteractionOwner:
     def owner_name(self) -> str:
         return "ProviderCredentialVerificationInteractionOwner"
 
-    async def verify(self, provider: str, api_key: str) -> tuple[bool, str]:
+    async def verify(self, provider: str, api_key: str) -> ProviderCredentialVerificationOutcome:
         outcome = await self.verification_owner.verify(
             ProviderCredentialVerificationRequest(
                 provider=provider,
@@ -221,19 +194,24 @@ class ProviderCredentialVerificationInteractionOwner:
             )
         )
         if outcome.status == PROVIDER_CREDENTIAL_VERIFIED:
-            return True, "Verification successful"
+            return outcome
         if outcome.status == PROVIDER_CREDENTIAL_EMPTY:
-            return False, "API Key is empty"
+            return replace(outcome, error_text="API Key is empty")
         if outcome.status == PROVIDER_CREDENTIAL_UNKNOWN:
-            return False, f"Unknown provider: {provider}"
+            return replace(outcome, error_text=f"Unknown provider: {provider}")
         if outcome.status == PROVIDER_CREDENTIAL_ERROR:
             error_text = outcome.error_text or ""
             if self.error_sink is not None and provider != "openrouter":
                 self.error_sink(provider, error_text)
-            return False, error_text
-        if provider == "openrouter":
-            return False, "error.openrouter_auth.credential_rejected"
-        return False, "Verification failed (check logs/console for details)"
+            return outcome
+        return replace(
+            outcome,
+            error_text=(
+                "error.openrouter_auth.credential_rejected"
+                if provider == "openrouter"
+                else "Verification failed (check logs/console for details)"
+            ),
+        )
 
 
 __all__ = [
@@ -242,9 +220,7 @@ __all__ = [
     "PROVIDER_CREDENTIAL_FAILED",
     "PROVIDER_CREDENTIAL_UNKNOWN",
     "PROVIDER_CREDENTIAL_VERIFIED",
-    "ProviderCredentialVerificationOutcome",
     "ProviderCredentialVerificationInteractionOwner",
     "ProviderCredentialVerificationOwner",
     "ProviderCredentialVerificationRequest",
-    "ProviderCredentialVerificationStatus",
 ]

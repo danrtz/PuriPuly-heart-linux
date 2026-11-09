@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import threading
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 
-from puripuly_heart.core.local_asr_provisioning import (
+from puripuly_heart.core.diagnostics import current_diagnostic_operation, emit_failure
+from puripuly_heart.core.error_messages import provider_failure_report
+from puripuly_heart.core.feature_diagnostics import log_feature
+from puripuly_heart.core.local_asr.local_asr_provisioning import (
     LocalASRInstallRequest,
     LocalASRInstallResult,
     LocalASRInstallResultHandler,
@@ -18,33 +23,38 @@ from puripuly_heart.core.local_asr_provisioning import (
     LocalASRProvisioningDiagnostic,
     LocalASRProvisioningSnapshot,
 )
-from puripuly_heart.core.local_gpu_assets import (
+from puripuly_heart.core.local_asr.local_gpu_assets import (
     LocalGPUInstallSnapshot,
     inspect_local_gpu_install,
     load_local_gpu_asset_manifest,
 )
-from puripuly_heart.core.local_stt_assets import (
+from puripuly_heart.core.local_asr.local_stt_assets import (
     LOCAL_QWEN_GPU_MODEL_ID,
     REQUIRED_CPU_LOCAL_STT_MODEL_IDS,
     InstalledLocalSTTManifest,
     LocalSTTAssetManifest,
     LocalSTTInstallState,
     LocalSTTManifestInvalidError,
+    default_local_stt_model_root,
     load_local_stt_asset_manifest,
 )
-from puripuly_heart.core.local_stt_catalog import (
+from puripuly_heart.core.local_asr.local_stt_catalog import (
     LocalCPUInstallSnapshot,
     LocalCPUModelInstall,
     inspect_local_cpu_model_installs,
 )
-from puripuly_heart.core.local_stt_download_port import HuggingFaceDownloadPort
-from puripuly_heart.core.local_stt_runtime_installer import (
+from puripuly_heart.core.local_asr.local_stt_download_port import HuggingFaceDownloadPort
+from puripuly_heart.core.local_asr.local_stt_runtime_installer import (
+    LocalSTTProvisioningLease,
     LocalSTTRuntimeInstallCancelled,
     LocalSTTRuntimeInstallError,
     RuntimeLocalSTTStatusUpdate,
+    StatusCallback,
     cleanup_local_stt_install_residue,
     ensure_local_stt_installed,
 )
+from puripuly_heart.core.model_install_removal import remove_model_install_dir
+from puripuly_heart.core.owned_thread import run_owned_thread_call
 from puripuly_heart.core.runtime.local_stt_download import LocalSTTDownloadRuntime
 
 ProvisioningStateChanged = Callable[
@@ -62,6 +72,16 @@ GPUManifestLoader = Callable[[], LocalSTTAssetManifest]
 ProvisioningInstaller = Callable[..., Awaitable[InstalledLocalSTTManifest]]
 ProvisioningResidueCleaner = Callable[..., tuple[Path, ...] | None]
 DownloadRuntimeFactory = Callable[[], LocalSTTDownloadRuntime]
+
+logger = logging.getLogger(__name__)
+
+
+def _install_failure_leaves(failure: BaseException) -> tuple[BaseException, ...]:
+    if isinstance(failure, BaseExceptionGroup):
+        return tuple(
+            leaf for member in failure.exceptions for leaf in _install_failure_leaves(member)
+        )
+    return (failure,)
 
 
 class LocalASRProvisioningOwner:
@@ -239,16 +259,20 @@ class LocalASRProvisioningOwner:
         request: LocalASRInstallRequest,
         *,
         result_handler: LocalASRInstallResultHandler | None = None,
+        on_status: StatusCallback | None = None,
     ) -> asyncio.Task[LocalASRInstallResult]:
         self._require_open("start install")
         self._validate_request(request)
         runtime = self._runtime_for(request.backend)
+        diagnostic_identity = current_diagnostic_operation()
         task = runtime.start(
             origin=request.origin,
             run_download=lambda cancel_event, generation: self._run_install(
                 request,
                 cancel_event=cancel_event,
                 generation=generation,
+                status_handler=on_status,
+                diagnostic_identity=diagnostic_identity,
             ),
         )
         if result_handler is not None:
@@ -287,8 +311,41 @@ class LocalASRProvisioningOwner:
         await self._publish_state()
         return self.snapshot
 
-    async def cancel_install(self, backend: LocalASRProvisioningBackend) -> None:
-        await self._runtime_for(backend).cancel()
+    async def delete_model(self, model_id: str) -> LocalASRProvisioningSnapshot:
+        self._require_open("delete model assets")
+        current = self._models.get(model_id)
+        if current is None:
+            raise ValueError(f"unsupported local ASR model: {model_id}")
+        backend = current.backend
+        if self._activities.get(backend) is not None or current.operation == "downloading":
+            raise LocalSTTRuntimeInstallError(
+                "Another model task is active", failure_code="task_busy"
+            )
+        manifest = self._manifest_for(backend, model_id)
+        root = (self._model_root or default_local_stt_model_root()).resolve()
+
+        def remove_install() -> None:
+            lease = LocalSTTProvisioningLease.acquire(model_root=root, wait=False)
+            if lease is None:
+                raise LocalSTTRuntimeInstallError(
+                    "Another model task is active", failure_code="task_busy"
+                )
+            try:
+                remove_model_install_dir(root / manifest.install_dirname)
+            finally:
+                lease.close()
+
+        await run_owned_thread_call(remove_install)
+        if backend == "gpu":
+            return await self.inspect_gpu(explicit_intent=True)
+        return await self.inspect_cpu((model_id,))
+
+    async def cancel_install(
+        self, backend: LocalASRProvisioningBackend, *, origin: str | None = None
+    ) -> None:
+        runtime = self._runtime_for(backend)
+        if origin is None or runtime.origin == origin:
+            await runtime.cancel()
 
     async def close(self) -> None:
         if self._closed and not self._has_resources():
@@ -394,6 +451,8 @@ class LocalASRProvisioningOwner:
         *,
         cancel_event: threading.Event,
         generation: int,
+        diagnostic_identity: dict[str, str | None],
+        status_handler: StatusCallback | None = None,
     ) -> LocalASRInstallResult:
         await self._ensure_startup_cleanup(
             wait_for_lease=True,
@@ -402,6 +461,7 @@ class LocalASRProvisioningOwner:
         runtime = self._runtime_for(request.backend)
         installed: list[str] = []
         failed: list[str] = []
+        failure_codes: list[str] = []
         cancelled = False
         active_model_id: str | None = None
         try:
@@ -441,6 +501,10 @@ class LocalASRProvisioningOwner:
                             update=current,
                         ),
                     )
+                    if status_handler is not None and runtime.is_current_generation(generation):
+                        outcome = status_handler(update)
+                        if inspect.isawaitable(outcome):
+                            await outcome
 
                 try:
                     manifest = self._manifest_for(request.backend, model_id)
@@ -452,6 +516,11 @@ class LocalASRProvisioningOwner:
                         on_status=on_status,
                         cancel_event=cancel_event,
                         huggingface_downloader=self._huggingface_downloader,
+                        **(
+                            {"preferred_source": request.preferred_source}
+                            if request.preferred_source
+                            else {}
+                        ),
                     )
                     if not runtime.is_current_generation(generation):
                         cancelled = True
@@ -481,36 +550,64 @@ class LocalASRProvisioningOwner:
                             elapsed_seconds=time.monotonic() - started_at,
                         )
                     )
-                except LocalSTTRuntimeInstallCancelled:
-                    cancelled = True
+                except BaseException as exc:
+                    primary, *cleanup_failures = _install_failure_leaves(exc)
+                    if any(
+                        not isinstance(failure, (Exception, asyncio.CancelledError))
+                        for failure in (primary, *cleanup_failures)
+                    ):
+                        raise
+                    is_cancelled = isinstance(
+                        primary, (asyncio.CancelledError, LocalSTTRuntimeInstallCancelled)
+                    )
+                    if is_cancelled:
+                        cancelled = True
+                    else:
+                        failed.append(model_id)
+                        failure_codes.append(
+                            self._log_install_failure(
+                                primary,
+                                model_id=model_id,
+                                generation=generation,
+                                diagnostic_identity=diagnostic_identity,
+                                stage="installation",
+                            )
+                        )
+                    for cleanup_failure in cleanup_failures:
+                        self._log_install_failure(
+                            cleanup_failure,
+                            model_id=model_id,
+                            generation=generation,
+                            diagnostic_identity=diagnostic_identity,
+                            stage="cleanup",
+                        )
+                        await self._emit_diagnostic(
+                            LocalASRProvisioningDiagnostic(
+                                event="cleanup",
+                                backend=request.backend,
+                                model_id=model_id,
+                                origin=request.origin,
+                                outcome="failed",
+                                failure_type=type(cleanup_failure).__name__,
+                            )
+                        )
                     await self._restore_integrity_after_interruption(request.backend, model_id)
-                    self._set_operation(model_id, operation="cancelled")
+                    self._set_operation(
+                        model_id, operation="cancelled" if is_cancelled else "download_failed"
+                    )
                     await self._emit_diagnostic(
                         LocalASRProvisioningDiagnostic(
                             event="install",
                             backend=request.backend,
                             model_id=model_id,
                             origin=request.origin,
-                            outcome="cancelled",
+                            outcome="cancelled" if is_cancelled else "failed",
                             elapsed_seconds=time.monotonic() - started_at,
+                            failure_type=None if is_cancelled else type(primary).__name__,
                         )
                     )
-                    break
-                except Exception as exc:
-                    failed.append(model_id)
-                    await self._restore_integrity_after_interruption(request.backend, model_id)
-                    self._set_operation(model_id, operation="download_failed")
-                    await self._emit_diagnostic(
-                        LocalASRProvisioningDiagnostic(
-                            event="install",
-                            backend=request.backend,
-                            model_id=model_id,
-                            origin=request.origin,
-                            outcome="failed",
-                            elapsed_seconds=time.monotonic() - started_at,
-                            failure_type=type(exc).__name__,
-                        )
-                    )
+                    if is_cancelled:
+                        break
                 finally:
                     await self._publish_state()
         except asyncio.CancelledError:
@@ -541,7 +638,43 @@ class LocalASRProvisioningOwner:
             failed_model_ids=tuple(failed),
             cancelled=cancelled,
             snapshot=self.snapshot,
+            failure_codes=tuple(failure_codes),
         )
+
+    def _log_install_failure(
+        self,
+        failure: BaseException,
+        *,
+        model_id: str,
+        generation: int,
+        diagnostic_identity: dict[str, str | None],
+        stage: str,
+    ) -> str:
+        code = getattr(failure, "failure_code", "unknown")
+        if not isinstance(code, str) or not code.isascii() or not code.replace("_", "").isalnum():
+            code = "unknown"
+        log_feature(
+            "ModelDownload",
+            stage,
+            "cleanup_failed" if stage == "cleanup" else code,
+            error=failure,
+            http_status=getattr(failure, "status_code", None),
+        )
+        native = provider_failure_report(
+            failure, provider="local_asr", operation="models.install"
+        ).diagnostics
+        diagnostics = replace(
+            native,
+            component="local_asr_provisioning",
+            code="local_asr_install_failed",
+            visibility="diagnostic_only",
+            fields={**native.fields, "model_id": model_id},
+            operation_id=diagnostic_identity.get("operation_id"),
+            request_id=diagnostic_identity.get("request_id"),
+            generation=generation,
+        )
+        emit_failure(logger, diagnostics, disposition="failed", stage=stage, exception=failure)
+        return code
 
     async def _ensure_startup_cleanup(
         self,
@@ -610,7 +743,9 @@ class LocalASRProvisioningOwner:
             backend=request.backend,
             model_id=model_id,
             origin=request.origin,
-            progress_percent=update.percent,
+            progress_percent=(
+                update.percent if update.percent is not None else activity.progress_percent
+            ),
             generation=generation,
         )
         if update.status == "downloading":

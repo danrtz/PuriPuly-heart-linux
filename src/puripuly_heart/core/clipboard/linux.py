@@ -62,7 +62,7 @@ class LinuxClipboardWatcher:
             )
             if snapshot.stdout:
                 self._last_text = json.loads(snapshot.stdout).strip()
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+        except OSError, ValueError, subprocess.TimeoutExpired:
             pass
         finally:
             if initial.stdout is not None:

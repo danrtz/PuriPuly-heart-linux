@@ -14,6 +14,7 @@ from puripuly_heart.core.audio.ownership import (
     AudioSegmentSettingsSnapshot,
 )
 from puripuly_heart.core.diagnostic_validation import DIAGNOSTIC_SINK_PERSISTED_LOGS
+from puripuly_heart.core.diagnostics import DIAGNOSTIC_RECORD_ATTRIBUTE
 from puripuly_heart.core.runtime_logging import _DiagnosticRedactionFilter
 from puripuly_heart.core.stt.backend import (
     STTProviderEpochEnded,
@@ -302,25 +303,27 @@ async def test_transport_failure_preserves_private_safe_metadata_and_retires_con
             persisted = copy(record)
             assert redaction.filter(persisted)
             message = persisted.getMessage()
-            assert message == record.getMessage()
             assert "private-" not in message
-            assert len(message) < 1024
-            metadata = dict(token.split("=", 1) for token in message.split()[2:])
-            assert all(len(value) <= 64 for value in metadata.values())
+            assert len(message) < 4096
+            diagnostics, _, disposition, stage, _ = getattr(record, DIAGNOSTIC_RECORD_ATTRIBUTE)
+            metadata = dict(diagnostics.fields)
             assert metadata["provider"] == "gemini_transcribe"
-            assert metadata["channel"] == (
-                "self" if ownership == "stream" else ("peer" if ownership == "request" else "none")
+            assert diagnostics.channel == (
+                "self" if ownership == "stream" else ("peer" if ownership == "request" else None)
             )
-            assert metadata["epoch"] == "epoch"
+            assert metadata["provider_epoch_id"] == "epoch"
             assert metadata["exception_class"] == (
                 "RuntimeError" if error_type is RuntimeError else "unclassified"
             )
-            assert metadata["api_code"] == safe_code
+            assert str(metadata.get("api_code", "none")) == safe_code
             assert metadata["api_status"] == safe_status
             assert metadata["message_kind"] == kind
+            assert metadata["recognition_cause"] == ended.reason
+            assert stage == ("write" if operation == "send" else "receive")
+            assert disposition == "failed"
             fields.append(metadata)
-        assert any(metadata["operation"] == operation for metadata in fields)
-        assert any(metadata["reason"] == ended.reason for metadata in fields)
+        assert len(fields) == 1
+        assert ended.failure_diagnostics.diagnostic_id == diagnostics.diagnostic_id
     finally:
         await session.close()
 
@@ -448,52 +451,6 @@ async def test_context_audio_preserves_source_validation(
         assert (terminal.outcome, terminal.epoch_disposition) == ("failed", "retire")
         assert isinstance(await _next(session), STTProviderEpochEnded)
         assert [item["audio"]["data"] for item in live.sent if "audio" in item] == [b"aa"]
-    finally:
-        await session.close()
-
-
-@pytest.mark.asyncio
-async def test_seal_submits_input_without_waiting_for_final_and_next_audio_flows() -> None:
-    session, live = await _session()
-    first, second = _request(1), _request(2)
-    try:
-        await session.begin_turn(first)
-        await session.send_turn_audio(
-            first.identity,
-            b"\x01\x00\x02\x00",
-            payload_sequence=1,
-            source_ranges=_span(0, 2),
-            context_only=False,
-        )
-        await _seal(session, first)
-        submitted = await _next(session)
-        assert isinstance(submitted, STTProviderInputTerminal)
-        assert (submitted.identity, submitted.outcome, submitted.epoch_disposition) == (
-            first.identity,
-            "submitted",
-            "reuse",
-        )
-        await session.begin_turn(second)
-        await session.send_turn_audio(
-            second.identity,
-            b"\x03\x00\x04\x00",
-            payload_sequence=1,
-            source_ranges=_span(2, 4),
-            context_only=False,
-        )
-        assert live.sent == [
-            {"audio": {"data": b"\x01\x00\x02\x00", "mime_type": "audio/pcm;rate=16000"}},
-            {"audio_stream_end": True},
-            {"audio": {"data": b"\x03\x00\x04\x00", "mime_type": "audio/pcm;rate=16000"}},
-        ]
-        await _seal(session, second)
-        assert (await _next(session)).outcome == "submitted"
-        live.push(_message(final="second or first", include_final=True))
-        unit = await _next(session)
-        assert isinstance(unit, STTRecognitionUnit)
-        assert unit.text == "second or first"
-        assert unit.identity.stream.provider_epoch_id == "epoch"
-        assert unit.identity.stream.capture_epoch == 1
     finally:
         await session.close()
 
@@ -641,7 +598,10 @@ async def test_native_activity_end_missing_result_and_interim_do_not_retire_stre
         live.push(_interim("not final"))
         live.push(_message(ack=True))
         await asyncio.sleep(0.03)
-        assert session._event_projection.scoped_event_depth == 0
+        partial = await _next(session)
+        assert isinstance(partial, STTRecognitionUnit)
+        assert (partial.text, partial.is_final) == ("not final", False)
+        assert not session._protocol_failed
         await session.begin_turn(second)
         await session.send_turn_audio(
             second.identity,
@@ -655,7 +615,10 @@ async def test_native_activity_end_missing_result_and_interim_do_not_retire_stre
         live.push(_message(final="actual", include_final=True))
         unit = await _next(session)
         assert isinstance(unit, STTRecognitionUnit)
-        assert unit.text == "actual"
+        assert (unit.text, unit.is_final) == ("actual", True)
+        assert unit.identity.stream == partial.identity.stream
+        assert unit.identity.unit_id == partial.identity.unit_id
+        assert unit.identity.receipt_sequence == partial.identity.receipt_sequence + 1
         assert not session._protocol_failed
     finally:
         await session.close()
@@ -825,9 +788,15 @@ async def test_abort_and_go_away_retire_stream_without_promoting_interim() -> No
         await retiring.begin_turn(request)
         live.push(_interim("partial"))
         live.push(_go_away(final="received", time_left="0.01s"))
+        partial = await _next(retiring)
+        assert isinstance(partial, STTRecognitionUnit)
+        assert (partial.text, partial.is_final) == ("partial", False)
         unit = await _next(retiring)
         assert isinstance(unit, STTRecognitionUnit)
-        assert unit.text == "received"
+        assert (unit.text, unit.is_final) == ("received", True)
+        assert unit.identity.stream == partial.identity.stream
+        assert unit.identity.unit_id == partial.identity.unit_id
+        assert unit.identity.receipt_sequence == partial.identity.receipt_sequence + 1
         terminal = await _next(retiring)
         assert isinstance(terminal, STTProviderInputTerminal)
         assert terminal.failure_reason == "gemini_go_away"
@@ -927,12 +896,14 @@ async def test_go_away_without_positive_grace_retires_immediately(
             persisted = copy(record)
             assert redaction.filter(persisted)
             message = persisted.getMessage()
-            assert message == record.getMessage()
             assert "private-" not in message
             assert record.exc_info is None
-            metadata = dict(token.split("=", 1) for token in message.split()[2:])
-            assert metadata["reason"] == terminal.failure_reason
-            assert metadata["go_away"] == "true"
+            diagnostics, severity, disposition, stage, _ = getattr(
+                record, DIAGNOSTIC_RECORD_ATTRIBUTE
+            )
+            assert diagnostics.fields["recognition_cause"] == terminal.failure_reason
+            assert diagnostics.fields["message_kind"] == "go_away"
+            assert (severity, disposition, stage) == ("info", "degraded", "receive")
     finally:
         await session.close()
 

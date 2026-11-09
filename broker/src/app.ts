@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 
-import { internalErrorResponse } from './broker-error';
+import { errorResponse, internalErrorResponse } from './broker-error';
 import {
   BROKER_SERVICE_NAME,
   FOUNDATION_RESPONSE,
@@ -16,11 +17,12 @@ import {
   handleDiscordAuthStart,
   handleDiscordOpenRouterIssue,
 } from './discord-managed-issue';
-import { handleQqAuthAssert, handleQqAuthStatus } from './qq-auth';
+import { handleQqAuthAssert } from './qq-auth';
 import { handleAppActiveDay } from './telemetry';
 import { handleManagedKeyDeliveryAck } from './managed-key-delivery';
 import { handleManagedOperationResume } from './managed-operation-resume';
 import { handleManagedOperationStatus } from './managed-operation';
+import { handlePuriToken } from './puri-token';
 
 export const app = new Hono<BrokerEnv>();
 
@@ -39,12 +41,20 @@ app.get('/v1/foundation', (c: Context<BrokerEnv>) => {
   return c.json(FOUNDATION_RESPONSE);
 });
 
+app.post('/v1/puri/token', bodyLimit({
+  maxSize: 4096,
+  onError: (c) => {
+    c.header('Cache-Control', 'no-store');
+    return errorResponse(c, 413, {
+      code: 'invalid_request', class: 'terminal', message: 'Puri authentication request is too large',
+    });
+  },
+}), handlePuriToken);
 app.post('/v1/trial/challenge', handleTrialChallenge);
 app.post('/v1/trial/challenge/verify', handleTrialChallengeVerify);
 app.get('/v1/trial/status', handleTrialStatus);
 app.post('/v1/auth/discord/start', handleDiscordAuthStart);
 app.post('/v1/auth/qq/assert', handleQqAuthAssert);
-app.post('/v1/auth/qq/status', handleQqAuthStatus);
 app.post('/v1/telemetry/app-active-day', handleAppActiveDay);
 app.post('/v1/providers/openrouter/issue', handleOpenRouterIssue);
 app.post('/v1/providers/openrouter/discord/issue', handleDiscordOpenRouterIssue);

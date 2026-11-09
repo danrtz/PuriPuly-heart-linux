@@ -2,25 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from dataclasses import replace
 
 import pytest
-from puripuly_heart.core.local_asr_provider_runtime import (
-    LocalASRProviderRuntimeSnapshot,
-    ProviderRuntimeChannelSnapshot,
-    ProviderRuntimeGpuSnapshot,
-)
-from puripuly_heart.core.local_asr_provisioning import (
-    LocalASRInstallRequest,
-    LocalASRInstallResult,
-    LocalASRProvisioningSnapshot,
-)
-from puripuly_heart.core.local_stt_assets import LOCAL_QWEN_GPU_MODEL_ID
 
 from puripuly_heart.app.services.gpu_runtime_interaction import (
     GpuRuntimeInteractionOwner,
     GpuRuntimeInteractionState,
 )
-from puripuly_heart.core.gpu_worker import GpuWorkerDevice
+from puripuly_heart.core.asr_worker import ASRWorkerDevice
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
+    LocalASRProviderRuntimeSnapshot,
+    ProviderRuntimeChannelSnapshot,
+    ProviderRuntimeGpuSnapshot,
+)
+from puripuly_heart.core.local_asr.local_asr_provisioning import (
+    LocalASRInstallRequest,
+    LocalASRInstallResult,
+    LocalASRModelProvisioningState,
+    LocalASRProvisioningActivity,
+    LocalASRProvisioningSnapshot,
+)
+from puripuly_heart.core.local_asr.local_stt_assets import LOCAL_QWEN_GPU_MODEL_ID
 
 
 def _gpu_snapshot(
@@ -38,7 +41,7 @@ def _gpu_snapshot(
         )
         for channel in ("self", "peer")
     )
-    device = GpuWorkerDevice(
+    device = ASRWorkerDevice(
         device_id="vulkan-index-0",
         registry_index=0,
         name="GPU 0",
@@ -190,3 +193,58 @@ async def test_validated_gpu_does_not_claim_loading_before_lazy_session_starts(p
     assert await owner.validate_activation() is True
     assert owner.snapshot.ui_state == expected
     assert presentations[-1].state == expected
+
+
+@pytest.mark.parametrize(
+    ("integrity", "operation", "expected_state", "expected_notice"),
+    [
+        ("ready", "idle", "installed", None),
+        ("missing", "download_failed", "install_failed", "install_failed"),
+        ("missing", "cancelled", "not_installed", None),
+        ("ready", "cancelled", "installed", None),
+        ("invalid", "cancelled", "invalid", None),
+    ],
+)
+def test_model_manager_gpu_download_settles_dashboard_notice(
+    integrity: str,
+    operation: str,
+    expected_state: str,
+    expected_notice: str | None,
+) -> None:
+    owner, presentations = _owner(PhaseRuntime("inactive"))
+    model = LocalASRModelProvisioningState(
+        model_id=LOCAL_QWEN_GPU_MODEL_ID,
+        backend="gpu",
+        integrity="missing",
+        operation="downloading",
+    )
+    snapshot = LocalASRProvisioningSnapshot(
+        models=(model,),
+        required_cpu_model_ids=(),
+        gpu_model_id=LOCAL_QWEN_GPU_MODEL_ID,
+    )
+    for percent in (0, 37, 100):
+        owner.observe_provisioning(
+            replace(
+                snapshot,
+                activities=(
+                    LocalASRProvisioningActivity(
+                        backend="gpu",
+                        model_id=LOCAL_QWEN_GPU_MODEL_ID,
+                        origin="model_assets",
+                        progress_percent=percent,
+                        generation=1,
+                    ),
+                ),
+            )
+        )
+        assert presentations[-1].notice.progress_percent == percent
+
+    owner.observe_provisioning(
+        replace(snapshot, models=(replace(model, integrity=integrity, operation=operation),))
+    )
+
+    assert presentations[-1].state == expected_state
+    notice = presentations[-1].notice
+    assert (notice.status if notice is not None else None) == expected_notice
+    assert presentations[-1].publish_notice is (expected_notice is not None)

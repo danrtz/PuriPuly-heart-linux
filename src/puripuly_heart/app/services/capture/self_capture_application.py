@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from puripuly_heart.core.messages import ErrorDiagnostics
 from puripuly_heart.core.runtime.self_capture import SelfCaptureSessionOwner
 from puripuly_heart.core.self_capture import (
     SelfCaptureProviderStatus,
@@ -15,6 +16,12 @@ from puripuly_heart.core.self_capture import (
 
 class SelfCaptureRuntimeApplyError(RuntimeError):
     code = "self_stt_runtime_apply_not_converged"
+
+    def __init__(
+        self, message: str, *, failure_diagnostics: ErrorDiagnostics | None = None
+    ) -> None:
+        self.failure_diagnostics = failure_diagnostics
+        super().__init__(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +37,6 @@ class SelfCaptureApplicationOwner:
     runtime_available: Callable[[], bool]
     capture_owner: Callable[[], SelfCaptureSessionOwner]
     capture_owner_if_created: Callable[[], SelfCaptureSessionOwner | None]
-    persist_manual_fallback: Callable[[], bool]
     reset_local_pending: Callable[[], None]
     clear_gpu_pending: Callable[[], None]
     overlay_state_provider: Callable[[], str]
@@ -47,9 +53,6 @@ class SelfCaptureApplicationOwner:
     force_immediate: bool = False
 
     async def set_enabled(self, enabled: bool, *, force_immediate: bool = False) -> None:
-        if enabled and not self.persist_manual_fallback():
-            self.dashboard_enabled_sink(False)
-            return
         self.force_immediate = force_immediate
         if not enabled:
             self.reset_local_pending()
@@ -97,12 +100,28 @@ class SelfCaptureApplicationOwner:
         return snapshot
 
     async def replace_provider(self, *, smooth_local: bool = False) -> None:
-        owner = self.capture_owner_if_created()
         settings = self.settings_provider()
         if settings is None or not self.runtime_available():
             return
+        await self._replace_provider(
+            settings.config, smooth_local=smooth_local, allow_superseded=True
+        )
+
+    async def replace_provider_with_config(
+        self, config: SelfCaptureSessionConfig, *, smooth_local: bool = False
+    ) -> None:
+        if not self.runtime_available():
+            return
+        await self._replace_provider(config, smooth_local=smooth_local, allow_superseded=False)
+
+    async def _replace_provider(
+        self,
+        config: SelfCaptureSessionConfig,
+        *,
+        smooth_local: bool,
+        allow_superseded: bool,
+    ) -> None:
         owner = self.capture_owner()
-        config = settings.config
         if owner.snapshot.desired_active:
             snapshot = await owner.apply_intent(
                 config,
@@ -118,7 +137,11 @@ class SelfCaptureApplicationOwner:
         failure_reason = snapshot.failure_reason
         signature_mismatch = snapshot.runtime_signature != config.runtime_signature
         if failure_reason is not None or signature_mismatch:
-            required = signature_mismatch and self._replacement_required(config, snapshot)
+            required = signature_mismatch and (
+                self._replacement_required(config, snapshot)
+                if allow_superseded
+                else snapshot.desired_active
+            )
             self.log_basic(
                 "[STT] Provider replacement not applied: "
                 f"failure_reason={failure_reason.value if failure_reason is not None else 'none'} "
@@ -129,7 +152,8 @@ class SelfCaptureApplicationOwner:
             )
             if failure_reason is not None or required:
                 raise SelfCaptureRuntimeApplyError(
-                    "Self STT runtime did not apply the requested configuration"
+                    "Self STT runtime did not apply the requested configuration",
+                    failure_diagnostics=snapshot.failure_diagnostics,
                 )
 
     def _replacement_required(

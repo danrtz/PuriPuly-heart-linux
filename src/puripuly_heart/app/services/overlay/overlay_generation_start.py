@@ -25,6 +25,7 @@ OverlayGenerationStartStatus = Literal[
     "detached",
     "failed",
     "stale",
+    "stopped",
 ]
 OverlayGenerationRequestFactory = Callable[[], "OverlayGenerationStartRequest"]
 OverlayGenerationRuntimeLogger = Callable[..., object]
@@ -56,7 +57,7 @@ OverlayGenerationConnectedHandler = Callable[[], None]
 OverlayGenerationRefresh = Callable[[], Coroutine[object, object, None]]
 OverlayGenerationFirstVisible = Callable[[OverlayRuntimeHandle, str | None], None]
 OverlayGenerationMonitor = Callable[
-    [OverlayProcessManager, asyncio.Task[None], OverlayRuntimeHandle, str],
+    [OverlayProcessManager, asyncio.Future[None], OverlayRuntimeHandle, str],
     Coroutine[object, object, None],
 ]
 
@@ -101,7 +102,7 @@ class OverlayGenerationStartEffects:
 
 @dataclass(frozen=True, slots=True)
 class OverlayGenerationStartDiagnostic:
-    outcome: Literal["cancelled", "connected", "detached", "failed", "stale"]
+    outcome: Literal["cancelled", "connected", "detached", "failed", "stale", "stopped"]
     target: str | None
     overlay_instance_id: str | None
     failure_type: str | None = None
@@ -152,6 +153,7 @@ class OverlayGenerationStartOwner:
                     clock=request.clock,
                     show_translation=request.config.show_translation,
                     show_peer_original=request.config.show_peer_original,
+                    japanese_furigana=request.config.japanese_furigana,
                     task_factory=runtime.create_child_task,
                     native_retry_enabled=native_retry_enabled,
                     translation_enabled=request.translation_enabled,
@@ -162,6 +164,7 @@ class OverlayGenerationStartOwner:
             await presenter.update_display_preferences(
                 show_translation=request.config.show_translation,
                 show_peer_original=request.config.show_peer_original,
+                japanese_furigana=request.config.japanese_furigana,
             )
             await presenter.begin_native_retry_epoch(enabled=native_retry_enabled)
             bridge = OverlayBridge(
@@ -242,6 +245,8 @@ class OverlayGenerationStartOwner:
                 "startup_timeout_ms": request.startup_timeout_ms,
                 "renderer_events": renderer_events,
                 "overlay_instance_id": overlay_instance_id,
+                "operation_id": runtime.operation_id,
+                "request_id": runtime.request_id,
                 "diagnostics": diagnostics,
                 "task_factory": runtime.create_child_task,
                 "selected_target": request.target,
@@ -266,6 +271,14 @@ class OverlayGenerationStartOwner:
             if runtime.process_manager is not manager:
                 self._emit("detached", request, overlay_instance_id)
                 return "detached"
+            if getattr(manager, "runtime_stop_completed", False):
+                completed = asyncio.get_running_loop().create_future()
+                completed.set_result(None)
+                runtime.create_monitor_task(
+                    effects.watch_runtime(manager, completed, runtime, overlay_instance_id)
+                )
+                self._emit("stopped", request, overlay_instance_id)
+                return "stopped"
             if manager.state != "connected":
                 await effects.handle_failure(manager.failure_reason)
                 self._emit("failed", request, overlay_instance_id)
@@ -332,7 +345,7 @@ class OverlayGenerationStartOwner:
 
     def _emit(
         self,
-        outcome: Literal["cancelled", "connected", "detached", "failed", "stale"],
+        outcome: Literal["cancelled", "connected", "detached", "failed", "stale", "stopped"],
         request: OverlayGenerationStartRequest | None,
         overlay_instance_id: str | None,
         *,

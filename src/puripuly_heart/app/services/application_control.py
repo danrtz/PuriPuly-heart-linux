@@ -6,13 +6,17 @@ import json
 import math
 import os
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from puripuly_heart.app.control_presentation import SETTINGS_PRESENTATION
 from puripuly_heart.app.language_selection import LanguageSelectionChange
 from puripuly_heart.app.ports.managed_gemma_translation import ManagedGemmaTranslationSelection
+from puripuly_heart.app.ports.settings_secrets import SettingsSecretValuesSnapshot
 from puripuly_heart.app.ports.settings_view import (
     ActivationNoticeSettingsIntent,
     AudioInputSettingsIntent,
@@ -33,8 +37,8 @@ from puripuly_heart.app.ports.settings_view import (
     LocalLlmBaseUrlEdit,
     LocalLlmExtraBodyEdit,
     LocalLlmModelEdit,
-    ManagedReferralEdit,
     OscConnectionSettingsIntent,
+    OverlayFuriganaSettingsIntent,
     OverlayPeerOriginalSettingsIntent,
     OverlayTargetSettingsIntent,
     OverlayTranslationSettingsIntent,
@@ -58,11 +62,24 @@ from puripuly_heart.app.ports.settings_view import (
     VrcMicInterceptSettingsIntent,
 )
 from puripuly_heart.app.services.application_control_events import ControlEvents
+from puripuly_heart.app.services.audio_diagnosis import audio_diagnosis_receipt
 from puripuly_heart.app.services.canonical_settings_persistence import canonical_snapshot_values
 from puripuly_heart.app.services.capture.peer_capture_target_application import (
     PeerCaptureTargetUnavailable,
 )
-from puripuly_heart.config.provider_values import QwenRegion, STTProviderName
+from puripuly_heart.app.services.recognition_probe import (
+    RECOGNITION_PROBE_METADATA,
+    run_recognition_probe,
+)
+from puripuly_heart.app.services.translation_probe import (
+    TRANSLATION_PROBE_METADATA,
+    run_translation_probe,
+)
+from puripuly_heart.config.provider_values import (
+    QwenRegion,
+    STTProviderName,
+    normalize_stt_provider,
+)
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import (
     TranslationConnection,
@@ -70,14 +87,29 @@ from puripuly_heart.config.translation_values import (
     provider_llm_for_translation,
     supported_translation_connections,
 )
+from puripuly_heart.core.diagnostics import (
+    diagnostic_operation,
+    normalize_diagnostic,
+    sanitize_diagnostic_fields,
+)
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import ProviderRuntimeBuildRequest
+from puripuly_heart.core.local_translation.provisioning import (
+    GemmaProvisioningCancelled,
+    GemmaProvisioningError,
+)
 from puripuly_heart.core.messages import (
+    CONTENT_POLICY_METADATA_ONLY,
+    DIAGNOSTIC_VISIBILITY_BASIC,
+    TRANSACTION_STATUS_REMOTE_DELIVERY_ACK_PENDING,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
+    ErrorDiagnostics,
     TransactionResult,
 )
 
 if TYPE_CHECKING:
+    from puripuly_heart.app.ports.ui_application import TranslationEnablePreparation
     from puripuly_heart.app.services.ui_application import UiApplicationBoundary
 
 TERMINAL = frozenset(
@@ -96,15 +128,21 @@ COMMANDS = {
     "app.stop": "Request ordered host shutdown",
     "capture.set": "Set self or peer capture explicitly",
     "translation.set": "Set translation explicitly",
+    "translation.probe": "Probe the attached translation backend without publishing output",
+    "recognition.probe": "Probe Self or Peer recognition with bundled speech without capture or output",
     "text.submit": "Submit manual text through the self pipeline",
-    "microphone.test": "Start or stop microphone test",
+    "audio.test": "Start or stop the microphone and loopback audio test",
+    "audio.diagnose": "Diagnose actual microphone routes using bounded local capture and VAD",
     "audio.target.set": "Set peer loopback target",
     "audio.retry": "Retry lost peer process target",
     "settings.apply": "Apply focused typed settings changes",
     "provider.apply": "Apply self and peer STT changes together",
     "models.install": "Install or repair selected CPU/GPU ASR assets",
     "models.prepare": "Inspect CPU or GPU model readiness and integrity",
-    "models.cancel": "Cancel an active CPU/GPU model installation",
+    "models.cancel": "Cancel an active CPU/GPU model installation or one model download",
+    "models.download": "Download or repair one local model (ASR or Gemma)",
+    "models.import": "Import one Gemma model from a folder with the pinned files",
+    "models.delete": "Delete one installed local model",
     "gemma.prepare": "Prepare managed local Gemma model assets",
     "gemma.cancel": "Cancel managed local Gemma preparation",
     "models.retry": "Retry GPU activation after installation",
@@ -119,6 +157,7 @@ COMMANDS = {
     "overlay.size": "Select desktop overlay size",
     "overlay.position.reset": "Reset desktop overlay position",
     "overlay.calibrate": "Begin, change, apply or cancel overlay calibration",
+    "osc.discovery.retry": "Refresh or recover automatic OSC discovery without changing settings",
 }
 QUERIES = {
     "app.status",
@@ -132,10 +171,13 @@ QUERIES = {
     "gpu.status",
     "models.status",
     "secrets.presence",
+    "accounts.status",
     "auth.status",
     "overlay.status",
     "osc.status",
     "consent.peer_translation",
+    "diagnostics.history",
+    "diagnostics.health",
 }
 MODEL_BACKENDS = ("cpu", "gpu")
 COMMAND_ARGUMENTS = {
@@ -146,8 +188,11 @@ COMMAND_ARGUMENTS = {
         "accept_terms": "optional boolean (true only for peer enabled; defaults false)",
     },
     "translation.set": {"enabled": "boolean"},
+    "translation.probe": {},
+    "recognition.probe": {"channel": ["self", "peer"]},
     "text.submit": {"text": "non-empty string (protected content)"},
-    "microphone.test": {"enabled": "boolean"},
+    "audio.test": {"enabled": "boolean"},
+    "audio.diagnose": {},
     "audio.target.set": {"value": "available audio.target option value"},
     "audio.retry": {},
     "settings.apply": {
@@ -182,14 +227,26 @@ COMMAND_ARGUMENTS = {
         "provider": ["qq", "discord", "openrouter", "chatgpt"],
         "qq_identity": "required non-empty string for QQ",
         "credential": "required non-empty secret for QQ (stdin/hidden input only)",
-        "referral_id": "optional referral string for QQ or Discord",
         "open_browser": "optional boolean, default false (OAuth only)",
     },
     "auth.logout": {"provider": ["qq", "discord", "openrouter", "chatgpt"]},
-    "models.cancel": {"backend": "cpu or gpu (optional; default gpu)"},
+    "models.cancel": {
+        "backend": "cpu or gpu (optional; default gpu)",
+        "model_id": "optional models.status assets ID; cancels that model's download instead",
+    },
+    "models.download": {
+        "model_id": "models.status assets ID",
+        "source": "optional auto, huggingface, modelscope or hf-mirror (default auto)",
+    },
+    "models.import": {
+        "model_id": "importable models.status assets ID",
+        "directory": "folder that contains the model's required_files",
+    },
+    "models.delete": {"model_id": "models.status assets ID"},
     "gemma.prepare": {},
     "gemma.cancel": {},
     "overlay.position.reset": {},
+    "osc.discovery.retry": {},
     "overlay.calibrate": {
         "action": ["begin", "change", "apply", "cancel"],
         "field": "required for change: anchor, offset_x, offset_y, distance, text_scale, background_alpha",
@@ -206,6 +263,7 @@ IMMEDIATE = {
     "overlay.target": lambda v: OverlayTargetSettingsIntent(v),
     "overlay.translation.enabled": lambda v: OverlayTranslationSettingsIntent(v),
     "overlay.peer_original.enabled": lambda v: OverlayPeerOriginalSettingsIntent(v),
+    "overlay.furigana.enabled": lambda v: OverlayFuriganaSettingsIntent(v),
     "overlay.background_alpha": lambda v: DesktopOverlayBackgroundAlphaIntent(v),
     "overlay.swap_caption_languages": lambda v: DesktopOverlaySwapCaptionLanguagesIntent(v),
     "overlay.desktop_size": lambda v: DesktopOverlaySizeIntent(v),
@@ -246,7 +304,6 @@ SETTINGS_FIELDS = (
             "translation.connection",
             "translation.connection_history",
             "translation.previous_llm_model",
-            "managed.referral_id",
             "prompts.value",
             "osc.connection",
             "custom_vocabulary",
@@ -263,6 +320,7 @@ BOOLEAN_FIELDS = frozenset(
         "vrc_mic_intercept.enabled",
         "overlay.translation.enabled",
         "overlay.peer_original.enabled",
+        "overlay.furigana.enabled",
         "overlay.swap_caption_languages",
         "stt.soniox.enable_speaker_diarization",
         "telemetry.enabled",
@@ -285,7 +343,7 @@ OBJECT_FIELDS = frozenset(
     }
 )
 LIST_FIELDS = frozenset({"peer_expected_languages", "stt.cloud_free_tier_providers"})
-OPTIONAL_STRING_FIELDS = frozenset({"managed.referral_id", "translation.previous_llm_model"})
+OPTIONAL_STRING_FIELDS = frozenset({"translation.previous_llm_model"})
 
 FREE_FORM_SETTINGS_FIELDS = frozenset(
     {
@@ -336,27 +394,149 @@ def _secret_keys(application: UiApplicationBoundary) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def _effective_secret_presence(
+    keys: tuple[str, ...], snapshot: SettingsSecretValuesSnapshot
+) -> dict[str, bool]:
+    from puripuly_heart.config.alibaba_connection import alibaba_credential_sources
+
+    env_vars = {
+        "google_api_key": "GOOGLE_API_KEY",
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+        "openai_api_key": "OPENAI_API_KEY",
+        "deepseek_api_key": "DEEPSEEK_API_KEY",
+        "deepgram_api_key": "DEEPGRAM_API_KEY",
+        "gemini_transcribe_api_key": "GEMINI_API_KEY",
+        "elevenlabs_scribe_api_key": "ELEVENLABS_API_KEY",
+        "soniox_api_key": "SONIOX_API_KEY",
+    }
+    presence = {}
+    for key in keys:
+        value = snapshot.get(key)
+        if key in {"alibaba_api_key_beijing", "alibaba_api_key_singapore"}:
+            region = "beijing" if key.endswith("_beijing") else "singapore"
+            _, legacy_keys, sources = alibaba_credential_sources(region)
+            value = value or next(
+                (snapshot.get(name) for name in legacy_keys if snapshot.get(name)), None
+            )
+            value = value or next((os.getenv(name) for name in sources if os.getenv(name)), None)
+        elif key in env_vars:
+            value = value or os.getenv(env_vars[key])
+        presence[key] = bool(value.strip()) if type(value) is str else False
+    return presence
+
+
+def _accounts_status(application: object) -> dict:
+    chatgpt = {"available": False, "signed_in": None, "in_progress": None, "sign_in_required": None}
+    account = getattr(application, "chatgpt_account_snapshot", None)
+    if callable(account):
+        try:
+            snapshot = account()
+            required = getattr(application, "chatgpt_sign_in_required", None)
+            chatgpt.update(
+                available=True,
+                signed_in=snapshot.signed_in if type(snapshot.signed_in) is bool else None,
+                in_progress=snapshot.in_progress if type(snapshot.in_progress) is bool else None,
+                sign_in_required=(
+                    required() if callable(required) and type(snapshot.signed_in) is bool else None
+                ),
+            )
+            if type(chatgpt["sign_in_required"]) is not bool:
+                chatgpt["sign_in_required"] = None
+        except Exception:
+            chatgpt["available"] = None
+    managed = {}
+    accessor = getattr(application, "managed_account_snapshot", None)
+    if callable(accessor):
+        try:
+            source = accessor()
+            source = source if isinstance(source, Mapping) else {}
+            managed = {
+                key: source[key] if type(source.get(key)) is bool else None
+                for key in ("available", "selected", "credential_present", "in_progress")
+            }
+            provider = source.get("provider")
+            managed["provider"] = provider if provider in ("qq", "discord") else None
+            budget = source.get("budget")
+            budget = budget if isinstance(budget, Mapping) else {}
+            availability = budget.get("availability")
+            availability = (
+                availability if availability in ("cached", "unknown", "stale") else "unknown"
+            )
+            remaining = budget.get("remaining_percent")
+            if type(remaining) is not int or not 0 <= remaining <= 100:
+                remaining = None
+                if availability == "cached":
+                    availability = "unknown"
+            managed["budget"] = {
+                "unit": "percent",
+                "availability": availability,
+                "remaining_percent": remaining if availability == "cached" else None,
+                "freshness": "unknown",
+            }
+        except Exception:
+            managed = {}
+    return {"chatgpt": chatgpt, "managed": managed}
+
+
 def _known_secret(application: UiApplicationBoundary, name: str) -> str:
     if name not in _secret_keys(application):
-        raise ValueError("unknown or undeclared secret")
+        raise InvalidArgumentsError("unknown or undeclared secret")
     return name
 
 
-def _json(value: object) -> object:
-    from dataclasses import asdict, is_dataclass
+def _json(
+    value: object, *, diagnostic_projector: Callable[[ErrorDiagnostics], dict] | None = None
+) -> object:
+    from dataclasses import fields, is_dataclass
     from enum import Enum
 
+    if isinstance(value, ErrorDiagnostics):
+        if diagnostic_projector is not None:
+            return diagnostic_projector(value)
+        return normalize_diagnostic(
+            value, instance_id=None, severity="error", disposition="unknown"
+        )
     if isinstance(value, Enum):
         return value.value
     if is_dataclass(value):
-        return _json(asdict(value))
-    if isinstance(value, dict):
-        return {str(k): _json(v) for k, v in value.items()}
+        return {
+            item.name: _json(getattr(value, item.name), diagnostic_projector=diagnostic_projector)
+            for item in fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {
+            str(k): _json(v, diagnostic_projector=diagnostic_projector) for k, v in value.items()
+        }
     if isinstance(value, (tuple, list, set, frozenset)):
-        return [_json(v) for v in value]
+        return [_json(v, diagnostic_projector=diagnostic_projector) for v in value]
     if isinstance(value, (str, bool, int, float)) or value is None:
         return value
     return str(value)
+
+
+def _private_settings_presence(canonical: object | None) -> dict[str, bool]:
+    if canonical is None:
+        return {}
+    intent = canonical_snapshot_values(canonical)["intent"]
+    result = {}
+    for name, descriptor in SETTINGS_PRESENTATION.items():
+        if not descriptor.local_only:
+            continue
+        if name == "custom_vocabulary":
+            result[name] = any(bool(terms) for terms in intent["stt"]["custom_terms"].values())
+            continue
+        path = (
+            "prompts.system_prompt_override"
+            if name == "prompts.value"
+            else descriptor.canonical_path
+        )
+        if path is None:
+            continue
+        value = intent
+        for part in path.split("."):
+            value = value[part]
+        result[name] = bool(value)
+    return result
 
 
 def _redact(value: object) -> object:
@@ -387,6 +567,22 @@ def _redact(value: object) -> object:
     return value
 
 
+@dataclass(frozen=True, slots=True)
+class _RuntimeToggleIntent:
+    resource: str
+    enabled: bool
+    sequence: int
+
+
+@dataclass(slots=True)
+class _StartingRuntimeToggle:
+    resource: str
+    task: asyncio.Task
+    stops: list[asyncio.Event] = field(default_factory=list)
+    stop_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    cancel_requested: bool = False
+
+
 @dataclass(slots=True)
 class _Operation:
     receipt: dict
@@ -395,6 +591,12 @@ class _Operation:
     backend: str | None = None
     install_started: bool = False
     interrupt_requested: bool = False
+    audio_test_revision: int | None = None
+    runtime_toggle: _RuntimeToggleIntent | None = None
+
+
+class InvalidArgumentsError(ValueError):
+    """Only deliberate validation of caller input uses this exception."""
 
 
 class UnknownOperationError(ValueError):
@@ -418,6 +620,11 @@ class ApplicationControlOwner:
     localize: Callable[[str], str]
     gemma_selection: Callable[[AppSettingsVNext], ManagedGemmaTranslationSelection]
     instance_id: str | None = None
+    selection_committed: Callable[[AppSettingsVNext], None] | None = None
+    recognition_probe_request: (
+        Callable[[AppSettingsVNext, str], ProviderRuntimeBuildRequest] | None
+    ) = None
+    osc_discovery_retry: Callable[[], Awaitable[dict[str, object]]] | None = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _resource_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _stop_requested: asyncio.Event = field(default_factory=asyncio.Event)
@@ -428,14 +635,158 @@ class ApplicationControlOwner:
     _open: bool = True
     _lock_owner: asyncio.Task | None = None
     _auth_challenge: dict | None = None
+    _runtime_toggle_sequence: int = 0
+    _runtime_toggle_stops: dict[str, int] = field(default_factory=dict)
+    _operation_runtime_toggles: dict[asyncio.Task, _RuntimeToggleIntent] = field(
+        default_factory=dict
+    )
+    _starting_runtime_toggle: _StartingRuntimeToggle | None = None
+    _runtime_toggle_changed: asyncio.Event = field(default_factory=asyncio.Event)
+    _preempting_runtime_stops: set[asyncio.Task] = field(default_factory=set)
 
     def lock_owned_by_current_task(self) -> bool:
-        return self._lock_owner is asyncio.current_task()
+        task = asyncio.current_task()
+        return self._lock_owner is task or task in self._preempting_runtime_stops
+
+    def admit_runtime_toggle(self, resource: str, enabled: bool) -> _RuntimeToggleIntent:
+        self._runtime_toggle_sequence += 1
+        return _RuntimeToggleIntent(resource, enabled, self._runtime_toggle_sequence)
+
+    def runtime_toggle_intent(self, resource: str, enabled: bool) -> _RuntimeToggleIntent:
+        intent = self._operation_runtime_toggles.get(asyncio.current_task())
+        if intent is not None and intent.resource == resource and intent.enabled == enabled:
+            return intent
+        return self.admit_runtime_toggle(resource, enabled)
+
+    def runtime_toggle_is_current(self, intent: _RuntimeToggleIntent) -> bool:
+        return not intent.enabled or intent.sequence > self._runtime_toggle_stops.get(
+            intent.resource, 0
+        )
+
+    def _notify_runtime_toggle_changed(self) -> None:
+        self._runtime_toggle_changed.set()
+        self._runtime_toggle_changed = asyncio.Event()
+
+    @asynccontextmanager
+    async def runtime_toggle_lock(self, intent: _RuntimeToggleIntent):
+        if self.lock_owned_by_current_task():
+            yield
+            return
+        task = asyncio.current_task()
+        acquired_resource = False
+        acquired_mutation = False
+        preempted = None
+        stop_finished = None
+        acquired_stop = False
+
+        async def acquire() -> None:
+            nonlocal acquired_resource, acquired_mutation
+            try:
+                if intent.enabled or intent.resource == "translation":
+                    await self._resource_lock.acquire()
+                    acquired_resource = True
+                await self._lock.acquire()
+                acquired_mutation = True
+            except BaseException:
+                if acquired_resource:
+                    self._resource_lock.release()
+                    acquired_resource = False
+                raise
+
+        acquisition = asyncio.create_task(
+            acquire(), name=f"control:{intent.resource}:toggle-acquire"
+        )
+        changed = None
+        try:
+            while not acquisition.done():
+                starting = self._starting_runtime_toggle
+                if (
+                    not intent.enabled
+                    and starting is not None
+                    and starting.resource == intent.resource
+                ):
+                    preempted = starting
+                    stop_finished = asyncio.Event()
+                    starting.stops.append(stop_finished)
+                    self._preempting_runtime_stops.add(task)
+                    acquisition.cancel()
+                    await asyncio.gather(acquisition, return_exceptions=True)
+                    break
+                changed = asyncio.create_task(
+                    self._runtime_toggle_changed.wait(),
+                    name=f"control:{intent.resource}:toggle-changed",
+                )
+                await asyncio.wait((acquisition, changed), return_when=asyncio.FIRST_COMPLETED)
+                changed.cancel()
+                await asyncio.gather(changed, return_exceptions=True)
+                changed = None
+            if preempted is None:
+                await acquisition
+                self._lock_owner = task
+            else:
+                await preempted.stop_lock.acquire()
+                acquired_stop = True
+            yield
+        finally:
+            if changed is not None:
+                changed.cancel()
+                await asyncio.gather(changed, return_exceptions=True)
+            if not acquisition.done():
+                acquisition.cancel()
+                await asyncio.gather(acquisition, return_exceptions=True)
+            if stop_finished is not None:
+                stop_finished.set()
+                preempted.stops.remove(stop_finished)
+                self._preempting_runtime_stops.discard(task)
+                if acquired_stop:
+                    preempted.stop_lock.release()
+                if preempted.cancel_requested and not preempted.stops:
+                    preempted.task.cancel()
+            if self._lock_owner is task:
+                self._lock_owner = None
+            if acquired_mutation:
+                self._lock.release()
+            if acquired_resource:
+                self._resource_lock.release()
+
+    async def run_runtime_toggle(
+        self, intent: _RuntimeToggleIntent, apply: Callable[[], Awaitable[object]]
+    ) -> object:
+        async with self.runtime_toggle_lock(intent):
+            if not self.runtime_toggle_is_current(intent):
+                return False
+            if not intent.enabled:
+                self._runtime_toggle_stops[intent.resource] = max(
+                    intent.sequence, self._runtime_toggle_stops.get(intent.resource, 0)
+                )
+                starting = self._starting_runtime_toggle
+                if starting is not None and starting.resource == intent.resource:
+                    starting.cancel_requested = True
+                return await apply()
+            starting = self._starting_runtime_toggle
+            if starting is not None and starting.task is asyncio.current_task():
+                return await apply()
+            starting = _StartingRuntimeToggle(intent.resource, asyncio.current_task())
+            self._starting_runtime_toggle = starting
+            self._notify_runtime_toggle_changed()
+            try:
+                return await apply()
+            finally:
+                try:
+                    while starting.stops:
+                        await asyncio.gather(*(stop.wait() for stop in starting.stops))
+                finally:
+                    self._starting_runtime_toggle = None
+                    self._notify_runtime_toggle_changed()
 
     def bind_instance(self, instance_id: str) -> None:
         if not instance_id or (self.instance_id is not None and self.instance_id != instance_id):
-            raise ValueError("instance identity cannot change within a host")
+            raise InvalidArgumentsError("instance identity cannot change within a host")
         self.instance_id = instance_id
+        self.events.instance_id = instance_id
+        runtime_logging = getattr(self.application, "_runtime_logging", None)
+        if runtime_logging is not None:
+            runtime_logging.bind_instance(instance_id)
         self.settings.observe_commits(self._publish_committed)
 
     async def wait_for_stop_request(self) -> None:
@@ -469,6 +820,8 @@ class ApplicationControlOwner:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     def _publish_committed(self, canonical: object) -> None:
+        if self.selection_committed is not None:
+            self.selection_committed(canonical)
         fingerprint = hashlib.sha256(
             json.dumps(canonical_snapshot_values(canonical), sort_keys=True, default=str).encode()
         ).hexdigest()
@@ -484,7 +837,9 @@ class ApplicationControlOwner:
         return self._revision
 
     async def apply_mutation(
-        self, mutator: Callable[[object], object]
+        self,
+        mutator: Callable[[object], object],
+        is_current: Callable[[], bool] = lambda: True,
     ) -> tuple[object, object, object]:
         """OSC focused edit: obtain canonical under the shared mutation lock."""
         import copy
@@ -494,6 +849,8 @@ class ApplicationControlOwner:
                 current = self.application.compatibility_settings()
                 if current is None:
                     raise RuntimeError("settings not loaded")
+                if not is_current():
+                    return False, current, current
                 previous = copy.deepcopy(current)
                 updated = mutator(copy.deepcopy(current))
                 result = await self.application._settings.apply_settings(updated)
@@ -508,11 +865,28 @@ class ApplicationControlOwner:
                 key: {
                     "description": value,
                     "arguments": COMMAND_ARGUMENTS[key],
-                    "cancellable": key in {"models.install", "gemma.prepare"},
+                    "cancellable": key
+                    in {
+                        "models.install",
+                        "gemma.prepare",
+                        "translation.probe",
+                        "recognition.probe",
+                        "audio.diagnose",
+                    },
                 }
                 for key, value in COMMANDS.items()
             },
             "queries": sorted(QUERIES),
+            "query_arguments": {
+                "diagnostics.history": {
+                    "operation_id": "optional operation identity",
+                    "diagnostic_id": "optional failure identity",
+                    "instance_id": "optional originating host identity",
+                    "after": "optional nonnegative diagnostic sequence",
+                    "limit": "integer 1..100, default 50",
+                },
+                "diagnostics.health": {},
+            },
             "settings_fields": sorted(SETTINGS_FIELDS),
             "secret_keys": list(_secret_keys(self.application)),
             "topics": [
@@ -528,6 +902,14 @@ class ApplicationControlOwner:
                 "gap",
             ],
         }
+
+    def _snapshot_json(self, value: object) -> object:
+        return _json(
+            value,
+            diagnostic_projector=lambda diagnostic: self._retain_diagnostic(
+                diagnostic, disposition="unknown"
+            ),
+        )
 
     def _channels(self) -> dict:
         canonical = self.application.compatibility_settings()
@@ -563,8 +945,8 @@ class ApplicationControlOwner:
                 "pending_handoff": provider.pending_handoff if provider is not None else False,
                 "failure_reason": _json(state.failure_reason) if state is not None else None,
                 "provider_status": _json(state.provider_status) if state is not None else None,
-                "capture": _json(state) if state is not None else None,
-                "provider": _json(provider) if provider is not None else None,
+                "capture": self._snapshot_json(state) if state is not None else None,
+                "provider": self._snapshot_json(provider) if provider is not None else None,
             }
         return channels
 
@@ -602,7 +984,7 @@ class ApplicationControlOwner:
             ELEVENLABS_SCRIBE_STT_MODEL,
             GEMINI_TRANSCRIBE_STT_MODEL,
             QWEN_AUDIO_STT_MODEL,
-            SONIOX_STT_MODEL_RT_V5,
+            SONIOX_STT_MODEL_RT_V6,
         )
         from puripuly_heart.core.language import get_all_language_options
 
@@ -699,7 +1081,11 @@ class ApplicationControlOwner:
         gpu_owner = self.gpu()
         gpu_snapshot = getattr(gpu_owner, "snapshot", None)
         gpu_devices = [
-            {"value": str(device.device_id), "available": True}
+            {
+                "value": str(device.device_id),
+                "display_name": device.description.strip() or device.name,
+                "available": True,
+            }
             for device in getattr(gpu_snapshot, "devices", ())
         ]
         gpu_device_ids = {item["value"] for item in gpu_devices}
@@ -983,7 +1369,7 @@ class ApplicationControlOwner:
                     "gemini_transcribe": [GEMINI_TRANSCRIBE_STT_MODEL],
                     "elevenlabs_scribe": [ELEVENLABS_SCRIBE_STT_MODEL],
                     "qwen_audio": [QWEN_AUDIO_STT_MODEL],
-                    "soniox": [SONIOX_STT_MODEL_RT_V5],
+                    "soniox": [SONIOX_STT_MODEL_RT_V6],
                 },
             },
             "extensions": {
@@ -1015,19 +1401,106 @@ class ApplicationControlOwner:
             },
         }
 
+    def _gpu_runtime_snapshot(self) -> dict | None:
+        runtime = self.pipeline.local_asr_runtime
+        if runtime is None:
+            return None
+        snapshot = runtime.snapshot.gpu
+        data = _json(snapshot)
+        cleanup = snapshot.startup_cleanup
+        if not isinstance(cleanup, Mapping):
+            data["startup_cleanup"] = {
+                "availability": "unavailable",
+                "pending_startups": None,
+                "close_complete": None,
+                "cleanup_failures": [],
+                "pending_temporary_directories": None,
+                "temporary_cleanup_diagnostic_id": None,
+            }
+            return data
+        pending = cleanup.get("pending_startups")
+        complete = cleanup.get("close_complete")
+        failures = cleanup.get("cleanup_failures", [])
+        rejected = 0
+        safe_failures = []
+        if isinstance(failures, (list, tuple)):
+            for failure in failures[:4]:
+                if isinstance(failure, Mapping):
+                    fields, removed = sanitize_diagnostic_fields(failure)
+                    safe_failures.append(fields)
+                    rejected += removed
+                else:
+                    rejected += 1
+        else:
+            rejected += 1
+        temporary, removed = sanitize_diagnostic_fields(
+            {
+                "pending_temporary_directories": cleanup.get("pending_temporary_directories"),
+                "temporary_cleanup_diagnostic_id": cleanup.get("temporary_cleanup_diagnostic_id"),
+            }
+        )
+        rejected += removed
+        data["startup_cleanup"] = {
+            "availability": "observed",
+            "pending_startups": pending if type(pending) is int and 0 <= pending < 2**31 else None,
+            "close_complete": complete if type(complete) is bool else None,
+            "cleanup_failures": safe_failures,
+            **temporary,
+            "detail_rejected": rejected,
+            "truncated": isinstance(failures, (list, tuple)) and len(failures) > 4,
+        }
+        return data
+
+    def _output_diagnostic_health(self) -> dict:
+        owner = self.pipeline.output_runtime
+        if owner is None:
+            return {"availability": "unavailable"}
+        source = owner.diagnostic_delivery_health
+        result = {
+            "availability": "observed",
+            "owner_history": source["owner_history"],
+            "owner_history_capacity": source["owner_history_capacity"],
+            "owner_history_evictions": source["owner_history_evictions"],
+            "observer": source["observer"],
+            "observer_failure_count": source["observer_failure_count"],
+            "observer_failure_diagnostic_id": source["observer_failure_diagnostic_id"],
+            "last_observer_failure_type": source["last_observer_failure_type"],
+        }
+        if result["last_observer_failure_type"] is not None:
+            fields, rejected = sanitize_diagnostic_fields(
+                {"exception_class": result["last_observer_failure_type"]}
+            )
+            result["last_observer_failure_type"] = fields.get("exception_class", "unclassified")
+            result["detail_rejected"] = rejected
+        return result
+
     async def query(self, name: str, arguments: dict) -> dict:
         if name not in QUERIES:
-            raise ValueError("unknown application query")
+            raise InvalidArgumentsError("unknown application query")
         if not isinstance(arguments, dict):
-            raise ValueError("query arguments must be an object")
+            raise InvalidArgumentsError("query arguments must be an object")
+        if name in {"diagnostics.history", "diagnostics.health"}:
+            runtime_logging = getattr(self.application, "_runtime_logging", None)
+            if runtime_logging is None:
+                return {"instance_id": self.instance_id, "availability": "unavailable"}
+            if name == "diagnostics.history":
+                return runtime_logging.diagnostic_history(arguments)
+            if arguments:
+                raise InvalidArgumentsError("diagnostic health does not accept arguments")
+            return {
+                **runtime_logging.diagnostic_health(),
+                "events": self.events.delivery_health(),
+                "output": self._output_diagnostic_health(),
+            }
         if arguments:
-            raise ValueError("query does not accept arguments")
+            raise InvalidArgumentsError("query does not accept arguments")
         revision = self._current_revision()
         canonical = self.settings.committed_settings
         base = {"instance_id": self.instance_id, "revision": revision}
         if name == "settings.current":
             return {
                 **base,
+                "private_presence": _private_settings_presence(canonical),
                 "settings": (
                     _redact(canonical_snapshot_values(canonical)) if canonical is not None else None
                 ),
@@ -1041,11 +1514,12 @@ class ApplicationControlOwner:
                 **base,
                 "host_pid": os.getpid(),
                 "channels": self._channels(),
-                "microphone_test": self.application.microphone_test_snapshot(),
+                "audio_test": self.application.audio_test_snapshot(),
                 "translation_enabled": self.application.state().translation_enabled,
                 "translation_runtime_ready": self.application.state().translation_runtime_ready,
                 "overlay_target": self.application.state().overlay_target,
                 "stopping": self._stop_requested.is_set(),
+                "scene_observation": self.application.scene_observation(),
             }
         if name in {"audio.target", "audio.processes"}:
             options = (
@@ -1070,19 +1544,17 @@ class ApplicationControlOwner:
             return {
                 **base,
                 "state": _json(owner.snapshot) if owner is not None else None,
-                "runtime": (
-                    _json(self.pipeline.local_asr_runtime.snapshot.gpu)
-                    if self.pipeline.local_asr_runtime is not None
-                    else None
-                ),
+                "runtime": self._gpu_runtime_snapshot(),
             }
         if name == "models.status":
             owner = self.provisioning()
             gemma = self.gemma()
+            assets = await self.application.refresh_model_assets()
             return {
                 **base,
                 "state": _json(getattr(owner, "snapshot", None)) if owner is not None else None,
                 "gemma": _json(gemma.snapshot) if gemma is not None else None,
+                "assets": [entry.to_dict() for entry in assets],
             }
         if name == "overlay.status":
             output = self.application.output_status()
@@ -1100,6 +1572,8 @@ class ApplicationControlOwner:
                 "ports": self.application.effective_osc_ports(),
                 "output": _json(output["osc"]),
             }
+        if name == "accounts.status":
+            return {**base, **_accounts_status(self.application)}
         if name == "auth.status":
             return {
                 **base,
@@ -1110,7 +1584,7 @@ class ApplicationControlOwner:
                 "challenge": (
                     dict(self._auth_challenge) if self._auth_challenge is not None else None
                 ),
-                "chatgpt": _chatgpt_status(self.application),
+                "chatgpt": _chatgpt_status(self.application, self._retain_diagnostic),
             }
         if name == "consent.peer_translation":
             return {
@@ -1120,21 +1594,26 @@ class ApplicationControlOwner:
             }
         if name == "secrets.presence":
             keys = _secret_keys(self.application)
-            result = self.application.settings_secrets().load_values(keys)
-            if result.snapshot is None or result.read_error is not None:
+            result = self.application.settings_secrets().load_values((*keys, "alibaba_api_key"))
+            if result.snapshot is None or result.diagnostics is not None:
+                diagnostic = (
+                    self._retain_diagnostic(result.diagnostics, disposition="failed")
+                    if result.diagnostics is not None
+                    else None
+                )
                 return {
                     **base,
                     "status": "failed",
-                    "error": (
-                        type(result.read_error).__name__
-                        if result.read_error is not None
-                        else "secret_store_unavailable"
-                    ),
+                    "error": {
+                        "code": diagnostic["code"] if diagnostic else "secret_store_unavailable"
+                    },
+                    "diagnostics": diagnostic,
                 }
             return {
                 **base,
                 "status": "applied",
                 "presence": {key: bool(result.snapshot.get(key)) for key in keys},
+                "effective_presence": _effective_secret_presence(keys, result.snapshot),
             }
         raise AssertionError(name)
 
@@ -1156,7 +1635,7 @@ class ApplicationControlOwner:
             or not request_id
             or len(request_id) > 128
         ):
-            raise ValueError("invalid application command or request identity")
+            raise InvalidArgumentsError("invalid application command or request identity")
         signature = hashlib.sha256(
             json.dumps(
                 [command, arguments, expected_revision], sort_keys=True, ensure_ascii=False
@@ -1166,7 +1645,7 @@ class ApplicationControlOwner:
         if previous is not None:
             prior = self._operations[previous]
             if prior.request_signature != signature:
-                raise ValueError("request identity reused with different mutation")
+                raise InvalidArgumentsError("request identity reused with different mutation")
             return dict(prior.receipt)
         if len(self._operations) >= 256 and not self._evict_terminal():
             raise RuntimeError("application operation capacity reached")
@@ -1179,10 +1658,39 @@ class ApplicationControlOwner:
             "terminal": False,
             "revision": self._current_revision(),
         }
+        if command == "translation.probe":
+            receipt.update(TRANSLATION_PROBE_METADATA)
+        if command == "recognition.probe":
+            receipt.update(
+                RECOGNITION_PROBE_METADATA,
+                channel=(
+                    arguments.get("channel")
+                    if arguments.get("channel") in ("self", "peer")
+                    else None
+                ),
+            )
+        runtime_toggle = None
+        if command in {"translation.set", "capture.set"}:
+            try:
+                _validate_command_args(command, arguments, locale_choices=self.locale_choices)
+            except InvalidArgumentsError:
+                pass
+            else:
+                runtime_toggle = self.admit_runtime_toggle(
+                    "translation" if command == "translation.set" else arguments["channel"],
+                    arguments["enabled"],
+                )
         self._operations[operation_id] = _Operation(
             receipt,
             backend=arguments.get("backend", "gpu") if command == "models.install" else None,
             request_signature=signature,
+            runtime_toggle=runtime_toggle,
+            audio_test_revision=(
+                self.application.audio_test_start_revision()
+                if command == "audio.diagnose"
+                or (command == "audio.test" and arguments.get("enabled") is True)
+                else None
+            ),
         )
         self._requests[request_id] = operation_id
         task = asyncio.create_task(
@@ -1208,11 +1716,272 @@ class ApplicationControlOwner:
         self, command: str, arguments: dict, expected_revision: int | None, operation_id: str
     ) -> None:
         operation = self._operations[operation_id]
+        task = asyncio.current_task()
+        if operation.runtime_toggle is not None:
+            self._operation_runtime_toggles[task] = operation.runtime_toggle
+        try:
+            with diagnostic_operation(
+                self.instance_id, operation_id, operation.receipt["request_id"]
+            ):
+                await self._execute_owned(command, arguments, expected_revision, operation_id)
+        finally:
+            self._operation_runtime_toggles.pop(task, None)
+
+    @staticmethod
+    def _text_admission_data(admission) -> dict:
+        from puripuly_heart.core.orchestrator.self_translation_channel import (
+            TextSubmissionAdmission,
+        )
+
+        if admission is None:
+            return {
+                "status": "rejected",
+                "error": {"code": "text_admission_unavailable"},
+                "admission": "unavailable",
+                "turn_id": None,
+                "child_turn_ids": [],
+                "output_delivery": "unobserved",
+            }
+        if not isinstance(admission, TextSubmissionAdmission):
+            raise TypeError("text admission requires an owned typed result")
+        if admission.status not in {"admitted", "rejected"} or not isinstance(
+            admission.turn_id, UUID
+        ):
+            raise TypeError("text admission identity is invalid")
+        if not all(isinstance(turn_id, UUID) for turn_id in admission.child_turn_ids):
+            raise TypeError("text admission child identity is invalid")
+        result = {
+            "status": "applied" if admission.status == "admitted" else "rejected",
+            "admission": admission.status,
+            "turn_id": str(admission.turn_id),
+            "child_turn_ids": [str(turn_id) for turn_id in admission.child_turn_ids],
+            "output_delivery": "unobserved",
+        }
+        if admission.status != "admitted":
+            result["error"] = {"code": "text_not_admitted"}
+        return result
+
+    def _retain_diagnostic(
+        self,
+        diagnostics: ErrorDiagnostics,
+        *,
+        disposition: str,
+        stage: str | None = None,
+        exception: BaseException | None = None,
+        severity: str = "error",
+    ) -> dict:
+        runtime_logging = getattr(self.application, "_runtime_logging", None)
+        if runtime_logging is not None:
+            return runtime_logging.emit_failure(
+                diagnostics,
+                disposition=disposition,
+                stage=stage,
+                exception=exception,
+                severity=severity,
+            )
+        return normalize_diagnostic(
+            diagnostics,
+            instance_id=self.instance_id,
+            severity=severity,
+            disposition=disposition,
+            stage=stage,
+            exception=exception,
+        )
+
+    def _retain_audio_diagnosis(self, result: dict) -> None:
+        diagnosis = result["diagnosis"]
+        summaries = []
+        for candidate in diagnosis["candidates"]:
+            route_id = hashlib.sha256(
+                json.dumps(
+                    [
+                        candidate["input_host_api"],
+                        candidate["input_device"],
+                        candidate["device_index"],
+                    ],
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest()[:16]
+            fields = {
+                "target_index": candidate["device_index"],
+                "route_id": route_id,
+                "candidate_current_route": candidate["current_route"],
+                "opened": candidate["opened"],
+                "frames_received": candidate["frames_received"],
+                "frame_count": candidate["frame_count"],
+                "vad_sample_count": candidate["vad_sample_count"],
+                "silence_observed": candidate["silence_observed"],
+                "speech_detected": candidate["speech_detected"],
+                "level_ppm": int(candidate["peak_level"] * 1_000_000),
+                "speech_probability_ppm": int(
+                    (candidate["speech_probability_max"] or 0.0) * 1_000_000
+                ),
+                "speech_probability_min": candidate["speech_probability_min"],
+                "speech_probability_max": candidate["speech_probability_max"],
+                "speech_threshold": candidate["speech_threshold"],
+                "elapsed_ms": candidate["elapsed_ms"],
+                "audio_failure_code": candidate["failure_code"] or "none",
+                "cleanup_complete": candidate["cleanup_complete"],
+            }
+            summaries.append(("audio_diagnose_candidate", fields))
+        summaries.append(
+            (
+                "audio_diagnose_completed",
+                {
+                    "count": len(diagnosis["candidates"]),
+                    "cleanup_complete": diagnosis["cleanup_complete"],
+                    "audio_restore_self": diagnosis["restoration"]["self"],
+                    "audio_restore_peer": diagnosis["restoration"]["peer"],
+                    "audio_failure_code": diagnosis["failure_code"] or "none",
+                    "outcome": ("cancelled" if diagnosis["state"] == "cancelled" else "completed"),
+                },
+            )
+        )
+        for code, fields in summaries:
+            failed = fields["audio_failure_code"] != "none"
+            diagnostic = ErrorDiagnostics(
+                component="audio_diagnosis",
+                operation="audio.diagnose",
+                code=code,
+                category="lifecycle",
+                visibility="diagnostic_only",
+                content_policy=CONTENT_POLICY_METADATA_ONLY,
+                status_code=None,
+                retry_after_ms=None,
+                fields=fields,
+            )
+            self._retain_diagnostic(
+                diagnostic,
+                disposition=(
+                    "cancelled"
+                    if diagnosis["state"] == "cancelled"
+                    else "failed" if failed else "recovered"
+                ),
+                stage="audio_diagnosis",
+                severity="warning" if failed else "info",
+            )
+            runtime_logging = getattr(self.application, "_runtime_logging", None)
+            if runtime_logging is not None:
+                tokens = " ".join(
+                    f"{key}={str(value).lower() if isinstance(value, bool) else value}"
+                    for key, value in fields.items()
+                    if key
+                    not in {
+                        "speech_probability_min",
+                        "speech_probability_max",
+                        "speech_threshold",
+                    }
+                )
+                runtime_logging.emit_diagnostic(f"[Capture] {code} {tokens}")
+
+    def _notify_presentation(self, receipt: dict, primary: dict | None = None) -> None:
+        try:
+            self.sync_ui()
+        except Exception as exc:
+            diagnostics = ErrorDiagnostics(
+                component="application_notification",
+                operation="snapshot_notification",
+                code="presentation_sync_failed",
+                category="lifecycle",
+                visibility=DIAGNOSTIC_VISIBILITY_BASIC,
+                content_policy=CONTENT_POLICY_METADATA_ONLY,
+                status_code=None,
+                retry_after_ms=None,
+                fields={"notification_delivered": False},
+                cause_id=primary["diagnostic_id"] if primary is not None else None,
+            )
+            evidence = self._retain_diagnostic(
+                diagnostics,
+                disposition="degraded",
+                severity="warning",
+                stage="dashboard_notification",
+                exception=exc,
+            )
+            secondary = receipt.setdefault("secondary_diagnostics", [])
+            if len(secondary) < 4:
+                secondary.append(evidence)
+            else:
+                receipt["secondary_truncated"] = True
+                receipt["secondary_omitted_count"] = receipt.get("secondary_omitted_count", 0) + 1
+            self.events.publish(
+                {
+                    "topic": "error",
+                    "operation_id": evidence["operation_id"],
+                    "code": evidence["code"],
+                    "diagnostic_id": evidence["diagnostic_id"],
+                }
+            )
+
+    def _transaction_receipt(self, transaction: TransactionResult, status: str) -> dict:
+        def retain(diagnostic: ErrorDiagnostics, *, disposition: str) -> dict:
+            record = self._retain_diagnostic(diagnostic, disposition=disposition)
+            if diagnostic.cause_id is not None:
+                cause_id = normalize_diagnostic(
+                    diagnostic,
+                    instance_id=self.instance_id,
+                    severity="error",
+                    disposition=disposition,
+                )["cause_id"]
+                if cause_id is not None:
+                    return {**record, "cause_id": cause_id}
+            return record
+
+        data = {
+            "status": transaction.status,
+            "message": transaction.message.key if transaction.message is not None else None,
+            "diagnostics": None,
+        }
+        if transaction.diagnostics is not None:
+            data["diagnostics"] = retain(
+                transaction.diagnostics,
+                disposition="degraded" if status == "degraded" else "failed",
+            )
+        data["secondary_diagnostics"] = [
+            retain(diagnostic, disposition="degraded")
+            for diagnostic in transaction.secondary_diagnostics[:4]
+        ]
+        data["secondary_omitted_count"] = transaction.secondary_omitted_count + max(
+            0, len(transaction.secondary_diagnostics) - 4
+        )
+        data["secondary_truncated"] = data["secondary_omitted_count"] > 0
+        return data
+
+    def _fail_translation_preparation(self, operation: _Operation) -> None:
+        if not self._open or operation.interrupt_requested:
+            raise asyncio.CancelledError
+        state = self.application.state()
+        operation.receipt.update(
+            status="degraded",
+            reason="translation_preparation_failed",
+            translation_enabled=state.translation_enabled,
+            runtime_ready=state.translation_runtime_ready,
+        )
+
+    async def _execute_owned(
+        self, command: str, arguments: dict, expected_revision: int | None, operation_id: str
+    ) -> None:
+        operation = self._operations[operation_id]
         captured = None
         completed = False
         acquired = False
         try:
+            if operation.interrupt_requested:
+                raise asyncio.CancelledError
             operation.receipt["status"] = "running"
+            translation_enable = (
+                command == "translation.set"
+                and len(arguments) == 1
+                and arguments.get("enabled") is True
+            )
+            preparation = None
+            if translation_enable:
+                if not self._open:
+                    raise asyncio.CancelledError
+                preparation = await self.application.prepare_translation_enable()
+                if preparation is not None and not preparation.ready:
+                    self._fail_translation_preparation(operation)
+                    completed = True
+                    return
             changes = arguments.get("changes", arguments) if command == "settings.apply" else None
             safe_capture_off = command == "capture.set" and arguments.get("enabled") is False
             safe_locale = (
@@ -1221,15 +1990,21 @@ class ApplicationControlOwner:
                 and len(changes) == 1
                 and "locale" in changes
             )
-            independent_stop = command in {"app.stop", "models.cancel", "gemma.cancel"} or (
-                command == "microphone.test" and arguments.get("enabled") is False
-            )
+            independent_stop = command in {
+                "app.stop",
+                "models.cancel",
+                "gemma.cancel",
+                "models.download",
+                "models.import",
+                "models.delete",
+            } or (command == "audio.test" and arguments.get("enabled") is False)
             resource_lock = (
                 None
                 if independent_stop
+                or operation.runtime_toggle is not None
                 or safe_capture_off
                 or safe_locale
-                or command == "secrets.verify"
+                or command in {"secrets.verify", "translation.probe", "recognition.probe"}
                 else self._resource_lock
             )
             if resource_lock is not None:
@@ -1237,51 +2012,149 @@ class ApplicationControlOwner:
                 acquired = True
             with self.results.capture(revision=self._current_revision) as captured:
                 deferred = None
-                async with asyncio.Lock() if independent_stop else self._lock:
-                    if not self._open and command != "app.stop":
-                        raise asyncio.CancelledError
-                    if not independent_stop:
-                        self._lock_owner = asyncio.current_task()
-                    revision = self._current_revision()
-                    if expected_revision is not None and expected_revision != revision:
-                        operation.receipt.update(
-                            status="rejected",
-                            error={"code": "revision_conflict", "current_revision": revision},
-                        )
-                    elif command == "models.install":
-                        _validate_command_args(
-                            command, arguments, locale_choices=self.locale_choices
-                        )
-                        if self.provisioning() is None:
-                            result = {
-                                "status": "failed",
-                                "error": {"code": "model_owner_unavailable"},
-                            }
-                        else:
-                            deferred = (
-                                "install",
-                                self._start_model_install(arguments, operation_id),
+                while True:
+                    refresh_preparation = False
+                    mutation_lock = (
+                        self.runtime_toggle_lock(operation.runtime_toggle)
+                        if operation.runtime_toggle is not None
+                        else asyncio.Lock() if independent_stop else self._lock
+                    )
+                    async with mutation_lock:
+                        if not self._open and command != "app.stop":
+                            raise asyncio.CancelledError
+                        if not independent_stop and operation.runtime_toggle is None:
+                            self._lock_owner = asyncio.current_task()
+                        revision = self._current_revision()
+                        if expected_revision is not None and expected_revision != revision:
+                            operation.receipt.update(
+                                status="rejected",
+                                error={"code": "revision_conflict", "current_revision": revision},
                             )
-                    elif command == "text.submit":
-                        _validate_command_args(
-                            command, arguments, locale_choices=self.locale_choices
-                        )
-                        if not isinstance(arguments["text"], str) or not arguments["text"].strip():
-                            raise ValueError("text must be non-empty")
-                        deferred = ("text", arguments["text"])
-                    else:
-                        result = await self._dispatch(command, arguments, operation_id=operation_id)
-                    if self._lock_owner is asyncio.current_task():
-                        self._lock_owner = None
+                        elif operation.runtime_toggle is not None and (
+                            not self.runtime_toggle_is_current(operation.runtime_toggle)
+                        ):
+                            raise asyncio.CancelledError
+                        elif translation_enable and (
+                            self.application.translation_preparation_needs_refresh(preparation)
+                        ):
+                            refresh_preparation = True
+                        elif command == "models.install":
+                            _validate_command_args(
+                                command, arguments, locale_choices=self.locale_choices
+                            )
+                            if self.provisioning() is None:
+                                result = {
+                                    "status": "failed",
+                                    "error": {"code": "model_owner_unavailable"},
+                                }
+                            else:
+                                deferred = (
+                                    "install",
+                                    self._start_model_install(arguments, operation_id),
+                                )
+                        elif command == "audio.diagnose":
+                            _validate_command_args(
+                                command, arguments, locale_choices=self.locale_choices
+                            )
+                            deferred = ("audio_diagnose", None)
+                        elif command == "translation.probe":
+                            _validate_command_args(
+                                command, arguments, locale_choices=self.locale_choices
+                            )
+                            deferred = ("probe", None)
+                        elif command == "recognition.probe":
+                            _validate_command_args(
+                                command, arguments, locale_choices=self.locale_choices
+                            )
+                            deferred = ("recognition_probe", arguments["channel"])
+                        elif command == "text.submit":
+                            _validate_command_args(
+                                command, arguments, locale_choices=self.locale_choices
+                            )
+                            if (
+                                not isinstance(arguments["text"], str)
+                                or not arguments["text"].strip()
+                            ):
+                                raise InvalidArgumentsError("text must be non-empty")
+                            deferred = ("text", arguments["text"])
+                        elif operation.runtime_toggle is not None:
+                            result = await self.run_runtime_toggle(
+                                operation.runtime_toggle,
+                                lambda: (
+                                    self._dispatch(
+                                        command,
+                                        arguments,
+                                        operation_id=operation_id,
+                                        translation_preparation=preparation,
+                                    )
+                                    if preparation is not None
+                                    else self._dispatch(
+                                        command, arguments, operation_id=operation_id
+                                    )
+                                ),
+                            )
+                        elif preparation is not None:
+                            result = await self._dispatch(
+                                command,
+                                arguments,
+                                operation_id=operation_id,
+                                translation_preparation=preparation,
+                            )
+                        else:
+                            result = await self._dispatch(
+                                command, arguments, operation_id=operation_id
+                            )
+                        if self._lock_owner is asyncio.current_task():
+                            self._lock_owner = None
+                    if not refresh_preparation:
+                        break
+                    if acquired:
+                        resource_lock.release()
+                        acquired = False
+                    preparation = await self.application.prepare_translation_enable(
+                        preparation.intent_revision if preparation is not None else None
+                    )
+                    if preparation is not None and not preparation.ready:
+                        self._fail_translation_preparation(operation)
+                        completed = True
+                        return
+                    if resource_lock is not None:
+                        await resource_lock.acquire()
+                        acquired = True
                 if operation.receipt["status"] != "rejected":
                     if deferred is not None:
                         if not self._open:
                             raise asyncio.CancelledError
                         if deferred[0] == "install":
                             result = await self._install_result(deferred[1])
+                        elif deferred[0] == "audio_diagnose":
+                            result = await self.application.diagnose_audio(
+                                admission_revision=operation.audio_test_revision
+                            )
+                            self._retain_audio_diagnosis(result)
+                        elif deferred[0] == "probe":
+                            result = await run_translation_probe(
+                                lambda: getattr(self.pipeline, "llm_runtime", None)
+                            )
+                        elif deferred[0] == "recognition_probe":
+                            result = await run_recognition_probe(
+                                lambda: getattr(self.pipeline, "local_asr_runtime", None),
+                                deferred[1],
+                                (
+                                    (
+                                        lambda: self.recognition_probe_request(
+                                            self.application.compatibility_settings(), deferred[1]
+                                        )
+                                    )
+                                    if self.recognition_probe_request is not None
+                                    else None
+                                ),
+                                self._current_revision,
+                            )
                         else:
-                            await self.application.submit_text(deferred[1])
-                            result = True
+                            result = self._text_admission_data(
+                                await self.application.submit_text(deferred[1])
+                            )
                     transaction = captured.current
                     status = "applied"
                     if transaction is not None and command in {
@@ -1289,12 +2162,15 @@ class ApplicationControlOwner:
                         "provider.apply",
                         "secrets.set",
                         "secrets.delete",
+                        "audio.target.set",
                         "overlay.lock",
                         "overlay.size",
                         "overlay.position.reset",
                     }:
                         status = _transaction_status(transaction)
-                        operation.receipt["transaction"] = _transaction_data(transaction)
+                        operation.receipt["transaction"] = self._transaction_receipt(
+                            transaction, status
+                        )
                     elif result is False:
                         status = "failed"
                     elif isinstance(result, dict) and "status" in result:
@@ -1315,39 +2191,82 @@ class ApplicationControlOwner:
                                 "channels": mismatch,
                             }
                     operation.receipt.update(status=status, revision=self._current_revision())
-                    if command in {"settings.apply", "provider.apply"} and status in {
-                        "applied",
-                        "degraded",
-                    }:
-                        try:
-                            self.sync_ui()
-                        except Exception:
-                            self.events.publish(
-                                {
-                                    "topic": "error",
-                                    "operation_id": operation_id,
-                                    "code": "presentation_sync_failed",
-                                }
-                            )
                     if isinstance(result, dict):
                         operation.receipt.update({k: v for k, v in result.items() if k != "status"})
                         if "status" in result and result["status"] != "applied":
                             operation.receipt["status"] = result["status"]
+                    if command in {"settings.apply", "provider.apply"} and operation.receipt[
+                        "status"
+                    ] in {"applied", "degraded"}:
+                        self._notify_presentation(
+                            operation.receipt,
+                            (operation.receipt.get("transaction") or {}).get("diagnostics"),
+                        )
                     completed = True
-        except asyncio.CancelledError:
+        except asyncio.CancelledError, GemmaProvisioningCancelled:
             operation.receipt["status"] = "interrupted" if not self._open else "cancelled"
+            if command == "audio.diagnose":
+                audio = self.application.compatibility_settings().intent.audio
+                result = audio_diagnosis_receipt(
+                    input_host_api=audio.input_host_api,
+                    input_device=audio.input_device,
+                    failure_code="cancelled",
+                )
+                result["diagnosis"]["state"] = "cancelled"
+                operation.receipt.update(
+                    {key: value for key, value in result.items() if key != "status"}
+                )
+                self._retain_audio_diagnosis(result)
         except PeerCaptureTargetUnavailable:
             operation.receipt.update(
                 status="action_required", error={"code": "capture_target_unavailable"}
             )
-        except (ValueError, TypeError, KeyError) as exc:
+        except InvalidArgumentsError:
             operation.receipt.update(
-                status="rejected", error={"code": "invalid_arguments", "type": type(exc).__name__}
+                status="rejected",
+                error={"code": "invalid_arguments", "type": "InvalidArgumentsError"},
             )
-        except Exception as exc:
+        except (Exception, BaseExceptionGroup) as exc:
+            source = vars(exc).get("failure_diagnostics")
+            if not isinstance(source, ErrorDiagnostics):
+                source = vars(exc).get("diagnostics")
+            owning_cause = (
+                self._retain_diagnostic(source, disposition="failed")
+                if isinstance(source, ErrorDiagnostics)
+                else None
+            )
+            if owning_cause is not None:
+                operation.receipt["cause_diagnostics"] = owning_cause
+            diagnostics = ErrorDiagnostics(
+                component="application_control",
+                operation=command,
+                code="application_operation_failed",
+                category="unknown",
+                visibility=(
+                    "diagnostic_only" if owning_cause is not None else DIAGNOSTIC_VISIBILITY_BASIC
+                ),
+                content_policy=CONTENT_POLICY_METADATA_ONLY,
+                status_code=None,
+                retry_after_ms=None,
+                fields={},
+                operation_id=operation_id,
+                request_id=operation.receipt["request_id"],
+                cause_id=owning_cause["diagnostic_id"] if owning_cause is not None else None,
+            )
+            diagnostic = self._retain_diagnostic(
+                diagnostics,
+                disposition="failed",
+                stage="dispatch",
+                exception=exc,
+            )
             operation.receipt.update(
                 status="failed",
-                error={"code": "application_operation_failed", "type": type(exc).__name__},
+                error={
+                    "code": "application_operation_failed",
+                    "type": diagnostic["fields"].get("exception_class", "unclassified"),
+                },
+                diagnostics=diagnostic,
+                diagnostic_id=diagnostic["diagnostic_id"],
             )
         finally:
             if (
@@ -1380,8 +2299,30 @@ class ApplicationControlOwner:
                             None,
                             None,
                         )
-                    operation.receipt["transaction"] = _transaction_data(transaction)
+                    operation.receipt["transaction"] = self._transaction_receipt(
+                        transaction, operation.receipt["status"]
+                    )
                 operation.receipt["revision"] = captured.committed_revision
+            if (
+                command in {"translation.probe", "recognition.probe", "audio.diagnose"}
+                and not self._open
+                and operation.receipt["status"] == "cancelled"
+            ):
+                operation.receipt["status"] = "interrupted"
+            if command == "translation.probe" and operation.receipt["status"] in {
+                "interrupted",
+                "cancelled",
+            }:
+                operation.receipt.update(
+                    translation_result=operation.receipt["status"],
+                    output_delivery="not_exercised",
+                    display="not_exercised",
+                )
+            if command == "recognition.probe" and operation.receipt["status"] in {
+                "interrupted",
+                "cancelled",
+            }:
+                operation.receipt["recognition_result"] = operation.receipt["status"]
             operation.receipt["terminal"] = operation.receipt["status"] in TERMINAL
             if self._lock_owner is asyncio.current_task():
                 self._lock_owner = None
@@ -1400,14 +2341,47 @@ class ApplicationControlOwner:
                     "status": operation.receipt["status"],
                     "terminal": operation.receipt["terminal"],
                     "revision": self._current_revision(),
+                    "diagnostic_id": operation.receipt.get("diagnostic_id")
+                    or (operation.receipt.get("transaction", {}).get("diagnostics") or {}).get(
+                        "diagnostic_id"
+                    ),
+                    "turn_id": operation.receipt.get("turn_id"),
+                    "child_turn_ids": operation.receipt.get("child_turn_ids", []),
                 }
             )
             self._trim()
             if acquired:
                 resource_lock.release()
 
+    async def _model_asset_command(self, command: str, args: dict) -> dict:
+        from puripuly_heart.app.services.model_assets import ModelAssetsError
+
+        app = self.application
+        model_id = args["model_id"]
+        try:
+            if command == "models.download":
+                source = args.get("source", "auto")
+                entry = await app.download_model_asset(
+                    model_id,
+                    source=None if source == "auto" else source.replace("-", "_"),
+                )
+            elif command == "models.import":
+                entry = await app.import_model_asset(model_id, Path(args["directory"]))
+            else:
+                entry = await app.delete_model_asset(model_id)
+        except ModelAssetsError as error:
+            current = next(
+                (item for item in app.model_asset_entries() if item.model_id == model_id), None
+            )
+            return {
+                "status": "cancelled" if error.failure_code == "cancelled" else "failed",
+                "error": {"code": error.failure_code},
+                "asset": current.to_dict() if current is not None else None,
+            }
+        return {"status": "applied", "asset": entry.to_dict()}
+
     def _start_model_install(self, args: dict, operation_id: str) -> asyncio.Task:
-        from puripuly_heart.core.local_asr_provisioning import LocalASRInstallRequest
+        from puripuly_heart.core.local_asr.local_asr_provisioning import LocalASRInstallRequest
 
         owner = self.provisioning()
         if owner is None:
@@ -1423,7 +2397,7 @@ class ApplicationControlOwner:
             model_ids = (snapshot.gpu_model_id,)
         model_backends = {item.model_id: item.backend for item in snapshot.models}
         if not model_ids or any(model_backends.get(model_id) != backend for model_id in model_ids):
-            raise ValueError("unsupported model ids")
+            raise InvalidArgumentsError("unsupported model ids")
         settings = self.application.compatibility_settings()
         request = LocalASRInstallRequest(
             backend=backend,
@@ -1443,20 +2417,25 @@ class ApplicationControlOwner:
             "status": (
                 "cancelled"
                 if result.cancelled
-                else "degraded"
-                if result.failed_model_ids
-                else "applied"
+                else "degraded" if result.failed_model_ids else "applied"
             ),
             "models": _json(result.snapshot),
             "failed_model_ids": list(result.failed_model_ids),
         }
 
-    async def _dispatch(self, command: str, args: dict, *, operation_id: str) -> object:
+    async def _dispatch(
+        self,
+        command: str,
+        args: dict,
+        *,
+        operation_id: str,
+        translation_preparation: TranslationEnablePreparation | None = None,
+    ) -> object:
         app = self.application
         _validate_command_args(command, args, locale_choices=self.locale_choices)
         if command == "app.stop":
             self._stop_requested.set()
-            return True
+            return {"status": "applied", "cleanup_outcome": "unobserved"}
         if command == "capture.set":
             enabled = _boolean(args, "enabled")
             channel = args["channel"]
@@ -1469,7 +2448,9 @@ class ApplicationControlOwner:
                     await app.accept_peer_translation_eula_and_enable()
                     current = getattr(self.results, "current", None)
                     if current is not None and current is not before:
-                        consent_transaction = _transaction_data(current)
+                        consent_transaction = self._transaction_receipt(
+                            current, _transaction_status(current)
+                        )
                         consent_status = _transaction_status(current)
                         if consent_status in {"persistence_failed", "failed"}:
                             return {
@@ -1534,7 +2515,12 @@ class ApplicationControlOwner:
                     continue
         if command == "translation.set":
             enabled = _boolean(args, "enabled")
-            await app.set_translation_enabled(enabled, allow_authorization=False)
+            if translation_preparation is None:
+                await app.set_translation_enabled(enabled, allow_authorization=False)
+            else:
+                await app.set_translation_enabled(
+                    enabled, allow_authorization=False, preparation=translation_preparation
+                )
             state = app.state()
             matched = state.translation_enabled == enabled and (
                 not enabled or state.translation_runtime_ready is True
@@ -1554,38 +2540,36 @@ class ApplicationControlOwner:
         if command == "text.submit":
             text = args["text"]
             if not isinstance(text, str) or not text.strip():
-                raise ValueError("text must be non-empty")
-            await app.submit_text(text)
-            return True
-        if command == "microphone.test":
+                raise InvalidArgumentsError("text must be non-empty")
+            return self._text_admission_data(await app.submit_text(text))
+        if command == "audio.test":
             if not _boolean(args, "enabled"):
-                await app.stop_microphone_test()
-                snapshot = app.microphone_test_snapshot()
+                await app.stop_audio_test()
+                snapshot = app.audio_test_snapshot()
                 return {
                     "status": (
                         "applied"
                         if snapshot["state"] == "off" and not snapshot["effective_active"]
                         else "failed"
                     ),
-                    "microphone_test": snapshot,
+                    "audio_test": snapshot,
                 }
-            started = await app.start_microphone_test()
-            ready = await app.wait_microphone_test_ready() if started else False
-            snapshot = app.microphone_test_snapshot()
-            if ready and snapshot["failure_reason"] is None:
-                return {"status": "applied", "microphone_test": snapshot}
-            if (
-                started
-                and snapshot["state"] in {"off", "stopping"}
-                and snapshot["failure_reason"] is None
-            ):
-                return {"status": "cancelled", "microphone_test": snapshot}
-            if snapshot["state"] in {"pending", "ready", "stopping"}:
-                return {"status": "degraded", "microphone_test": snapshot}
+            admission_revision = self._operations[operation_id].audio_test_revision
+            started = await app.start_audio_test(admission_revision=admission_revision)
+            ready = await app.wait_audio_test_ready() if started else False
+            snapshot = app.audio_test_snapshot()
+            if admission_revision != app.audio_test_start_revision():
+                return {"status": "cancelled", "audio_test": snapshot}
+            if ready and snapshot["state"] == "ready":
+                return {"status": "applied", "audio_test": snapshot}
+            if started and snapshot["state"] in {"off", "stopping"}:
+                return {"status": "cancelled", "audio_test": snapshot}
+            if snapshot["state"] in {"pending", "ready", "degraded"}:
+                return {"status": "degraded", "audio_test": snapshot}
             return {
                 "status": "action_required",
-                "action": "select_available_microphone",
-                "microphone_test": snapshot,
+                "action": "select_available_audio_devices",
+                "audio_test": snapshot,
             }
         if command == "audio.target.set":
             value = args["value"]
@@ -1595,7 +2579,7 @@ class ApplicationControlOwner:
                 None,
             )
             if selected is None:
-                raise ValueError("unknown audio target option")
+                raise InvalidArgumentsError("unknown audio target option")
             if selected.disabled:
                 raise PeerCaptureTargetUnavailable("audio target is unavailable")
             return await app.apply_loopback_capture_option(value)
@@ -1612,21 +2596,30 @@ class ApplicationControlOwner:
             backend = args.get("backend", "cpu")
             verify = args.get("verify_checksums", False)
             if not isinstance(verify, bool):
-                raise ValueError("verify_checksums must be boolean")
+                raise InvalidArgumentsError("verify_checksums must be boolean")
             if backend == "cpu":
                 snapshot = await owner.inspect_cpu(verify_checksums=verify)
             elif backend == "gpu":
                 snapshot = await owner.inspect_gpu(explicit_intent=True, verify_checksums=verify)
             else:
-                raise ValueError("unsupported model backend")
+                raise InvalidArgumentsError("unsupported model backend")
             return {"status": "applied", "models": _json(snapshot)}
+        if command in {"models.download", "models.import", "models.delete"}:
+            return await self._model_asset_command(command, args)
+        if command == "models.cancel" and "model_id" in args:
+            cancelled = await app.cancel_model_asset(args["model_id"])
+            return {
+                "status": "cancelled" if cancelled else "rejected",
+                "model_id": args["model_id"],
+                "reason": None if cancelled else "no_active_download",
+            }
         if command == "models.cancel":
             owner = self.provisioning()
             if owner is None:
                 return {"status": "failed", "error": {"code": "model_owner_unavailable"}}
             backend = args.get("backend", "gpu")
             if backend not in ("cpu", "gpu"):
-                raise ValueError("unsupported model backend")
+                raise InvalidArgumentsError("unsupported model backend")
             active = owner.snapshot.activity_for(backend) is not None
             if active:
                 await owner.cancel_install(backend)
@@ -1640,7 +2633,12 @@ class ApplicationControlOwner:
             settings = app.compatibility_settings()
             if owner is None or settings is None:
                 return {"status": "failed", "error": {"code": "gemma_owner_unavailable"}}
-            activation = await owner.prepare(self.gemma_selection(settings))
+            try:
+                activation = await owner.prepare(self.gemma_selection(settings))
+            except GemmaProvisioningError as error:
+                if error.failure_code != "task_busy":
+                    raise
+                return {"status": "failed", "error": {"code": "task_busy"}}
             await activation.release()
             return {"status": "applied", "gemma": _json(owner.snapshot)}
         if command == "gemma.cancel":
@@ -1654,7 +2652,7 @@ class ApplicationControlOwner:
             }
         if command == "models.retry":
             if args.get("backend", "gpu") != "gpu":
-                raise ValueError("only GPU activation retry is supported")
+                raise InvalidArgumentsError("only GPU activation retry is supported")
             owner = self.gpu()
             if owner is None:
                 return {"status": "failed", "error": {"code": "gpu_owner_unavailable"}}
@@ -1698,12 +2696,17 @@ class ApplicationControlOwner:
                     "verification": "unavailable",
                     "reason": "secret_has_no_verification_protocol",
                 }
-            verified, reason = await app.verify_api_key(provider, key)
+            outcome = await app.verify_api_key(provider, key)
+            verified = outcome.status == "verified"
             return {
                 "status": "applied" if verified else "rejected",
                 "verification": "verified" if verified else "failed",
-                "reason": reason if verified else "verification_failed",
+                "reason": "Verification successful" if verified else "verification_failed",
             }
+        if command == "osc.discovery.retry":
+            if self.osc_discovery_retry is None:
+                raise RuntimeError("OSC discovery owner is unavailable")
+            return await self.osc_discovery_retry()
         if command == "overlay.set":
             enabled = _boolean(args, "enabled")
             await app.set_overlay_enabled(enabled)
@@ -1755,7 +2758,7 @@ class ApplicationControlOwner:
                 result["reason"] = reason
             if transaction is not None:
                 result["transaction"] = {
-                    **_transaction_data(transaction),
+                    **self._transaction_receipt(transaction, _transaction_status(transaction)),
                     "effect": "overlay_intent_only",
                 }
                 transaction_status = _transaction_status(transaction)
@@ -1788,32 +2791,34 @@ class ApplicationControlOwner:
                     return {
                         "status": _transaction_status(result),
                         "calibration": _json(value),
-                        "transaction": _transaction_data(result),
+                        "transaction": self._transaction_receipt(
+                            result, _transaction_status(result)
+                        ),
                     }
                 return {"status": "applied", "calibration": _json(value)}
             if action == "cancel":
                 return _json(app.cancel_overlay_calibration())
-            raise ValueError("unknown calibration action")
-        raise ValueError("unsupported command")
+            raise InvalidArgumentsError("unknown calibration action")
+        raise InvalidArgumentsError("unsupported command")
 
     async def _login(self, args: dict, operation_id: str) -> dict:
         provider = _string(args, "provider")
         if provider not in {"qq", "discord", "openrouter", "chatgpt"}:
-            raise ValueError("unsupported account provider")
+            raise InvalidArgumentsError("unsupported account provider")
         app = self.application
         before = getattr(self.results, "current", None)
         if provider == "qq":
             identity = _string(args, "qq_identity")
             credential = _string(args, "credential")
             if not identity or not credential:
-                raise ValueError("QQ account and credential are required")
+                raise InvalidArgumentsError("QQ account and credential are required")
             result = await app.start_qq_managed_auth_from_dialog(
-                qq_identity=identity, credential=credential, referral_id=args.get("referral_id")
+                qq_identity=identity, credential=credential
             )
         else:
             open_browser = args.get("open_browser", False)
             if not isinstance(open_browser, bool):
-                raise ValueError("open_browser must be boolean")
+                raise InvalidArgumentsError("open_browser must be boolean")
 
             def authorization_url(url: str) -> None:
                 self._auth_challenge = {
@@ -1836,13 +2841,31 @@ class ApplicationControlOwner:
                     open_browser=open_browser,
                     authorization_url_sink=authorization_url,
                 )
-                self.sync_ui()
+                primary = (
+                    self._retain_diagnostic(connect.diagnostics, disposition="failed")
+                    if connect.diagnostics is not None
+                    else None
+                )
+                evidence = {
+                    "diagnostics": primary,
+                    "diagnostic_id": primary["diagnostic_id"] if primary is not None else None,
+                    "secondary_diagnostics": [
+                        self._retain_diagnostic(item, disposition="degraded")
+                        for item in connect.secondary_diagnostics[:4]
+                    ],
+                    "secondary_omitted_count": connect.secondary_omitted_count
+                    + max(0, len(connect.secondary_diagnostics) - 4),
+                    "secondary_truncated": connect.secondary_omitted_count > 0
+                    or len(connect.secondary_diagnostics) > 4,
+                }
+                self._notify_presentation(evidence, primary)
                 if connect.succeeded:
                     return {
                         "status": "applied",
                         "provider": provider,
                         "authorization": "complete",
                         "first_sign_in": connect.first_sign_in,
+                        **evidence,
                     }
                 return {
                     "status": (
@@ -1852,10 +2875,10 @@ class ApplicationControlOwner:
                     ),
                     "provider": provider,
                     "reason": connect.failure_code or "authorization_failed",
+                    **evidence,
                 }
             if provider == "discord":
                 result = await app.start_discord_managed_auth_from_dialog(
-                    referral_id=args.get("referral_id"),
                     open_browser=open_browser,
                     authorization_url_sink=authorization_url,
                     on_callback_received=lambda: self.events.publish(
@@ -1876,8 +2899,6 @@ class ApplicationControlOwner:
                     ),
                 )
             else:
-                if "referral_id" in args:
-                    raise ValueError("referral_id is not valid for OpenRouter authorization")
                 target = app.build_managed_openrouter_byok_target()
                 if target is None:
                     from puripuly_heart.app.ports.settings_view import OpenRouterPkceTarget
@@ -1900,12 +2921,21 @@ class ApplicationControlOwner:
                 )
         transaction = getattr(self.results, "current", None)
         transaction_data = (
-            {"transaction": _transaction_data(transaction)}
+            {
+                "transaction": self._transaction_receipt(
+                    transaction, _transaction_status(transaction)
+                )
+            }
             if transaction is not None and transaction is not before
             else {}
         )
         if result is True:
             status = _transaction_status(transaction) if transaction_data else "applied"
+            if (
+                provider in {"qq", "discord"}
+                and app.managed_auth_last_failure_kind() == "runtime_degraded"
+            ):
+                status = "degraded"
             return {
                 "status": status,
                 "provider": provider,
@@ -1918,8 +2948,13 @@ class ApplicationControlOwner:
                 return {"status": status, "provider": provider, **transaction_data}
         if isinstance(result, tuple) and result:
             reason = result[0]
-            action = isinstance(reason, str) and reason.endswith(
-                (".action_required", ".recovery_pending")
+            action = (
+                provider == "qq"
+                and bool(transaction_data)
+                and transaction.status == TRANSACTION_STATUS_REMOTE_DELIVERY_ACK_PENDING
+            ) or (
+                isinstance(reason, str)
+                and reason.endswith((".action_required", ".recovery_pending"))
             )
             return {
                 "status": "action_required" if action else "rejected",
@@ -1929,7 +2964,9 @@ class ApplicationControlOwner:
             }
         kind = app.managed_auth_last_failure_kind() if provider == "discord" else None
         return {
-            "status": "action_required" if kind in {"action_required", "recovering"} else "failed",
+            "status": (
+                "action_required" if kind in {"action_required", "idle_resumable"} else "failed"
+            ),
             "provider": provider,
             "reason": "authorization_failed",
             **transaction_data,
@@ -1938,16 +2975,42 @@ class ApplicationControlOwner:
     async def _logout(self, args: dict) -> dict:
         provider = _string(args, "provider")
         if provider not in {"qq", "discord", "openrouter", "chatgpt"}:
-            raise ValueError("unsupported account provider")
+            raise InvalidArgumentsError("unsupported account provider")
         app = self.application
         if provider == "chatgpt":
             signed_out = await app.sign_out_chatgpt()
-            self.sync_ui()
-            return {
-                "status": "applied",
+            diagnostics = signed_out.diagnostics
+            status = "applied" if signed_out.local_credentials_removed is True else "failed"
+            diagnostic = (
+                self._retain_diagnostic(
+                    diagnostics, disposition="failed" if status == "failed" else "degraded"
+                )
+                if diagnostics is not None
+                else None
+            )
+            result = {
+                "status": status,
                 "provider": provider,
-                "scope": "remote_revoked" if signed_out.remote_revoked else "local_only",
+                "local_credentials_removed": signed_out.local_credentials_removed,
+                "remote_revoked": signed_out.remote_revoked,
+                "scope": (
+                    "remote_revoked"
+                    if signed_out.remote_revoked
+                    else "local_only" if signed_out.local_credentials_removed is True else "unknown"
+                ),
+                "diagnostics": diagnostic,
+                "diagnostic_id": diagnostic["diagnostic_id"] if diagnostic is not None else None,
+                "secondary_diagnostics": [
+                    self._retain_diagnostic(item, disposition="degraded")
+                    for item in signed_out.secondary_diagnostics[:4]
+                ],
+                "secondary_omitted_count": signed_out.secondary_omitted_count
+                + max(0, len(signed_out.secondary_diagnostics) - 4),
+                "secondary_truncated": signed_out.secondary_omitted_count > 0
+                or len(signed_out.secondary_diagnostics) > 4,
             }
+            self._notify_presentation(result, diagnostic)
+            return result
         current = app.compatibility_settings()
         managed = current.state.managed_connection
         if provider in {"qq", "discord"} and (
@@ -1986,7 +3049,12 @@ class ApplicationControlOwner:
             transaction = getattr(self.results, "current", None)
             if transaction is not None and transaction is not before:
                 status = _transaction_status(transaction)
-                result = {"status": status, "transaction": _transaction_data(transaction)}
+                result = {
+                    "status": status,
+                    "transaction": self._transaction_receipt(
+                        transaction, _transaction_status(transaction)
+                    ),
+                }
             else:
                 result = {"status": "applied" if succeeded else "failed"}
             result.update(provider=provider, scope="local_only")
@@ -2004,16 +3072,16 @@ class ApplicationControlOwner:
             if runtime is False:
                 result["status"] = "degraded"
                 result["reason"] = "runtime_rebuild_failed"
-        self.sync_ui()
+        self._notify_presentation(result, (result.get("transaction") or {}).get("diagnostics"))
         return result
 
     async def _apply_provider(self, args: dict) -> object:
         edits = []
         if "channel" in args:
-            provider = STTProviderName(args["provider"])
+            provider = STTProviderName(normalize_stt_provider(args["provider"]))
             channel = args["channel"]
             if channel not in ("self", "peer", "both"):
-                raise ValueError("invalid provider channel")
+                raise InvalidArgumentsError("invalid provider channel")
             edits.extend(
                 (SelfSttProviderEdit if target == "self" else PeerSttProviderEdit)(provider)
                 for target in ("self", "peer")
@@ -2022,14 +3090,14 @@ class ApplicationControlOwner:
         else:
             for channel in ("self", "peer"):
                 if channel in args:
-                    provider = STTProviderName(args[channel])
+                    provider = STTProviderName(normalize_stt_provider(args[channel]))
                     edits.append(
                         (SelfSttProviderEdit if channel == "self" else PeerSttProviderEdit)(
                             provider
                         )
                     )
         if not edits:
-            raise ValueError("provider.apply requires self or peer")
+            raise InvalidArgumentsError("provider.apply requires self or peer")
         return await self.application.apply_provider_intent(ProviderApplyIntent(tuple(edits)))
 
     async def _validate_settings_changes(
@@ -2092,15 +3160,17 @@ class ApplicationControlOwner:
             )
             connection = changes["translation.connection"]
             if connection not in {item.value for item in supported_translation_connections(model)}:
-                raise ValueError("unsupported translation model and connection combination")
+                raise InvalidArgumentsError(
+                    "unsupported translation model and connection combination"
+                )
 
     async def _apply_fields(self, args: dict) -> object:
         changes = args.get("changes", args)
         if type(changes) is not dict or not changes:
-            raise ValueError("settings.apply requires nonempty changes object")
+            raise InvalidArgumentsError("settings.apply requires nonempty changes object")
         unsupported = changes.keys() - SETTINGS_FIELDS
         if unsupported:
-            raise ValueError("unknown settings fields")
+            raise InvalidArgumentsError("unknown settings fields")
         canonical = self.application.compatibility_settings()
         if canonical is None:
             raise RuntimeError("settings not loaded")
@@ -2170,7 +3240,9 @@ class ApplicationControlOwner:
                 else:
                     connection = selection.connection
                 if connection not in supported_translation_connections(model):
-                    raise ValueError("unsupported translation model and connection combination")
+                    raise InvalidArgumentsError(
+                        "unsupported translation model and connection combination"
+                    )
                 history = dict(selection.connection_history)
                 updates = ()
                 if key == "translation.connection_history":
@@ -2181,7 +3253,9 @@ class ApplicationControlOwner:
                         if historic_connection not in supported_translation_connections(
                             historic_model
                         ):
-                            raise ValueError("unsupported translation connection history")
+                            raise InvalidArgumentsError(
+                                "unsupported translation connection history"
+                            )
                     history.update(updates)
                 elif key in {"translation.model", "translation.connection"}:
                     updates = ((model, connection),)
@@ -2204,12 +3278,6 @@ class ApplicationControlOwner:
                 updated = materialize_provider_apply_intent(
                     updated,
                     ProviderApplyIntent((edit,)),
-                    materialize_translation=self.settings.materialize_translation,
-                )
-            elif key == "managed.referral_id":
-                updated = materialize_provider_apply_intent(
-                    updated,
-                    ProviderApplyIntent((ManagedReferralEdit(value),)),
                     materialize_translation=self.settings.materialize_translation,
                 )
             elif key == "prompts.value":
@@ -2237,7 +3305,7 @@ class ApplicationControlOwner:
                     "peer_target",
                     "peer_source_mode",
                 }:
-                    raise ValueError("languages requires known language choices")
+                    raise InvalidArgumentsError("languages requires known language choices")
                 languages = updated.intent.languages
                 updated = materialize_language_selection(
                     updated,
@@ -2256,12 +3324,12 @@ class ApplicationControlOwner:
                 )
             elif key == "telemetry.enabled":
                 if not isinstance(value, bool):
-                    raise ValueError("telemetry.enabled must be boolean")
+                    raise InvalidArgumentsError("telemetry.enabled must be boolean")
                 updated = self.settings.with_telemetry_enabled(updated, value)
             else:
                 if key in {"stt.provider", "peer_stt.provider"}:
                     edit = (SelfSttProviderEdit if key == "stt.provider" else PeerSttProviderEdit)(
-                        STTProviderName(value)
+                        STTProviderName(normalize_stt_provider(value))
                     )
                 elif key == "stt.cloud_free_tier_providers":
                     edit = CloudFreeTierProvidersEdit(
@@ -2282,31 +3350,13 @@ class ApplicationControlOwner:
             "translation.connection",
             "translation.connection_history",
             "translation.previous_llm_model",
-            "managed.referral_id",
         }
-        if changes.keys() & provider_fields:
-            result = await self.application.apply_providers(updated)
-            provider_result = self.results.current
-            remaining = {key: value for key, value in changes.items() if key not in provider_fields}
-            if not remaining or result is False:
-                return result
-            if provider_result is not None and provider_result.status not in {
-                TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
-                TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
-            }:
-                return result
-            result = await self._apply_fields({"changes": remaining})
-            if (
-                provider_result is not None
-                and provider_result.status
-                == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED
-                and self.results.current is not None
-                and self.results.current.status
-                == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED
-            ):
-                self.results.set(provider_result)
-            return result
-        return await self.application.apply_settings(updated)
+        if changes.keys() <= provider_fields:
+            return await self.application.apply_providers(updated)
+        return await self.application.apply_settings(
+            updated,
+            provider_requested=bool(changes.keys() & provider_fields),
+        )
 
     async def operation(self, operation_id: str) -> dict:
         return dict(self._get(operation_id).receipt)
@@ -2342,6 +3392,13 @@ class ApplicationControlOwner:
             owner = self.gemma()
             if owner is not None:
                 owner.cancel()
+        elif operation.task.get_name().startswith(
+            ("control:translation.probe:", "control:recognition.probe:", "control:audio.diagnose:")
+        ):
+            operation.interrupt_requested = True
+            if operation.receipt["status"] == "accepted":
+                await operation.task
+                return dict(operation.receipt)
         else:
             return {**operation.receipt, "cancellation": "unsupported"}
         operation.task.cancel()
@@ -2356,67 +3413,72 @@ class ApplicationControlOwner:
         include_transcripts: bool = False,
         include_translations: bool = False,
         after: int | None = None,
+        cursor_instance_id: str | None = None,
     ) -> AsyncIterator[dict]:
         if channel not in (None, "self", "peer"):
-            raise ValueError("unsupported channel")
+            raise InvalidArgumentsError("unsupported channel")
         if set(topics) - set(self.capabilities()["topics"]):
-            raise ValueError("unsupported event topic")
+            raise InvalidArgumentsError("unsupported event topic")
         return self.events.subscribe(
             topics=topics,
             channel=channel,
             include_transcripts=include_transcripts,
             include_translations=include_translations,
             after=after,
+            cursor_instance_id=cursor_instance_id,
         )
 
 
 def _validate_command_args(command: str, args: dict, *, locale_choices: tuple[str, ...]) -> None:
     if type(args) is not dict:
-        raise ValueError("command arguments must be an object")
+        raise InvalidArgumentsError("command arguments must be an object")
     if command not in COMMAND_ARGUMENTS:
-        raise ValueError("unknown application command")
+        raise InvalidArgumentsError("unknown application command")
     if command == "settings.apply":
         if "changes" in args:
             if args.keys() != {"changes"}:
-                raise ValueError("settings changes cannot be mixed with direct fields")
+                raise InvalidArgumentsError("settings changes cannot be mixed with direct fields")
             changes = args["changes"]
             if type(changes) is not dict or not changes:
-                raise ValueError("settings.apply requires a nonempty changes object")
+                raise InvalidArgumentsError("settings.apply requires a nonempty changes object")
         else:
             changes = args
             if not changes:
-                raise ValueError("settings.apply requires changes")
+                raise InvalidArgumentsError("settings.apply requires changes")
         if changes.keys() - SETTINGS_FIELDS:
-            raise ValueError("unknown settings field")
+            raise InvalidArgumentsError("unknown settings field")
         for name, value in changes.items():
             _validate_settings_field(name, value, locale_choices=locale_choices)
         return
     if command == "provider.apply":
         if "channel" in args:
             if args.keys() != {"channel", "provider"}:
-                raise ValueError("channel provider selection requires channel and provider only")
+                raise InvalidArgumentsError(
+                    "channel provider selection requires channel and provider only"
+                )
             if type(args["channel"]) is not str or args["channel"] not in {
                 "self",
                 "peer",
                 "both",
             }:
-                raise ValueError("invalid provider channel")
+                raise InvalidArgumentsError("invalid provider channel")
             _validate_stt_provider(args["provider"])
             return
         if not args or args.keys() - {"self", "peer"}:
-            raise ValueError("provider.apply requires self and/or peer provider values")
+            raise InvalidArgumentsError("provider.apply requires self and/or peer provider values")
         for provider in args.values():
             _validate_stt_provider(provider)
         return
 
     allowed = COMMAND_ARGUMENTS[command].keys()
     if args.keys() - allowed:
-        raise ValueError("unknown command arguments")
+        raise InvalidArgumentsError("unknown command arguments")
     required = {
         "capture.set": {"channel", "enabled"},
         "translation.set": {"enabled"},
+        "recognition.probe": {"channel"},
         "text.submit": {"text"},
-        "microphone.test": {"enabled"},
+        "audio.test": {"enabled"},
         "audio.target.set": {"value"},
         "secrets.set": {"name", "value"},
         "secrets.delete": {"name"},
@@ -2427,53 +3489,73 @@ def _validate_command_args(command: str, args: dict, *, locale_choices: tuple[st
         "overlay.calibrate": {"action"},
         "auth.login": {"provider"},
         "auth.logout": {"provider"},
+        "models.download": {"model_id"},
+        "models.import": {"model_id", "directory"},
+        "models.delete": {"model_id"},
     }.get(command, set())
     if required - args.keys():
-        raise ValueError("missing command arguments")
+        raise InvalidArgumentsError("missing command arguments")
+    if command in {"models.download", "models.import", "models.delete", "models.cancel"}:
+        if "model_id" in args and (type(args["model_id"]) is not str or not args["model_id"]):
+            raise InvalidArgumentsError("model_id must be a non-empty string")
+    if command == "models.download" and args.get("source", "auto") not in {
+        "auto",
+        "huggingface",
+        "modelscope",
+        "hf-mirror",
+    }:
+        raise InvalidArgumentsError("unsupported model source")
+    if command == "models.import" and (
+        type(args["directory"]) is not str or not args["directory"].strip()
+    ):
+        raise InvalidArgumentsError("directory must be a non-empty string")
 
+    if command == "recognition.probe":
+        if type(args["channel"]) is not str or args["channel"] not in {"self", "peer"}:
+            raise InvalidArgumentsError("channel must be self or peer")
     if command == "capture.set":
         if type(args["channel"]) is not str or args["channel"] not in {"self", "peer"}:
-            raise ValueError("channel must be self or peer")
+            raise InvalidArgumentsError("channel must be self or peer")
         if type(args["enabled"]) is not bool:
-            raise ValueError("enabled must be a boolean")
+            raise InvalidArgumentsError("enabled must be a boolean")
         accept_terms = args.get("accept_terms", False)
         if type(accept_terms) is not bool:
-            raise ValueError("accept_terms must be a boolean")
+            raise InvalidArgumentsError("accept_terms must be a boolean")
         if accept_terms and (args["channel"] != "peer" or not args["enabled"]):
-            raise ValueError("accept_terms is only valid when enabling peer capture")
-    elif command in {"translation.set", "microphone.test", "overlay.set"}:
+            raise InvalidArgumentsError("accept_terms is only valid when enabling peer capture")
+    elif command in {"translation.set", "audio.test", "overlay.set"}:
         if type(args["enabled"]) is not bool:
-            raise ValueError("enabled must be a boolean")
+            raise InvalidArgumentsError("enabled must be a boolean")
     elif command == "overlay.lock":
         if type(args["locked"]) is not bool:
-            raise ValueError("locked must be a boolean")
+            raise InvalidArgumentsError("locked must be a boolean")
     elif command == "text.submit":
         if type(args["text"]) is not str or not args["text"].strip():
-            raise ValueError("text must be a non-empty string")
+            raise InvalidArgumentsError("text must be a non-empty string")
     elif command == "audio.target.set":
         if type(args["value"]) is not str or not args["value"]:
-            raise ValueError("audio target value must be a non-empty string")
+            raise InvalidArgumentsError("audio target value must be a non-empty string")
     elif command in {"secrets.set", "secrets.verify"}:
         if type(args["name"]) is not str or not args["name"]:
-            raise ValueError("secret name must be a non-empty string")
+            raise InvalidArgumentsError("secret name must be a non-empty string")
         if type(args["value"]) is not str or not args["value"]:
-            raise ValueError("secret value must be a non-empty string")
+            raise InvalidArgumentsError("secret value must be a non-empty string")
     elif command == "secrets.delete":
         if type(args["name"]) is not str or not args["name"]:
-            raise ValueError("secret name must be a non-empty string")
+            raise InvalidArgumentsError("secret name must be a non-empty string")
     elif command == "overlay.size":
         from puripuly_heart.config.desktop_overlay_values import (
             DESKTOP_FLET_SIZE_PRESET_ORDER,
         )
 
         if type(args["preset"]) is not str or args["preset"] not in DESKTOP_FLET_SIZE_PRESET_ORDER:
-            raise ValueError("unsupported overlay size preset")
+            raise InvalidArgumentsError("unsupported overlay size preset")
     elif command in {"models.install", "models.prepare", "models.cancel", "models.retry"}:
         backend = args.get("backend", "cpu" if command == "models.prepare" else "gpu")
         if type(backend) is not str or backend not in MODEL_BACKENDS:
-            raise ValueError("unsupported model backend")
+            raise InvalidArgumentsError("unsupported model backend")
         if command == "models.retry" and backend != "gpu":
-            raise ValueError("only GPU activation retry is supported")
+            raise InvalidArgumentsError("only GPU activation retry is supported")
         if command == "models.install" and "model_ids" in args:
             model_ids = args["model_ids"]
             if (
@@ -2481,15 +3563,15 @@ def _validate_command_args(command: str, args: dict, *, locale_choices: tuple[st
                 or any(type(model_id) is not str or not model_id for model_id in model_ids)
                 or len(set(model_ids)) != len(model_ids)
             ):
-                raise ValueError("model_ids must be a list of unique non-empty strings")
+                raise InvalidArgumentsError("model_ids must be a list of unique non-empty strings")
         if command == "models.prepare" and (
             "verify_checksums" in args and type(args["verify_checksums"]) is not bool
         ):
-            raise ValueError("verify_checksums must be a boolean")
+            raise InvalidArgumentsError("verify_checksums must be a boolean")
     elif command in {"auth.login", "auth.logout"}:
         provider = args["provider"]
         if type(provider) is not str or provider not in {"qq", "discord", "openrouter", "chatgpt"}:
-            raise ValueError("unsupported account provider")
+            raise InvalidArgumentsError("unsupported account provider")
         if command == "auth.login":
             _validate_auth_login_args(args, provider)
     elif command == "overlay.calibrate":
@@ -2497,55 +3579,54 @@ def _validate_command_args(command: str, args: dict, *, locale_choices: tuple[st
 
 
 def _validate_auth_login_args(args: dict, provider: str) -> None:
-    from puripuly_heart.config.provider_values import normalize_owned_referral_id
-
     open_browser = args.get("open_browser", False)
     if type(open_browser) is not bool:
-        raise ValueError("open_browser must be a boolean")
-    referral_id = args.get("referral_id")
-    if referral_id is not None and (
-        type(referral_id) is not str
-        or not referral_id
-        or normalize_owned_referral_id(referral_id) is None
-    ):
-        raise ValueError("invalid referral ID")
+        raise InvalidArgumentsError("open_browser must be a boolean")
     if provider == "qq":
         if args.keys() - {
             "provider",
             "qq_identity",
             "credential",
-            "referral_id",
             "open_browser",
         }:
-            raise ValueError("QQ login has unsupported arguments")
+            raise InvalidArgumentsError("QQ login has unsupported arguments")
         if (
             type(args.get("qq_identity")) is not str
             or not args["qq_identity"]
             or type(args.get("credential")) is not str
             or not args["credential"]
         ):
-            raise ValueError("QQ identity and credential are required")
+            raise InvalidArgumentsError("QQ identity and credential are required")
         if open_browser:
-            raise ValueError("QQ login does not support browser opening")
+            raise InvalidArgumentsError("QQ login does not support browser opening")
         return
-    if args.keys() - {"provider", "referral_id", "open_browser"}:
-        raise ValueError("OAuth login does not accept QQ credentials")
-    if provider == "openrouter" and referral_id is not None:
-        raise ValueError("referral_id is not valid for OpenRouter authorization")
-    if provider == "chatgpt" and referral_id is not None:
-        raise ValueError("referral_id is not valid for ChatGPT authorization")
+    if args.keys() - {"provider", "open_browser"}:
+        raise InvalidArgumentsError("OAuth login has unsupported arguments")
 
 
-def _chatgpt_status(application: object) -> dict[str, bool]:
+def _chatgpt_status(application: object, retain: Callable[..., dict]) -> dict:
     snapshot_provider = getattr(application, "chatgpt_account_snapshot", None)
     if not callable(snapshot_provider):
-        return {"signed_in": False, "in_progress": False, "sign_in_required": False}
+        return {
+            "signed_in": None,
+            "in_progress": None,
+            "sign_in_required": None,
+            "availability": "unavailable",
+        }
     snapshot = snapshot_provider()
     required = getattr(application, "chatgpt_sign_in_required", None)
+    diagnostics = snapshot.diagnostics
+    evidence = (
+        retain(diagnostics, disposition="degraded", severity="warning")
+        if diagnostics is not None
+        else None
+    )
     return {
-        "signed_in": bool(snapshot.signed_in),
-        "in_progress": bool(snapshot.in_progress),
-        "sign_in_required": bool(required()) if callable(required) else False,
+        "signed_in": snapshot.signed_in,
+        "in_progress": snapshot.in_progress,
+        "sign_in_required": required() if callable(required) else None,
+        "diagnostics": evidence,
+        "diagnostic_id": evidence["diagnostic_id"] if evidence is not None else None,
     }
 
 
@@ -2556,34 +3637,36 @@ def _validate_calibration_args(args: dict) -> None:
 
     action = args["action"]
     if type(action) is not str or action not in {"begin", "change", "apply", "cancel"}:
-        raise ValueError("unsupported overlay calibration action")
+        raise InvalidArgumentsError("unsupported overlay calibration action")
     if action != "change":
         if args.keys() != {"action"}:
-            raise ValueError("calibration field and value only apply to change")
+            raise InvalidArgumentsError("calibration field and value only apply to change")
         return
     if args.keys() != {"action", "field", "value"}:
-        raise ValueError("calibration change requires field and value only")
+        raise InvalidArgumentsError("calibration change requires field and value only")
     field = args["field"]
     value = args["value"]
     if type(field) is not str:
-        raise ValueError("calibration field must be a string")
+        raise InvalidArgumentsError("calibration field must be a string")
     if field == "anchor":
         if type(value) is not str or value not in OVERLAY_CALIBRATION_ANCHORS:
-            raise ValueError("unsupported calibration anchor")
+            raise InvalidArgumentsError("unsupported calibration anchor")
         return
     if field not in {"offset_x", "offset_y", "distance", "text_scale", "background_alpha"}:
-        raise ValueError("unsupported calibration field")
+        raise InvalidArgumentsError("unsupported calibration field")
     if type(value) not in (int, float) or not math.isfinite(value):
-        raise ValueError("calibration value must be a finite number")
+        raise InvalidArgumentsError("calibration value must be a finite number")
     if field in {"distance", "text_scale"} and value <= 0:
-        raise ValueError(f"{field} must be greater than zero")
+        raise InvalidArgumentsError(f"{field} must be greater than zero")
     if field == "background_alpha" and not 0 <= value <= 1:
-        raise ValueError("background_alpha must be between zero and one")
+        raise InvalidArgumentsError("background_alpha must be between zero and one")
 
 
 def _validate_stt_provider(value: object) -> None:
-    if type(value) is not str or value not in {item.value for item in STTProviderName}:
-        raise ValueError("unsupported STT provider")
+    if type(value) is not str or normalize_stt_provider(value) not in {
+        item.value for item in STTProviderName
+    }:
+        raise InvalidArgumentsError("unsupported STT provider")
 
 
 def _supported_language_codes() -> frozenset[str]:
@@ -2612,7 +3695,7 @@ def _validate_settings_field(
     choices: dict[str, set[str]] | None = None,
 ) -> None:
     if name not in SETTINGS_FIELDS:
-        raise ValueError("unknown settings field")
+        raise InvalidArgumentsError("unknown settings field")
     if name in BOOLEAN_FIELDS:
         valid = type(value) is bool
     elif name in NUMBER_FIELDS:
@@ -2628,7 +3711,7 @@ def _validate_settings_field(
     else:
         valid = type(value) is str
     if not valid:
-        raise ValueError("settings field has an invalid value type")
+        raise InvalidArgumentsError("settings field has an invalid value type")
 
     from puripuly_heart.config.desktop_overlay_values import (
         DESKTOP_FLET_SIZE_PRESET_ORDER,
@@ -2637,7 +3720,6 @@ def _validate_settings_field(
         CLOUD_FREE_TIER_STT_PROVIDERS,
         QwenRegion,
         normalize_local_llm_base_url,
-        normalize_owned_referral_id,
     )
     from puripuly_heart.config.resolved import (
         OVERLAY_TARGETS,
@@ -2653,7 +3735,7 @@ def _validate_settings_field(
     if name == "locale":
         valid = value in locale_choices
     elif name in {"stt.provider", "peer_stt.provider"}:
-        valid = value in {item.value for item in STTProviderName}
+        valid = normalize_stt_provider(value) in {item.value for item in STTProviderName}
     elif name == "stt.cloud_free_tier_providers":
         allowed = {item.value for item in CLOUD_FREE_TIER_STT_PROVIDERS}
         valid = bool(value) and len(value) == len(set(value)) and set(value) <= allowed
@@ -2741,12 +3823,13 @@ def _validate_settings_field(
                 or (type(value["send_port"]) is int and 1 <= value["send_port"] <= 65535)
             )
         )
-    elif name == "managed.referral_id":
-        valid = value is None or not value or normalize_owned_referral_id(value) is not None
     elif name == "local_llm.base_url":
         valid = bool(value)
         if valid:
-            normalize_local_llm_base_url(value)
+            try:
+                normalize_local_llm_base_url(value)
+            except ValueError as exc:
+                raise InvalidArgumentsError("unsupported local LLM URL") from exc
     elif name == "local_llm.model":
         valid = bool(value)
     elif name in {"local_llm.extra_body_json", "stt.custom.extra_json"}:
@@ -2763,20 +3846,20 @@ def _validate_settings_field(
     elif name in {"audio.input_host_api", "audio.input_device", "audio.output_device"}:
         valid = choices is None or value in choices.get(name, set())
     if not valid:
-        raise ValueError("unsupported settings field value")
+        raise InvalidArgumentsError("unsupported settings field value")
 
 
 def _string(args: dict, key: str) -> str:
     value = args[key]
     if not isinstance(value, str):
-        raise ValueError(f"{key} must be a string")
+        raise InvalidArgumentsError(f"{key} must be a string")
     return value
 
 
 def _boolean(args: dict, key: str) -> bool:
     value = args[key]
     if not isinstance(value, bool):
-        raise ValueError(f"{key} must be a boolean")
+        raise InvalidArgumentsError(f"{key} must be a boolean")
     return value
 
 
@@ -2791,19 +3874,3 @@ def _transaction_status(result: TransactionResult) -> str:
     if status.startswith("settings_commit_failed") or status == "secret_write_failed":
         return "persistence_failed"
     return "failed"
-
-
-def _transaction_data(result: TransactionResult) -> dict:
-    return {
-        "status": result.status,
-        "message": result.message.key if result.message is not None else None,
-        "diagnostics": (
-            {
-                "code": result.diagnostics.code,
-                "category": result.diagnostics.category,
-                "component": result.diagnostics.component,
-            }
-            if result.diagnostics is not None
-            else None
-        ),
-    }

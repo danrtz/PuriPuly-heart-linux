@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import ntpath
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-DISTRIBUTION_EVIDENCE_SCHEMA = "puripuly-heart/windows-process-distribution/v3"
+from puripuly_heart.release_evidence.process_capture_packaged_smoke import PACKAGED_SMOKE_SCHEMA
+
+DISTRIBUTION_EVIDENCE_SCHEMA = "puripuly-heart/windows-process-distribution/v4"
 PRODUCTION_APP_ID = "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 APPROVED_ALTERNATE_APP_ID = "{C2E4A7B1-59F3-4C89-9D21-7E6B5A4032F8}"
 CLIENT_KEYS = ("vrchat", "discord_stable", "discord_ptb", "discord_canary")
@@ -42,42 +43,60 @@ def validate_runtime_report(report: dict[str, object], *, expected_root: Path) -
     required = {
         "schema",
         "status",
+        "stage",
+        "artifact_root",
         "proctap_version",
-        "proctap_module",
         "runtime_native_module",
-        "runtime_native_sha256",
-        "artifact_native_module",
-        "artifact_native_sha256",
-        "helper_executable",
-        "helper_executable_sha256",
+        "runtime_loaded_modules",
+        "runtime_executable",
         "native_process_specific",
         "capture_started",
-        "device_fallback_used",
-        "credentials_used",
-        "network_used",
-        "release_only_helper",
+        "capture_closed",
+        "unavailable_reason",
+        "failure",
+        "cleanup_failure",
     }
-    if set(report) != required or report.get("schema") != (
-        "puripuly-heart/process-capture-packaged-smoke/v1"
-    ):
+    if set(report) != required or report.get("schema") != PACKAGED_SMOKE_SCHEMA:
         raise ValueError("invalid process-capture runtime report schema")
     if (
         report.get("status") != "passed"
+        or report.get("stage") != "complete"
         or report.get("proctap_version") != "1.1.1"
-        or report.get("native_process_specific") is not True
-        or report.get("capture_started") is not True
-        or report.get("release_only_helper") is not True
-        or report.get("device_fallback_used") is not False
-        or report.get("credentials_used") is not False
-        or report.get("network_used") is not False
+        or any(
+            report.get(name) is not True
+            for name in ("native_process_specific", "capture_started", "capture_closed")
+        )
+        or any(
+            report.get(name) is not None
+            for name in ("unavailable_reason", "failure", "cleanup_failure")
+        )
     ):
         raise ValueError("process-capture runtime report did not pass strict validation")
-    native_path = Path(str(report["artifact_native_module"])).resolve()
     expected = expected_root.resolve()
-    if expected != native_path and expected not in native_path.parents:
-        raise ValueError("reported ProcTap native module is outside the expected artifact root")
-    if not native_path.is_file() or _sha256(native_path) != report["artifact_native_sha256"]:
-        raise ValueError("reported ProcTap native module hash does not match")
+    if Path(str(report["artifact_root"])).resolve() != expected:
+        raise ValueError("reported artifact root does not match the native payload")
+    native_path = Path(str(report["runtime_native_module"])).resolve()
+    if (
+        native_path.parent != expected / "site-packages" / "proctap"
+        or not native_path.name.startswith("_native")
+        or native_path.suffix != ".pyd"
+    ):
+        raise ValueError("reported ProcTap native module does not match the native payload")
+    if Path(str(report["runtime_executable"])).resolve() != expected / "python.exe":
+        raise ValueError("reported runtime executable does not match the native payload")
+    modules = report["runtime_loaded_modules"]
+    if not isinstance(modules, dict) or set(modules) != {
+        "platform",
+        "process_source",
+        "proctap",
+        "proctap_native",
+    }:
+        raise ValueError("invalid native runtime module paths")
+    for origin in modules.values():
+        if not isinstance(origin, str) or not Path(origin).resolve().is_relative_to(expected):
+            raise ValueError("runtime module originated outside the expected artifact root")
+    if Path(modules["proctap_native"]).resolve() != native_path:
+        raise ValueError("reported ProcTap native module does not match its loaded path")
 
 
 def build_installer_provenance(
@@ -201,7 +220,6 @@ def validate_distribution_evidence(evidence: dict[str, object]) -> None:
         "technical_status",
         "overlay",
         "workflow",
-        "release_only_smoke",
         "commands",
     }
     if set(evidence) != required or evidence.get("schema") != DISTRIBUTION_EVIDENCE_SCHEMA:
@@ -226,17 +244,6 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def load_report(path: Path) -> dict[str, object]:
-    value = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(value, dict):
-        raise ValueError("runtime report must be an object")
-    return value
-
-
-def artifact_sha256(path: Path) -> str:
-    return _sha256(path)
 
 
 def _utc_timestamp(value: float) -> str:

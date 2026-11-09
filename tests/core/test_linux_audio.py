@@ -70,6 +70,14 @@ def test_missing_saved_input_fails_instead_of_capturing_an_unrelated_microphone(
 
 def test_native_process_identity_keeps_case_sensitive_posix_paths():
     target = ProcessCaptureTargetIntent.generic_executable("/opt/SomeApp/App")
+    from puripuly_heart.config.resolved import ResolvedDesktopAudioCaptureTarget
+
+    resolved = ResolvedDesktopAudioCaptureTarget(
+        kind="process",
+        process_kind="generic_executable",
+        executable_identity=target.executable_identity,
+    )
+    assert resolved.executable_identity == target.executable_identity
     assert target.executable_identity == "/opt/SomeApp/App"
     assert target != ProcessCaptureTargetIntent.generic_executable("/opt/someapp/app")
     assert ProcessCaptureTargetIntent.vrchat("/mnt/Games/VRChat.exe").kind == "vrchat"

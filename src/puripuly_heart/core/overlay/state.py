@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import Protocol
 from uuid import UUID
 
+from puripuly_heart.core.overlay.peer_caption_layout import peer_translation_pages
 from puripuly_heart.core.overlay.protocol import (
     NativeFreshRenderGenerations,
     NativeFreshRenderTargets,
@@ -65,6 +66,7 @@ class OverlayLogicalTurnEntry:
     speaker_assignment: SpeakerAssignment | None = None
     speaker_style: str | None = None
     speaker_gray_reason: str | None = None
+    speaker_handoff_scope: tuple[str, str] | None = None
     translation_seq: int | None = None
     occupant_key: str = ""
     appearance_seq: int | None = None
@@ -81,6 +83,17 @@ class OverlayLogicalTurnEntry:
     retained_hidden: bool = False
     window_evicted_at: float | None = None
     expiration_revision: int = 0
+    caption_revision: int = 0
+    source_closed: bool = False
+    caption_staged: bool = False
+    peer_caption_revision: int = -1
+    peer_caption_final: bool = False
+    peer_source_only: bool = False
+    peer_pages: tuple[str, ...] = ()
+    peer_page_index: int = 0
+    peer_page_due_at: float | None = None
+    peer_promoted_at: float | None = None
+    peer_protected_until: float | None = None
 
     @property
     def block_id(self) -> str:
@@ -150,8 +163,17 @@ class OverlayPresentationEntry(Protocol):
     appearance_seq: int | None
     publishable_seq: int | None
     retained_hidden: bool
+    caption_staged: bool
     ever_visible: bool
     last_updated_seq: int
+    peer_caption_revision: int
+    peer_caption_final: bool
+    peer_source_only: bool
+    peer_pages: tuple[str, ...]
+    peer_page_index: int
+    peer_page_due_at: float | None
+    peer_promoted_at: float | None
+    peer_protected_until: float | None
 
     @property
     def block_id(self) -> str: ...
@@ -165,7 +187,6 @@ class OverlayVisibleBlockSelection:
     candidate_keys: list[OverlayEntryKey]
     selected_keys: list[OverlayEntryKey]
     protected_keys: list[OverlayEntryKey]
-    retained_hidden: list[OverlayEntryKey] = field(default_factory=list)
 
 
 @dataclass
@@ -183,6 +204,7 @@ class OverlayPresentationState:
     )
     live_self_turn_key: OverlayEntryKey | None = None
     live_peer_turn_key: OverlayEntryKey | None = None
+    peer_text_scale: float = 1.0
     _pending_removals: list[OverlayEntryRemovalRecord] = field(default_factory=list)
     _snapshot: OverlayPresentationSnapshot = field(default_factory=OverlayPresentationSnapshot)
 
@@ -292,6 +314,232 @@ class OverlayPresentationState:
         )
         self._pending_removals.append(record)
         return record
+
+    def apply_self_caption_update(
+        self,
+        event: SelfActiveUpdate,
+        *,
+        now: float,
+        show_translation: bool,
+        show_peer_original: bool,
+        translation_enabled: bool,
+        next_appearance_seq: NextAppearanceSeq,
+        visible_window_target_blocks: int,
+        terminal_update_reason: OverlayTerminalUpdateReason,
+    ) -> OverlayReductionResult:
+        key = self.entry_key(event.channel, event.utterance_id)
+        if terminal_update_reason(event.channel, event.utterance_id) is not None:
+            return OverlayReductionResult(False)
+        entry = self.entries.get(key)
+        if event.retained_only and (entry is None or entry.retained_hidden):
+            return OverlayReductionResult(False)
+        if entry is not None and (
+            event.caption_revision <= entry.caption_revision or event.seq < entry.last_updated_seq
+        ):
+            return OverlayReductionResult(False)
+        if event.caption_cancelled:
+            self.remove_entry(key, reason="caption_cancelled", now=now, tombstone_seq=event.seq)
+            return OverlayReductionResult(entry is not None)
+        if entry is None:
+            entry = self.entry_for(event.channel, event.utterance_id)
+        previous_translation = self._rendered_self_translation_text(entry)
+        previous_payload = (
+            entry.original_text,
+            entry.translation_text,
+            entry.original_language,
+            entry.translation_language,
+            entry.source_closed,
+            self.live_self_turn_key == key,
+            entry.caption_staged,
+        )
+        if event.secondary_text.strip():
+            for old_key, old_entry in tuple(self.entries.items()):
+                if (
+                    old_key != key
+                    and old_entry.caption_staged
+                    and (old_entry.first_input_seq or 0) < (entry.first_input_seq or event.seq)
+                ):
+                    self.remove_entry(
+                        old_key,
+                        reason="evicted_by_newer_turn",
+                        now=now,
+                        tombstone_seq=old_entry.last_updated_seq,
+                    )
+        self._remember_entry_input_seq(entry, event_seq=event.seq)
+        if not entry.occupant_key:
+            entry.occupant_key = event.occupant_key
+        if not entry.source_closed:
+            entry.original_text = event.text
+            entry.original_language = _line_language(event.source_language, event.text)
+            entry.original_seq = event.seq
+        entry.source_closed = bool(event.caption_source_closed)
+        self._refresh_entry_visibility_and_expiration(
+            key,
+            entry,
+            now=now,
+            publishable_seq=event.seq,
+            next_appearance_seq=next_appearance_seq,
+        )
+        entry.translation_text = event.secondary_text
+        entry.translation_language = _line_language(event.target_language, event.secondary_text)
+        entry.translation_update_id = event.update_id
+        entry.translation_origin_wall_clock_ms = event.origin_wall_clock_ms
+        entry.translation_session_scope = event.session_scope
+        entry.translation_source_text_hash = event.source_text_hash
+        entry.translation_source_text_len = event.source_text_len
+        entry.translation_logical_turn_key = event.logical_turn_key
+        entry.translation_seq = event.seq if event.secondary_text.strip() else None
+        staged = not event.secondary_text.strip() and self._self_caption_would_displace_translation(
+            key,
+            entry,
+            activate=not event.caption_complete,
+            show_translation=show_translation,
+            show_peer_original=show_peer_original,
+            translation_enabled=translation_enabled,
+            capacity=visible_window_target_blocks,
+        )
+        if entry.caption_staged and event.retained_only and not event.secondary_text.strip():
+            staged = True
+        entry.caption_staged = staged
+        if not event.retained_only and not staged and self.live_self_turn_key != key:
+            self._clear_live_self_pointer(
+                reason="live_self_replaced", now=now, show_translation=show_translation
+            )
+        if not event.retained_only and not staged:
+            self.live_self_turn_key = key
+        if self.live_self_turn_key == key or staged:
+            if event.caption_complete:
+                self._clear_self_live_payload(entry)
+                if self.live_self_turn_key == key:
+                    self.live_self_turn_key = None
+            else:
+                entry.live_text = entry.original_text
+                entry.live_primary_language = entry.original_language
+                entry.live_secondary_text = entry.translation_text
+                entry.live_secondary_language = entry.translation_language
+                entry.live_update_id = event.update_id
+                entry.live_origin_wall_clock_ms = event.origin_wall_clock_ms
+                entry.live_session_scope = event.session_scope
+                entry.live_source_text_hash = event.source_text_hash
+                entry.live_source_text_len = event.source_text_len
+                entry.live_logical_turn_key = event.logical_turn_key
+                entry.live_seq = event.seq
+        if event.caption_complete and entry.closed_at is None:
+            entry.closed_at = now
+            entry.closed_seq = event.seq
+        entry.caption_revision = event.caption_revision
+        entry.last_updated_seq = event.seq
+        self._update_self_translation_visibility(
+            entry,
+            previous_rendered_text=previous_translation,
+            next_rendered_text=self._rendered_self_translation_text(entry),
+            now=now,
+            show_translation=show_translation,
+        )
+        return OverlayReductionResult(
+            previous_payload
+            != (
+                entry.original_text,
+                entry.translation_text,
+                entry.original_language,
+                entry.translation_language,
+                entry.source_closed,
+                self.live_self_turn_key == key,
+                entry.caption_staged,
+            )
+        )
+
+    def promote_staged_self(
+        self,
+        *,
+        now: float,
+        show_translation: bool,
+        show_peer_original: bool,
+        translation_enabled: bool,
+        capacity: int,
+    ) -> None:
+        staged = [(key, entry) for key, entry in self.entries.items() if entry.caption_staged]
+        if not staged:
+            return
+        key, entry = max(staged, key=lambda item: item[1].first_input_seq or 0)
+        if self._self_caption_would_displace_translation(
+            key,
+            entry,
+            activate=entry.closed_seq is None,
+            show_translation=show_translation,
+            show_peer_original=show_peer_original,
+            translation_enabled=translation_enabled,
+            capacity=capacity,
+        ):
+            return
+        for old_key, old_entry in staged:
+            if old_key != key:
+                self.remove_entry(
+                    old_key,
+                    reason="evicted_by_newer_turn",
+                    now=now,
+                    tombstone_seq=old_entry.last_updated_seq,
+                )
+        entry.caption_staged = False
+        if entry.closed_seq is None:
+            self._clear_live_self_pointer(
+                reason="live_self_replaced", now=now, show_translation=show_translation
+            )
+            self.live_self_turn_key = key
+
+    def _self_caption_would_displace_translation(
+        self,
+        key: OverlayEntryKey,
+        entry: OverlayLogicalTurnEntry,
+        *,
+        activate: bool,
+        show_translation: bool,
+        show_peer_original: bool,
+        translation_enabled: bool,
+        capacity: int,
+    ) -> bool:
+        if not show_translation or any(
+            block.id == entry.block_id for block in self._snapshot.blocks
+        ):
+            return False
+        drawable_ids = {
+            value.block_id
+            for value in self.entries.values()
+            if not value.caption_staged and not value.retained_hidden
+        }
+        translated_ids = {
+            block.id
+            for block in self._snapshot.blocks
+            if block.channel == "self"
+            and block.secondary_enabled
+            and block.secondary_text.strip()
+            and block.id in drawable_ids
+        }
+        if not translated_ids:
+            return False
+        candidate = replace(
+            entry,
+            caption_staged=False,
+            live_text=entry.original_text if activate else "",
+        )
+        entries = {**self.entries, key: candidate}
+        live_self_entry = (key, candidate) if activate else None
+        live_peer_entry = (
+            (self.live_peer_turn_key, entries[self.live_peer_turn_key])
+            if self.live_peer_turn_key in entries
+            else None
+        )
+        selection = self.visible_block_selection(
+            entries=entries,
+            live_self_entry=live_self_entry,
+            live_peer_entry=live_peer_entry,
+            visible_window_target_blocks=capacity,
+            show_translation=show_translation,
+            show_peer_original=show_peer_original,
+            translation_enabled=translation_enabled,
+            next_appearance_seq=None,
+        )
+        return not translated_ids.issubset(block.id for _, block in selection.rendered_entries)
 
     def apply_self_active_update(
         self,
@@ -731,6 +979,13 @@ class OverlayPresentationState:
             return OverlayReductionResult(False)
         event_source_language = _content_language_or_none(event.source_language)
         event_target_language = _content_language_or_none(event.target_language)
+        if event.peer_caption_revision < entry.peer_caption_revision or (
+            event.peer_caption_revision == entry.peer_caption_revision
+            and event.peer_caption_revision > 0
+        ):
+            return OverlayReductionResult(False)
+        if entry.retained_hidden or (entry.peer_caption_final and not event.is_final):
+            return OverlayReductionResult(False)
         if (
             entry.translation_text == event.text
             and (event_source_language is None or entry.original_language == event_source_language)
@@ -738,7 +993,28 @@ class OverlayPresentationState:
             and entry.last_updated_seq == event.seq
         ):
             return OverlayReductionResult(False)
+        source_only = (
+            isinstance(event, TranslationFinal)
+            and event.peer_caption_revision > 0
+            and not event.text.strip()
+        )
+        if source_only and not event.source_text.strip():
+            retired_keys = {("peer", unit_id) for unit_id in event.peer_superseded_unit_ids}
+            retired_keys.add(key)
+            for retired_key in retired_keys:
+                self.remove_entry(
+                    retired_key,
+                    reason="peer_caption_retired",
+                    now=now,
+                    tombstone_seq=event.seq,
+                )
+            return OverlayReductionResult(True)
 
+        native_caption = (
+            event.peer_caption_revision > 0
+            and event.speaker_assignment is not None
+            and event.speaker_assignment.attribution.source == "soniox"
+        )
         self._remember_entry_input_seq(entry, event_seq=event.seq)
         if event.source_text.strip():
             entry.original_text = event.source_text
@@ -753,20 +1029,47 @@ class OverlayPresentationState:
                 previous_visible_since=entry.translation_visible_since,
                 now=now,
             )
-        first_readable_translation = bool(event.text.strip()) and entry.speaker_style is None
         entry.translation_text = event.text
-        if event.text.strip():
-            entry.translation_language = event_target_language
+        entry.peer_caption_revision = event.peer_caption_revision
+        entry.peer_caption_final = isinstance(event, TranslationFinal)
+        next_pages = peer_translation_pages(
+            event.source_text if source_only else event.text, text_scale=self.peer_text_scale
+        )
+        if not native_caption or next_pages != entry.peer_pages:
+            entry.peer_page_index = 0
+            entry.peer_page_due_at = None
+        entry.peer_source_only = source_only
+        entry.peer_pages = next_pages
+        if event.text.strip() or source_only:
+            if native_caption:
+                assignment = event.speaker_assignment if event.is_final else None
+                previous = entry.speaker_assignment
+                previous_style = (
+                    (previous.attribution, previous.palette_index, previous.palette_overflow)
+                    if previous is not None
+                    else None
+                )
+                next_style = (
+                    (assignment.attribution, assignment.palette_index, assignment.palette_overflow)
+                    if assignment is not None
+                    else None
+                )
+                if previous_style != next_style:
+                    entry.speaker_style = None
+                    entry.speaker_gray_reason = None
+                entry.speaker_assignment = assignment
+            elif event.peer_caption_revision > 0 or entry.speaker_style is None:
+                entry.speaker_assignment = event.speaker_assignment
+            entry.translation_language = None if source_only else event_target_language
             entry.translation_update_id = event.update_id
             entry.translation_origin_wall_clock_ms = event.origin_wall_clock_ms
             entry.translation_session_scope = event.session_scope
             entry.translation_source_text_hash = event.source_text_hash
             entry.translation_source_text_len = event.source_text_len
             entry.translation_logical_turn_key = event.logical_turn_key
-            if first_readable_translation:
-                entry.speaker_assignment = event.speaker_assignment
             entry.live_text = ""
             entry.live_seq = None
+            entry.live_secondary_text = ""
         else:
             entry.translation_language = None
             entry.translation_update_id = None
@@ -791,6 +1094,22 @@ class OverlayPresentationState:
             show_peer_original=show_peer_original,
             translation_enabled=translation_enabled,
         )
+        superseded = {("peer", unit_id) for unit_id in event.peer_superseded_unit_ids}
+        if superseded and (event.text.strip() or source_only):
+            lower = self._snapshot.blocks[-1] if self._snapshot.blocks else None
+            if lower is not None and any(
+                lower.id == self._format_entry_key(old_key) for old_key in superseded
+            ):
+                entry.appearance_seq = event.seq
+                entry.peer_promoted_at = None
+                entry.peer_protected_until = None
+            for old_key in superseded - {key}:
+                self.remove_entry(
+                    old_key,
+                    reason="absorbed_by_repair",
+                    now=now,
+                    tombstone_seq=event.seq,
+                )
         return OverlayReductionResult(True)
 
     def apply_peer_utterance_closed(
@@ -908,7 +1227,7 @@ class OverlayPresentationState:
         visible_window_target_blocks: int,
         show_translation: bool,
         show_peer_original: bool,
-        next_appearance_seq: NextAppearanceSeq,
+        next_appearance_seq: NextAppearanceSeq | None,
         translation_enabled: bool = True,
     ) -> OverlayVisibleBlockSelection:
         active_self_key = (
@@ -970,7 +1289,6 @@ class OverlayPresentationState:
                 continue
             rendered_entries.append((protected_key, block))
         rendered_entries.sort(key=lambda item: (item[1].appearance_seq, item[1].occupant_key))
-        retained_hidden = [key for key, entry in entries.items() if entry.retained_hidden]
         return OverlayVisibleBlockSelection(
             rendered_entries=rendered_entries,
             active_self_present=active_self_present,
@@ -978,7 +1296,6 @@ class OverlayPresentationState:
             candidate_keys=candidate_keys,
             selected_keys=visible_entry_keys,
             protected_keys=protected_keys,
-            retained_hidden=retained_hidden,
         )
 
     def entry_is_publishable(
@@ -993,6 +1310,7 @@ class OverlayPresentationState:
                 return bool(entry.live_text.strip() or entry.original_text.strip())
             return bool(
                 entry.translation_text.strip()
+                or (entry.peer_source_only and entry.original_text.strip())
                 or (show_peer_original and (entry.live_text.strip() or entry.original_text.strip()))
             )
         return bool(entry.original_text.strip())
@@ -1011,6 +1329,7 @@ class OverlayPresentationState:
                 translation_enabled=translation_enabled,
             )
             and not entry.retained_hidden
+            and not entry.caption_staged
         )
 
     def rendered_block_signature(
@@ -1028,6 +1347,8 @@ class OverlayPresentationState:
             block.primary_text,
             secondary_text,
             block.secondary_enabled,
+            block.primary_ruby,
+            block.secondary_ruby,
             block.primary_language,
             block.secondary_language if block.secondary_enabled else None,
             block.update_id if include_translation_metadata else None,
@@ -1097,6 +1418,8 @@ class OverlayPresentationState:
             visible_deadline = visible_anchor + visible_ttl_seconds
         elif entry.closed_at is not None:
             visible_deadline = entry.closed_at + late_arrival_window_seconds
+        if entry.caption_staged and visible_deadline is not None:
+            visible_deadline += late_arrival_window_seconds
 
         translation_deadline: float | None = None
         if (
@@ -1118,6 +1441,12 @@ class OverlayPresentationState:
                 effective_deadline = hidden_deadline
             else:
                 effective_deadline = min(effective_deadline, hidden_deadline)
+        if (
+            entry.channel == "peer"
+            and not entry.retained_hidden
+            and entry.peer_protected_until is not None
+        ):
+            effective_deadline = entry.peer_protected_until
         return effective_deadline, visible_deadline, translation_deadline
 
     def _active_update_entry_or_none(
@@ -1348,7 +1677,7 @@ class OverlayPresentationState:
         finalized_limit: int,
         excluded_keys: set[OverlayEntryKey],
         show_peer_original: bool,
-        next_appearance_seq: NextAppearanceSeq,
+        next_appearance_seq: NextAppearanceSeq | None,
         translation_enabled: bool = True,
     ) -> tuple[list[OverlayEntryKey], list[OverlayEntryKey]]:
         if finalized_limit == 0:
@@ -1364,18 +1693,28 @@ class OverlayPresentationState:
                 translation_enabled=translation_enabled,
             ):
                 continue
-            self._ensure_entry_visibility_metadata(
-                entry,
-                occupant_key=self._finalized_occupant_key(entry.channel, entry.utterance_id),
-                next_appearance_seq=next_appearance_seq,
+            if next_appearance_seq is not None:
+                self._ensure_entry_visibility_metadata(
+                    entry,
+                    occupant_key=self._finalized_occupant_key(entry.channel, entry.utterance_id),
+                    next_appearance_seq=next_appearance_seq,
+                )
+            publishable_seq = (
+                entry.publishable_seq
+                if entry.publishable_seq is not None
+                else entry.last_updated_seq if entry.last_updated_seq > 0 else None
             )
-            if entry.publishable_seq is None or entry.appearance_seq is None:
+            appearance_seq = (
+                entry.appearance_seq if entry.appearance_seq is not None else entry.first_input_seq
+            )
+            if publishable_seq is None or appearance_seq is None:
                 continue
             publishable.append(
                 (
-                    entry.publishable_seq,
-                    entry.appearance_seq,
-                    entry.occupant_key,
+                    publishable_seq,
+                    appearance_seq,
+                    entry.occupant_key
+                    or self._finalized_occupant_key(entry.channel, entry.utterance_id),
                     self._format_entry_key(key),
                     key,
                 )
@@ -1485,6 +1824,29 @@ class OverlayPresentationState:
                 return None
             translated_text = entry.translation_text.strip()
             original_text = entry.original_text.strip() or entry.live_text.strip()
+            if entry.peer_source_only and original_text:
+                return OverlayPresentationBlock(
+                    id=entry.block_id,
+                    occupant_key=entry.occupant_key,
+                    appearance_seq=self._block_appearance_seq(entry),
+                    channel="peer",
+                    block_variant="finalized",
+                    primary_text=(
+                        entry.peer_pages[entry.peer_page_index]
+                        if entry.peer_pages
+                        else original_text
+                    ),
+                    secondary_text="",
+                    secondary_enabled=False,
+                    primary_language=_line_language(entry.original_language, original_text),
+                    secondary_language=None,
+                    update_id=entry.translation_update_id,
+                    origin_wall_clock_ms=entry.translation_origin_wall_clock_ms,
+                    session_scope=entry.translation_session_scope,
+                    source_text_hash=entry.translation_source_text_hash,
+                    source_text_len=entry.translation_source_text_len,
+                    logical_turn_key=entry.translation_logical_turn_key,
+                )
             if translated_text:
                 return OverlayPresentationBlock(
                     id=entry.block_id,
@@ -1496,7 +1858,11 @@ class OverlayPresentationState:
                     ),
                     channel="peer",
                     block_variant="finalized",
-                    primary_text=translated_text,
+                    primary_text=(
+                        entry.peer_pages[entry.peer_page_index]
+                        if entry.peer_pages
+                        else translated_text
+                    ),
                     secondary_text=original_text,
                     secondary_enabled=show_peer_original and bool(original_text),
                     primary_language=_line_language(

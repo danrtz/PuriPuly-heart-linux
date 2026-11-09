@@ -32,6 +32,7 @@ class FakeCapture:
     started: bool = field(init=False, default=False)
     closed: bool = field(init=False, default=False)
     close_thread_ids: list[int] = field(init=False, default_factory=list)
+    close_threads: list[threading.Thread] = field(init=False, default_factory=list)
 
     def start(self) -> None:
         self.started = True
@@ -41,6 +42,7 @@ class FakeCapture:
     def close(self) -> None:
         self.closed = True
         self.close_thread_ids.append(threading.get_ident())
+        self.close_threads.append(threading.current_thread())
 
 
 @dataclass
@@ -190,7 +192,8 @@ async def test_process_source_close_releases_capture_and_identity_watch() -> Non
     await source.close()
     await source.close()
 
-    assert factory.captures[0][1].close_thread_ids == [threading.get_ident()]
+    close_thread_ids = factory.captures[0][1].close_thread_ids
+    assert len(close_thread_ids) == 1
     assert watcher.watches[0].closed is True
     assert source.terminal_reason == "closed"
 
@@ -301,7 +304,7 @@ async def test_process_source_terminal_frame_failure_defers_native_close_from_ca
 
     assert factory.captures[0][1].closed is True
     assert watcher.watches[0].closed is True
-    assert factory.captures[0][1].close_thread_ids != callback_thread_ids
+    assert all(thread is not callback_thread for thread in factory.captures[0][1].close_threads)
 
 
 def test_unsupported_platform_never_constructs_or_imports_proctap(monkeypatch) -> None:

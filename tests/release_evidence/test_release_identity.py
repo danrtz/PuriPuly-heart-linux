@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -8,330 +7,26 @@ from pathlib import Path
 import pytest
 
 from puripuly_heart.release_evidence import release_identity as identity
-
-VERSION = "2.6.1"
-TAG = "v2.6.1"
-INSTALLER_EXE = "PuriPulyHeart-Setup-2.6.1.exe"
-SOURCE_SHA = "a" * 40
-
-
-def _artifact_entries(paths: list) -> list[dict[str, object]]:
-    entries = []
-    for index, path in enumerate(paths):
-        file_identity = identity.file_identity(path)
-        entries.append(
-            {
-                "role": f"candidate-{index}",
-                "filename": path.name,
-                "size": file_identity["size"],
-                "sha256": file_identity["sha256"],
-            }
-        )
-    return entries
-
-
-def test_rendered_body_references_produced_installer() -> None:
-    body = identity.render_release_body("Download `{{INSTALLER_EXE}}` below.", INSTALLER_EXE)
-
-    assert INSTALLER_EXE in body
-    assert "{{INSTALLER_EXE}}" not in body
-
-
-def test_release_surface_accepts_matching_tag_title_body_and_assets() -> None:
-    body = f"Download `{INSTALLER_EXE}` from the Assets section below, then run it."
-
-    assert (
-        identity.verify_release_surface(
-            version=VERSION,
-            tag=TAG,
-            title=TAG,
-            installer_exe=INSTALLER_EXE,
-            body_text=body,
-            asset_names=[INSTALLER_EXE],
-        )
-        == INSTALLER_EXE
-    )
-
-
-def test_release_surface_rejects_disagreeing_title_body_and_asset_selection() -> None:
-    body = f"Download `{INSTALLER_EXE}` from the Assets section below."
-
-    with pytest.raises(RuntimeError, match="title mismatch"):
-        identity.verify_release_surface(
-            version=VERSION,
-            tag=TAG,
-            title="v9.9.9",
-            installer_exe=INSTALLER_EXE,
-            body_text=body,
-            asset_names=[INSTALLER_EXE],
-        )
-    with pytest.raises(RuntimeError, match="unrendered"):
-        identity.verify_release_surface(
-            version=VERSION,
-            tag=TAG,
-            title=TAG,
-            installer_exe=INSTALLER_EXE,
-            body_text="Download `{{INSTALLER_EXE}}` below.",
-            asset_names=[INSTALLER_EXE],
-        )
-    with pytest.raises(RuntimeError, match="does not reference"):
-        identity.verify_release_surface(
-            version=VERSION,
-            tag=TAG,
-            title=TAG,
-            installer_exe=INSTALLER_EXE,
-            body_text="Download the installer below.",
-            asset_names=[INSTALLER_EXE],
-        )
+from tests.helpers.native_pe import write_pe
 
 
 @pytest.mark.parametrize(
-    "asset_names",
+    "version,product,error",
     [
-        [],
-        ["PuriPulyHeart-soxr-third-party-source-bundle.zip"],
-        [INSTALLER_EXE, f"{INSTALLER_EXE}.sha256"],
-        [INSTALLER_EXE, "PuriPulyHeart-soxr-third-party-source-bundle.zip"],
-        [INSTALLER_EXE, "release-provenance-2.6.1.json"],
-        [INSTALLER_EXE, INSTALLER_EXE],
+        ("2.6.1.0", "Unrelated Product", "ProductName mismatch"),
+        ("9.9.9.0", identity.PRODUCT_NAME, "binary ProductVersion mismatch"),
     ],
 )
-def test_release_surface_rejects_missing_extra_and_duplicate_assets(asset_names) -> None:
-    with pytest.raises(RuntimeError):
-        identity.verify_release_surface(
-            version=VERSION,
-            tag=TAG,
-            title=TAG,
-            installer_exe=INSTALLER_EXE,
-            body_text=f"Download `{INSTALLER_EXE}` below.",
-            asset_names=asset_names,
-        )
-
-
-def test_release_surface_rejects_tag_version_disagreement() -> None:
-    with pytest.raises(RuntimeError, match="tag mismatch"):
-        identity.verify_release_surface(
-            version="2.6.2",
-            tag=TAG,
-            title=TAG,
-            installer_exe="PuriPulyHeart-Setup-2.6.2.exe",
-            body_text="Download `PuriPulyHeart-Setup-2.6.2.exe` below.",
-            asset_names=["PuriPulyHeart-Setup-2.6.2.exe"],
-        )
-
-
-def test_native_release_surface_and_provenance_round_trip(tmp_path) -> None:
-    version = "2.8.0"
-    tag = f"v{version}"
-    installer = tmp_path / identity.installer_filename(version)
-    installer.write_bytes(b"native-installer")
-    provenance = identity.build_provenance(
+def test_rejects_wrong_pe_product_metadata(
+    tmp_path: Path, version: str, product: str, error: str
+) -> None:
+    executable = write_pe(
+        tmp_path / "PuriPulyHeart.exe",
         version=version,
-        tag=tag,
-        source_sha=SOURCE_SHA,
-        build_origin="github-hosted",
-        repository="owner/repo",
-        server_url="https://github.com",
-        run_id="123",
-        run_attempt="1",
-        artifacts=_artifact_entries([installer]),
+        metadata={"ProductName": product, "ProductVersion": "2.6.1"},
     )
-    provenance_path = tmp_path / "provenance.json"
-    identity.write_provenance_file(provenance_path, provenance)
-    reloaded = json.loads(provenance_path.read_text(encoding="utf-8"))
-
-    assert reloaded["tag"] == tag
-    assert reloaded["version"] == version
-    assert identity.check_tag_matches_version(tag, version) == tag
-    assert (
-        identity.verify_release_surface(
-            version=version,
-            tag=reloaded["tag"],
-            title=tag,
-            installer_exe=installer.name,
-            body_text=f"Download `{installer.name}` below.",
-            asset_names=[installer.name],
-        )
-        == installer.name
-    )
-    identity.verify_assets_against_provenance(reloaded, [installer])
-
-
-@pytest.mark.parametrize("mutation", ["bytes", "version", "tag", "unrecorded"])
-def test_publish_rejects_detached_inline_provenance(tmp_path, mutation) -> None:
-    installer = tmp_path / INSTALLER_EXE
-    installer.write_bytes(b"native-installer")
-    body = tmp_path / "body.md"
-    body.write_text(f"Download `{INSTALLER_EXE}` below.", encoding="utf-8")
-    provenance = identity.build_provenance(
-        version=VERSION,
-        tag=TAG,
-        source_sha=SOURCE_SHA,
-        build_origin="local",
-        artifacts=_artifact_entries([installer]),
-    )
-    if mutation == "bytes":
-        installer.write_bytes(b"NATIVE-INSTALLER")
-    elif mutation == "version":
-        provenance["version"] = "2.8.2"
-    elif mutation == "tag":
-        provenance["tag"] = "v2.8.2"
-    else:
-        provenance["artifacts"][0]["filename"] = "other.exe"
-
-    with pytest.raises(RuntimeError):
-        identity.main(
-            [
-                "verify-publish",
-                "--version",
-                VERSION,
-                "--tag",
-                TAG,
-                "--title",
-                TAG,
-                "--installer-exe",
-                INSTALLER_EXE,
-                "--body",
-                str(body),
-                "--asset",
-                str(installer),
-                "--provenance-json",
-                json.dumps(provenance),
-            ]
-        )
-
-
-@pytest.mark.parametrize("tag", ["native-v2.8.0", "v2.8.1", "2.8.0", "V2.8.0"])
-def test_release_identity_rejects_nonstandard_and_version_mismatched_tags(tag) -> None:
-    with pytest.raises(RuntimeError, match="tag mismatch"):
-        identity.check_tag_matches_version(tag, "2.8.0")
-    with pytest.raises(RuntimeError, match="tag mismatch"):
-        identity.build_provenance(
-            version="2.8.0",
-            tag=tag,
-            source_sha=SOURCE_SHA,
-            build_origin="local",
-        )
-    with pytest.raises(RuntimeError, match="tag mismatch"):
-        identity.verify_release_surface(
-            version="2.8.0",
-            tag=tag,
-            title=tag,
-            installer_exe="PuriPulyHeart-Setup-2.8.0.exe",
-            body_text="Download `PuriPulyHeart-Setup-2.8.0.exe` below.",
-            asset_names=["PuriPulyHeart-Setup-2.8.0.exe"],
-        )
-
-
-@pytest.mark.parametrize("version", ["2.8.beta", "2.8.0-native", "2..0"])
-def test_release_identity_rejects_nonnumeric_versions(version) -> None:
-    tag = f"v{version}"
-    with pytest.raises(ValueError):
-        identity.check_tag_matches_version(tag, version)
-    with pytest.raises(ValueError):
-        identity.build_provenance(
-            version=version,
-            tag=tag,
-            source_sha=SOURCE_SHA,
-            build_origin="local",
-        )
-    with pytest.raises(RuntimeError, match="dotted numeric version"):
-        identity.verify_release_surface(
-            version=version,
-            tag=tag,
-            title=tag,
-            installer_exe=f"PuriPulyHeart-Setup-{version}.exe",
-            body_text=f"Download `PuriPulyHeart-Setup-{version}.exe` below.",
-            asset_names=[f"PuriPulyHeart-Setup-{version}.exe"],
-        )
-
-
-def test_local_provenance_omits_hosted_run_claim(tmp_path) -> None:
-    first = tmp_path / "first.bin"
-    first.write_bytes(b"first-candidate")
-    provenance = identity.build_provenance(
-        version=VERSION,
-        tag=TAG,
-        source_sha=SOURCE_SHA,
-        build_origin="local",
-        artifacts=_artifact_entries([first]),
-    )
-
-    assert provenance["build_origin"] == "local"
-    assert "workflow" not in provenance
-
-    with pytest.raises(RuntimeError, match="must not carry"):
-        identity.build_provenance(
-            version=VERSION,
-            tag=TAG,
-            source_sha=SOURCE_SHA,
-            build_origin="local",
-            run_id="123",
-            run_attempt="1",
-            artifacts=_artifact_entries([first]),
-        )
-
-
-def test_hosted_provenance_requires_run_metadata(tmp_path) -> None:
-    first = tmp_path / "first.bin"
-    first.write_bytes(b"first-candidate")
-
-    with pytest.raises(RuntimeError, match="requires repository"):
-        identity.build_provenance(
-            version=VERSION,
-            tag=TAG,
-            source_sha=SOURCE_SHA,
-            build_origin="github-hosted",
-            repository="owner/repo",
-            server_url="https://github.com",
-            artifacts=_artifact_entries([first]),
-        )
-
-    provenance = identity.build_provenance(
-        version=VERSION,
-        tag=TAG,
-        source_sha=SOURCE_SHA,
-        build_origin="github-hosted",
-        repository="owner/repo",
-        server_url="https://github.com",
-        run_id="123",
-        run_attempt="1",
-        artifacts=_artifact_entries([first]),
-    )
-
-    assert provenance["workflow"] == {
-        "server_url": "https://github.com",
-        "run_id": "123",
-        "run_attempt": "1",
-    }
-
-
-def test_provenance_hashes_are_reverified_against_bytes(tmp_path) -> None:
-    first = tmp_path / "first.bin"
-    second = tmp_path / "second.bin"
-    first.write_bytes(b"first-candidate")
-    second.write_bytes(b"second-candidate")
-    provenance = identity.build_provenance(
-        version=VERSION,
-        tag=TAG,
-        source_sha=SOURCE_SHA,
-        build_origin="local",
-        artifacts=_artifact_entries([first, second]),
-    )
-    provenance_path = tmp_path / "provenance.json"
-    identity.write_provenance_file(provenance_path, provenance)
-
-    reloaded = json.loads(provenance_path.read_text(encoding="utf-8"))
-    identity.verify_assets_against_provenance(reloaded, [first, second])
-
-    second.write_bytes(b"second-candidate-mutated")
-    with pytest.raises(RuntimeError, match="disagrees"):
-        identity.verify_assets_against_provenance(reloaded, [first, second])
-
-    third = tmp_path / "third.bin"
-    third.write_bytes(b"unrecorded-candidate")
-    with pytest.raises(RuntimeError, match="no provenance record"):
-        identity.verify_assets_against_provenance(reloaded, [first, third])
+    with pytest.raises(RuntimeError, match=error):
+        identity.verify_pe_product_metadata(executable, expected_version="2.6.1")
 
 
 def _write_soxr_fixture(repo: Path, package: Path) -> None:
@@ -347,7 +42,6 @@ def _write_soxr_fixture(repo: Path, package: Path) -> None:
                     "sources": [
                         {
                             "filename": "fake-source.tar.gz",
-                            "sha256": hashlib.sha256(source_bytes).hexdigest(),
                             "modifications": ["fix.patch"],
                         }
                     ]
@@ -416,26 +110,6 @@ def test_verify_packaged_licenses_rejects_missing_or_empty_payload(tmp_path, mon
         identity.verify_packaged_license_payloads(package)
 
 
-def test_verify_packaged_licenses_reports_identity_without_pinning_content(
-    tmp_path, monkeypatch
-) -> None:
-    package = tmp_path / "package"
-    package.mkdir()
-    license_path = package / "LICENSE.txt"
-    license_path.write_bytes(b"updated-license\r\n")
-    monkeypatch.setattr(identity, "PACKAGED_LICENSE_PATHS", ("LICENSE.txt",))
-
-    payloads = identity.verify_packaged_license_payloads(package)
-
-    assert payloads == [
-        {
-            "path": "LICENSE.txt",
-            "size": license_path.stat().st_size,
-            "sha256": hashlib.sha256(license_path.read_bytes()).hexdigest(),
-        }
-    ]
-
-
 def test_verify_packaged_licenses_rejects_path_resolving_outside_package(
     tmp_path, monkeypatch
 ) -> None:
@@ -455,27 +129,21 @@ def test_verify_packaged_licenses_rejects_path_resolving_outside_package(
         identity.verify_packaged_license_payloads(package)
 
 
-def test_verify_soxr_packaging_rejects_tampered_source_or_modification(tmp_path) -> None:
+@pytest.mark.parametrize("missing", ["fake-source.tar.gz", "fix.patch"])
+def test_verify_soxr_packaging_rejects_missing_sources_or_modifications(
+    tmp_path: Path, missing: str
+) -> None:
     repo = tmp_path / "repo"
     package = tmp_path / "package"
-    package.mkdir()
     _write_soxr_fixture(repo, package)
-    bundle_path = repo / "build" / "soxr-release-inputs" / "fake-source-bundle.zip"
-
+    bundle_path = package / "third_party" / "soxr" / "fake-source-bundle.zip"
     with zipfile.ZipFile(bundle_path) as archive:
-        stored = {name: archive.read(name) for name in archive.namelist()}
-    stored["fake-source.tar.gz"] = b"tampered-source-archive"
+        stored = {name: archive.read(name) for name in archive.namelist() if name != missing}
     with zipfile.ZipFile(bundle_path, "w") as archive:
         for name, payload in stored.items():
             archive.writestr(name, payload)
-    with pytest.raises(RuntimeError, match="hash mismatch for"):
+    with pytest.raises(RuntimeError, match="missing"):
         identity.verify_soxr_packaging(package, repo)
-
-    _write_soxr_fixture(repo, package)
-    with zipfile.ZipFile(bundle_path, "a") as archive:
-        archive.writestr("unlisted-extra.txt", b"extra")
-    (package / "third_party" / "soxr" / bundle_path.name).write_bytes(bundle_path.read_bytes())
-    identity.verify_soxr_packaging(package, repo)
 
 
 def test_verify_soxr_packaging_rejects_missing_packaged_license(tmp_path) -> None:

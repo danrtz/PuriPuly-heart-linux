@@ -4,7 +4,9 @@ import base64
 import hashlib
 import json
 import re
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -14,14 +16,6 @@ from cryptography.hazmat.primitives.serialization import (
     NoEncryption,
     PrivateFormat,
     PublicFormat,
-)
-from puripuly_heart.core.openrouter_credentials import (
-    OPENROUTER_BYOK_API_KEY_SECRET,
-    OPENROUTER_MANAGED_API_KEY_SECRET,
-    OPENROUTER_MANAGED_USER_ID_SECRET,
-    OPENROUTER_MANAGED_USER_INSTALLATION_ID_SECRET,
-    OpenRouterCredentialRuntimeConfig,
-    load_managed_openrouter_user_identifier,
 )
 
 from puripuly_heart.app.wiring import ManagedIdentityStateAdapter
@@ -34,7 +28,16 @@ from puripuly_heart.core.managed_identity import (
     canonical_verify_payload,
     decode_base64url,
     ensure_managed_identity_bundle,
+    load_existing_managed_identity_bundle,
     regenerate_managed_identity_bundle,
+)
+from puripuly_heart.core.openrouter.openrouter_credentials import (
+    OPENROUTER_BYOK_API_KEY_SECRET,
+    OPENROUTER_MANAGED_API_KEY_SECRET,
+    OPENROUTER_MANAGED_USER_ID_SECRET,
+    OPENROUTER_MANAGED_USER_INSTALLATION_ID_SECRET,
+    OpenRouterCredentialRuntimeConfig,
+    load_managed_openrouter_user_identifier,
 )
 from puripuly_heart.core.storage.secrets import InMemorySecretStore
 from tests.helpers.release_settings import (
@@ -109,8 +112,6 @@ def test_ensure_managed_identity_bundle_generates_uuid7_and_keeps_secret_boundar
         "pending_managed_operation_installation_id": None,
         "pending_managed_operation_source": None,
         "pending_managed_operation_state": None,
-        "referral_id": None,
-        "referral_source": None,
         "release_token": None,
         "release_token_expires_at": None,
         "verified_hardware_hash": None,
@@ -132,6 +133,107 @@ def test_ensure_managed_identity_bundle_reuses_existing_valid_bundle() -> None:
     assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) == private_before
 
 
+def test_unassigned_identity_requirement_reuses_a_valid_existing_bundle() -> None:
+    settings = ReleaseSettings()
+    store = InMemorySecretStore()
+    first = ensure_managed_identity_bundle(_managed_state(settings), store)
+    before = dict(store._items)
+
+    second = ensure_managed_identity_bundle(
+        _managed_state(settings), store, require_empty_installation_id=True
+    )
+
+    assert second.installation_id == first.installation_id
+    assert second.device_public_key == first.device_public_key
+    assert store._items == before
+
+
+@pytest.mark.parametrize(
+    ("installation_id", "partial_secret"),
+    [
+        ("01961ad7-a7c1-7000-8000-0123456789ab", None),
+        ("", MANAGED_DEVICE_PRIVATE_KEY_SECRET),
+        ("", MANAGED_DEVICE_PUBLIC_KEY_SECRET),
+        ("", "managed_identity_binding"),
+        ("", OPENROUTER_MANAGED_API_KEY_SECRET),
+        ("", "openrouter_managed_qq_api_key"),
+    ],
+)
+def test_unassigned_identity_requirement_preserves_partial_state(
+    installation_id: str, partial_secret: str | None
+) -> None:
+    settings = ReleaseSettings()
+    settings.managed_identity.installation_id = installation_id
+    store = InMemorySecretStore()
+    store.set(OPENROUTER_BYOK_API_KEY_SECRET, "preserved-byok")
+    if partial_secret is not None:
+        store.set(partial_secret, "preserved-partial-value")
+    before_settings = managed_identity_payload(settings)
+    before_secrets = dict(store._items)
+
+    with pytest.raises(ValueError, match="requires recovery"):
+        ensure_managed_identity_bundle(
+            _managed_state(settings), store, require_empty_installation_id=True
+        )
+
+    assert managed_identity_payload(settings) == before_settings
+    assert store._items == before_secrets
+
+
+@pytest.mark.parametrize("regenerate", [False, True])
+def test_identity_reader_waits_for_complete_creation_or_explicit_regeneration(
+    monkeypatch, regenerate: bool
+) -> None:
+    from puripuly_heart.core import managed_identity
+
+    settings = ReleaseSettings()
+    store = InMemorySecretStore()
+    state = _managed_state(settings)
+    if regenerate:
+        ensure_managed_identity_bundle(state, store)
+    private_written = threading.Event()
+    reader_waiting = threading.Event()
+    finish_write = threading.Event()
+
+    class ObservedLock:
+        def __init__(self):
+            self.lock = managed_identity._identity_lock
+
+        def __enter__(self):
+            if not self.lock.acquire(blocking=False):
+                reader_waiting.set()
+                self.lock.acquire()
+
+        def __exit__(self, *_args):
+            self.lock.release()
+
+    monkeypatch.setattr(managed_identity, "_identity_lock", ObservedLock())
+    real_set = InMemorySecretStore.set
+
+    def gated_set(self, key, value):
+        real_set(self, key, value)
+        if key == MANAGED_DEVICE_PRIVATE_KEY_SECRET:
+            private_written.set()
+            assert finish_write.wait(5)
+
+    monkeypatch.setattr(InMemorySecretStore, "set", gated_set)
+    operation = regenerate_managed_identity_bundle if regenerate else ensure_managed_identity_bundle
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        writer = executor.submit(operation, state, store)
+        try:
+            assert private_written.wait(5)
+            reader = executor.submit(load_existing_managed_identity_bundle, state, store)
+            assert reader_waiting.wait(5)
+            assert not reader.done()
+        finally:
+            finish_write.set()
+        created = writer.result(timeout=5)
+        loaded = reader.result(timeout=5)
+    assert loaded is not None
+    assert loaded.installation_id == created.installation_id
+    assert loaded.device_public_key == created.device_public_key
+
+
 def test_ensure_managed_identity_bundle_generates_when_port_persistence_is_available() -> None:
     settings = ReleaseSettings()
     store = InMemorySecretStore()
@@ -145,7 +247,7 @@ def test_ensure_managed_identity_bundle_generates_when_port_persistence_is_avail
     assert persist_calls[0] is settings
 
 
-def test_missing_installation_id_regenerates_bundle_and_clears_release_state() -> None:
+def test_missing_installation_id_without_independent_proof_preserves_existing_bundle() -> None:
     settings = ReleaseSettings()
     store = InMemorySecretStore()
 
@@ -157,15 +259,14 @@ def test_missing_installation_id_regenerates_bundle_and_clears_release_state() -
     settings.managed_identity.verified_hardware_hash = "hardware-hash-1"
     settings.managed_identity.verified_hardware_hash_salt_version = 7
 
-    second = ensure_managed_identity_bundle(_managed_state(settings), store)
+    before = managed_identity_payload(settings)
 
-    assert second.installation_id != first.installation_id
-    assert second.device_public_key != first.device_public_key
-    assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) != private_before
-    assert settings.managed_identity.release_token is None
-    assert settings.managed_identity.release_token_expires_at is None
-    assert settings.managed_identity.verified_hardware_hash is None
-    assert settings.managed_identity.verified_hardware_hash_salt_version is None
+    with pytest.raises(ValueError, match="requires recovery"):
+        ensure_managed_identity_bundle(_managed_state(settings), store)
+
+    assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) == private_before
+    assert store.get(MANAGED_DEVICE_PUBLIC_KEY_SECRET) == first.device_public_key
+    assert managed_identity_payload(settings) == before
 
 
 def test_regenerate_managed_identity_bundle_rotates_bundle_and_clears_managed_release_state() -> (
@@ -201,7 +302,7 @@ def test_regenerate_managed_identity_bundle_rotates_bundle_and_clears_managed_re
     )
 
 
-def test_corrupted_secret_material_regenerates_bundle_and_clears_release_state() -> None:
+def test_corrupted_secret_material_preserves_existing_authority_for_recovery() -> None:
     settings = ReleaseSettings()
     store = InMemorySecretStore()
 
@@ -215,17 +316,20 @@ def test_corrupted_secret_material_regenerates_bundle_and_clears_release_state()
         base64.urlsafe_b64encode(b"\x01" * 32).decode("ascii").rstrip("="),
     )
 
-    second = ensure_managed_identity_bundle(_managed_state(settings), store)
+    before = managed_identity_payload(settings)
+    private_before = store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET)
 
-    assert second.installation_id != first.installation_id
-    assert second.device_public_key != first.device_public_key
-    assert settings.managed_identity.release_token is None
-    assert settings.managed_identity.release_token_expires_at is None
+    with pytest.raises(ValueError, match="requires recovery"):
+        ensure_managed_identity_bundle(_managed_state(settings), store)
+
+    assert settings.managed_identity.installation_id == first.installation_id
+    assert managed_identity_payload(settings) == before
+    assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) == private_before
     assert store.get(OPENROUTER_BYOK_API_KEY_SECRET) == "byok-key"
-    assert store.get(OPENROUTER_MANAGED_API_KEY_SECRET) is None
+    assert store.get(OPENROUTER_MANAGED_API_KEY_SECRET) == "managed-key"
 
 
-def test_broker_public_key_mismatch_regenerates_bundle_atomically() -> None:
+def test_broker_public_key_mismatch_preserves_existing_authority_for_recovery() -> None:
     settings = ReleaseSettings()
     store = InMemorySecretStore()
 
@@ -235,21 +339,24 @@ def test_broker_public_key_mismatch_regenerates_bundle_atomically() -> None:
     store.set(OPENROUTER_BYOK_API_KEY_SECRET, "byok-key")
     store.set(OPENROUTER_MANAGED_API_KEY_SECRET, "managed-key")
 
-    second = ensure_managed_identity_bundle(
-        _managed_state(settings),
-        store,
-        broker_device_public_key="broker-mismatch-public-key",
-    )
+    before = managed_identity_payload(settings)
+    private_before = store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET)
 
-    assert second.installation_id != first.installation_id
-    assert second.device_public_key != first.device_public_key
-    assert settings.managed_identity.release_token is None
-    assert settings.managed_identity.release_token_expires_at is None
+    with pytest.raises(ValueError, match="requires recovery"):
+        ensure_managed_identity_bundle(
+            _managed_state(settings),
+            store,
+            broker_device_public_key="broker-mismatch-public-key",
+        )
+
+    assert settings.managed_identity.installation_id == first.installation_id
+    assert managed_identity_payload(settings) == before
+    assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) == private_before
     assert store.get(OPENROUTER_BYOK_API_KEY_SECRET) == "byok-key"
-    assert store.get(OPENROUTER_MANAGED_API_KEY_SECRET) is None
+    assert store.get(OPENROUTER_MANAGED_API_KEY_SECRET) == "managed-key"
 
 
-def test_broker_installation_id_mismatch_regenerates_bundle_atomically() -> None:
+def test_broker_installation_id_mismatch_preserves_existing_authority_for_recovery() -> None:
     settings = ReleaseSettings()
     store = InMemorySecretStore()
 
@@ -259,21 +366,24 @@ def test_broker_installation_id_mismatch_regenerates_bundle_atomically() -> None
     store.set(OPENROUTER_BYOK_API_KEY_SECRET, "byok-key")
     store.set(OPENROUTER_MANAGED_API_KEY_SECRET, "managed-key")
 
-    second = ensure_managed_identity_bundle(
-        _managed_state(settings),
-        store,
-        broker_installation_id="01961ad7-a7c1-7000-8000-aaaaaaaaaaaa",
-    )
+    before = managed_identity_payload(settings)
+    private_before = store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET)
 
-    assert second.installation_id != first.installation_id
-    assert second.device_public_key != first.device_public_key
-    assert settings.managed_identity.release_token is None
-    assert settings.managed_identity.release_token_expires_at is None
+    with pytest.raises(ValueError, match="requires recovery"):
+        ensure_managed_identity_bundle(
+            _managed_state(settings),
+            store,
+            broker_installation_id="01961ad7-a7c1-7000-8000-aaaaaaaaaaaa",
+        )
+
+    assert settings.managed_identity.installation_id == first.installation_id
+    assert managed_identity_payload(settings) == before
+    assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) == private_before
     assert store.get(OPENROUTER_BYOK_API_KEY_SECRET) == "byok-key"
-    assert store.get(OPENROUTER_MANAGED_API_KEY_SECRET) is None
+    assert store.get(OPENROUTER_MANAGED_API_KEY_SECRET) == "managed-key"
 
 
-def test_mixed_state_secret_overwrite_does_not_reuse_old_installation_id() -> None:
+def test_mixed_state_secret_overwrite_preserves_material_for_recovery() -> None:
     settings = ReleaseSettings()
     store = InMemorySecretStore()
 
@@ -299,12 +409,15 @@ def test_mixed_state_secret_overwrite_does_not_reuse_old_installation_id() -> No
     store.set(MANAGED_DEVICE_PRIVATE_KEY_SECRET, overwritten_private_value)
     store.set(MANAGED_DEVICE_PUBLIC_KEY_SECRET, overwritten_public_value)
 
-    second = ensure_managed_identity_bundle(_managed_state(settings), store)
+    before = managed_identity_payload(settings)
 
-    assert second.installation_id != first.installation_id
-    assert second.device_public_key != overwritten_public_value
-    assert settings.managed_identity.release_token is None
-    assert settings.managed_identity.release_token_expires_at is None
+    with pytest.raises(ValueError, match="requires recovery"):
+        ensure_managed_identity_bundle(_managed_state(settings), store)
+
+    assert settings.managed_identity.installation_id == first.installation_id
+    assert managed_identity_payload(settings) == before
+    assert store.get(MANAGED_DEVICE_PRIVATE_KEY_SECRET) == overwritten_private_value
+    assert store.get(MANAGED_DEVICE_PUBLIC_KEY_SECRET) == overwritten_public_value
 
 
 def test_regeneration_rolls_back_secret_and_settings_when_persist_fails(tmp_path: Path) -> None:
@@ -326,10 +439,9 @@ def test_regeneration_rolls_back_secret_and_settings_when_persist_fails(tmp_path
     persisted_before = json.loads(path.read_text(encoding="utf-8"))
 
     with pytest.raises(RuntimeError, match="persist failed"):
-        ensure_managed_identity_bundle(
+        regenerate_managed_identity_bundle(
             _managed_state(settings, _raise_persist_failed),
             store,
-            broker_device_public_key="broker-mismatch-public-key",
         )
 
     assert settings.managed_identity.installation_id == first.installation_id

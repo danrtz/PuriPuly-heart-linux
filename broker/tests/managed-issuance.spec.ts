@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { ManagedCleanupOutcomeForAudit } from '../src/managed-issuance';
 import {
@@ -6,42 +6,30 @@ import {
   getManagedIssuanceSourcePolicy,
 } from '../src/managed-issuance';
 
-type AssertFalse<T extends false> = T;
-type HasSuccessfulCleanupOutcome = Extract<
-  ManagedCleanupOutcomeForAudit,
-  { ok: true }
-> extends never
-  ? false
-  : true;
-type RejectSuccessfulCleanupOutcome = AssertFalse<HasSuccessfulCleanupOutcome>;
 
 describe('Managed issuance source policy', () => {
-  it('keeps QQ on the base Managed trial policy and excludes Discord referral surfaces', () => {
+  it('keeps QQ on the base Managed trial policy', () => {
     expect(getManagedIssuanceSourcePolicy('qq')).toEqual({
       issue_source: 'qq',
       budget_usd: 0.07,
       uses_managed_trial_guardrail: true,
-      discord_referral_reservation: false,
-      owned_referral_id: false,
-      talk_together_pass: false,
-      referral_bonus_budget: false,
     });
   });
 
-  it('keeps Discord marked as the only source that can use referral and Talk Together surfaces', () => {
+  it('keeps Discord on the base Managed trial policy', () => {
     expect(getManagedIssuanceSourcePolicy('discord')).toEqual({
       issue_source: 'discord',
       budget_usd: 0.07,
       uses_managed_trial_guardrail: true,
-      discord_referral_reservation: true,
-      owned_referral_id: true,
-      talk_together_pass: true,
-      referral_bonus_budget: true,
     });
   });
 });
 
 describe('Managed cleanup-required audit payloads', () => {
+  it('excludes successful cleanup from cleanup-required audit input', () => {
+    expectTypeOf<Extract<ManagedCleanupOutcomeForAudit, { ok: true }>>().toEqualTypeOf<never>();
+  });
+
   it('uses source-aware QQ metadata and redacts sensitive cleanup diagnostics', () => {
     const rawCredential = 'abcdef'.repeat(10) + 'abcd';
     const rawChildKey = 'sk-or-v1-sensitive-child-key-value';

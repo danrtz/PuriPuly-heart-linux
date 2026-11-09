@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 
+from puripuly_heart.core.diagnostics import emit_failure
 from puripuly_heart.core.messages import (
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED,
     TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
@@ -12,12 +14,15 @@ from puripuly_heart.core.messages import (
     TransactionResult,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(slots=True)
 class _ResultScope:
     current: TransactionResult | None = None
     revision: Callable[[], int] | None = None
     committed_revision: int | None = None
+    reverted: bool = False
 
 
 class SettingsTransactionResultOwner:
@@ -47,6 +52,32 @@ class SettingsTransactionResultOwner:
         scope = self._scope.get()
         if scope is not None:
             scope.current = result
+        disposition = (
+            "degraded"
+            if result.status == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED
+            else (
+                "cancelled"
+                if result.status == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED
+                else (
+                    "recovered"
+                    if result.status == TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_APPLIED
+                    else "failed"
+                )
+            )
+        )
+        if result.diagnostics is not None:
+            emit_failure(
+                logger,
+                result.diagnostics,
+                disposition=disposition,
+                severity=(
+                    "info"
+                    if disposition == "recovered"
+                    else "warning" if disposition != "failed" else "error"
+                ),
+            )
+        for secondary in result.secondary_diagnostics:
+            emit_failure(logger, secondary, disposition="degraded", severity="warning")
 
     def mark_settings_committed(self) -> None:
         scope = self._scope.get()
@@ -61,6 +92,11 @@ class SettingsTransactionResultOwner:
             TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_DEGRADED,
             TRANSACTION_STATUS_SETTINGS_COMMIT_SUCCESS_RUNTIME_INTERRUPTED,
         }
+
+    def mark_settings_reverted(self) -> None:
+        scope = self._scope.get()
+        if scope is not None:
+            scope.reverted = True
 
 
 __all__ = ["SettingsTransactionResultOwner"]

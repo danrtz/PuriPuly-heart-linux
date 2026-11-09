@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ntpath
+import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -415,6 +416,12 @@ class ResolvedDesktopAudioCaptureTarget:
 def _require_resolved_executable_identity(value: object) -> None:
     if not isinstance(value, str) or not value:
         raise ValueError("process target requires an executable identity")
+    if value.startswith("/") and not value.startswith("//"):
+        if "\x00" in value or posixpath.normpath(value) != value:
+            raise ValueError(
+                "process target executable identity must be a normalized absolute executable path"
+            )
+        return
     normalized = ntpath.normcase(ntpath.normpath(value))
     if (
         value != normalized
@@ -446,6 +453,7 @@ class ResolvedOverlayConfig:
     show_peer_original: bool
     calibration: Mapping[str, ResolvedOptionValue]
     desktop_overlay_options: Mapping[str, ResolvedOptionValue]
+    japanese_furigana: bool = False
 
     def __post_init__(self) -> None:
         _ensure_known_value(self.target, OVERLAY_TARGETS, field_name="target")

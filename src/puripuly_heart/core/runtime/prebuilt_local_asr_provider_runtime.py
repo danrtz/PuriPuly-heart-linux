@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from puripuly_heart.core.local_asr_provider_runtime import (
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
     LocalASRProviderRuntimeCallbacks,
     LocalASRProviderRuntimePort,
     ProviderRuntimeBuildRequest,
@@ -30,6 +30,11 @@ class _UnavailableGpuRuntime:
     worker_pid = None
     last_failure_code = None
     configured_device_id = None
+    startup_cleanup_snapshot = {
+        "pending_startups": 0,
+        "close_complete": True,
+        "cleanup_failures": [],
+    }
 
     async def discover_devices(self):
         return ()

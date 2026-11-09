@@ -5,19 +5,23 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
-from puripuly_heart.app.services.provider_runtime_apply import (
+
+from puripuly_heart.app.ports.runtime_apply import RuntimeApplyRequest
+from puripuly_heart.app.services.provider.provider_runtime_apply import (
     LlmProviderRebuildContext,
     LlmProviderRebuildOwner,
+    ProviderRuntimeApplyAdapter,
     ProviderRuntimeApplyPlan,
     ProviderRuntimeOwner,
     ProviderRuntimeState,
 )
-
 from puripuly_heart.app.services.translation_enable import (
     ManagedTranslationPreparation,
     TranslationEnableOwner,
     TranslationEnableState,
 )
+from puripuly_heart.core.messages import ErrorDiagnostics
+from puripuly_heart.core.runtime.provider_handle import ProviderRuntimeHandle
 
 
 def _runtime_owner(
@@ -38,12 +42,11 @@ def _runtime_owner(
     return ProviderRuntimeOwner(
         state_provider=lambda _settings: state,
         common_effect=lambda _settings: events.append("common"),
-        rebuild_llm=lambda: record("llm"),
+        rebuild_llm=lambda _settings: record("llm"),
         recover_gpu=recover,
-        refresh_peer=lambda: record("peer"),
-        refresh_self_stt=lambda: record("self"),
+        refresh_peer=lambda _settings: record("peer"),
+        refresh_self_stt=lambda _settings: record("self"),
         signature_sink=lambda _settings: events.append("signatures"),
-        llm_retry_sink=lambda: events.append("retry"),
         current_settings_provider=lambda: current,
         signature_cache_provider=lambda: cache,
         self_signature_builder=lambda settings: ("self", settings),
@@ -167,7 +170,25 @@ async def test_provider_runtime_owner_caches_only_after_self_runtime_converges()
 
 
 @pytest.mark.asyncio
-async def test_provider_runtime_owner_applies_channel_effects_in_order_and_marks_retry() -> None:
+async def test_unchanged_provider_signatures_do_not_rebuild_or_log_another_transition() -> None:
+    events: list[str] = []
+    owner = _runtime_owner(
+        events=events,
+        state=ProviderRuntimeState(True, True, True, True, True, True),
+        current="profile",
+        cache=(("self", "profile"), ("peer", "profile", None), ("llm", "profile")),
+    )
+    owner.gpu_restart_decision = lambda _current, _next: False
+
+    plan = owner.build_plan("profile", force_rebuild_llm=False)
+    await owner.apply("profile", plan)
+
+    assert plan == ProviderRuntimeApplyPlan(False, False, False)
+    assert events == ["common", "signatures"]
+
+
+@pytest.mark.asyncio
+async def test_provider_runtime_owner_applies_channel_effects_in_order() -> None:
     events: list[str] = []
     owner = _runtime_owner(
         events=events,
@@ -179,7 +200,7 @@ async def test_provider_runtime_owner_applies_channel_effects_in_order_and_marks
         ProviderRuntimeApplyPlan(True, True, True),
     )
 
-    assert events == ["common", "llm", "peer", "self", "signatures", "retry"]
+    assert events == ["common", "llm", "peer", "self", "signatures"]
 
 
 @pytest.mark.asyncio
@@ -195,7 +216,7 @@ async def test_provider_runtime_owner_gpu_recovery_replaces_channel_refreshes() 
         ProviderRuntimeApplyPlan(True, True, True, coordinated_gpu_restart=True),
     )
 
-    assert events == ["common", "llm", "gpu", "signatures", "retry"]
+    assert events == ["common", "llm", "gpu", "signatures"]
 
 
 @pytest.mark.parametrize(
@@ -238,18 +259,124 @@ def test_provider_runtime_owner_reports_requested_runtime_unavailability(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("coordinated_gpu_restart", [False, True])
+@pytest.mark.parametrize("usage_refresh_fails", [False, True])
+@pytest.mark.parametrize("wrapped_factory_error", [False, True])
+async def test_llm_factory_failure_preserves_requested_stt_replacement(
+    coordinated_gpu_restart: bool,
+    usage_refresh_fails: bool,
+    wrapped_factory_error: bool,
+) -> None:
+    class Resource:
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    old_stt, new_stt, old_llm = Resource(), Resource(), Resource()
+    stt = ProviderRuntimeHandle(name="self_stt", provider=old_stt)
+    llm = ProviderRuntimeHandle(name="llm", provider=old_llm)
+    binding = SimpleNamespace(signature=("llm", "settings"))
+    diagnostic = ErrorDiagnostics(
+        component="provider.llm",
+        operation="provider_construction",
+        code="provider.auth",
+        category="auth",
+        visibility="basic",
+        content_policy="metadata_only",
+        status_code=401,
+        retry_after_ms=None,
+        fields={},
+    )
+
+    def fail_factory(_settings: object) -> object:
+        error = RuntimeError("controlled provider construction failure")
+        error.failure_diagnostics = diagnostic
+        if wrapped_factory_error:
+            raise RuntimeError("controlled provider factory wrapper") from error
+        raise error
+
+    async def replace_llm(provider: object | None) -> object | None:
+        return await llm.replace_provider(provider, start=False)
+
+    async def replace_stt() -> None:
+        await stt.replace_provider(new_stt, start=False)
+
+    async def refresh_usage() -> None:
+        if usage_refresh_fails:
+            raise RuntimeError("controlled usage refresh failure")
+
+    rebuild = LlmProviderRebuildOwner(
+        context_provider=lambda: LlmProviderRebuildContext(
+            settings="settings",
+            replace_provider=replace_llm,
+            requires_secret=True,
+        ),
+        provider_factory=fail_factory,
+        availability_sink=lambda _value: None,
+        usage_refresh=refresh_usage,
+        failure_sink=lambda _message: None,
+        success_sink=lambda _message: None,
+        signature_sink=lambda settings: setattr(binding, "signature", ("llm", settings)),
+        retry_sink=lambda: setattr(binding, "signature", ()),
+    )
+    owner = _runtime_owner(
+        events=[],
+        state=ProviderRuntimeState(True, False, True, False, True, False),
+    )
+    owner.rebuild_llm = lambda _settings: rebuild.rebuild(propagate_failure=True)
+    owner.signature_cache_provider = lambda: (None, None, binding.signature)
+    owner.refresh_self_stt = lambda _settings: replace_stt()
+    owner.recover_gpu = lambda _settings, _plan: replace_stt()
+    try:
+        result = await ProviderRuntimeApplyAdapter(
+            owner=owner,
+            settings_provider=lambda: "settings",
+            plan=ProviderRuntimeApplyPlan(
+                should_rebuild_llm=True,
+                should_refresh_peer=False,
+                should_refresh_self_stt=True,
+                coordinated_gpu_restart=coordinated_gpu_restart,
+            ),
+        ).apply_runtime(
+            RuntimeApplyRequest(settings_values={}, reason="combined_apply", correlation_id=None)
+        )
+
+        assert stt.provider is new_stt
+        assert old_stt.closed is True
+        assert new_stt.closed is False
+        assert llm.provider is None
+        assert old_llm.closed is True
+        assert result.status == "failed"
+        assert result.diagnostics is not None
+        assert result.diagnostics.diagnostic_id == diagnostic.diagnostic_id
+        assert result.diagnostics.code == diagnostic.code
+        assert result.diagnostics.status_code == 401
+        assert owner.build_plan("settings", force_rebuild_llm=False).should_rebuild_llm
+    finally:
+        await stt.close()
+        await llm.close()
+
+
+@pytest.mark.asyncio
 async def test_llm_provider_rebuild_owner_delivers_success_projection_and_usage_refresh() -> None:
     events: list[object] = []
     provider = object()
+    replacement_started = asyncio.Event()
+    replacement_finished = asyncio.Event()
 
     async def replace(value: object | None) -> None:
         events.append(("replace", value))
+        replacement_started.set()
+        await replacement_finished.wait()
 
     owner = LlmProviderRebuildOwner(
         context_provider=lambda: LlmProviderRebuildContext(
             settings="settings",
             replace_provider=replace,
             requires_secret=True,
+            selection=("openai", "gpt_6_luna", "official_byok"),
+            previous_selection=("gemini", "gemini_flash", "official_byok"),
         ),
         provider_factory=lambda settings: (
             events.append(("create", settings)),
@@ -259,50 +386,35 @@ async def test_llm_provider_rebuild_owner_delivers_success_projection_and_usage_
         usage_refresh=lambda: _record_async(events, "usage"),
         failure_sink=lambda message: events.append(("failure", message)),
         success_sink=lambda message: events.append(("success", message)),
+        signature_sink=lambda settings: events.append(("signatures", settings)),
+        retry_sink=lambda: events.append("retry"),
     )
 
-    await owner.rebuild()
+    rebuilding = asyncio.create_task(owner.rebuild())
+    await replacement_started.wait()
+    assert not any(event[0] == "success" for event in events)
+    replacement_finished.set()
+    assert await rebuilding
 
-    assert events == [
+    assert events[:4] == [
         ("create", "settings"),
         ("replace", provider),
+        ("signatures", "settings"),
         ("needs_key", False),
-        "usage",
-        ("success", "[Settings] LLM provider rebuilt successfully"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_llm_provider_rebuild_owner_contains_factory_failure() -> None:
-    events: list[object] = []
-
-    async def replace(value: object | None) -> None:
-        events.append(("replace", value))
-
-    def fail_factory(_settings: object) -> object:
-        raise RuntimeError("unavailable")
-
-    owner = LlmProviderRebuildOwner(
-        context_provider=lambda: LlmProviderRebuildContext(
-            settings=SimpleNamespace(),
-            replace_provider=replace,
-            requires_secret=True,
-        ),
-        provider_factory=fail_factory,
-        availability_sink=lambda value: events.append(("needs_key", value)),
-        usage_refresh=lambda: _record_async(events, "usage"),
-        failure_sink=lambda message: events.append(("failure", message)),
-        success_sink=lambda message: events.append(("success", message)),
-    )
-
-    await owner.rebuild()
-
-    assert events == [
-        ("replace", None),
-        ("needs_key", True),
-        "usage",
-        ("failure", "LLM provider not available"),
-    ]
+    assert events[-1] == "usage"
+    assert events[4][0] == "success"
+    fields = dict(token.split("=", 1) for token in events[4][1].split()[2:])
+    assert fields == {
+        "channel": "self,peer",
+        "previous_provider": "gemini",
+        "provider": "openai",
+        "previous_model": "gemini_flash",
+        "model": "gpt_6_luna",
+        "previous_connection": "official_byok",
+        "connection": "official_byok",
+        "outcome": "applied",
+    }
 
 
 @pytest.mark.asyncio
@@ -315,6 +427,8 @@ async def test_llm_provider_rebuild_owner_noops_without_runtime_context() -> Non
         usage_refresh=lambda: _record_async(events, "usage"),
         failure_sink=lambda message: events.append(message),
         success_sink=lambda message: events.append(message),
+        signature_sink=lambda settings: events.append(("signatures", settings)),
+        retry_sink=lambda: events.append("retry"),
     )
 
     await owner.rebuild()
@@ -360,6 +474,8 @@ async def test_managed_provider_rebuild_enables_replacement_while_byok_llm_close
         usage_refresh=lambda: _record_async([], "usage"),
         failure_sink=lambda _message: None,
         success_sink=lambda _message: None,
+        signature_sink=lambda _settings: None,
+        retry_sink=lambda: None,
     )
 
     def translation_state() -> TranslationEnableState:
@@ -428,3 +544,79 @@ async def _record_async(events: list[object], value: object) -> None:
 
 async def _false_async() -> bool:
     return False
+
+
+@pytest.mark.asyncio
+async def test_llm_success_identity_is_retained_when_later_usage_refresh_fails() -> None:
+    from puripuly_heart.core.runtime.provider_handle import ProviderRuntimeHandle
+
+    provider = object()
+    handle = ProviderRuntimeHandle(name="llm", provider=None)
+    signatures = []
+    retries = []
+    messages = []
+
+    async def replace(value):
+        await handle.replace_provider(value, start=False)
+
+    async def fail_usage():
+        assert handle.provider is provider
+        assert signatures == ["requested-profile"]
+        raise RuntimeError("controlled usage refresh failure")
+
+    owner = LlmProviderRebuildOwner(
+        context_provider=lambda: LlmProviderRebuildContext(
+            settings="requested-profile",
+            replace_provider=replace,
+            requires_secret=False,
+            selection=("openai", "gpt_6_luna", "official_byok"),
+        ),
+        provider_factory=lambda _settings: provider,
+        availability_sink=lambda _value: None,
+        usage_refresh=fail_usage,
+        failure_sink=lambda _message: None,
+        success_sink=messages.append,
+        signature_sink=signatures.append,
+        retry_sink=lambda: retries.append(True),
+    )
+    with pytest.raises(RuntimeError, match="controlled usage refresh failure"):
+        await owner.rebuild()
+    assert signatures == ["requested-profile"]
+    assert retries == []
+    assert len(messages) == 1
+    fields = dict(token.split("=", 1) for token in messages[0].split()[2:])
+    assert fields["model"] == "gpt_6_luna"
+    assert fields["outcome"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_llm_replace_failure_invalidates_identity_before_propagating() -> None:
+    signatures = ["previous-profile"]
+    original = RuntimeError("controlled replacement failure")
+    messages = []
+
+    async def fail_replace(_provider):
+        raise original
+
+    async def unexpected_usage():
+        raise AssertionError("failed replacement must not reach usage refresh")
+
+    owner = LlmProviderRebuildOwner(
+        context_provider=lambda: LlmProviderRebuildContext(
+            settings="requested-profile",
+            replace_provider=fail_replace,
+            requires_secret=False,
+        ),
+        provider_factory=lambda _settings: object(),
+        availability_sink=lambda _value: None,
+        usage_refresh=unexpected_usage,
+        failure_sink=lambda _message: None,
+        success_sink=messages.append,
+        signature_sink=signatures.append,
+        retry_sink=lambda: signatures.append("retry-required"),
+    )
+    with pytest.raises(RuntimeError) as failure:
+        await owner.rebuild()
+    assert failure.value is original
+    assert signatures == ["previous-profile", "retry-required"]
+    assert messages == []

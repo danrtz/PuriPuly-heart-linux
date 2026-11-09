@@ -12,10 +12,10 @@
   "native_runtime_root": ".",
   "soxr_runtime_root": "site-packages/soxr",
   "soxr_compliance_root": "third_party/soxr",
-  "llama_runtime_root": "_runtime/llama.cpp-b10423",
-  "local_qwen_runtime_root": "_runtime/local_qwen",
+  "llama_runtime_root": "_runtime/llama.cpp-b11537",
+  "local_sherpa_runtime_root": "_runtime/local_qwen",
   "overlay_executable": "PuriPulyHeartOverlay.exe",
-  "gpu_worker_executable": "PuriPulyHeartGpuWorker.exe",
+  "asr_worker_executable": "PuriPulyHeartASRWorker.exe",
   "openvr_dll": "openvr_api.dll",
   "artifact_manifest": "native-artifact-manifest.json"
 }

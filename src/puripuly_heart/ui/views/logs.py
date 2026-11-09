@@ -5,14 +5,22 @@ import inspect
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
 import flet as ft
 
+from puripuly_heart.domain.events import SelfTurnPresentation
 from puripuly_heart.ui.flet_runtime import control_page, update_control_if_mounted
-from puripuly_heart.ui.fonts import font_for_language
+from puripuly_heart.ui.fonts import (
+    LOG_TYPEFACE,
+    TypeFace,
+    font_for_language,
+    locale_body_letter_spacing,
+)
 from puripuly_heart.ui.i18n import get_locale, language_name, source_label, t
 from puripuly_heart.ui.logs.contract import LogsSurfaceSlots
 from puripuly_heart.ui.logs.renderer import compose_logs_surface
@@ -20,6 +28,7 @@ from puripuly_heart.ui.theme import (
     COLOR_ON_BACKGROUND,
     COLOR_PRIMARY,
     COLOR_SECONDARY,
+    text_style,
 )
 
 MAX_LOG_ENTRIES = 4000
@@ -82,6 +91,14 @@ class ConversationRecord:
     target_index: int | None = None
     disposition: str = "translated"
     turn_kind: str | None = None
+    turn_generation: int | None = None
+    presentation_revision: int = 0
+    source_revision: int = 0
+    translation_source_revision: int | None = None
+    turn_status: str | None = None
+    accepted: bool = True
+    parent_utterance_id: str | None = None
+    peer_caption_revision: int = 0
 
 
 class ConversationViewModel:
@@ -97,6 +114,7 @@ class ConversationViewModel:
         self._cleanup_batch = cleanup_batch
         self._records: list[ConversationRecord] = []
         self._cleanup_count = 0
+        self._peer_revisions: OrderedDict[str, tuple[int, bool, bool]] = OrderedDict()
 
     @property
     def records(self) -> list[ConversationRecord]:
@@ -107,7 +125,171 @@ class ConversationViewModel:
         return self._cleanup_count
 
     def append(self, record: ConversationRecord) -> None:
+        if record.channel == "peer" and record.peer_caption_revision > 0:
+            self._append_peer_caption(record)
+            return
+        if record.utterance_id != "legacy":
+            parent_id = record.parent_utterance_id or record.utterance_id
+            matches = [
+                index
+                for index, previous in enumerate(self._records)
+                if previous.channel == record.channel
+                and (previous.parent_utterance_id or previous.utterance_id) == parent_id
+                and previous.turn_generation is not None
+                and (
+                    (record.target_index is None and record.target_language is None)
+                    or (
+                        record.target_index is not None
+                        and previous.target_index == record.target_index
+                    )
+                    or (
+                        record.target_index is None
+                        and previous.target_language == record.target_language
+                    )
+                )
+            ]
+            if matches:
+                for index in matches:
+                    previous = self._records[index]
+                    self._records[index] = replace(
+                        previous,
+                        accepted=True,
+                        source_text=record.source_text or previous.source_text,
+                        translated_text=record.translated_text or previous.translated_text,
+                    )
+                return
         self._records.append(record)
+        if len(self._records) > self._max_entries + self._cleanup_batch:
+            del self._records[: self._cleanup_batch]
+            self._cleanup_count += 1
+
+    def _append_peer_caption(self, record: ConversationRecord) -> None:
+        unit_id = record.parent_utterance_id or record.utterance_id
+        record = replace(record, utterance_id=unit_id)
+        revision = record.peer_caption_revision
+        previous_revision = self._peer_revisions.get(unit_id)
+        has_source = record.source_text is not None
+        has_translation = record.translated_text is not None
+        if previous_revision is not None:
+            if revision < previous_revision[0]:
+                return
+            if revision == previous_revision[0]:
+                has_source = has_source and not previous_revision[1]
+                has_translation = has_translation and not previous_revision[2]
+                if not has_source and not has_translation:
+                    return
+        same_revision = previous_revision is not None and revision == previous_revision[0]
+        self._peer_revisions[unit_id] = (
+            revision,
+            has_source or (same_revision and previous_revision[1]),
+            has_translation or (same_revision and previous_revision[2]),
+        )
+        self._peer_revisions.move_to_end(unit_id)
+        while len(self._peer_revisions) > 2 * (self._max_entries + self._cleanup_batch):
+            self._peer_revisions.popitem(last=False)
+        for index, previous in enumerate(self._records):
+            if previous.channel != "peer" or previous.utterance_id != unit_id:
+                continue
+            self._records[index] = replace(
+                record,
+                timestamp_label=previous.timestamp_label,
+                source=previous.source,
+                source_text=(
+                    record.source_text
+                    if has_source
+                    else previous.source_text if same_revision else None
+                ),
+                translated_text=(
+                    record.translated_text
+                    if has_translation
+                    else previous.translated_text if same_revision else None
+                ),
+                source_language=record.source_language or previous.source_language,
+                target_language=record.target_language or previous.target_language,
+                target_index=(
+                    record.target_index
+                    if record.target_index is not None
+                    else previous.target_index
+                ),
+            )
+            return
+        self._records.append(record)
+        if len(self._records) > self._max_entries + self._cleanup_batch:
+            del self._records[: self._cleanup_batch]
+            self._cleanup_count += 1
+
+    def update_self_turn(self, snapshot: SelfTurnPresentation, *, source: str) -> None:
+        utterance_id = str(snapshot.utterance_id)
+        existing = [
+            record
+            for record in self._records
+            if record.channel == "self"
+            and (record.parent_utterance_id or record.utterance_id) == utterance_id
+        ]
+        managed = next((record for record in existing if record.turn_generation is not None), None)
+        if managed is not None and (
+            snapshot.turn_generation != managed.turn_generation
+            or snapshot.revision <= managed.presentation_revision
+            or snapshot.source_revision < managed.source_revision
+            or (managed.turn_status != "active" and snapshot.status != managed.turn_status)
+        ):
+            return
+        timestamp = (
+            existing[0].timestamp_label if existing else _format_conversation_timestamp(None)
+        )
+        replacements = []
+        for index, target in enumerate(snapshot.targets or (None,)):
+            language = target.target_language if target is not None else None
+            previous = next(
+                (
+                    record
+                    for record in existing
+                    if (target is not None and record.target_index == index)
+                    or record.target_language == language
+                    or (
+                        target is not None
+                        and target.status == "source_only"
+                        and record.target_language is None
+                        and record.target_index is None
+                    )
+                ),
+                None,
+            )
+            translation = target.translation if target is not None else None
+            replacements.append(
+                ConversationRecord(
+                    timestamp_label=timestamp,
+                    source=source,
+                    channel="self",
+                    utterance_id=utterance_id,
+                    source_text=snapshot.source_text,
+                    translated_text=translation.text if translation is not None else None,
+                    source_language=snapshot.source_language,
+                    target_language=language,
+                    target_index=index if target is not None else None,
+                    disposition=target.status if target is not None else "source_only",
+                    turn_kind="speech",
+                    turn_generation=snapshot.turn_generation,
+                    presentation_revision=snapshot.revision,
+                    source_revision=snapshot.source_revision,
+                    translation_source_revision=(
+                        target.source_revision if translation is not None else None
+                    ),
+                    turn_status=snapshot.status,
+                    accepted=previous.accepted if previous is not None else False,
+                    parent_utterance_id=utterance_id,
+                )
+            )
+        indices = [
+            index
+            for index, record in enumerate(self._records)
+            if record.channel == "self"
+            and (record.parent_utterance_id or record.utterance_id) == utterance_id
+        ]
+        insertion = indices[0] if indices else len(self._records)
+        for index in reversed(indices):
+            del self._records[index]
+        self._records[insertion:insertion] = replacements
         if len(self._records) > self._max_entries + self._cleanup_batch:
             del self._records[: self._cleanup_batch]
             self._cleanup_count += 1
@@ -119,11 +301,45 @@ class ConversationViewModel:
         rendered: list[str] = []
         for record in self._records:
             header = f"[{record.timestamp_label}] {source_label(record.source)}"
-            if record.translated_text and record.target_language:
+            if record.target_language and (
+                record.translated_text
+                or (
+                    record.turn_status is not None
+                    and record.target_index is not None
+                    and record.disposition != "source_only"
+                )
+            ):
                 header = f"{header} → {language_name(record.target_language)}"
             elif record.source_text and record.source_language:
                 header = f"{header} · {language_name(record.source_language)}"
-            body = [value for value in (record.source_text, record.translated_text) if value]
+            body = [record.source_text] if record.source_text else []
+            if record.turn_status is not None:
+                status = record.turn_status
+                if status == "active":
+                    status = "preview"
+                elif (
+                    status == "failed"
+                    and record.disposition == "ready"
+                    and record.translated_text
+                    and record.translation_source_revision == record.source_revision
+                ):
+                    status = "complete"
+                header = f"{header} · {t(f'display.turn.{status}')}"
+                if record.disposition != "ready":
+                    body.append(t(f"logs.conversation.target.{record.disposition}"))
+            if record.translated_text:
+                if (
+                    record.translation_source_revision is not None
+                    and record.translation_source_revision != record.source_revision
+                ):
+                    body.append(
+                        t(
+                            "logs.conversation.earlier_source",
+                            revision=record.translation_source_revision,
+                            current_revision=record.source_revision,
+                        )
+                    )
+                body.append(record.translated_text)
             rendered.append("\n".join((header, *body)))
         return "\n\n".join(rendered)
 
@@ -153,6 +369,7 @@ class LogsView(ft.Column):
         self._conversation_button: ft.TextButton | None = None
         self._showing_conversation = False
         self._conversation_model = ConversationViewModel()
+        self._self_turn_observers: list[Callable[[SelfTurnPresentation, str], None]] = []
 
         # Log buffer and throttling state
         self._model = LiveLogViewModel()
@@ -177,9 +394,9 @@ class LogsView(ft.Column):
                 ft.ControlState.HOVERED: COLOR_PRIMARY,
                 ft.ControlState.DEFAULT: COLOR_SECONDARY,
             },
-            text_style=ft.TextStyle(
+            text_style=text_style(
+                TypeFace(font_family, locale_body_letter_spacing(get_locale())),
                 size=20,
-                font_family=font_family,
             ),
             overlay_color=ft.Colors.TRANSPARENT,
             animation_duration=0,
@@ -215,9 +432,9 @@ class LogsView(ft.Column):
         self._log_text = ft.Text(
             "",
             size=16,
-            font_family="Consolas",
+            font_family=LOG_TYPEFACE.font_family,
             color=COLOR_ON_BACKGROUND,
-            style=ft.TextStyle(letter_spacing=0),
+            style=text_style(LOG_TYPEFACE),
             selectable=True,
         )
 
@@ -271,6 +488,12 @@ class LogsView(ft.Column):
     def conversation_records(self) -> tuple[ConversationRecord, ...]:
         return tuple(self._conversation_model.records)
 
+    def observe_self_turns(
+        self, callback: Callable[[SelfTurnPresentation, str], None]
+    ) -> Callable[[], None]:
+        self._self_turn_observers.append(callback)
+        return lambda: self._self_turn_observers.remove(callback)
+
     def append_conversation_record(
         self,
         *,
@@ -285,6 +508,8 @@ class LogsView(ft.Column):
         disposition: str = "translated",
         origin_wall_clock_ms: int | None = None,
         turn_kind: str | None = None,
+        parent_utterance_id: str | None = None,
+        peer_caption_revision: int = 0,
     ) -> None:
         cleaned_source = source_text.strip() if isinstance(source_text, str) else None
         cleaned_translation = translated_text.strip() if isinstance(translated_text, str) else None
@@ -306,8 +531,19 @@ class LogsView(ft.Column):
                 target_index=target_index,
                 disposition=disposition,
                 turn_kind=turn_kind,
+                parent_utterance_id=parent_utterance_id,
+                peer_caption_revision=peer_caption_revision,
             )
         )
+        if self._showing_conversation:
+            self._render_conversation_text()
+            if self._log_text is not None:
+                update_control_if_mounted(self._log_text)
+
+    def update_self_turn(self, snapshot: SelfTurnPresentation, *, source: str) -> None:
+        self._conversation_model.update_self_turn(snapshot, source=source)
+        for callback in tuple(self._self_turn_observers):
+            callback(snapshot, source)
         if self._showing_conversation:
             self._render_conversation_text()
             if self._log_text is not None:

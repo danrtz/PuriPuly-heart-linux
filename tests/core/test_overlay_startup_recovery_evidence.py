@@ -354,6 +354,9 @@ async def test_renderer_envelope_feeds_manager_eligibility() -> None:
         async def reassert_topmost_after_click_through(self) -> object:
             raise AssertionError("not part of this path")
 
+        def stop_topmost_watch(self) -> None:
+            return None
+
         def close(self) -> None:
             return None
 
@@ -406,6 +409,7 @@ async def test_renderer_envelope_feeds_manager_eligibility() -> None:
         excinfo.value.failure_reason,
         startup_error=excinfo.value,
         default_phase=None,
+        exception=excinfo.value,
     )
     assert "overlay_instance_id" not in (excinfo.value.evidence or {})
     assert envelope["evidence"]["overlay_instance_id"] == "overlay-live"

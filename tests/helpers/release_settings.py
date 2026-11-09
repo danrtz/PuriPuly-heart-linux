@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
-from puripuly_heart.config.llm_profiles import get_openrouter_llm_profile
 from puripuly_heart.config.provider_values import OpenRouterCredentialSource
-from puripuly_heart.config.settings_vnext import compat, serialization
+from puripuly_heart.config.settings_vnext import compat
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.config.translation_values import TranslationConnection, TranslationModel
 
@@ -33,8 +32,6 @@ class ManagedIdentityBag:
     active_managed_credential_ref: str | None = None
     active_managed_expires_at: str | None = None
     founder_letter_seen_credential_ref: str | None = None
-    referral_id: str | None = None
-    referral_source: str | None = None
     local_managed_claim_sources: tuple[str, ...] = ()
     pending_delivery_ack_source: str | None = None
     pending_delivery_ack_delivery_id: str | None = None
@@ -73,14 +70,15 @@ def canonical_settings(settings: ReleaseSettings) -> AppSettingsVNext:
         openrouter_selected_source=source_value,
     )
     alias_value = _value(settings.openrouter.selection_alias)
-    if alias_value and alias_value != "none":
-        profile = get_openrouter_llm_profile(alias_value)
-        if profile is not None:
-            translation = replace(
-                translation,
-                openrouter_selection_alias=alias_value,
-                openrouter_model=profile.openrouter_model,
-            )
+    translation = replace(
+        translation,
+        openrouter_selection_alias=(
+            translation.openrouter_selection_alias
+            if alias_value in {None, "", "none"}
+            else alias_value
+        ),
+        openrouter_model=_value(settings.openrouter.llm_model) or translation.openrouter_model,
+    )
     identity = settings.managed_identity
     return replace(
         current,
@@ -123,7 +121,3 @@ def load_release_settings(path: Path) -> ReleaseSettings:
         ),
         managed_identity=ManagedIdentityBag(**asdict(identity)),
     )
-
-
-def serialize_release_settings(settings: ReleaseSettings) -> dict[str, object]:
-    return serialization.to_dict(canonical_settings(settings))

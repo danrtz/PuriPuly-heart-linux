@@ -12,7 +12,6 @@ import {
   resolveRequestNetworkIdentityCandidates,
   type NetworkIdentitySecrets,
   type NetworkIdentityWriteMode,
-  type RequestNetworkIdentity,
 } from './network-identity';
 import {
   BROKER_RUNTIME_CONFIG_KEYS,
@@ -202,7 +201,7 @@ export async function persistBrokerAbuseRuntimeState(
   const guardClauses: string[] = [];
   const guardArguments: Array<string | number | null> = [];
 
-  for (const [path, value] of sectionsToPersist) {
+  for (const [path] of sectionsToPersist) {
     switch (path) {
       case '$.brake': {
         guardClauses.push(
@@ -570,6 +569,9 @@ export async function checkVelocityCapHook(
   const excludedEndpoints = [
     'POST /v1/trial/challenge/verify/success',
     'POST /v1/trial/challenge/verify/fail',
+    'POST /v1/providers/openrouter/managed-operation/status',
+    'POST /v1/providers/openrouter/managed-operation/resume',
+    'POST /v1/providers/openrouter/managed-key-delivery/ack',
   ] as const;
   for (const hook of matchingHooks) {
     const windowStart = new Date(context.now.getTime() - hook.window_minutes * 60_000);
@@ -591,9 +593,9 @@ export async function checkVelocityCapHook(
              FROM broker_request_events
             WHERE (${match.predicate})
               AND observed_at >= ?
-              AND endpoint NOT IN (?, ?)`,
+              AND endpoint NOT IN (${excludedEndpoints.map(() => '?').join(', ')})`,
         )
-        .bind(...match.binds, windowStartIso, excludedEndpoints[0], excludedEndpoints[1])
+        .bind(...match.binds, windowStartIso, ...excludedEndpoints)
         .first<{ count: number; oldest: string | null }>();
     } else {
       row = await db
@@ -602,9 +604,9 @@ export async function checkVelocityCapHook(
              FROM broker_request_events
             WHERE installation_id = ?
               AND observed_at >= ?
-              AND endpoint NOT IN (?, ?)`,
+              AND endpoint NOT IN (${excludedEndpoints.map(() => '?').join(', ')})`,
         )
-        .bind(hook.subject_value, windowStartIso, excludedEndpoints[0], excludedEndpoints[1])
+        .bind(hook.subject_value, windowStartIso, ...excludedEndpoints)
         .first<{ count: number; oldest: string | null }>();
     }
     const count = Number(row?.count ?? 0);
@@ -869,8 +871,6 @@ function getEndpointRateLimitConfigs(
       ];
     case 'POST /v1/auth/qq/assert':
       return [controls.qqAuthAssertIp];
-    case 'POST /v1/auth/qq/status':
-      return [controls.qqAuthStatusIp];
     case 'POST /v1/providers/openrouter/managed-operation/status':
       return [controls.managedOperationStatusIp, controls.managedOperationStatusInstallation];
     case 'POST /v1/providers/openrouter/managed-operation/resume':
@@ -1150,11 +1150,6 @@ function validateBrokerAbuseControlsConfig(
     'POST /v1/auth/qq/assert',
     'ip',
   );
-  const qqAuthStatusIp = validateEndpointRateLimitConfig(
-    value.qqAuthStatusIp ?? DEFAULT_BROKER_ABUSE_CONTROLS.qqAuthStatusIp,
-    'POST /v1/auth/qq/status',
-    'ip',
-  );
   const managedOperationStatusIp = validateEndpointRateLimitConfig(
     value.managedOperationStatusIp ?? DEFAULT_BROKER_ABUSE_CONTROLS.managedOperationStatusIp,
     'POST /v1/providers/openrouter/managed-operation/status',
@@ -1182,6 +1177,18 @@ function validateBrokerAbuseControlsConfig(
     'POST /v1/providers/openrouter/managed-key-delivery/ack',
     'ip',
   );
+  const puriTokenIp = validatePuriTokenRateLimitConfig(
+    value.puriTokenIp ?? DEFAULT_BROKER_ABUSE_CONTROLS.puriTokenIp,
+    'ip',
+  );
+  const puriTokenRegistrationIp = validatePuriTokenRateLimitConfig(
+    value.puriTokenRegistrationIp ?? DEFAULT_BROKER_ABUSE_CONTROLS.puriTokenRegistrationIp,
+    'ip',
+  );
+  const puriTokenInstallation = validatePuriTokenRateLimitConfig(
+    value.puriTokenInstallation ?? DEFAULT_BROKER_ABUSE_CONTROLS.puriTokenInstallation,
+    'installation_id',
+  );
   const pendingDiscordOAuthSessions = validatePendingDiscordOAuthSessionsConfig(
     value.pendingDiscordOAuthSessions,
   );
@@ -1190,7 +1197,6 @@ function validateBrokerAbuseControlsConfig(
   );
   const immediateAlerts = validateImmediateAlertsConfig(value.immediateAlerts);
   const retention = validateRetentionConfig(value.retention);
-  const referralAttempts = validateReferralAttemptControlsConfig(value.referralAttempts);
   const dailyReport = validateDailyReportConfig(value.dailyReport);
 
   if (
@@ -1203,17 +1209,18 @@ function validateBrokerAbuseControlsConfig(
     !discordOpenrouterIssueIp ||
     !discordOpenrouterIssueInstallation ||
     !qqAuthAssertIp ||
-    !qqAuthStatusIp ||
     !managedOperationStatusIp ||
     !managedOperationStatusInstallation ||
     !managedOperationResumeIp ||
     !managedOperationResumeInstallation ||
     !managedKeyDeliveryAckIp ||
+    !puriTokenIp ||
+    !puriTokenRegistrationIp ||
+    !puriTokenInstallation ||
     !pendingDiscordOAuthSessions ||
     !newActiveEntitlementsPerDay ||
     !immediateAlerts ||
     !retention ||
-    !referralAttempts ||
     !dailyReport
   ) {
     return null;
@@ -1229,17 +1236,18 @@ function validateBrokerAbuseControlsConfig(
     discordOpenrouterIssueIp,
     discordOpenrouterIssueInstallation,
     qqAuthAssertIp,
-    qqAuthStatusIp,
     managedOperationStatusIp,
     managedOperationStatusInstallation,
     managedOperationResumeIp,
     managedOperationResumeInstallation,
     managedKeyDeliveryAckIp,
+    puriTokenIp,
+    puriTokenRegistrationIp,
+    puriTokenInstallation,
     pendingDiscordOAuthSessions,
     newActiveEntitlementsPerDay,
     immediateAlerts,
     retention,
-    referralAttempts,
     dailyReport,
   };
 }
@@ -1333,6 +1341,17 @@ function validateEndpointRateLimitConfig(
   };
 }
 
+function validatePuriTokenRateLimitConfig(
+  value: unknown,
+  scope: BrokerEndpointRateLimitConfig['scope'],
+): BrokerEndpointRateLimitConfig | null {
+  const config = validateEndpointRateLimitConfig(value, 'POST /v1/puri/token', scope);
+  return config && Number.isSafeInteger(config.maxRequests) &&
+    Number.isSafeInteger(config.windowMinutes) && config.windowMinutes <= 1440
+    ? config
+    : null;
+}
+
 function validateDailyIssuanceCapConfig(
   value: unknown,
 ): BrokerAbuseControlsConfigValue['newActiveEntitlementsPerDay'] | null {
@@ -1414,9 +1433,7 @@ function validateRetentionConfig(
   if (
     !isPositiveInteger(value.requestEventSafetyMarginDays) ||
     !isPositiveInteger(value.issueSuccessDays) ||
-    !isPositiveInteger(value.runtimeAuditDays) ||
-    !isPositiveInteger(value.referralSkippedDays) ||
-    !isPositiveInteger(value.referralFailedDays)
+    !isPositiveInteger(value.runtimeAuditDays)
   ) {
     return null;
   }
@@ -1425,99 +1442,9 @@ function validateRetentionConfig(
     requestEventSafetyMarginDays: value.requestEventSafetyMarginDays,
     issueSuccessDays: Math.max(2, value.issueSuccessDays),
     runtimeAuditDays: value.runtimeAuditDays,
-    referralSkippedDays: value.referralSkippedDays,
-    referralFailedDays: value.referralFailedDays,
   };
 }
 
-function validateReferralAttemptControlsConfig(
-  value: unknown,
-): BrokerAbuseControlsConfigValue['referralAttempts'] | null {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  const validShaped = validateReferralScopedAttemptLimit(value.validShaped);
-  const unknown = validateReferralScopedAttemptLimit(value.unknown);
-  const perReferralIdVelocity = validateReferralIdVelocityLimit(
-    value.perReferralIdVelocity,
-  );
-  const perReferrerRewardVelocity = validateReferrerRewardVelocityLimit(
-    value.perReferrerRewardVelocity,
-  );
-
-  if (
-    !validShaped ||
-    !unknown ||
-    !perReferralIdVelocity ||
-    !perReferrerRewardVelocity
-  ) {
-    return null;
-  }
-
-  return {
-    validShaped,
-    unknown,
-    perReferralIdVelocity,
-    perReferrerRewardVelocity,
-  };
-}
-
-function validateReferralScopedAttemptLimit(
-  value: unknown,
-): BrokerAbuseControlsConfigValue['referralAttempts']['validShaped'] | null {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  if (
-    !isPositiveInteger(value.maxPerInstallation) ||
-    !isPositiveInteger(value.maxPerIp) ||
-    !isPositiveInteger(value.windowMinutes)
-  ) {
-    return null;
-  }
-
-  return {
-    maxPerInstallation: value.maxPerInstallation,
-    maxPerIp: value.maxPerIp,
-    windowMinutes: value.windowMinutes,
-  };
-}
-
-function validateReferralIdVelocityLimit(
-  value: unknown,
-): BrokerAbuseControlsConfigValue['referralAttempts']['perReferralIdVelocity'] | null {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  if (!isPositiveInteger(value.maxAttempts) || !isPositiveInteger(value.windowMinutes)) {
-    return null;
-  }
-
-  return {
-    maxAttempts: value.maxAttempts,
-    windowMinutes: value.windowMinutes,
-  };
-}
-
-function validateReferrerRewardVelocityLimit(
-  value: unknown,
-): BrokerAbuseControlsConfigValue['referralAttempts']['perReferrerRewardVelocity'] | null {
-  if (!isJsonObject(value)) {
-    return null;
-  }
-
-  if (!isPositiveInteger(value.maxRewards) || !isPositiveInteger(value.windowMinutes)) {
-    return null;
-  }
-
-  return {
-    maxRewards: value.maxRewards,
-    windowMinutes: value.windowMinutes,
-  };
-}
 
 function validateDailyReportConfig(
   value: unknown,

@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.8.2-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.10.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue" alt="License: AGPL-3.0-or-later" />
   <img src="https://img.shields.io/badge/python-3.14-yellow" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform" />
@@ -25,7 +25,7 @@
 
 ## 演示
 
-![PuriPuly（Deepgram + Qwen 3.8 Flash）与 VRCT（Google Web Speech + Google Translate）的翻译对比。PuriPuly 语音识别：“집에굴러다니는게손잡이빠진것까지합치면열개는넘을걸.”，翻译：“（家里散落的伞，加上那把没把手的，估计都超过十把了呢。）” | VRCT 语音识别：“집에 굴러다니는게 손잡이 빠진 것까지 합치면 10개는 넘을 걸”，翻译：“房子周围肯定有超过 10 个，包括那些没有把手的。”](../images/performance/2.png)
+![PuriPuly（Deepgram + Qwen 3.8 Flash）与 VRCT（Google Web Speech + Google Translate）的翻译对比。PuriPuly 语音识别：“집에굴러다니는게손잡이빠진것까지합치면열개는넘을걸.”，翻译：“（家里散落的伞，加上那把没把手的，估计都超过十把了呢。）” | VRCT 语音识别：“집에 굴러다니는게 손잡이 빠진 것까지 합치면 10개는 넘을 걸”，翻译：“房子周围肯定有超过 10 个，包括那些没有把手的。”](../images/demo/ko-cn_screenshot.png)
 
 ---
 
@@ -59,8 +59,8 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 - **基于大语言模型的本地化** — 俚语、口语，乃至敬语与平语，都能自然转换
 - **记忆上下文** — 结合语境，保持自然流畅的对话节奏
 - **双向语音翻译** — 同时翻译对方的语音，支持 VR 字幕浮层
-- **从 Discord 开始** — 无需复杂配置，立即可用
-- **最强本地全栈** — 从 Parakeet 到 Gemma 4 E4B，只搭载当前最高效的模型。
+- **无需设置即可使用** — 无需自己进行复杂设置，内置智能体就会提供最佳体验。
+- **最强本地全栈** — 从 Granite Speech 5.0 到 Gemma 4 E4B，只搭载当前最高效的模型。
 
 ## 常见问题
 
@@ -71,10 +71,7 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 → 在最佳环境下，延迟约为 1 秒左右。以对方说话结束的时刻为基准。
 
 - **使用需要付费吗？**
-→ 是的，但要稍后才付。新用户会获得免费额度。即使额度用完，价格依然非常便宜——1 美元可翻译数千次。此外，使用本地模型还可以完全免费使用。
-
-- **必须申请 API 密钥吗？**
-→ 是的，但同样是稍后再说。一开始只需安装并通过 Discord 验证即可使用。
+→ 可以立刻免费使用。只靠免费选项，效果也已经足够好。付费模型同样非常便宜，1 美元可以用数千次。
 
 - **语音识别速度慢**
 → 使用本地 ASR 时，若计算资源不足，处理时间可能会变长。此时建议切换为云端 STT 服务。
@@ -87,11 +84,11 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 ---
 
 ## 翻译比较
-![语音识别与翻译完整流程的每句平均错误惩罚图表。韩语→英语/日语/中文（简体），216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的组合：Gemini Transcribe → Luna (0.676)、Soniox STT → Luna (0.942)、Qwen ASR 1.7B → Gemma 26B (1.024)、Gemini Transcribe → Gemma 26B (1.084)、Soniox STT → Gemma 26B (1.293)、Qwen ASR 0.6B → Gemma 26B (2.374)。橙色柱状图是外部基线：Qwen 3.8 Live Translate (2.108)、Gemini 3.5 Live Translate (3.754)、Soniox Translate (4.989)。评估模型：Gemini 3.7 Flash。](../images/performance/1.png)
+![每句平均错误惩罚图表。韩语→英语/日语/中文（简体），216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的模型：GPT 6 Luna (0.189)、DeepSeek V4.1 Flash (0.452)、Gemma 4 26B A4B (0.639)、Index-Translate 35B (1.090)、Gemma 4 E4B QAT Q4 (1.927)。橙色柱状图是外部基线：Qwen 3.8 Live Translate (1.168)、Papago (2.784)、Gemini 3.5 Translate (2.969)、Soniox Translate (3.501)、DeepL (3.938)、Google Translation (4.477)。Qwen 3.8、Gemini 3.5 和 Soniox 仅选取字符错误率（CER）不超过 5% 的结果。评估模型：GPT-6 Astra (high reasoning effort)。](../images/performance/1.png)
 
-![每句平均错误惩罚图表。韩语→英语/日语/中文（简体），216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是 PuriPuly 中可用的模型：GPT 6 Luna (0.130)、Gemma 4 26B A4B (0.387)、DeepSeek-V4 Flash 0731 (0.571)、Gemma 4 E4B QAT Q4 (1.577)。橙色柱状图是外部基线：Qwen 3.8 Live Translate (1.392)、Papago (2.699)、Gemini 3.5 Translate (2.991)、Soniox Translate (3.473)、DeepL (3.914)、Google Translation (5.731)。Qwen 3.8、Gemini 3.5 和 Soniox 仅选取字符错误率（CER）不超过 5% 的结果。评估模型：Gemini 3.7 Flash。](../images/performance/2.png)
+![语音识别与翻译完整流程的每句平均错误惩罚图表。韩语→英语/日语/中文（简体），216 个多轮样本，Gemba MQM 评估，越低越好。蓝色柱状图是基准测试时的 PuriPuly 配置：Gemini Transcribe → Luna (0.608)、Gemini Transcribe → Gemma 26B (1.083)、Soniox STT → Gemma 26B (1.317)、Qwen ASR 1.7B → Gemma 26B (1.320)、Fun ASR Nano MLT → Gemma 26B (1.494)、Gemini Transcribe → Index (1.567)、Fun ASR Nano MLT → Index (2.154)。橙色柱状图是外部基线：Qwen 3.8 Translate (1.858)、Gemini 3.5 Live Translate (3.526)、Soniox Translate (4.665)。评估模型：GPT-6 Astra (high reasoning effort)。](../images/performance/2.png)
 
-- 蓝色柱状图是PuriPuly中可用的模型。
+- 蓝色柱状图代表基准测试时的 PuriPuly 配置。
 - 我们使用微软的 Gemba MQM 框架进行实验。
 - 为贴近真实对话环境，采用了多轮对话设置。
 - 完整实验结果请参阅[此处](https://github.com/kapitalismho/korean-llm-context-translation-benchmark)。
@@ -104,15 +101,16 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 E4B (本地)** | 无限制 | 无限制 | 5,000 次 | 7,260 次 |
+| **Index-Translate 35B A3B** | 无限制 | 无限制 | 5,000 次 | 7,260 次 |
 | **Gemma 4 26B A4B + 31B** | 13,940 次 | 13,940 次 | 3,680 次 | 4,770 次 |
 | **DeepSeek V4.1 Flash** | 16,800 次 | 16,800 次 | 3,860 次 | 5,070 次 |
-| **GPT 6 Luna** | 8,680 次 | 8,680 次 | 3,170 次 | 3,950 次 |
+| **GPT-6 Luna** | 8,680 次 | 8,680 次 | 3,170 次 | 3,950 次 |
 
 #### 其他模型
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **Gemma 4 E4B & 26B (本地)** | 无限制 | 无限制 | 5,000 次 | 7,260 次 |
 | **DeepSeek V4 Flash (OpenRouter)** | 17,020 次 | 17,020 次 | 3,860 次 | 5,090 次 |
 | **Gemini 3.8 Flash** | 1,160 次 | 1,160 次 | 940 次 | 1,000 次 |
 | **Qwen 3.8 Flash** | 7,460 次 | 7,460 次 | 2,990 次 | 3,680 次 |
@@ -123,15 +121,16 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 E4B (本地)** | 0 元 | 0 元 | ~0.001 元 | ~0.001 元 |
+| **Index-Translate 35B A3B** | 0 元 | 0 元 | ~0.001 元 | ~0.001 元 |
 | **Gemma 4 26B A4B + 31B** | ~0.0005 元 | ~0.0005 元 | ~0.002 元 | ~0.0015 元 |
 | **DeepSeek V4.1 Flash** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
-| **GPT 6 Luna** | ~0.0008 元 | ~0.0008 元 | ~0.002 元 | ~0.0018 元 |
+| **GPT-6 Luna** | ~0.0008 元 | ~0.0008 元 | ~0.002 元 | ~0.0018 元 |
 
 #### 其他模型
 
 | LLM \ ASR | 本地 ASR | 云免费档 | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **Gemma 4 E4B & 26B (本地)** | 0 元 | 0 元 | ~0.001 元 | ~0.001 元 |
 | **DeepSeek V4 Flash (OpenRouter)** | ~0.0004 元 | ~0.0004 元 | ~0.002 元 | ~0.0014 元 |
 | **Gemini 3.8 Flash** | ~0.006 元 | ~0.006 元 | ~0.008 元 | ~0.007 元 |
 | **Qwen 3.8 Flash** | ~0.001 元 | ~0.001 元 | ~0.002 元 | ~0.002 元 |
@@ -140,9 +139,9 @@ PuriPuly 是一款实时翻译你和对方语音的 Windows 双向语音翻译�
 *   *每 1 美元可用次数以「每次发言成本」表中四舍五入前的计算值为准*
 *   *所有费用与可用次数均为近似计算*
 *   *DeepSeek V4.1 Flash 假设缓存命中率为 70%，V4 Flash（OpenRouter）为 60%*
-*   *GPT 6 Luna 按 OpenAI API 价格计算，假设无缓存折扣；通过 ChatGPT 连接时不产生 API 费用，而是使用 Codex 额度*
+*   *GPT-6 Luna 按 OpenAI API 价格计算，假设无缓存折扣；通过 ChatGPT 连接时不产生 API 费用，而是使用 Codex 额度*
 *   *Qwen API 计费以北京区域为准*
-*   *资费标准截至：2026 年 9 月 25 日*
+*   *资费标准截至：2026 年 10 月 17 日*
 *   *1 美元 ≈ 7.2 元人民币*
 
 ### 免费额度
@@ -166,9 +165,11 @@ GPU 推理基于 Vulkan。无论是 Radeon 还是 Arc，都不受厂商限制。
 
 | 模型 | 运行环境 | 量化 |
 |---|---|---|
-| Parakeet TDT 0.6B v3 | CPU | INT8 |
+| Granite Speech 5.0 Multilingual | CPU | Q8_0 |
+| GigaAM-v3 e2e-CTC | CPU | Q8_0 |
+| Fun-ASR-Nano-2512 | CPU | Q8_0 |
+| Fun-ASR-MLT-Nano-2512 | CPU | Q8_0 |
 | Parakeet TDT-CTC 0.6B (ja) | CPU | INT8 |
-| Qwen3-ASR 0.6B | CPU | INT8 |
 | Qwen3-ASR 1.7B | GPU | Q6_K |
 | OpenAI 兼容 API | — | — |
 
@@ -177,31 +178,25 @@ GPU 推理基于 Vulkan。无论是 Radeon 还是 Arc，都不受厂商限制。
 | 模型 | 运行环境 | 量化 |
 |---|---|---|
 | Gemma 4 E4B IT QAT | CPU / GPU | UD Q4_K_XL |
+| Gemma 4 26B A4B IT QAT | 仅 GPU (Vulkan) | UD Q4_K_XL |
 | OpenAI 兼容 API | — | — |
 
 ---
 
-# 如果遇到问题，请通过 [Twitter/X](https://x.com/kapitalismho) 发 DM 联系我。
+# 想知道的事，问问内置智能体 Puri 吧！
 
 ## 使用方法
 
 1. 从[下载页面](https://github.com/kapitalismho/PuriPuly-heart/releases/latest)下载最新版本
 2. 安装 PuriPuly
 3. 点击 **TALK** 按钮
-4. 点击 **TRANS** 按钮后通过 Discord 验证
+4. 点击 **TRANS**。新安装默认使用无需 API 密钥的 Index；如有提示，请完成认证或设置。
 5. 点击 **CAPTIONS** 按钮开启 VR 字幕
 6. （可选）点击 **LISTEN** 按钮开启对方语音翻译
 
    > 对方语音翻译功能正常工作需要噪音较少的环境。若在 VRChat 中使用，请通过 Earmuff 功能控制环境。
 
 7. 在 VRChat 中启用 OSC：Action menu → Settings → OSC → Enable
-
-### 如果无法捕获音频
-如果无法捕获音频，请在 **设置 > 常规** 中按以下步骤操作。
-
-1. 将 **应用音频接口** 改为 **自动选择** 或 **MME**
-2. 选择正确的麦克风
-3. 重启应用
 
 ---
 
@@ -334,17 +329,13 @@ PuriPuly 与云端 STT 结合时能提供最佳体验。
 6. 点击圆圈标记的地方并复制密钥。
    ![step6](../images/gemini/6.png)
 
-7. （推荐）点击黄色高亮的 **Set Up Billing** 按钮，升级并切换到付费方案。
-切换方案可能需要一些时间。
-   ![step7](../images/gemini/7.png)
-
 <details>
 <summary><h3>Gemini 付费订阅用户</h3></summary>
 
-8. 前往 [Google Developer Program](https://developers.google.com/program/my-benefits) 并加入该计划。
+7. 前往 [Google Developer Program](https://developers.google.com/program/my-benefits) 并加入该计划。
    ![step8](../images/gemini/8.png)
 
-9. 选择您在第 7 步中设置的付费方案项目。
+8. 选择付费方案项目。
    ![step9](../images/gemini/9.png)
 
 </details>
@@ -408,10 +399,6 @@ PuriPuly 与云端 STT 结合时能提供最佳体验。
 
 参见 [`docs/architecture.md`](../architecture.md)。
 
-## 路线图
-
-后续工作在 [PuriPuly 项目看板](https://github.com/users/kapitalismho/projects/2)中公开跟踪。
-
 ---
 
 ## 开发
@@ -446,20 +433,13 @@ uv run ruff check src tests
 uv run python -m pytest
 ```
 
-[Broker 开发（Linux）](../../broker/README.md) · [VR 浮层开发（Windows）](../../native/overlay/README.md)
-
----
-
-## 开发者
-
-[salee](https://github.com/kapitalismho)
-
 ---
 
 ## 贡献者
 
-[RICHARDwuxiaofei](https://github.com/RICHARDwuxiaofei)
-[fzcfweasdferttgg-png](https://github.com/fzcfweasdferttgg-png)
+<a href="https://github.com/kapitalismho/PuriPuly-heart/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=kapitalismho/PuriPuly-heart" alt="Contributors" />
+</a>
 
 ---
 

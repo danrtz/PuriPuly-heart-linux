@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from puripuly_heart.app.ports.provider_channel_runtime import ProviderChannelResetPort
-from puripuly_heart.core.local_asr_provider_runtime import (
+from puripuly_heart.core.local_asr.local_asr_provider_runtime import (
     LocalASRProviderRuntimePort,
     ProviderRuntimeBuildRequest,
     ProviderRuntimeMutationResult,
@@ -102,8 +102,15 @@ class SelfCaptureProviderAdapter:
             if "self" not in gpu.active_channels:
                 raise SelfCaptureIngressError("self_channel_inactive")
 
-    async def warmup(self) -> None:
-        await self._require_runtime().warmup_channel("self")
+    async def warmup(
+        self,
+        *,
+        operation_id: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        await self._require_runtime().warmup_channel(
+            "self", operation_id=operation_id, request_id=request_id
+        )
 
     async def release(
         self,
@@ -152,6 +159,7 @@ class SelfCaptureProviderAdapter:
             failure_code=result.failure_code,
             failure_type=result.failure_type,
             failure_stage=result.failure_stage,
+            failure_diagnostics=result.failure_diagnostics,
         )
 
 

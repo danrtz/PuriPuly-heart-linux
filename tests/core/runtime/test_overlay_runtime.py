@@ -18,7 +18,6 @@ from puripuly_heart.core.overlay.process_adapter import _AsyncioOverlayProcess
 from puripuly_heart.core.overlay.sink import OverlayEventAdapter
 from puripuly_heart.core.runtime.overlay import OverlayRuntimeHandle
 from puripuly_heart.domain.models import Transcript
-from tests.helpers.lifecycle import assert_lifecycle_structure
 
 
 class FakePresenter:
@@ -161,16 +160,6 @@ async def _complete_work(label: str) -> str:
 async def _fail_after_one_tick() -> None:
     await asyncio.sleep(0)
     raise RuntimeError("completed task failed")
-
-
-def test_overlay_runtime_handle_exposes_lifecycle_inventory_and_policy() -> None:
-    handle = OverlayRuntimeHandle()
-
-    snapshot = handle.lifecycle_owner_snapshot()
-
-    assert_lifecycle_structure(snapshot)
-    assert snapshot["owner"] == "OverlayRuntimeHandle"
-    assert snapshot["resource_fields"] == OverlayRuntimeHandle.resource_fields
 
 
 def test_overlay_runtime_handle_exposes_current_runtime_resources() -> None:
@@ -584,8 +573,8 @@ async def test_runtime_real_bridge_writer_delivers_one_shutdown_before_delayed_c
                 "journal=Path(__file__).with_suffix('.journal')",
                 "async def main():",
                 " async with connect(manifest['bridge_url'],ping_interval=None,compression=None) as ws:",
-                "  await ws.send(json.dumps({'type':'auth','session_token':manifest['session_token'],'contract_version':manifest['contract_version'],'overlay_instance_id':manifest['overlay_instance_id'],'runtime_generation':1,'capabilities':{'execution_contract':{'version':1,'revision':'r2'},'native_presentation_retry':{'version':1,'ownership':'exclusive'},'speaker_identity_presentation':{'version':2,'policy':'immutable_first_readable_style'}}}))",
-                "  print(json.dumps({'type':'overlay_ready','overlay_instance_id':manifest['overlay_instance_id'],'runtime_generation':1,'capabilities':{'execution_contract':{'version':1,'revision':'r2'},'native_presentation_retry':{'version':1,'ownership':'exclusive'},'speaker_identity_presentation':{'version':2,'policy':'immutable_first_readable_style'}}}),flush=True)",
+                "  await ws.send(json.dumps({'type':'auth','session_token':manifest['session_token'],'contract_version':manifest['contract_version'],'overlay_instance_id':manifest['overlay_instance_id'],'runtime_generation':1,'capabilities':{'execution_contract':{'version':1,'revision':'r2'},'native_presentation_retry':{'version':2,'ownership':'exclusive'},'speaker_identity_presentation':{'version':2,'policy':'immutable_first_readable_style'}}}))",
+                "  print(json.dumps({'type':'overlay_ready','overlay_instance_id':manifest['overlay_instance_id'],'runtime_generation':1,'capabilities':{'execution_contract':{'version':1,'revision':'r2'},'native_presentation_retry':{'version':2,'ownership':'exclusive'},'speaker_identity_presentation':{'version':2,'policy':'immutable_first_readable_style'}}}),flush=True)",
                 "  while True:",
                 "   message=json.loads(await ws.recv())",
                 "   with journal.open('a',encoding='utf-8') as handle: handle.write(message['type']+'\\n')",

@@ -44,7 +44,7 @@ def compose_settings_api_surface(
     )
 
     gpu_device_controls = ft.Row(
-        [slots.gpu_device, slots.gpu_llm, slots.gpu_refresh],
+        [slots.gpu_device, slots.gpu_llm, slots.model_assets],
         spacing=SETTINGS_ROW_SPACING,
         expand=True,
     )
@@ -111,7 +111,7 @@ def compose_settings_general_surface(
         slots.loopback,
     )
     vad_row = compose_settings_triple_row(
-        slots.microphone_test,
+        slots.audio_test,
         slots.self_vad,
         slots.peer_vad,
     )
@@ -176,6 +176,15 @@ def compose_settings_overlay_surface(
     return SettingsOverlaySurfaceRegions(
         rows=(
             target_row,
+            *(
+                (
+                    compose_settings_triple_row(
+                        slots.furigana, placeholder_factory(), placeholder_factory()
+                    ),
+                )
+                if slots.furigana is not None
+                else ()
+            ),
             vr_anchor_row,
             vr_offset_row,
             desktop_controls_row,

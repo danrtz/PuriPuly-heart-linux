@@ -112,7 +112,8 @@ class FletUiPresentationAdapter:
                 getattr(self._app, "view_dashboard", None)
             ),
             history_destination=AppHistoryEventDestination(
-                getattr(self._app, "add_history_entry", None)
+                getattr(self._app, "add_history_entry", None),
+                getattr(self._app, "view_logs", None),
             ),
             get_language_codes=getattr(self._app, "get_event_language_codes", None),
             get_peer_language_codes=lambda: self.get_event_language_codes("peer"),
@@ -129,6 +130,7 @@ class FletUiPresentationAdapter:
                 None,
             ),
             on_overlay_state_changed=getattr(self._app, "on_overlay_state_changed", None),
+            on_error_presented=getattr(self._app, "on_error_presented", None),
         )
 
     def set_dashboard_translation_enabled(self, enabled: bool) -> None:
@@ -142,6 +144,12 @@ class FletUiPresentationAdapter:
         setter = getattr(dashboard, "set_stt_enabled", None)
         if callable(setter):
             setter(enabled)
+
+    def set_dashboard_capture_status(self, status: str) -> None:
+        dashboard = getattr(self._app, "view_dashboard", None)
+        setter = getattr(dashboard, "set_status", None)
+        if callable(setter):
+            setter(status)
 
     def set_dashboard_translation_needs_key(self, needs_key: bool) -> None:
         dashboard = getattr(self._app, "view_dashboard", None)
@@ -166,6 +174,12 @@ class FletUiPresentationAdapter:
             setter(needs_key)
         elif dashboard is not None:
             dashboard.peer_needs_key = needs_key
+
+    def set_dashboard_launch_input_hint(self, *, first_launch: bool) -> None:
+        dashboard = getattr(self._app, "view_dashboard", None)
+        apply_hint = getattr(dashboard, "apply_launch_input_hint", None)
+        if callable(apply_hint):
+            apply_hint(first_launch=first_launch)
 
     def dashboard_translation_enabled(self) -> bool:
         dashboard = getattr(self._app, "view_dashboard", None)
@@ -419,32 +433,11 @@ class FletUiPresentationAdapter:
         *,
         visible: bool,
         remaining_percent: int | None,
-        referral_id: str | None,
-        pass_status: object | None,
     ) -> None:
         settings_view = getattr(self._app, "view_settings", None)
         setter = getattr(settings_view, "set_managed_key_state", None)
         if callable(setter):
-            try:
-                inspect.signature(setter).bind(
-                    visible=visible,
-                    remaining_percent=remaining_percent,
-                    referral_id=referral_id,
-                    pass_status=pass_status,
-                )
-            except TypeError, ValueError:
-                setter(
-                    visible=visible,
-                    remaining_percent=remaining_percent,
-                    referral_id=referral_id,
-                )
-            else:
-                setter(
-                    visible=visible,
-                    remaining_percent=remaining_percent,
-                    referral_id=referral_id,
-                    pass_status=pass_status,
-                )
+            setter(visible=visible, remaining_percent=remaining_percent)
             return
         usage_setter = getattr(settings_view, "set_managed_trial_usage_state", None)
         if callable(usage_setter):
@@ -508,13 +501,6 @@ class FletUiPresentationAdapter:
 
     def show_founder_letter_dialog(self) -> bool:
         callback = getattr(self._app, "show_founder_letter_dialog", None)
-        if callable(callback):
-            callback()
-            return True
-        return False
-
-    def show_local_qwen_hallucination_dialog(self) -> bool:
-        callback = getattr(self._app, "show_local_qwen_hallucination_dialog", None)
         if callable(callback):
             callback()
             return True

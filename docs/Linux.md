@@ -1,6 +1,6 @@
 # PuriPuly Heart on Linux
 
-This fork ports [kapitalismho/PuriPuly-heart](https://github.com/kapitalismho/PuriPuly-heart) to native Linux while keeping its interface, translation providers, conversation routing and settings model. It started from upstream `991ef0bdf06d744ebb6e7aa6d8df5d4ee5f8ca46` (2.7.0) and now integrates upstream `eac4fb46` (2.8.2 development snapshot). The development branch is `linux-port`.
+This fork ports [kapitalismho/PuriPuly-heart](https://github.com/kapitalismho/PuriPuly-heart) to native Linux while keeping its interface, translation providers, conversation routing and settings model. It started from upstream `005bb36a` (2.10.0) and now integrates upstream `eac4fb46` (2.8.2 development snapshot). The development branch is `linux-port`.
 
 The original project and this derivative are licensed under **AGPL-3.0-or-later**. Original attribution, licenses and third-party notices remain in the repository. This is an independent fork, not an official upstream Linux release.
 
@@ -29,7 +29,7 @@ Keep the checkout in a permanent location. From its root:
 scripts/linux/install-user.sh
 ```
 
-The installer creates or reuses `.venv`, installs the Python application into it, builds the native speech worker and VR overlay, downloads the pinned Linux llama.cpp runtimes, and adds user launchers and an application-menu entry. It does not require root after system prerequisites are installed. It does not overwrite application settings, enable autostart or download speech/translation models.
+The installer creates or reuses `.venv`, installs the Python application into it, builds the native ASR worker and VR overlay, downloads the pinned Linux llama.cpp runtimes, and adds user launchers and an application-menu entry. It does not require root after system prerequisites are installed. It does not overwrite application settings, enable autostart or download speech/translation models.
 
 The build uses four jobs by default. Set `CARGO_BUILD_JOBS` to change this. Set `PURIPULY_SYSTEM_PYTHON` when the Python 3.14 executable has a different name.
 
@@ -47,15 +47,15 @@ To rebuild native components separately:
 scripts/linux/build-native.sh
 ```
 
-GPU ASR uses `transcribe-cpp` 0.1.3 with Vulkan. The script disables its automatic system BLAS dependency because the upstream Rust bindings do not link that optional library correctly on Linux. Vulkan acceleration remains enabled. Upstream dynamic-backend DLL packaging is enabled only on Windows; the Linux worker retains its statically linked inference backend.
+GPU ASR uses `transcribe.cpp` revision `8facde6fcd8fb9caa585a5788ab450df6e8ec7db` with Vulkan. The script disables its automatic system BLAS dependency because the upstream Rust bindings do not link that optional library correctly on Linux. Vulkan acceleration remains enabled. Upstream dynamic-backend DLL packaging is enabled only on Windows; the Linux worker retains its statically linked inference backend.
 
-Local translation uses official llama.cpp **b10423**, commit `a94d563ed801d1da1b8c2432946de07d0231bb3d`, Linux CPU and Vulkan archives. Download sizes and SHA-256 digests are pinned and checked before extraction. The preparation command can also run independently:
+Local translation uses official llama.cpp **b11537**, matching the upstream runtime pin, Linux CPU and Vulkan archives. Download sizes and SHA-256 digests are pinned and checked before extraction. The preparation command can also run independently:
 
 ```sh
 .venv/bin/python -m puripuly_heart.release_evidence.linux_managed_gemma_distribution
 ```
 
-Runtime files are staged under `build/gpu_worker`, `build/overlay` and `build/llama.cpp/llama.cpp-b10423`. Neither Windows executables nor Wine are used by the Linux application.
+Runtime files are staged under `build/asr_worker`, `build/overlay` and `build/llama.cpp/llama.cpp-b11537`. Neither Windows executables nor Wine are used by the Linux application.
 
 ## First use
 
@@ -65,7 +65,7 @@ Local Qwen speech recognition and local Gemma translation work without an online
 
 | Model | Download |
 | --- | ---: |
-| Qwen3-ASR 0.6B int8, CPU | 0.99 GB |
+| CPU Auto | See the current model manager for its language-specific models; retired CPU Qwen assets are not selected |
 | Qwen3-ASR 1.7B Q6_K, Vulkan | 1.69 GB |
 | Gemma 4 E4B Q4 plus MTP draft model | 4.28 GB |
 
@@ -174,3 +174,13 @@ The final full Python suite passed 7,474 tests with 73 skipped (37 warnings); th
 Linux uses source updates rather than upstream Windows installers. After reviewing and pulling updates to this fork, rerun `scripts/linux/install-user.sh`. Native builds remain reproducible against the committed Cargo locks and pinned llama.cpp archive identities; Python dependency versions follow `pyproject.toml` and the resolved virtual environment.
 
 Removing the user launchers, desktop entry and `puripuly-heart.png` icon removes desktop integration. The checkout and its `.venv` can then be removed. Keep `~/.config/puripuly-heart` if you want to preserve settings, downloaded models, account references and logs. Do not remove another installation's shared settings accidentally.
+
+## Japanese furigana
+
+Settings → Overlay → **Japanese Furigana** adds local hiragana readings beneath kanji words in both original Japanese captions and Japanese translations. It applies to the desktop and Linux OpenXR caption renderers. English and the original text sent to history, translation and VRChat remain unchanged. See [the furigana guide](Furigana.md).
+
+The 2.10.0 integration preserves private POSIX control records, observes exited zombie hosts correctly, retains PipeWire process capture identities, and uses the compositor's normal X11 ABOVE state for desktop captions rather than the Windows z-order event hook. The source launchers preserve the virtual-environment interpreter path.
+
+The user confirmed that the earlier Linux build displayed captions inside their real VR headset on November 8, 2026. Furigana's desktop controls and native rendering are checked with synthetic captions; the updated furigana layout still needs a user check in the headset.
+
+The upstream architecture map currently omits these Linux adapter details; this guide records their Linux behavior.

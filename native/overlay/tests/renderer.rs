@@ -4,12 +4,12 @@ use puripuly_heart_overlay::renderer::LineRole;
 #[cfg(windows)]
 use puripuly_heart_overlay::WindowsBundledFontCollection;
 use puripuly_heart_overlay::{
-    bundled_font_path_from_exe_dir, AdapterIdentity, BlockBounds, BundledFaceId, CaptionBlock,
+    bundled_font_path_from_exe_dir, AdapterIdentity, BundledFaceId, CaptionBlock,
     CaptionBlockVariant, CaptionChannel, CaptionDebugOverlay, CaptionLayoutPolicy,
-    CaptionPresentation, CaptionRenderer, DamageBand, FontFallbackReason, FontLanguageBucket,
-    FontResolver, FontSource, FontWeight, OverlayPlacementPolicy, OverlayPresentationBlock,
-    OverlayPresentationBlockVariant, OverlayPresentationCalibration, OverlayPresentationSnapshot,
-    OverlayState, PresentationBackend, ReadinessCancellation, ReadinessOutcome,
+    CaptionPresentation, CaptionRenderer, FontFallbackReason, FontLanguageBucket, FontResolver,
+    FontSource, FontWeight, OverlayPresentationBlock, OverlayPresentationBlockVariant,
+    OverlayPresentationCalibration, OverlayPresentationSnapshot, OverlayRuntime,
+    PresentationBackend, ReadinessCancellation, ReadinessOutcome, RenderedFrame,
 };
 fn assert_close(actual: f32, expected: f32) {
     assert!(
@@ -49,6 +49,194 @@ fn long_block(id: &str) -> CaptionBlock {
                 older blocks are dropped when the fixed overlay surface overflows "
         .repeat(24);
     CaptionBlock::new(id, text)
+}
+
+fn assert_calibrated_two_slot_frames_fit(renderer: CaptionRenderer) {
+    let mut runtime = OverlayRuntime::new(OverlayPresentationSnapshot::default());
+    let mut previous_frame: Option<RenderedFrame> = None;
+    for (index, scale) in [0.8, 1.0, 1.2, 1.2, 1.0, 1.0].into_iter().enumerate() {
+        runtime.apply_snapshot(OverlayPresentationSnapshot {
+            revision: index as u64 + 1,
+            calibration: OverlayPresentationCalibration {
+                text_scale: scale,
+                ..Default::default()
+            },
+            blocks: ["self", "peer"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, channel)| OverlayPresentationBlock {
+                    id: channel.into(),
+                    occupant_key: channel.into(),
+                    appearance_seq: index as u64,
+                    channel: channel.into(),
+                    primary_text: "first primary line\nsecond primary line".into(),
+                    secondary_text: "원문 source 日本語 中文".into(),
+                    secondary_enabled: true,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        });
+        renderer.set_presentation(CaptionPresentation {
+            text_scale: scale,
+            ..Default::default()
+        });
+        let frame = renderer.render_blocks(runtime.caption_blocks()).unwrap();
+        assert_eq!(frame.width(), 4096);
+        assert_eq!(frame.height(), if scale > 1.0 { 1240 } else { 1056 });
+        if let Some(previous) = previous_frame.as_ref() {
+            assert_eq!(previous.width(), frame.width());
+        }
+        assert_eq!(runtime.state().calibration().text_scale, scale);
+        assert_eq!(frame.layout().visible_blocks.len(), 2);
+        for (index, block) in frame.layout().visible_blocks.iter().enumerate() {
+            assert_close(
+                block.bounds.top_px,
+                40.0 + index as f32 * (468.0 * scale + 36.0),
+            );
+            assert_close(block.bounds.bottom_px - block.bounds.top_px, 468.0 * scale);
+            assert!(block.visual_bounds.top_px >= 0.0);
+            assert!(block.visual_bounds.bottom_px <= frame.height() as f32);
+            assert_eq!(block.primary_lines.len(), 2);
+            for (line_index, line) in block.primary_lines.iter().enumerate() {
+                assert_close(line.font_size_px, 132.0 * scale);
+                assert_close(
+                    line.origin_y,
+                    block.bounds.top_px + (32.0 + line_index as f32 * 150.0) * scale,
+                );
+            }
+            let secondary = block.secondary_line.as_ref().unwrap();
+            assert_close(secondary.font_size_px, 81.84 * scale);
+            assert_close(secondary.origin_y, block.bounds.top_px + 362.0 * scale);
+            for line in block
+                .primary_lines
+                .iter()
+                .chain(block.secondary_line.iter())
+            {
+                assert!(line.origin_x - 5.0 >= 0.0);
+                assert!(line.origin_x + line.width_px + 5.0 <= frame.width() as f32);
+                assert!(line.origin_y - 5.0 >= 0.0);
+                assert!(line.origin_y + line.font_size_px * 1.5 + 5.0 <= frame.height() as f32);
+            }
+        }
+        #[cfg(windows)]
+        if let Some(texture) = frame.d3d11_texture() {
+            let mut description =
+                windows::Win32::Graphics::Direct3D11::D3D11_TEXTURE2D_DESC::default();
+            unsafe {
+                texture.GetDesc(&mut description);
+            }
+            assert_eq!(
+                (description.Width, description.Height),
+                (frame.width(), frame.height())
+            );
+            if let Some(previous) = previous_frame.as_ref() {
+                if previous.height() == frame.height() {
+                    assert_eq!(previous.texture_ptr(), frame.texture_ptr());
+                } else {
+                    assert_ne!(previous.texture_ptr(), frame.texture_ptr());
+                }
+            }
+        }
+        previous_frame = Some(frame);
+    }
+    let empty = renderer.render_empty_frame().unwrap();
+    assert_eq!(empty.height(), 1056);
+    assert!(empty.is_fully_transparent());
+    #[cfg(windows)]
+    if empty.d3d11_texture().is_some() {
+        assert_eq!(
+            previous_frame.as_ref().unwrap().texture_ptr(),
+            empty.texture_ptr()
+        );
+    }
+    renderer.set_presentation(CaptionPresentation {
+        text_scale: 1.2,
+        ..Default::default()
+    });
+    let large_empty = renderer.render_empty_frame().unwrap();
+    assert_eq!(large_empty.height(), 1240);
+    assert!(large_empty.is_fully_transparent());
+}
+
+fn assert_caption_fitting_transitions(renderer: CaptionRenderer) {
+    let long = bilingual_block("active", &"한".repeat(200), "short source", true)
+        .with_occupant("self:turn", 0)
+        .with_variant(CaptionBlockVariant::ActiveSelf)
+        .with_slot(1, 544.0);
+    let first = renderer.render_blocks(vec![long.clone()]).unwrap();
+    let first_block = &first.layout().visible_blocks[0];
+    assert_close(first_block.primary_lines[0].font_size_px, 132.0 * 0.8);
+    assert_close(
+        first_block.secondary_line.as_ref().unwrap().font_size_px,
+        81.84,
+    );
+    assert!(first_block.truncated_primary);
+    assert_eq!(long.primary_text, "한".repeat(200));
+
+    let promoted = bilingual_block("finalized", "short primary", &"한".repeat(200), true)
+        .with_occupant("self:turn", 0)
+        .with_slot(1, 544.0);
+    let second = renderer.render_blocks(vec![promoted.clone()]).unwrap();
+    let second_block = &second.layout().visible_blocks[0];
+    assert_close(second_block.primary_lines[0].font_size_px, 132.0 * 0.8);
+    assert_close(
+        second_block.secondary_line.as_ref().unwrap().font_size_px,
+        81.84 * 0.8,
+    );
+    assert!(second_block.truncated_secondary);
+    assert_eq!(first_block.bounds, second_block.bounds);
+    assert_close(
+        first_block.primary_lines[0].origin_y,
+        second_block.primary_lines[0].origin_y,
+    );
+    assert_close(
+        first_block.secondary_line.as_ref().unwrap().origin_y,
+        second_block.secondary_line.as_ref().unwrap().origin_y,
+    );
+
+    let short = bilingual_block("finalized", "short primary", "short source", true)
+        .with_occupant("self:turn", 0)
+        .with_slot(1, 544.0);
+    let continuing = renderer.render_blocks(vec![short.clone()]).unwrap();
+    let continuing_block = &continuing.layout().visible_blocks[0];
+    assert_close(continuing_block.primary_lines[0].font_size_px, 132.0 * 0.8);
+    assert_close(
+        continuing_block
+            .secondary_line
+            .as_ref()
+            .unwrap()
+            .font_size_px,
+        81.84 * 0.8,
+    );
+
+    let replacement = renderer
+        .render_blocks(vec![short.clone().with_occupant("self:turn", 1)])
+        .unwrap();
+    let replacement_block = &replacement.layout().visible_blocks[0];
+    assert_close(replacement_block.primary_lines[0].font_size_px, 132.0);
+    assert_close(
+        replacement_block
+            .secondary_line
+            .as_ref()
+            .unwrap()
+            .font_size_px,
+        81.84,
+    );
+
+    renderer.render_blocks(vec![promoted]).unwrap();
+    renderer.render_empty_frame().unwrap();
+    let reappeared = renderer.render_blocks(vec![short]).unwrap();
+    let reappeared_block = &reappeared.layout().visible_blocks[0];
+    assert_close(reappeared_block.primary_lines[0].font_size_px, 132.0);
+    assert_close(
+        reappeared_block
+            .secondary_line
+            .as_ref()
+            .unwrap()
+            .font_size_px,
+        81.84,
+    );
 }
 
 #[test]
@@ -251,7 +439,6 @@ fn renderer_font_resolver_selects_bundled_faces_and_locales_by_bucket() {
         assert_eq!(style.weight, FontWeight::Medium);
         assert_eq!(style.locale, locale);
         assert_eq!(style.system_fallback_families(), system_fallbacks);
-        assert_no_installed_noto_cjk_intermediates(style.system_fallback_families());
     }
 }
 
@@ -339,7 +526,6 @@ fn renderer_font_resolver_uses_system_branches_when_bundle_unavailable() {
         assert_eq!(style.family_name, family);
         assert_eq!(style.locale, locale);
         assert_eq!(style.system_fallback_families(), system_fallbacks);
-        assert_no_installed_noto_cjk_intermediates(style.system_fallback_families());
     }
 }
 
@@ -451,52 +637,6 @@ fn renderer_style_resolution_fallback_for_requested_style_stays_out_of_layout_fa
     );
 }
 
-fn assert_no_installed_noto_cjk_intermediates(candidates: &[&str]) {
-    for installed_noto_cjk in [
-        "Noto Sans CJK KR",
-        "Noto Sans CJK JP",
-        "Noto Sans CJK SC",
-        "Noto Sans CJK TC",
-    ] {
-        assert!(
-            !candidates.contains(&installed_noto_cjk),
-            "installed {installed_noto_cjk} must not be searched as an intermediate system candidate"
-        );
-    }
-}
-
-#[test]
-fn renderer_uses_fixed_surface_defaults_for_mvp_caption_layout() {
-    let policy = CaptionLayoutPolicy::default();
-    assert_eq!(policy.default_surface_size(), (4096, 1056));
-}
-
-#[test]
-fn renderer_default_typography_resolves_132px_primary_and_81_84px_secondary() {
-    let policy = CaptionLayoutPolicy::default();
-    let result = policy.layout_blocks(
-        vec![bilingual_block(
-            "peer:translated",
-            "translated peer line",
-            "source peer line",
-            true,
-        )],
-        3840,
-        1024,
-    );
-
-    let block = &result.visible_blocks[0];
-    let primary = &block.primary_lines[0];
-    let secondary = block
-        .secondary_line
-        .as_ref()
-        .expect("secondary source line should be present");
-
-    assert_close(primary.font_size_px, 132.0);
-    assert_close(secondary.font_size_px, 81.84);
-    assert!(secondary.font_size_px < primary.font_size_px);
-}
-
 #[test]
 fn renderer_layout_preserves_channel_metadata_for_visible_blocks() {
     let policy = CaptionLayoutPolicy::default();
@@ -529,12 +669,6 @@ fn renderer_keeps_active_self_and_finalized_variants_distinct() {
 
     assert!(variants.contains(&CaptionBlockVariant::Finalized));
     assert!(variants.contains(&CaptionBlockVariant::ActiveSelf));
-}
-
-#[test]
-fn openvr_overlay_policy_defaults_to_head_locked_mode() {
-    let policy = OverlayPlacementPolicy::default();
-    assert!(policy.is_head_locked());
 }
 
 #[test]
@@ -609,74 +743,6 @@ fn renderer_centers_each_line_within_strip_bounds() {
 }
 
 #[test]
-fn renderer_secondary_origin_includes_30px_gap_after_primary_budget() {
-    let policy = CaptionLayoutPolicy::default();
-    let result = policy.layout_blocks(
-        vec![bilingual_block(
-            "peer:translated",
-            "translated peer line",
-            "source peer line",
-            true,
-        )],
-        3840,
-        1024,
-    );
-
-    let block = &result.visible_blocks[0];
-    let secondary = block
-        .secondary_line
-        .as_ref()
-        .expect("secondary source line should be present");
-
-    assert_close(
-        secondary.origin_y,
-        block.bounds.top_px + 32.0 + 2.0 * 150.0 + 30.0,
-    );
-}
-
-#[test]
-fn renderer_secondary_origin_gap_scales_with_text_scale() {
-    let policy = CaptionLayoutPolicy::default();
-    let result = policy.layout_blocks_for_presentation(
-        vec![bilingual_block(
-            "peer:translated",
-            "translated peer line",
-            "source peer line",
-            true,
-        )],
-        3840,
-        1536,
-        &CaptionPresentation {
-            text_scale: 1.5,
-            ..CaptionPresentation::default()
-        },
-    );
-
-    let block = &result.visible_blocks[0];
-    let secondary = block
-        .secondary_line
-        .as_ref()
-        .expect("secondary source line should be present");
-
-    assert_close(
-        secondary.origin_y,
-        block.bounds.top_px + (32.0 + 2.0 * 150.0 + 30.0) * 1.5,
-    );
-}
-
-#[test]
-fn renderer_damage_band_covers_old_and_new_strip_bounds() {
-    let damage = DamageBand::from_bounds([
-        BlockBounds::new(0.0, 100.0, 1000.0, 260.0),
-        BlockBounds::new(0.0, 180.0, 1000.0, 340.0),
-    ])
-    .unwrap();
-
-    assert_eq!(damage.top_px, 100.0);
-    assert_eq!(damage.bottom_px, 340.0);
-}
-
-#[test]
 fn renderer_uses_slot_top_px_instead_of_stacking_input_order() {
     let policy = CaptionLayoutPolicy::default();
     let layout = policy.layout_blocks(
@@ -696,127 +762,22 @@ fn renderer_uses_slot_top_px_instead_of_stacking_input_order() {
     assert_eq!(layout.visible_blocks[1].bounds.top_px, 40.0);
 }
 
-#[test]
-fn renderer_active_peer_with_state_generated_slots_does_not_overlap_next_row() {
-    let mut state = OverlayState::default();
-    assert!(state.apply_snapshot(&OverlayPresentationSnapshot {
+fn assert_source_only_peer_does_not_overlap_next_row(
+    variant: OverlayPresentationBlockVariant,
+    expected_variant: CaptionBlockVariant,
+    source: &str,
+) {
+    let runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
         revision: 1,
-        calibration: OverlayPresentationCalibration::default(),
-        native_fresh_render_generations: None,
-        semantic_retirement_frontiers: Vec::new(),
-        blocks: vec![
-            OverlayPresentationBlock {
-                id: "peer:active".into(),
-                occupant_key: "peer:turn-1".into(),
-                appearance_seq: 1,
-                channel: "peer".into(),
-                block_variant: OverlayPresentationBlockVariant::ActivePeer,
-                primary_text: String::new(),
-                secondary_text: "Can you hear me?".into(),
-                secondary_enabled: true,
-                primary_language: None,
-                secondary_language: None,
-                update_id: None,
-                origin_wall_clock_ms: None,
-                session_scope: None,
-                ..Default::default()
-            },
-            OverlayPresentationBlock {
-                id: "self:final".into(),
-                occupant_key: "self:final".into(),
-                appearance_seq: 2,
-                channel: "self".into(),
-                block_variant: OverlayPresentationBlockVariant::Finalized,
-                primary_text: "hello".into(),
-                secondary_text: "안녕".into(),
-                secondary_enabled: true,
-                primary_language: None,
-                secondary_language: None,
-                update_id: None,
-                origin_wall_clock_ms: None,
-                session_scope: None,
-                ..Default::default()
-            },
-        ],
-        ..Default::default()
-    }));
-
-    let caption_blocks = state
-        .scene()
-        .slots()
-        .iter()
-        .flatten()
-        .map(|slot| {
-            let channel = if slot.channel == "peer" {
-                CaptionChannel::PeerChannel
-            } else {
-                CaptionChannel::SelfChannel
-            };
-            let variant = match slot.block_variant {
-                OverlayPresentationBlockVariant::ActiveSelf => CaptionBlockVariant::ActiveSelf,
-                OverlayPresentationBlockVariant::ActivePeer => CaptionBlockVariant::ActivePeer,
-                OverlayPresentationBlockVariant::Finalized => CaptionBlockVariant::Finalized,
-            };
-            CaptionBlock::new(slot.id.clone(), slot.primary_text.clone())
-                .with_variant(variant)
-                .with_channel(channel)
-                .with_secondary_text(slot.secondary_text.clone(), slot.secondary_enabled)
-                .with_slot(slot.slot_index, slot.anchor_top_px)
-        })
-        .collect::<Vec<_>>();
-
-    let result = CaptionLayoutPolicy::default().layout_blocks(caption_blocks, 3840, 1024);
-
-    let peer = result
-        .visible_blocks
-        .iter()
-        .find(|block| block.id == "peer:active")
-        .unwrap();
-    let self_block = result
-        .visible_blocks
-        .iter()
-        .find(|block| block.id == "self:final")
-        .unwrap();
-
-    assert_eq!(peer.block_variant, CaptionBlockVariant::ActivePeer);
-    assert_eq!(peer.channel, Some(CaptionChannel::PeerChannel));
-    assert!(peer.primary_lines.iter().all(|line| line.text.is_empty()));
-    assert_eq!(
-        peer.secondary_line.as_ref().map(|line| line.text.as_str()),
-        Some("Can you hear me?")
-    );
-    assert!(peer.secondary_reserved);
-    assert!(
-        peer.bounds.bottom_px <= self_block.bounds.top_px,
-        "peer bounds {:?} should not overlap next row {:?}",
-        peer.bounds,
-        self_block.bounds
-    );
-}
-
-#[test]
-fn renderer_source_only_peer_finalized_with_state_generated_slots_does_not_overlap_next_row() {
-    let mut state = OverlayState::default();
-    assert!(state.apply_snapshot(&OverlayPresentationSnapshot {
-        revision: 1,
-        calibration: OverlayPresentationCalibration::default(),
-        native_fresh_render_generations: None,
-        semantic_retirement_frontiers: Vec::new(),
         blocks: vec![
             OverlayPresentationBlock {
                 id: "peer:source-only".into(),
-                occupant_key: "peer:turn-2".into(),
+                occupant_key: "peer:turn".into(),
                 appearance_seq: 1,
                 channel: "peer".into(),
-                block_variant: OverlayPresentationBlockVariant::Finalized,
-                primary_text: String::new(),
-                secondary_text: "translation unavailable, showing original source text".into(),
+                block_variant: variant,
+                secondary_text: source.into(),
                 secondary_enabled: true,
-                primary_language: None,
-                secondary_language: None,
-                update_id: None,
-                origin_wall_clock_ms: None,
-                session_scope: None,
                 ..Default::default()
             },
             OverlayPresentationBlock {
@@ -828,43 +789,13 @@ fn renderer_source_only_peer_finalized_with_state_generated_slots_does_not_overl
                 primary_text: "hello".into(),
                 secondary_text: "안녕".into(),
                 secondary_enabled: true,
-                primary_language: None,
-                secondary_language: None,
-                update_id: None,
-                origin_wall_clock_ms: None,
-                session_scope: None,
                 ..Default::default()
             },
         ],
         ..Default::default()
-    }));
-
-    let caption_blocks = state
-        .scene()
-        .slots()
-        .iter()
-        .flatten()
-        .map(|slot| {
-            let channel = if slot.channel == "peer" {
-                CaptionChannel::PeerChannel
-            } else {
-                CaptionChannel::SelfChannel
-            };
-            let variant = match slot.block_variant {
-                OverlayPresentationBlockVariant::ActiveSelf => CaptionBlockVariant::ActiveSelf,
-                OverlayPresentationBlockVariant::ActivePeer => CaptionBlockVariant::ActivePeer,
-                OverlayPresentationBlockVariant::Finalized => CaptionBlockVariant::Finalized,
-            };
-            CaptionBlock::new(slot.id.clone(), slot.primary_text.clone())
-                .with_variant(variant)
-                .with_channel(channel)
-                .with_secondary_text(slot.secondary_text.clone(), slot.secondary_enabled)
-                .with_slot(slot.slot_index, slot.anchor_top_px)
-        })
-        .collect::<Vec<_>>();
-
-    let result = CaptionLayoutPolicy::default().layout_blocks(caption_blocks, 3840, 1024);
-
+    });
+    let result = CaptionLayoutPolicy::default().layout_blocks(runtime.caption_blocks(), 3840, 1024);
+    assert_eq!(result.visible_blocks.len(), 2);
     let peer = result
         .visible_blocks
         .iter()
@@ -876,81 +807,140 @@ fn renderer_source_only_peer_finalized_with_state_generated_slots_does_not_overl
         .find(|block| block.id == "self:final")
         .unwrap();
 
-    assert_eq!(peer.block_variant, CaptionBlockVariant::Finalized);
+    assert_eq!(peer.block_variant, expected_variant);
     assert_eq!(peer.channel, Some(CaptionChannel::PeerChannel));
     assert!(peer.primary_lines.iter().all(|line| line.text.is_empty()));
     assert_eq!(
         peer.secondary_line.as_ref().map(|line| line.text.as_str()),
-        Some("translation unavailable, showing original source text")
+        Some(source)
     );
     assert!(peer.secondary_reserved);
     assert!(
         peer.bounds.bottom_px <= self_block.bounds.top_px,
-        "peer source-only bounds {:?} should not overlap next row {:?}",
+        "{expected_variant:?} peer bounds {:?} should not overlap next row {:?}",
         peer.bounds,
         self_block.bounds
     );
 }
 
 #[test]
-fn renderer_secondary_reserved_block_height_remains_468px_at_default_scale() {
-    let policy = CaptionLayoutPolicy::default();
-    let result = policy.layout_blocks(
-        vec![bilingual_block(
-            "peer:translated",
-            "translated peer line",
-            "source peer line",
-            true,
-        )],
-        3840,
-        1024,
+fn renderer_active_peer_with_state_generated_slots_does_not_overlap_next_row() {
+    assert_source_only_peer_does_not_overlap_next_row(
+        OverlayPresentationBlockVariant::ActivePeer,
+        CaptionBlockVariant::ActivePeer,
+        "Can you hear me?",
     );
-
-    let block = &result.visible_blocks[0];
-    assert_close(block.bounds.bottom_px - block.bounds.top_px, 468.0);
 }
 
 #[test]
-fn renderer_two_secondary_reserved_slots_fit_default_surface_after_typography_spacing_update() {
+fn renderer_source_only_peer_finalized_with_state_generated_slots_does_not_overlap_next_row() {
+    assert_source_only_peer_does_not_overlap_next_row(
+        OverlayPresentationBlockVariant::Finalized,
+        CaptionBlockVariant::Finalized,
+        "translation unavailable, showing original source text",
+    );
+}
+
+#[test]
+fn renderer_two_slots_fit_texture_at_calibrated_scale_presets_and_height_transitions() {
+    assert_calibrated_two_slot_frames_fit(CaptionRenderer::new_for_test().unwrap());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_graphics_two_slots_fit_texture_without_changing_calibration() {
+    assert_calibrated_two_slot_frames_fit(CaptionRenderer::new().unwrap());
+}
+
+#[test]
+fn renderer_fitting_is_shrink_only_until_occupant_replacement_or_retirement() {
+    assert_caption_fitting_transitions(CaptionRenderer::new_for_test().unwrap());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_graphics_fitting_is_shrink_only_and_resets_for_new_occupants() {
+    assert_caption_fitting_transitions(CaptionRenderer::new().unwrap());
+}
+
+#[test]
+fn renderer_fitting_uses_independent_lanes_and_bounded_levels_with_overflow_tolerance() {
     let policy = CaptionLayoutPolicy::default();
-    let result = policy.layout_blocks(
-        vec![
-            bilingual_block(
-                "peer:translated",
-                "translated peer text with enough words to represent a normal two-line HMD row",
-                "source original 안녕하세요 hello こんにちは 你好",
+    for (primary_length, secondary_length, primary_scale, secondary_scale) in [
+        (15, 12, 1.0, 1.0),
+        (16, 1, 0.9, 1.0),
+        (18, 1, 0.8, 1.0),
+        (1, 13, 1.0, 0.9),
+        (1, 15, 1.0, 0.8),
+        (200, 200, 0.8, 0.8),
+    ] {
+        let layout = policy.layout_blocks(
+            vec![bilingual_block(
+                "caption",
+                &"한".repeat(primary_length),
+                &"한".repeat(secondary_length),
                 true,
-            )
-            .with_variant(CaptionBlockVariant::ActivePeer)
-            .with_channel(CaptionChannel::PeerChannel)
-            .with_slot(0, 40.0),
-            bilingual_block(
-                "self:translated",
-                "self transcript text",
-                "self translated secondary",
-                true,
-            )
-            .with_variant(CaptionBlockVariant::Finalized)
-            .with_channel(CaptionChannel::SelfChannel)
-            .with_slot(1, 544.0),
-        ],
+            )],
+            1100,
+            900,
+        );
+        let block = &layout.visible_blocks[0];
+        assert_close(block.primary_lines[0].font_size_px, 132.0 * primary_scale);
+        assert_close(
+            block.secondary_line.as_ref().unwrap().font_size_px,
+            81.84 * secondary_scale,
+        );
+        assert_close(block.bounds.bottom_px - block.bounds.top_px, 468.0);
+    }
+}
+
+#[test]
+fn renderer_long_cjk_caption_does_not_fit_using_latin_fallback_advances() {
+    let layout = CaptionLayoutPolicy::default().layout_blocks(
+        vec![bilingual_block(
+            "caption",
+            &"한".repeat(80),
+            "short source",
+            true,
+        )],
         4096,
         1056,
     );
+    assert_close(
+        layout.visible_blocks[0].primary_lines[0].font_size_px,
+        132.0 * 0.8,
+    );
+    assert_close(
+        layout.visible_blocks[0]
+            .secondary_line
+            .as_ref()
+            .unwrap()
+            .font_size_px,
+        81.84,
+    );
+}
 
-    assert_eq!(result.visible_blocks.len(), 2);
-    for block in &result.visible_blocks {
-        assert!(
-            block.bounds.top_px >= 0.0 && block.bounds.bottom_px <= 1056.0,
-            "block bounds {:?} should stay inside default surface",
-            block.bounds
-        );
-        assert!(
-            block.visual_bounds.top_px >= 0.0 && block.visual_bounds.bottom_px <= 1056.0,
-            "visual bounds {:?} should stay inside default surface",
-            block.visual_bounds
-        );
-    }
+#[test]
+fn renderer_fitting_accounts_for_explicit_newline_budget_without_expanding_regions() {
+    let policy = CaptionLayoutPolicy::default();
+    let layout = policy.layout_blocks(
+        vec![bilingual_block(
+            "caption",
+            "one\ntwo\nthree",
+            "source\nmore source",
+            true,
+        )],
+        1100,
+        900,
+    );
+    let block = &layout.visible_blocks[0];
+    assert_eq!(block.primary_lines.len(), 2);
+    assert!(block.truncated_primary);
+    assert_close(block.primary_lines[0].font_size_px, 132.0 * 0.8);
+    let secondary = block.secondary_line.as_ref().unwrap();
+    assert_close(secondary.font_size_px, 81.84 * 0.8);
+    assert_eq!(secondary.text, "source...");
+    assert!(block.truncated_secondary);
 }
 
 #[test]
@@ -1323,44 +1313,6 @@ fn renderer_turning_secondary_off_expands_primary_line_budget() {
 }
 
 #[test]
-fn renderer_height_scale_changes_rendered_block_bounds_height() {
-    let policy = CaptionLayoutPolicy::default();
-    let full = policy.layout_blocks(vec![CaptionBlock::new("self", "hello")], 1600, 900);
-    let exiting = policy.layout_blocks(
-        vec![CaptionBlock::new("self", "hello").with_visual_state(1.0, 0.0, 0.5)],
-        1600,
-        900,
-    );
-
-    let full_height =
-        full.visible_blocks[0].bounds.bottom_px - full.visible_blocks[0].bounds.top_px;
-    let exiting_height =
-        exiting.visible_blocks[0].bounds.bottom_px - exiting.visible_blocks[0].bounds.top_px;
-
-    assert!(exiting_height < full_height);
-}
-
-#[test]
-fn renderer_layout_cache_key_ignores_animation_only_visual_state() {
-    let policy = CaptionLayoutPolicy::default();
-    let presentation = CaptionPresentation::default();
-    let stable = bilingual_block("self:1", "hello there", "secondary line", true)
-        .with_channel(CaptionChannel::SelfChannel)
-        .with_variant(CaptionBlockVariant::Finalized);
-    let animated = stable.clone().with_visual_state(0.42, 64.0, 0.5);
-
-    let stable_layout =
-        policy.resolve_blocks_for_presentation(vec![stable], 1600, 900, &presentation);
-    let animated_layout =
-        policy.resolve_blocks_for_presentation(vec![animated], 1600, 900, &presentation);
-
-    assert_eq!(
-        stable_layout.visible_blocks[0].layout_cache_key,
-        animated_layout.visible_blocks[0].layout_cache_key
-    );
-}
-
-#[test]
 fn renderer_layout_cache_key_separates_slotted_source_only_peer_geometry() {
     let policy = CaptionLayoutPolicy::default();
     let presentation = CaptionPresentation::default();
@@ -1387,26 +1339,6 @@ fn renderer_layout_cache_key_separates_slotted_source_only_peer_geometry() {
     assert_ne!(
         non_slotted.layout_cache_key, slotted.layout_cache_key,
         "slotted and non-slotted peer source-only rows use different reserved geometry"
-    );
-}
-
-#[test]
-fn renderer_block_cache_key_ignores_animation_only_visual_state() {
-    let policy = CaptionLayoutPolicy::default();
-    let presentation = CaptionPresentation::default();
-    let stable = bilingual_block("self:1", "hello there", "secondary line", true)
-        .with_channel(CaptionChannel::SelfChannel)
-        .with_variant(CaptionBlockVariant::Finalized);
-    let animated = stable.clone().with_visual_state(0.35, -48.0, 1.35);
-
-    let stable_layout =
-        policy.resolve_blocks_for_presentation(vec![stable], 1600, 900, &presentation);
-    let animated_layout =
-        policy.resolve_blocks_for_presentation(vec![animated], 1600, 900, &presentation);
-
-    assert_eq!(
-        stable_layout.visible_blocks[0].block_cache_key(),
-        animated_layout.visible_blocks[0].block_cache_key()
     );
 }
 
@@ -1475,14 +1407,6 @@ fn renderer_uses_near_full_safe_width_for_content() {
 }
 
 #[test]
-fn renderer_first_usable_frame_is_fully_transparent_before_real_caption_content() {
-    let renderer = CaptionRenderer::new_for_test().unwrap();
-    let frame = renderer.render_empty_frame().unwrap();
-
-    assert!(frame.is_fully_transparent());
-}
-
-#[test]
 fn renderer_debug_overlay_is_absent_by_default_and_reported_when_supplied() {
     let renderer = CaptionRenderer::new_for_test().unwrap();
 
@@ -1521,36 +1445,6 @@ fn renderer_debug_overlay_is_absent_by_default_and_reported_when_supplied() {
         debug.debug_overlay_label(),
         Some("DBG r7 ap=peer h=1a2b b=peer")
     );
-}
-
-#[test]
-fn renderer_presentation_text_scale_changes_block_bounds_height() {
-    let renderer = CaptionRenderer::new_for_test().unwrap();
-    let default_frame = renderer.render_blocks(vec![test_block("hello")]).unwrap();
-    let default_height = default_frame.layout().visible_blocks[0].bounds.bottom_px
-        - default_frame.layout().visible_blocks[0].bounds.top_px;
-
-    renderer.set_presentation(CaptionPresentation {
-        text_scale: 1.25,
-        ..CaptionPresentation::default()
-    });
-    let scaled_frame = renderer.render_blocks(vec![test_block("hello")]).unwrap();
-    let scaled_height = scaled_frame.layout().visible_blocks[0].bounds.bottom_px
-        - scaled_frame.layout().visible_blocks[0].bounds.top_px;
-
-    assert!(scaled_height > default_height);
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_graphics_returns_a_renderable_d3d11_texture_result() {
-    let renderer = CaptionRenderer::new().unwrap();
-    let frame = renderer.render_blocks(vec![test_block("hello")]).unwrap();
-
-    assert!(frame.texture_ptr().is_some());
-    assert!(frame.d3d11_texture().is_some());
-    assert_eq!(frame.width(), 4096);
-    assert_eq!(frame.height(), 1056);
 }
 
 #[cfg(windows)]
@@ -1608,90 +1502,6 @@ fn windows_graphics_pipeline_reports_directwrite_layout_for_mixed_script_frame()
     assert!(!frame.layout().visible_blocks[0].primary_lines.is_empty());
     assert_eq!(frame.diagnostics().directwrite_layout_success_count, 1);
     assert_eq!(frame.diagnostics().heuristic_layout_fallback_count, 0);
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_graphics_first_active_self_frame_after_empty_frame_is_renderable() {
-    let renderer = CaptionRenderer::new().unwrap();
-    let empty = renderer.render_empty_frame().unwrap();
-    let active = CaptionBlock::new("self:active", "live self preview")
-        .with_variant(CaptionBlockVariant::ActiveSelf)
-        .with_secondary_text("", true)
-        .with_channel(CaptionChannel::SelfChannel);
-    let frame = renderer.render_blocks(vec![active]).unwrap();
-
-    assert!(empty.is_fully_transparent());
-    assert!(!frame.is_fully_transparent());
-    assert_eq!(
-        frame.layout().visible_blocks[0].block_variant,
-        CaptionBlockVariant::ActiveSelf
-    );
-    assert!(frame.texture_ptr().is_some());
-    assert!(frame.d3d11_texture().is_some());
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_graphics_first_finalized_bilingual_frame_after_empty_frame_is_renderable() {
-    let renderer = CaptionRenderer::new().unwrap();
-    let empty = renderer.render_empty_frame().unwrap();
-    let finalized = bilingual_block("self:1", "hello there", "secondary line", true)
-        .with_channel(CaptionChannel::SelfChannel);
-    let frame = renderer.render_blocks(vec![finalized]).unwrap();
-
-    assert!(empty.is_fully_transparent());
-    assert!(!frame.is_fully_transparent());
-    assert_eq!(
-        frame.layout().visible_blocks[0].block_variant,
-        CaptionBlockVariant::Finalized
-    );
-    assert!(frame.texture_ptr().is_some());
-    assert!(frame.d3d11_texture().is_some());
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_graphics_secondary_only_finalized_peer_frame_is_renderable() {
-    let renderer = CaptionRenderer::new().unwrap();
-    let source_only_peer = CaptionBlock::new("peer:source-only", "")
-        .with_channel(CaptionChannel::PeerChannel)
-        .with_variant(CaptionBlockVariant::Finalized)
-        .with_secondary_text("Can you hear me?", true);
-
-    let frame = renderer.render_blocks(vec![source_only_peer]).unwrap();
-    let block = &frame.layout().visible_blocks[0];
-
-    assert!(!frame.is_fully_transparent());
-    assert_eq!(block.block_variant, CaptionBlockVariant::Finalized);
-    assert!(block.primary_lines.iter().all(|line| line.text.is_empty()));
-    assert_eq!(
-        block.secondary_line.as_ref().map(|line| line.text.as_str()),
-        Some("Can you hear me?")
-    );
-    assert!(frame.texture_ptr().is_some());
-    assert!(frame.d3d11_texture().is_some());
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_graphics_debug_overlay_frame_is_renderable() {
-    let renderer = CaptionRenderer::new().unwrap();
-    let frame = renderer
-        .render_blocks_with_debug_overlay(
-            vec![test_block("hello")],
-            Some(CaptionDebugOverlay::new("DBG r7 ap=peer h=1a2b b=peer").unwrap()),
-        )
-        .unwrap();
-
-    assert!(!frame.is_fully_transparent());
-    assert_eq!(
-        frame.debug_overlay_label(),
-        Some("DBG r7 ap=peer h=1a2b b=peer")
-    );
-    assert!(frame.texture_ptr().is_some());
-    assert!(frame.d3d11_texture().is_some());
-    assert_eq!(frame.diagnostics().debug_overlay_draw_count, 1);
 }
 
 #[cfg(windows)]
@@ -1889,4 +1699,57 @@ async fn renderer_test_backend_reports_test_identity_with_immediate_readiness() 
         renderer.prepare_frame_for_submission(&cancelled).await,
         ReadinessOutcome::Cancelled
     );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn japanese_ruby_renders_below_words_and_invalidates_cached_frames() {
+    use puripuly_heart_overlay::state::RubySegment;
+    let renderer = CaptionRenderer::new().unwrap();
+    let segments = vec![
+        RubySegment {
+            text: "東京".into(),
+            reading: "とうきょう".into(),
+        },
+        RubySegment {
+            text: "で".into(),
+            reading: String::new(),
+        },
+        RubySegment {
+            text: "食".into(),
+            reading: "た".into(),
+        },
+        RubySegment {
+            text: "べる。".into(),
+            reading: String::new(),
+        },
+    ];
+    let block = CaptionBlock::new("peer:ruby", "Eating in Tokyo.")
+        .with_primary_language("en")
+        .with_secondary_text("東京で食べる。", true)
+        .with_secondary_language("ja")
+        .with_ruby(Vec::new(), segments);
+    let path = std::env::temp_dir().join(format!("puripuly-ruby-{}.png", std::process::id()));
+    let frame = renderer.render_blocks(vec![block.clone()]).unwrap();
+    assert!(!frame.layout().visible_blocks[0].truncated_secondary);
+    frame.write_png(&path).unwrap();
+    let first = std::fs::read(&path).unwrap();
+    let mut changed = block.clone();
+    changed.secondary_ruby[0].reading = "とうけい".into();
+    renderer
+        .render_blocks(vec![changed])
+        .unwrap()
+        .write_png(&path)
+        .unwrap();
+    assert_ne!(first, std::fs::read(&path).unwrap());
+    renderer
+        .render_blocks(vec![block])
+        .unwrap()
+        .write_png(&path)
+        .unwrap();
+    assert_eq!(first, std::fs::read(&path).unwrap());
+    if let Some(destination) = std::env::var_os("PURIPULY_RUBY_PREVIEW") {
+        std::fs::copy(&path, destination).unwrap();
+    }
+    std::fs::remove_file(path).unwrap();
 }

@@ -49,6 +49,13 @@ pub enum OverlayPresentationBlockVariant {
     Finalized,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct RubySegment {
+    pub text: String,
+    #[serde(default)]
+    pub reading: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OverlayPresentationBlock {
     pub id: String,
@@ -63,6 +70,10 @@ pub struct OverlayPresentationBlock {
     pub secondary_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primary_language: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub primary_ruby: Vec<RubySegment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secondary_ruby: Vec<RubySegment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secondary_language: Option<String>,
     #[serde(default)]
@@ -238,6 +249,8 @@ pub struct OverlaySlot {
     pub secondary_text: String,
     pub secondary_enabled: bool,
     pub primary_language: Option<String>,
+    pub primary_ruby: Vec<RubySegment>,
+    pub secondary_ruby: Vec<RubySegment>,
     pub secondary_language: Option<String>,
     pub update_id: Option<String>,
     pub origin_wall_clock_ms: Option<u64>,
@@ -264,6 +277,8 @@ impl OverlaySlot {
             secondary_text: block.secondary_text.clone(),
             secondary_enabled: block.secondary_enabled,
             primary_language: block.primary_language.clone(),
+            primary_ruby: block.primary_ruby.clone(),
+            secondary_ruby: block.secondary_ruby.clone(),
             secondary_language: block.secondary_language.clone(),
             update_id: block.update_id.clone(),
             origin_wall_clock_ms: block.origin_wall_clock_ms,
@@ -283,6 +298,8 @@ impl OverlaySlot {
         self.secondary_text = block.secondary_text.clone();
         self.secondary_enabled = block.secondary_enabled;
         self.primary_language = block.primary_language.clone();
+        self.primary_ruby = block.primary_ruby.clone();
+        self.secondary_ruby = block.secondary_ruby.clone();
         self.secondary_language = block.secondary_language.clone();
         self.update_id = block.update_id.clone();
         self.origin_wall_clock_ms = block.origin_wall_clock_ms;
@@ -331,6 +348,18 @@ impl OverlayScene {
         let mut assigned = self.update_existing_slots(&sorted);
         self.clear_missing_slots(&sorted);
         self.fill_empty_slots(&sorted, &mut assigned);
+        if sorted.iter().any(|block| block.channel == "peer") {
+            let mut ordered: [Option<OverlaySlot>; SLOT_COUNT] = Default::default();
+            for (index, block) in sorted.iter().enumerate() {
+                if let Some(slot) = self.slots.iter_mut().find(|slot| {
+                    slot.as_ref()
+                        .is_some_and(|slot| slot.occupant_key == block.occupant_key)
+                }) {
+                    ordered[SLOT_COUNT - sorted.len() + index] = slot.take();
+                }
+            }
+            self.slots = ordered;
+        }
         self.recompute_slot_anchors(text_scale);
 
         previous != self.slots
