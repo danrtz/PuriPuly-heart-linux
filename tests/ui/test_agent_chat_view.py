@@ -498,6 +498,101 @@ def row_time(row):
 
 
 @pytest.mark.asyncio
+async def test_history_furigana_covers_both_languages_and_can_be_disabled(monkeypatch):
+    import threading
+
+    from puripuly_heart.ui.views.logs import ConversationRecord
+
+    records = [
+        ConversationRecord(
+            "09:01",
+            "Peer",
+            "peer",
+            "今日は東京で食べる。",
+            "Eating in Tokyo.",
+            utterance_id="peer1",
+            source_language="ja",
+            target_language="en",
+        ),
+        ConversationRecord(
+            "09:02",
+            "You",
+            "self",
+            "I study Japanese.",
+            "日本語を勉強しています。",
+            utterance_id="self1",
+            source_language="en",
+            target_language="ja-JP",
+        ),
+        ConversationRecord(
+            "09:03",
+            "You",
+            "self",
+            "中文",
+            "English",
+            utterance_id="zh1",
+            source_language="zh",
+            target_language="en",
+        ),
+    ]
+    enabled = True
+    factories = []
+    threads = []
+    original = agent_chat.japanese_readings
+
+    def readings(*args):
+        threads.append(threading.get_ident())
+        return original(*args)
+
+    def run(factory):
+        if getattr(factory, "func", factory).__name__ == "_load_history_readings":
+            factories.append(factory)
+            return factory
+        return None
+
+    monkeypatch.setattr(agent_chat, "japanese_readings", readings)
+    view = AgentChatView(
+        Owner(snapshot()),
+        AgentChatHooks(
+            conversation_records=lambda: records, furigana_enabled=lambda: enabled, run_task=run
+        ),
+    )
+    view._open_history()
+    unchanged = view._history_list.controls[2]
+    assert len(factories) == 1
+    await factories.pop()()
+    view._refresh_history()
+    assert threads and all(thread != threading.get_ident() for thread in threads)
+    assert "きょう" in texts(view._history_list.controls[0])
+    assert "にほん" in texts(view._history_list.controls[1])
+    assert view._history_list.controls[2] is unchanged
+    for control in view._history_list.controls[:2]:
+        readings = [
+            text
+            for text in agent_chat._texts(control)
+            if text.value in {"きょう", "にほん", "べんきょう"}
+        ]
+        assert readings and all(text.size >= 15 for text in readings)
+    enabled = False
+    assert view._refresh_history()
+    assert texts(view._history_list.controls[0]) == [
+        records[0].source_text,
+        records[0].translated_text,
+        "09:01",
+    ]
+    assert texts(view._history_list.controls[1]) == [
+        records[1].source_text,
+        records[1].translated_text,
+        "09:02",
+    ]
+    enabled = True
+    assert view._refresh_history()
+    assert not factories
+    assert "にほん" in texts(view._history_list.controls[1])
+    assert records[1].translated_text == "日本語を勉強しています。"
+
+
+@pytest.mark.asyncio
 async def test_lists_return_to_the_end_or_to_the_last_read_position():
     calls = []
     tasks = []

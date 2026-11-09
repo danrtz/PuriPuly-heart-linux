@@ -1569,6 +1569,45 @@ def _caption_text_control(control: object, text: str) -> ft.Text:
     raise AssertionError(f"caption text control not found: {text}")
 
 
+def test_furigana_remains_readable_and_inside_both_caption_regions() -> None:
+    from puripuly_heart.core.overlay.furigana import japanese_readings
+
+    block = _block(
+        "ruby",
+        channel="peer",
+        block_variant="finalized",
+        appearance_seq=1,
+        primary_text="今日は東京で食べる。",
+        secondary_text="日本語を勉強しています。",
+        primary_language="ja",
+        secondary_language="ja",
+        secondary_enabled=True,
+    )
+    block = replace(
+        block,
+        primary_ruby=japanese_readings(block.primary_text, "ja"),
+        secondary_ruby=japanese_readings(block.secondary_text, "ja"),
+    )
+    plan = desktop_overlay.build_desktop_caption_plan(
+        OverlayPresentationSnapshot(revision=1, blocks=[block])
+    )
+    surface = desktop_overlay.build_desktop_caption_surface(plan)
+    readings = [_caption_text_control(surface, reading) for reading in ("きょう", "にほん")]
+    assert readings[0].size >= 19
+    assert readings[1].size >= 12
+    for cell in _walk_control_tree(surface):
+        if isinstance(cell, ft.Column) and len(cell.controls) == 2:
+            base, ruby = cell.controls
+            if (
+                isinstance(base, ft.Container)
+                and isinstance(ruby, ft.Container)
+                and isinstance(base.content, ft.Text)
+                and isinstance(ruby.content, ft.Text)
+            ):
+                assert base.height + ruby.height <= base.content.size * 1.81
+                assert ruby.content.size >= base.content.size * 0.7
+
+
 def _page_text_values(page: FakeFletPage) -> set[str]:
     values: set[str] = set()
     for control in page.controls:

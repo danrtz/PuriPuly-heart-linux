@@ -558,6 +558,11 @@ class TranslatorApp:
                 open_folder=lambda: self.view_logs._open_log_folder(None),
                 show_snackbar=self._show_snackbar,
                 conversation_records=lambda: self.view_logs.conversation_records,
+                furigana_enabled=lambda: bool(
+                    getattr(
+                        self.application.settings_overlay_snapshot(), "japanese_furigana", False
+                    )
+                ),
                 dictation=_AgentDictationSource(self),
             ),
         )

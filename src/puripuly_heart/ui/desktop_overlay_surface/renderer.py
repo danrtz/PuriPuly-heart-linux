@@ -1373,7 +1373,7 @@ def _build_flet_text(
 
 
 def _build_ruby_text(ft: Any, line: DesktopCaptionLine, width: float) -> Any:
-    size = line.font_size * line.line_height / 1.7
+    size = line.font_size * line.line_height / 1.8
     rows: list[list[tuple[str, str, float]]] = [[]]
     row_width = 0.0
     for segment in line.ruby:
@@ -1386,7 +1386,7 @@ def _build_ruby_text(ft: Any, line: DesktopCaptionLine, width: float) -> Any:
             unit_width = (
                 max(
                     _estimated_caption_line_width(base, size),
-                    _estimated_caption_line_width(reading, size * 0.46),
+                    _estimated_caption_line_width(reading, size * 0.72),
                 )
                 + size * 0.04
             )
@@ -1423,8 +1423,8 @@ def _build_ruby_text(ft: Any, line: DesktopCaptionLine, width: float) -> Any:
             cells.append(
                 ft.Column(
                     controls=[
-                        text(base, size, size * 1.17),
-                        text(reading, size * 0.46, size * 0.53),
+                        text(base, size, size * 1.04),
+                        text(reading, size * 0.72, size * 0.76),
                     ],
                     spacing=0,
                     width=unit_width,

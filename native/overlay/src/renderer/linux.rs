@@ -127,11 +127,11 @@ impl LinuxCaptionRenderer {
                 vec![(segment.text.clone(), segment.reading.clone())]
             };
             for (text, reading) in units {
-                let base = self.layout(&text, Some("ja"), size, 0.0, size * 1.2, 1);
+                let base = self.layout(&text, Some("ja"), size, 0.0, size * 1.02, 1);
                 let ruby = if reading.is_empty() {
                     None
                 } else {
-                    Some(self.layout(&reading, Some("ja"), size * 0.46, 0.0, size * 0.55, 1))
+                    Some(self.layout(&reading, Some("ja"), size * 0.72, 0.0, size * 0.76, 1))
                 };
                 let unit_width = (base.pixel_size().0 as f32)
                     .max(ruby.as_ref().map_or(0.0, |l| l.pixel_size().0 as f32))
@@ -182,7 +182,7 @@ impl LinuxCaptionRenderer {
                         (x + (unit_width - ruby.pixel_size().0 as f32) / 2.0) as f64,
                         0.0,
                     );
-                    draw_layout(&self.context, ruby, size * 1.17, color)?;
+                    draw_layout(&self.context, ruby, size * 1.04, color)?;
                     self.context.restore().map_err(draw_error)?;
                 }
                 x += unit_width;

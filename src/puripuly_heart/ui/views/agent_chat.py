@@ -10,6 +10,7 @@ from typing import Protocol
 import flet as ft
 
 from puripuly_heart.app.ports.agent_chat import AgentChatPort, AgentChatSnapshot
+from puripuly_heart.core.overlay.furigana import RubySegment, has_kanji, japanese_readings
 from puripuly_heart.ui.agent_chat_model import (
     ChatItem,
     LeftView,
@@ -74,6 +75,7 @@ class AgentChatHooks:
     conversation_records: Callable[[], Sequence[object]] | None = None
     dictation: DictationSource | None = None
     run_task: Callable[[Callable[[], object]], object] | None = None
+    furigana_enabled: Callable[[], bool] | None = None
 
 
 class _Dictation:
@@ -187,6 +189,10 @@ class AgentChatView(ft.Row):
         self._history_scroll = _ScrollMemory(self._history_list, self._run)
         self._history_keys: tuple = ()
         self._history_rows: dict[str, tuple[object, ft.Control]] = {}
+        self._history_readings: dict[tuple[str, str | None], tuple[RubySegment, ...]] = {}
+        self._history_readings_loading = False
+        self._history_readings_revision = 0
+        self._history_furigana = False
         self._history_panel: ft.Container | None = None
         self._history_back: ft.Container | None = None
         self._history_polling = False
@@ -718,7 +724,28 @@ class AgentChatView(ft.Row):
 
     def _refresh_history(self) -> bool:
         history = history_rows(self._records())
-        keys = tuple(history)
+        enabled = self._hooks.furigana_enabled
+        self._history_furigana = bool(enabled and enabled())
+        entries = {
+            (text, language)
+            for row in history
+            for text, language in [
+                (row.source, row.source_language),
+                *zip(row.translations, row.translation_languages),
+            ]
+            if text
+            and (language or "").lower().replace("_", "-").split("-")[0] == "ja"
+            and has_kanji(text)
+        }
+        self._history_readings = {
+            key: value for key, value in self._history_readings.items() if key in entries
+        }
+        missing = entries - self._history_readings.keys()
+        if self._history_furigana and missing and not self._history_readings_loading:
+            self._history_readings_loading = True
+            if self._run(partial(self._load_history_readings, tuple(missing))) is None:
+                self._history_readings_loading = False
+        keys = (self._history_furigana, self._history_readings_revision, *history)
         if keys == self._history_keys:
             return False
         self._history_keys = keys
@@ -726,37 +753,103 @@ class AgentChatView(ft.Row):
         controls: list[ft.Control] = []
         for row in history:
             cached = self._history_rows.get(row.key)
+            signature = (
+                row,
+                self._history_furigana,
+                self._history_readings.get((row.source, row.source_language)),
+                tuple(
+                    self._history_readings.get(pair)
+                    for pair in zip(row.translations, row.translation_languages)
+                ),
+            )
             control = (
-                cached[1] if cached is not None and cached[0] == row else self._history_row(row)
+                cached[1]
+                if cached is not None and cached[0] == signature
+                else self._history_row(row)
             )
             if control is None:
                 continue
-            rows[row.key] = (row, control)
+            rows[row.key] = (signature, control)
             controls.append(control)
         self._history_rows = rows
         self._history_list.controls = controls
         self._history_scroll.follow()
         return True
 
+    async def _load_history_readings(self, entries: tuple[tuple[str, str | None], ...]) -> None:
+        try:
+            readings = await asyncio.to_thread(
+                lambda: {pair: japanese_readings(*pair) for pair in entries}
+            )
+            self._history_readings.update(readings)
+            self._history_readings_revision += 1
+        finally:
+            self._history_readings_loading = False
+        if self._history_open and self._mounted:
+            self._refresh_history()
+            update_control_if_mounted(self._history_list)
+
+    def _history_text(self, text: str, language: str | None, size: float, color: str) -> ft.Control:
+        ruby = self._history_readings.get((text, language)) if self._history_furigana else None
+        family = font_for_language(language)
+        if not ruby:
+            return ft.Text(text, size=size, color=color, font_family=family)
+        reading_size = max(15, size * 0.75)
+        rows: list[list[ft.Control]] = [[]]
+        for segment in ruby:
+            units = (
+                [(segment.text, segment.reading)]
+                if segment.reading
+                else [(char, "") for char in segment.text]
+            )
+            for base, reading in units:
+                if base in {"\n", "\r"}:
+                    if base == "\n":
+                        rows.append([])
+                    continue
+                rows[-1].append(
+                    ft.Column(
+                        [
+                            ft.Text(base, size=size, color=color, font_family=family),
+                            ft.Text(
+                                reading,
+                                size=reading_size,
+                                color=color,
+                                font_family=family,
+                                height=reading_size * 1.4,
+                            ),
+                        ],
+                        spacing=0,
+                        tight=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    )
+                )
+        return ft.Column(
+            [ft.Row(cells, wrap=True, spacing=0, run_spacing=4) for cells in rows],
+            spacing=4,
+            width=HISTORY_BUBBLE_WIDTH - 32,
+            tight=True,
+        )
+
     def _history_row(self, row) -> ft.Control | None:
         texts: list[ft.Control] = []
         if row.source:
             texts.append(
-                ft.Text(
+                self._history_text(
                     row.source,
-                    size=16,
-                    color=COLOR_DISPLAY_SOURCE,
-                    font_family=font_for_language(row.source_language),
+                    row.source_language,
+                    16,
+                    COLOR_DISPLAY_SOURCE,
                 )
             )
         languages = row.translation_languages or (None,) * len(row.translations)
         for translation, language in zip(row.translations, languages, strict=False):
             texts.append(
-                ft.Text(
+                self._history_text(
                     translation,
-                    size=20,
-                    color=COLOR_TRANS_ON if row.mine else COLOR_ON_BACKGROUND,
-                    font_family=font_for_language(language),
+                    language,
+                    20,
+                    COLOR_TRANS_ON if row.mine else COLOR_ON_BACKGROUND,
                 )
             )
         if row.failed:
