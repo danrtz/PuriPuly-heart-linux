@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import re
+import sys
 from dataclasses import fields, replace
 from pathlib import Path
 from typing import Awaitable, Callable, Mapping
@@ -42,6 +43,7 @@ from puripuly_heart.app.ports.settings_view import (
     DesktopOverlaySizeIntent,
     DesktopOverlaySwapCaptionLanguagesIntent,
     GeneralSettingsSnapshot,
+    HighPrioritySettingsIntent,
     ImmediateSettingsIntent,
     LlmGpuDeviceEdit,
     LocaleSettingsIntent,
@@ -791,6 +793,7 @@ class SettingsView(ft.Column):
             self._gpu_llm_text,
             self._llm_text,
             self._ui_text,
+            self._high_priority_text,
             self._chatbox_source_text,
             self._osc_connection_text,
             self._clipboard_auto_translate_text,
@@ -1446,6 +1449,16 @@ class SettingsView(ft.Column):
             value=self._ui_text,
         )
 
+        self._high_priority_text = self._build_clickable_text(
+            t("settings.option.off"), self._on_high_priority_click
+        )
+        self._high_priority_title = ft.Text(
+            t("settings.high_priority"), size=24, weight=ft.FontWeight.BOLD, color=COLOR_SECONDARY
+        )
+        self._high_priority_card = self._wrap_unit_card(
+            title=self._high_priority_title, value=self._high_priority_text
+        )
+        self._high_priority_card.tooltip = t("settings.high_priority.description")
         self._audio_settings = AudioSettings()
         self._chatbox_source_text = self._build_clickable_text(
             t("settings.chatbox_source.on"),
@@ -1666,6 +1679,9 @@ class SettingsView(ft.Column):
                 activation_notice=self._activation_notice_card,
                 activation_notice_middle=self._wrap_empty_unit_card(),
                 activation_notice_trailing=self._wrap_empty_unit_card(),
+                high_priority=(
+                    self._high_priority_card if sys.platform.startswith("linux") else None
+                ),
             ),
             placeholder_factory=lambda: self._vrchat_osc_card,
         )
@@ -3704,6 +3720,10 @@ class SettingsView(ft.Column):
 
         # UI Language
         self._ui_text.content.value = locale_label(general.locale)
+        self._set_unit_card_value_text(
+            self._high_priority_text,
+            t("settings.option.on" if general.high_priority else "settings.option.off"),
+        )
 
         # STT Provider
         self._set_unit_card_value_text(
@@ -6502,6 +6522,16 @@ class SettingsView(ft.Column):
             )
         )
 
+    def _on_high_priority_click(self, _event) -> None:
+        if self._general_snapshot is None:
+            return
+        enabled = not self._general_snapshot.high_priority
+        self._general_snapshot = replace(self._general_snapshot, high_priority=enabled)
+        self._set_unit_card_value_text(
+            self._high_priority_text, t("settings.option.on" if enabled else "settings.option.off")
+        )
+        self._emit_settings_changed(HighPrioritySettingsIntent(enabled))
+
     def _on_clipboard_auto_translate_click(self, e) -> None:
         """Toggle clipboard auto-translate immediately from the unit card."""
         if self._general_snapshot is None:
@@ -6699,6 +6729,8 @@ class SettingsView(ft.Column):
         self._api_title.value = t("settings.section.api_keys")
         self._managed_key_title.value = t("settings.managed_key.title")
         self._ui_title.value = t("settings.section.ui")
+        self._high_priority_title.value = t("settings.high_priority")
+        self._high_priority_card.tooltip = t("settings.high_priority.description")
         self._audio_host_api_title.value = t("settings.audio_host_api")
         self._mic_audio_title.value = t("settings.section.microphone_audio")
         self._loopback_audio_title.value = t("settings.section.loopback_audio")

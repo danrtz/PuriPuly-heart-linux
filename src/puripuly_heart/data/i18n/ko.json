@@ -874,6 +874,8 @@
   "settings.presentation.account.signed_out": "로그아웃",
   "settings.presentation.desktop_position": "데스크톱 오버레이 위치",
   "settings.presentation.desktop_position.default": "기본 위치",
+  "settings.high_priority": "높은 우선순위",
+  "settings.high_priority.description": "PuriPuly와 작업자에 최대 CPU 가중치를 부여합니다. 실시간 스케줄링이나 GPU 우선권은 보장하지 않습니다. 끄면 기본 가중치로 돌아갑니다.",
   "settings.overlay.furigana": "일본어 후리가나",
   "settings.description.overlay.furigana.enabled": "Show hiragana readings beneath kanji in original and translated Japanese captions."
 }

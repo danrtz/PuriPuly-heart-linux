@@ -132,3 +132,37 @@ async def test_unsaved_first_launch_mark_is_retried_on_the_next_launch() -> None
     assert state.main_input_first_launch is True
     assert state.settings is loaded
     assert owner.canonical.state.main_input_hint.first_launch_completed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_startup_restores_saved_priority_before_runtime_launch(enabled):
+    settings = AppSettingsVNext()
+    settings = replace(
+        settings,
+        intent=replace(
+            settings.intent, performance=replace(settings.intent.performance, high_priority=enabled)
+        ),
+    )
+    adapter = _startup_adapter(_RecordingPersistOwner(settings), settings)
+    adapter.set_high_priority = AsyncMock()
+    await adapter.prepare_startup_settings()
+    adapter.set_high_priority.assert_awaited_once_with(enabled)
+
+
+@pytest.mark.asyncio
+async def test_priority_failure_keeps_startup_usable_and_reports_degraded():
+    settings = AppSettingsVNext()
+    settings = replace(
+        settings,
+        intent=replace(
+            settings.intent, performance=replace(settings.intent.performance, high_priority=True)
+        ),
+    )
+    adapter = _startup_adapter(_RecordingPersistOwner(settings), settings)
+    adapter.set_high_priority = AsyncMock(side_effect=RuntimeError("No systemd user session"))
+    state = await adapter.prepare_startup_settings()
+    assert state.settings.intent.performance.high_priority
+    diagnostics = adapter.runtime_logging.emit_failure.call_args.args[0]
+    assert diagnostics.code == "priority_apply_failed"
+    assert adapter.runtime_logging.emit_failure.call_args.kwargs["disposition"] == "degraded"

@@ -13,6 +13,7 @@ from typing import Literal, cast
 from puripuly_heart.app.adapters.application_runtime_shutdown import (
     ApplicationRuntimeShutdownAdapter,
 )
+from puripuly_heart.app.adapters.linux_process_priority import LinuxProcessPriority
 from puripuly_heart.app.adapters.local_asr_application import LocalASRApplicationSettings
 from puripuly_heart.app.adapters.peer_application_state import PeerApplicationSettings
 from puripuly_heart.app.adapters.system_directory_opener import SystemDirectoryOpener
@@ -486,7 +487,7 @@ def compose_application_runtime(
     pipeline = RuntimePipelineHandle()
     control_events = ControlEvents()
     signatures = ProviderRuntimeSignatures(http_extensions=http_extensions)
-    effects_state = SettingsRuntimeEffectsState()
+    effects_state = SettingsRuntimeEffectsState(priority=LinuxProcessPriority())
     event_bridge: UIEventBridgePort | None = None
     bridge_task = None
     overlay: OverlayApplicationOwner | None = None
@@ -2187,6 +2188,7 @@ def compose_application_runtime(
         await output_runtime.wait_for_ui_event_bridge_started()
 
     startup_adapter = ApplicationStartupAdapter(
+        set_high_priority=effects_state.priority.set_enabled,
         settings=settings,
         settings_loader=lambda: settings.start().settings,
         provisioning=require_provisioning(),

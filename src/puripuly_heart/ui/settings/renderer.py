@@ -122,7 +122,7 @@ def compose_settings_general_surface(
     )
     activation_notice_row = compose_settings_triple_row(
         slots.activation_notice,
-        slots.activation_notice_middle,
+        slots.high_priority or slots.activation_notice_middle,
         slots.activation_notice_trailing,
     )
     return SettingsGeneralSurfaceRegions(

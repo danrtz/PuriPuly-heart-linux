@@ -32,6 +32,7 @@ from puripuly_heart.app.ports.settings_view import (
     DesktopOverlayBackgroundAlphaIntent,
     DesktopOverlaySizeIntent,
     DesktopOverlaySwapCaptionLanguagesIntent,
+    HighPrioritySettingsIntent,
     LlmGpuDeviceEdit,
     LocaleSettingsIntent,
     LocalLlmBaseUrlEdit,
@@ -257,6 +258,7 @@ COMMAND_ARGUMENTS = {
 IMMEDIATE = {
     "locale": lambda v: LocaleSettingsIntent(v),
     "clipboard.enabled": lambda v: ClipboardSettingsIntent(v),
+    "performance.high_priority.enabled": lambda v: HighPrioritySettingsIntent(v),
     "chatbox.source.enabled": lambda v: ChatboxSourceSettingsIntent(v),
     "chatbox.activation_notice.enabled": lambda v: ActivationNoticeSettingsIntent(v),
     "vrc_mic_intercept.enabled": lambda v: VrcMicInterceptSettingsIntent(v),
@@ -315,6 +317,7 @@ SETTINGS_FIELDS = (
 BOOLEAN_FIELDS = frozenset(
     {
         "clipboard.enabled",
+        "performance.high_priority.enabled",
         "chatbox.source.enabled",
         "chatbox.activation_notice.enabled",
         "vrc_mic_intercept.enabled",

@@ -522,6 +522,16 @@ export const actionTools = [
                 }
               ]
             },
+            "performance.high_priority.enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "overlay.swap_caption_languages": {
               "anyOf": [
                 {
@@ -1061,6 +1071,7 @@ export const actionTools = [
             "overlay.desktop_size",
             "overlay.peer_original.enabled",
             "overlay.furigana.enabled",
+            "performance.high_priority.enabled",
             "overlay.swap_caption_languages",
             "overlay.target",
             "overlay.translation.enabled",

@@ -246,6 +246,7 @@ class SettingsGeneralSurfaceSlots:
     activation_notice: ft.Control
     activation_notice_middle: ft.Control
     activation_notice_trailing: ft.Control
+    high_priority: ft.Control | None = None
 
 
 @dataclass(frozen=True, slots=True)

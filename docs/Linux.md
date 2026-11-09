@@ -175,6 +175,14 @@ Linux uses source updates rather than upstream Windows installers. After reviewi
 
 Removing the user launchers, desktop entry and `puripuly-heart.png` icon removes desktop integration. The checkout and its `.venv` can then be removed. Keep `~/.config/puripuly-heart` if you want to preserve settings, downloaded models, account references and logs. Do not remove another installation's shared settings accidentally.
 
+## Process priority
+
+On Linux, Settings → General → **High Priority** gives the application and its child workers a dedicated systemd user scope with `CPUWeight=10000`, the maximum CPU weight. Turning it off restores the normal weight of `100`. The option defaults to off, saves with the normal settings, and is reapplied at startup. Existing workers are moved into the scope, and future workers inherit it. No administrator authentication is needed on a working systemd user session with the CPU controller available.
+
+This changes CPU scheduling preference under contention. It does not select a realtime scheduling policy, reserve CPU cores, change model quality, raise GPU queue priority, change power limits, or guarantee faster GPU-bound inference. I/O weight is not changed. Missing systemd tools/session or failed control-group application produces an apply failure rather than a successful priority claim. Startup failures are logged as degraded and leave the app usable so the setting can be disabled. The CLI setting is `performance.high_priority.enabled`.
+
+The Linux adapter implements the settings priority port; application composition owns its lifetime and startup wiring. Validation uses disposable processes and isolated app settings, including existing/future worker inheritance, maximum/normal kernel CPU weights, successful settings transactions and restart persistence. The High Priority card is also rendered and clicked in an isolated GUI preview. See [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) for CPU weight semantics.
+
 ## Japanese furigana
 
 Settings → Overlay → **Japanese Furigana** adds local hiragana readings beneath kanji words in both original Japanese captions and Japanese translations. It applies to the desktop and Linux OpenXR caption renderers. English and the original text sent to history, translation and VRChat remain unchanged. See [the furigana guide](Furigana.md).

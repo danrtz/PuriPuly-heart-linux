@@ -25,7 +25,7 @@ MODULE_DESCRIPTIONS = {
     "accounts": "ChatGPT subscription/sign-in and managed QQ/Discord account readiness, usage and account actions.",
     "languages": "Self and Peer source/target languages, secondary translation and automatic language detection.",
     "output": "Captions, desktop/VR overlays, VRChat chatbox, OSC connection and microphone mute synchronization.",
-    "general": "App UI language, clipboard and anonymous usage-data settings.",
+    "general": "App UI language, process priority, clipboard and anonymous usage-data settings.",
 }
 TOPICS = frozenset({"overview", "diagnostics", *MODULES[1:]})
 MODULE_FIELDS = {
@@ -87,7 +87,12 @@ MODULE_FIELDS = {
         "chatbox.activation_notice.enabled",
         "vrc_mic_intercept.enabled",
     ),
-    "general": ("locale", "clipboard.enabled", "telemetry.enabled"),
+    "general": (
+        "locale",
+        "clipboard.enabled",
+        "telemetry.enabled",
+        "performance.high_priority.enabled",
+    ),
 }
 MODULE_KEYS = {
     "recognition": (

@@ -874,6 +874,8 @@
   "settings.presentation.account.signed_out": "Signed out",
   "settings.presentation.desktop_position": "Desktop overlay position",
   "settings.presentation.desktop_position.default": "Default position",
+  "settings.high_priority": "High Priority",
+  "settings.high_priority.description": "Give PuriPuly and its workers maximum CPU scheduling weight. No realtime scheduling or guaranteed GPU priority. Off restores normal weight.",
   "settings.overlay.furigana": "Japanese Furigana",
   "settings.description.overlay.furigana.enabled": "Show hiragana readings beneath kanji in original and translated Japanese captions."
 }

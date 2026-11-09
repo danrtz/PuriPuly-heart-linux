@@ -131,6 +131,7 @@ ORDER24_UI_PROMPT_CLIPBOARD_STATE_SETTINGS_PATHS: Final[tuple[str, ...]] = (
     "intent.secrets.backend",
     "intent.secrets.encrypted_file_path",
     "intent.ui.locale",
+    "intent.performance.high_priority",
     "state.peer_translation.eula_accepted",
     "state.integrated_context.bootstrapped",
     "intent.clipboard.auto_translate_enabled",

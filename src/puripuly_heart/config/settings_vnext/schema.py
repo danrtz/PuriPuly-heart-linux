@@ -796,7 +796,17 @@ class PromptIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class PerformanceIntent:
+    high_priority: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.high_priority, bool):
+            raise ValueError("high_priority must be a boolean")
+
+
+@dataclass(frozen=True, slots=True)
 class UserIntentSettings:
+    performance: PerformanceIntent = field(default_factory=PerformanceIntent)
     translation: TranslationIntent = field(default_factory=TranslationIntent)
     local_llm: LocalLLMIntent = field(default_factory=LocalLLMIntent)
     stt: STTIntent = field(default_factory=STTIntent)
