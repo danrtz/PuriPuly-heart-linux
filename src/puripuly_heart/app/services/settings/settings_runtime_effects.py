@@ -9,6 +9,7 @@ from puripuly_heart.app.ports.overlay_calibration import (
     OverlayCalibrationRuntimeEffectsPort,
 )
 from puripuly_heart.app.ports.settings_runtime_effects import (
+    ProcessPriorityPort,
     SettingsRuntimeState,
     SettingsRuntimeTransition,
 )
@@ -69,6 +70,7 @@ from .settings_projection import SettingsProjectionOwner
 @dataclass(slots=True)
 class SettingsRuntimeEffectsState:
     audio_test_signature: object | None = None
+    priority: ProcessPriorityPort | None = None
 
 
 def managed_gemma_prefix_refresh_required(
@@ -491,6 +493,10 @@ class SettingsRuntimeEffectsAdapter:
         rebuild_managed_gemma: bool = True,
     ) -> None:
         settings = transition.settings
+        if self._state.priority is not None:
+            await self._state.priority.set_enabled(settings.intent.performance.high_priority)
+        elif settings.intent.performance.high_priority:
+            raise RuntimeError("The priority controller is unavailable")
         self.apply_activation_notice(settings)
         await self._desktop_overlay.apply_controls(transition.desktop_runtime_controls)
         previous_strict_runtime_errors = self._clipboard.strict_runtime_errors

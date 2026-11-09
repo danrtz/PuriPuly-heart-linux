@@ -51,12 +51,33 @@ class ApplicationStartupAdapter:
     start_event_bridge: Callable[[UIEventBridgePort], None]
     wait_for_event_bridge: Callable[[], Awaitable[None]]
     sync_clipboard: Callable[[], Awaitable[None]]
+    set_high_priority: Callable[[bool], Awaitable[None]] | None = None
 
     async def prepare_startup_settings(self) -> ApplicationStartupState:
         loaded_settings = self.settings_loader()
         self.settings.canonical = loaded_settings
         self.settings.authoritative = True
         self.settings.remember_projection(loaded_settings)
+        if self.set_high_priority is not None:
+            try:
+                await self.set_high_priority(loaded_settings.intent.performance.high_priority)
+            except Exception as exc:
+                self.runtime_logging.emit_failure(
+                    ErrorDiagnostics(
+                        component="application_startup",
+                        operation="priority",
+                        code="priority_apply_failed",
+                        category="lifecycle",
+                        visibility="basic",
+                        content_policy="metadata_only",
+                        status_code=None,
+                        retry_after_ms=None,
+                        fields=safe_exception_fields(exc),
+                    ),
+                    severity="warning",
+                    disposition="degraded",
+                    stage="startup_priority",
+                )
         await self.provisioning.inspect_cpu()
         await self.provisioning.inspect_gpu(
             explicit_intent=self.gpu_state().selected_provider_requires_model,

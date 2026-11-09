@@ -28,6 +28,7 @@ from puripuly_heart.app.ports.settings_view import (
     DesktopOverlaySizeIntent,
     DesktopOverlaySwapCaptionLanguagesIntent,
     GeneralSettingsSnapshot,
+    HighPrioritySettingsIntent,
     ImmediateSettingsIntent,
     LlmGpuDeviceEdit,
     LocaleSettingsIntent,
@@ -322,6 +323,7 @@ def settings_view_surface_snapshots(
         activation_notice_enabled=intent.osc.activation_notice_enabled,
         clipboard_auto_translate_enabled=intent.clipboard.auto_translate_enabled,
         telemetry_enabled=intent.telemetry.enabled,
+        high_priority=intent.performance.high_priority,
         peer_expected_languages=tuple(intent.languages.peer_expected_languages),
     )
     source_language = intent.languages.source_language
@@ -554,6 +556,10 @@ def materialize_immediate_settings_intent(
         updated = _with_intent(
             updated,
             osc=replace(updated.intent.osc, activation_notice_enabled=intent.enabled),
+        )
+    elif isinstance(intent, HighPrioritySettingsIntent):
+        updated = _with_intent(
+            updated, performance=replace(updated.intent.performance, high_priority=intent.enabled)
         )
     elif isinstance(intent, ClipboardSettingsIntent):
         updated = _with_intent(

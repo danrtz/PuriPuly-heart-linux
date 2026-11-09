@@ -874,6 +874,8 @@
   "settings.presentation.account.signed_out": "Выход выполнен",
   "settings.presentation.desktop_position": "Позиция оверлея на рабочем столе",
   "settings.presentation.desktop_position.default": "Позиция по умолчанию",
+  "settings.high_priority": "Высокий приоритет",
+  "settings.high_priority.description": "Максимальный вес CPU для PuriPuly и рабочих процессов. Это не режим реального времени и не гарантия приоритета GPU. Выключение возвращает обычный вес.",
   "settings.overlay.furigana": "Фуригана для японского",
   "settings.description.overlay.furigana.enabled": "Show hiragana readings beneath kanji in original and translated Japanese captions."
 }

@@ -34,6 +34,11 @@ class LoopbackCaptureSettingsIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class HighPrioritySettingsIntent:
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TelemetrySettingsIntent:
     enabled: bool
 
@@ -146,6 +151,7 @@ class GeneralSettingsSnapshot:
     clipboard_auto_translate_enabled: bool
     telemetry_enabled: bool
     peer_expected_languages: tuple[str, ...]
+    high_priority: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +325,7 @@ ImmediateSettingsIntent: TypeAlias = (
     | ChatboxSourceSettingsIntent
     | ActivationNoticeSettingsIntent
     | ClipboardSettingsIntent
+    | HighPrioritySettingsIntent
     | PeerExpectedLanguagesIntent
     | CustomVocabularySettingsIntent
     | OverlayTargetSettingsIntent
@@ -520,6 +527,7 @@ __all__ = [
     "SettingsApplyOutcome",
     "SttGpuDeviceEdit",
     "SystemPromptEdit",
+    "HighPrioritySettingsIntent",
     "TelemetrySettingsIntent",
     "TranslationSelectionSnapshot",
     "TranslationSelectionEdit",

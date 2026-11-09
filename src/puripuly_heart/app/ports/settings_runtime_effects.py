@@ -6,6 +6,10 @@ from typing import Generic, Protocol, TypeVar
 SettingsT = TypeVar("SettingsT")
 
 
+class ProcessPriorityPort(Protocol):
+    async def set_enabled(self, enabled: bool) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class SettingsRuntimeState:
     runtime_available: bool

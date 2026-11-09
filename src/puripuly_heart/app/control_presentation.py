@@ -19,6 +19,7 @@ class SettingPresentation:
 _DEFINITIONS = {
     "locale": ("settings.section.ui", "locale", "general"),
     "clipboard.enabled": ("settings.clipboard_auto_translate", "boolean", "general"),
+    "performance.high_priority.enabled": ("settings.high_priority", "boolean", "general"),
     "chatbox.source.enabled": ("settings.chatbox_include_source", "chatbox", "general"),
     "chatbox.activation_notice.enabled": ("settings.activation_notice.title", "boolean", "general"),
     "vrc_mic_intercept.enabled": ("settings.vrc_mic_intercept", "boolean", "general"),
@@ -103,6 +104,7 @@ for _name in (
 _CANONICAL_PATHS = {
     "locale": "ui.locale",
     "clipboard.enabled": "clipboard.auto_translate_enabled",
+    "performance.high_priority.enabled": "performance.high_priority",
     "chatbox.source.enabled": "osc.chatbox_include_source",
     "chatbox.activation_notice.enabled": "osc.activation_notice_enabled",
     "vrc_mic_intercept.enabled": "osc.vrc_mic_intercept",

@@ -826,6 +826,18 @@ def test_load_from_settings_peer_stt_card_has_no_peer_subsetting_controls(
     assert t("settings.peer_soniox_model") not in labels
 
 
+def test_high_priority_card_toggles_the_persisted_setting(monkeypatch, settings_events):
+    view, _ = _make_settings_view(monkeypatch, settings_events)
+    settings_events.load(view, AppSettingsVNext(), config_path=Path("settings.json"))
+    assert not settings_events.settings.intent.performance.high_priority
+    view._on_high_priority_click(None)
+    assert settings_events.settings.intent.performance.high_priority
+    assert view._high_priority_text.content.value == t("settings.option.on")
+    view._on_high_priority_click(None)
+    assert not settings_events.settings.intent.performance.high_priority
+    assert view._high_priority_text.content.value == t("settings.option.off")
+
+
 def test_clipboard_auto_translate_click_toggles_immediately_without_modal(
     monkeypatch: pytest.MonkeyPatch, settings_events
 ) -> None:

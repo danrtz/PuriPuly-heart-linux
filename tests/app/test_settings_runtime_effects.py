@@ -8,6 +8,7 @@ import pytest
 from puripuly_heart.app.ports.settings_runtime_effects import SettingsRuntimeTransition
 from puripuly_heart.app.services.settings.settings_runtime_effects import (
     SettingsRuntimeEffectsAdapter,
+    SettingsRuntimeEffectsState,
 )
 from puripuly_heart.app.wiring.wiring_provider_runtime import (
     project_translation_runtime_settings_from_vnext,
@@ -92,6 +93,7 @@ async def test_live_model_settings_refresh_runtime_prompt_without_changing_overr
         build_translation_runtime_config(project_translation_runtime_settings_from_vnext(generic))
     )
     adapter = object.__new__(SettingsRuntimeEffectsAdapter)
+    adapter._state = SettingsRuntimeEffectsState()
     adapter._desktop_overlay = _AsyncNoop()
     adapter._clipboard = SimpleNamespace(strict_runtime_errors=False, sync=_AsyncNoop().sync)
     adapter._provisioning = _AsyncNoop()
@@ -164,6 +166,7 @@ async def test_live_model_settings_refresh_runtime_prompt_without_changing_overr
 def test_peer_runtime_convergence_requires_capture_and_committed_live_provider() -> None:
     settings = AppSettingsVNext()
     adapter = object.__new__(SettingsRuntimeEffectsAdapter)
+    adapter._state = SettingsRuntimeEffectsState()
     capture_results = iter((None, True, True))
     adapter._peer = SimpleNamespace(
         owner=SimpleNamespace(
@@ -208,6 +211,7 @@ async def test_failed_self_runtime_apply_does_not_write_target_signature_cache_f
         events.append("peer_refresh")
 
     adapter = object.__new__(SettingsRuntimeEffectsAdapter)
+    adapter._state = SettingsRuntimeEffectsState()
     adapter._desktop_overlay = _AsyncNoop()
     adapter._clipboard = SimpleNamespace(strict_runtime_errors=False, sync=_AsyncNoop().sync)
     adapter._provisioning = _AsyncNoop()
@@ -292,6 +296,7 @@ async def test_peer_refresh_recomputes_activation_after_eula_transition() -> Non
     events: list[str] = []
     activation_calls: list[tuple[bool, bool]] = []
     adapter = object.__new__(SettingsRuntimeEffectsAdapter)
+    adapter._state = SettingsRuntimeEffectsState()
     adapter._desktop_overlay = _AsyncNoop()
     adapter._clipboard = SimpleNamespace(strict_runtime_errors=False, sync=_AsyncNoop().sync)
     adapter._provisioning = _AsyncNoop()
@@ -379,6 +384,7 @@ async def test_stale_active_peer_with_matching_cache_retries_without_caching_non
     target = AppSettingsVNext()
     events: list[str] = []
     adapter = object.__new__(SettingsRuntimeEffectsAdapter)
+    adapter._state = SettingsRuntimeEffectsState()
     adapter._desktop_overlay = _AsyncNoop()
     adapter._clipboard = SimpleNamespace(strict_runtime_errors=False, sync=_AsyncNoop().sync)
     adapter._provisioning = _AsyncNoop()
