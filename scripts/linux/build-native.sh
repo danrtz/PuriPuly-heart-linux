@@ -25,9 +25,9 @@ cc -shared -fPIC -O2 -Wall -Wextra -o build/desktop/libpuripuly-gtk-rgba.so nati
 export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-"$repo_root/target"}
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}
 export TRANSCRIBE_CMAKE_ARGS="${TRANSCRIBE_CMAKE_ARGS:+$TRANSCRIBE_CMAKE_ARGS }-DTRANSCRIBE_USE_SYSTEM_BLAS=OFF"
-cargo build --release --locked --manifest-path native/gpu_worker/Cargo.toml
+cargo build --release --locked --manifest-path native/asr_worker/Cargo.toml
 cargo build --release --locked --manifest-path native/overlay/Cargo.toml
-install -Dm755 "$CARGO_TARGET_DIR/release/PuriPulyHeartGpuWorker" build/gpu_worker/PuriPulyHeartGpuWorker
+install -Dm755 "$CARGO_TARGET_DIR/release/PuriPulyHeartASRWorker" build/asr_worker/PuriPulyHeartASRWorker
 install -Dm755 "$CARGO_TARGET_DIR/release/PuriPulyHeartOverlay" build/overlay/PuriPulyHeartOverlay
 "$task_python" -m puripuly_heart.release_evidence.linux_managed_gemma_distribution --cache-dir build/llama-cache
 printf '%s\n' 'Native speech, subtitle overlay and local translation runtimes are ready.'

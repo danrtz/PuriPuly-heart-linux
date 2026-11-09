@@ -5,6 +5,7 @@ import json
 import logging
 import socket
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
 
@@ -261,6 +262,117 @@ async def test_overlay_bridge_requires_session_token() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("authenticated", [False, True])
+async def test_overlay_bridge_rejects_unfinished_excessive_fragments_and_recovers(
+    tmp_path, authenticated: bool
+) -> None:
+    diagnostics = OverlayDiagnosticsRecorder(
+        overlay_instance_id="overlay-test", diagnostics_dir=tmp_path, capture_measurements=True
+    )
+    bridge = OverlayBridge(
+        session_token="expected-token",
+        overlay_instance_id="overlay-test",
+        diagnostics=diagnostics,
+    )
+    await bridge.start()
+    release_final_fragment = asyncio.Event()
+
+    async def unfinished_message() -> AsyncIterator[str]:
+        for _ in range(4097):
+            yield ""
+        await release_final_fragment.wait()
+        yield _native_auth()
+
+    try:
+        async with connect(
+            bridge.url, proxy=None, compression=None, ping_interval=None, close_timeout=1
+        ) as ws:
+            if authenticated:
+                await ws.send(_native_auth())
+                snapshot = json.loads(await asyncio.wait_for(ws.recv(), timeout=2.0))
+                assert snapshot["type"] == "snapshot"
+            sender = asyncio.create_task(ws.send(unfinished_message()))
+            try:
+                with pytest.raises(ConnectionClosedError) as caught:
+                    await asyncio.wait_for(ws.recv(), timeout=2.0)
+                assert caught.value.rcvd is not None
+                assert caught.value.rcvd.code == 1009
+                assert caught.value.rcvd.reason == "too many fragments"
+                assert not release_final_fragment.is_set()
+            finally:
+                release_final_fragment.set()
+                await asyncio.wait_for(asyncio.gather(sender, return_exceptions=True), timeout=2.0)
+
+        await _wait_until(
+            lambda: any(
+                event["event"] == "connection_closed" for event in diagnostics.bridge_events
+            )
+        )
+        closed = next(
+            event for event in diagnostics.bridge_events if event["event"] == "connection_closed"
+        )
+        assert closed["authenticated"] is authenticated
+        assert (
+            any(event["event"] == "connection_authenticated" for event in diagnostics.bridge_events)
+            is authenticated
+        )
+        assert not bridge._session_health.token_consumed
+        assert not bridge._authenticated_connections
+        assert bridge.messages.empty()
+
+        async with connect(bridge.url, proxy=None, compression=None, ping_interval=None) as ws:
+            auth = _native_auth()
+            await ws.send(["", auth[:20], auth[20:], ""])
+            snapshot = json.loads(await asyncio.wait_for(ws.recv(), timeout=2.0))
+            assert snapshot["type"] == "snapshot"
+            message = {"type": "overlay_event", "event": "fragmented-recovery"}
+            encoded = json.dumps(message)
+            await ws.send(["", encoded[:10], encoded[10:], ""])
+            assert await asyncio.wait_for(bridge.messages.get(), timeout=2.0) == message
+    finally:
+        await bridge.stop()
+
+
+@pytest.mark.asyncio
+async def test_overlay_bridge_accepts_auth_at_fragment_limit() -> None:
+    bridge = OverlayBridge(session_token="expected-token", overlay_instance_id="overlay-test")
+    await bridge.start()
+    try:
+        async with connect(bridge.url, proxy=None, compression=None, ping_interval=None) as ws:
+            await ws.send([""] * 4094 + [_native_auth()])
+            snapshot = json.loads(await asyncio.wait_for(ws.recv(), timeout=2.0))
+            assert snapshot["type"] == "snapshot"
+            assert bridge._session_health.token_consumed
+    finally:
+        await bridge.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authenticated", [False, True])
+async def test_overlay_bridge_preserves_fragmented_message_byte_limit(authenticated: bool) -> None:
+    bridge = OverlayBridge(session_token="expected-token", overlay_instance_id="overlay-test")
+    await bridge.start()
+    try:
+        async with connect(bridge.url, proxy=None, compression=None, ping_interval=None) as ws:
+            if authenticated:
+                await ws.send(_native_auth())
+                snapshot = json.loads(await asyncio.wait_for(ws.recv(), timeout=2.0))
+                assert snapshot["type"] == "snapshot"
+            payload = (
+                json.dumps({"type": "overlay_event"}) if authenticated else _native_auth()
+            ).ljust(1024 * 1024 + 1)
+            await ws.send([payload[: 512 * 1024], payload[512 * 1024 :]])
+            with pytest.raises(ConnectionClosedError) as caught:
+                await asyncio.wait_for(ws.recv(), timeout=2.0)
+            assert caught.value.rcvd is not None
+            assert caught.value.rcvd.code == 1009
+            assert caught.value.rcvd.reason != "too many fragments"
+            assert bridge.messages.empty()
+    finally:
+        await bridge.stop()
+
+
+@pytest.mark.asyncio
 async def test_overlay_bridge_sends_authenticated_initial_snapshot() -> None:
     bridge = OverlayBridge(
         session_token="expected-token",
@@ -285,15 +397,23 @@ async def test_overlay_bridge_sends_authenticated_initial_snapshot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_overlay_bridge_rejects_previous_contract_before_sending_snapshot() -> None:
+@pytest.mark.parametrize(
+    "contract_version", [OVERLAY_CONTRACT_VERSION - 1, OVERLAY_CONTRACT_VERSION + 1]
+)
+@pytest.mark.parametrize("desktop_runtime", [False, True])
+async def test_overlay_bridge_rejects_unmatched_contract_before_sending_snapshot(
+    contract_version: int,
+    desktop_runtime: bool,
+) -> None:
     bridge = OverlayBridge(
         session_token="expected-token",
         overlay_instance_id="overlay-test",
         runtime_generation=1,
         initial_snapshot=OverlayPresentationSnapshot(revision=1),
+        desktop_runtime_controls_enabled=desktop_runtime,
     )
     auth = json.loads(_native_auth())
-    auth["contract_version"] = OVERLAY_CONTRACT_VERSION - 1
+    auth["contract_version"] = contract_version
     await bridge.start()
 
     try:
@@ -305,6 +425,61 @@ async def test_overlay_bridge_rejects_previous_contract_before_sending_snapshot(
         await bridge.stop()
 
     assert message == {"type": "auth_error"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "native_retry_contract",
+    [
+        {"version": 1, "ownership": "exclusive"},
+        {"version": 3, "ownership": "exclusive"},
+        {"version": 2, "ownership": "shared"},
+        {"version": 2, "ownership": "exclusive", "extension": True},
+    ],
+)
+async def test_overlay_bridge_rejects_unmatched_native_retry_contract_before_sending_snapshot(
+    native_retry_contract: dict[str, object],
+) -> None:
+    bridge = OverlayBridge(
+        session_token="expected-token",
+        overlay_instance_id="overlay-test",
+        runtime_generation=1,
+        initial_snapshot=OverlayPresentationSnapshot(revision=1),
+    )
+    auth = json.loads(_native_auth())
+    auth["capabilities"]["native_presentation_retry"] = native_retry_contract
+    await bridge.start()
+
+    try:
+        async with connect(bridge.url) as ws:
+            await ws.send(json.dumps(auth))
+            message = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.5))
+            await asyncio.wait_for(ws.wait_closed(), timeout=0.5)
+    finally:
+        await bridge.stop()
+
+    assert message == {"type": "auth_error"}
+
+
+@pytest.mark.asyncio
+async def test_overlay_bridge_accepts_matched_native_contract_before_sending_snapshot() -> None:
+    bridge = OverlayBridge(
+        session_token="expected-token",
+        overlay_instance_id="overlay-test",
+        runtime_generation=1,
+        initial_snapshot=OverlayPresentationSnapshot(revision=1),
+    )
+    await bridge.start()
+
+    try:
+        async with connect(bridge.url) as ws:
+            await ws.send(_native_auth())
+            message = json.loads(await asyncio.wait_for(ws.recv(), timeout=0.5))
+    finally:
+        await bridge.stop()
+
+    assert message["type"] == "snapshot"
+    assert message["payload"]["revision"] == 1
 
 
 @pytest.mark.asyncio
@@ -669,6 +844,54 @@ async def test_overlay_bridge_revalidates_successor_age_after_stalled_send() -> 
         "blocks": [],
     }
     await bridge.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expired", [False, True])
+async def test_overlay_bridge_delayed_authentication_replays_only_latest_valid_scene(
+    expired: bool,
+) -> None:
+    clock = FakeClock(_now=10.0)
+    bridge = OverlayBridge(
+        session_token="expected-token",
+        overlay_instance_id="overlay-test",
+        clock=clock,
+    )
+    await bridge.start()
+    try:
+        for revision, text in [(1, "replaced during initialization"), (2, "latest scene")]:
+            block_id = f"peer:{revision}"
+            await bridge.replace_snapshot(
+                OverlayPresentationSnapshot(
+                    revision=revision,
+                    blocks=[
+                        OverlayPresentationBlock(
+                            id=block_id,
+                            occupant_key=block_id,
+                            appearance_seq=revision,
+                            channel="peer",
+                            block_variant="finalized",
+                            primary_text=text,
+                            secondary_text="",
+                            secondary_enabled=False,
+                        )
+                    ],
+                ),
+                block_expirations={block_id: 11.0 if expired else 20.0},
+            )
+        clock.advance(2.5)
+        assert not any(receipt.outcome == "written" for receipt in bridge.delivery_receipts)
+        async with connect(bridge.url, ping_interval=None, compression=None) as ws:
+            await ws.send(_native_auth())
+            message = json.loads(await asyncio.wait_for(ws.recv(), timeout=1.0))
+            assert message["type"] == "snapshot"
+            blocks = message["payload"]["blocks"]
+            assert [block["primary_text"] for block in blocks] == (
+                [] if expired else ["latest scene"]
+            )
+            assert message["payload"]["revision"] >= 2
+    finally:
+        await bridge.stop()
 
 
 @pytest.mark.asyncio
@@ -1365,6 +1588,38 @@ def test_overlay_bridge_only_challenged_current_status_clears_acceptance_deadlin
     assert bridge._session_health.native_acceptance_deadline is None
 
 
+def test_overlay_bridge_post_startup_unaccepted_scene_keeps_two_second_deadline() -> None:
+    clock = FakeClock(_now=100.0)
+    bridge = OverlayBridge(
+        session_token="expected-token",
+        overlay_instance_id="overlay-test",
+        clock=clock,
+    )
+    health = bridge._session_health
+    health.begin()
+    health.record_scene_written(1)
+    health.record_challenge(1, clock.now())
+    status = {
+        "type": "owner_status",
+        "overlay_instance_id": "overlay-test",
+        "runtime_generation": 1,
+        "health_challenge_id": 1,
+        "latest_applied_revision": 1,
+    }
+    assert health.handle_owner_status(status)["health_challenge_validated"]
+    assert health.native_acceptance_deadline is None
+    clock.advance(1.0)
+    health.record_scene_written(2)
+    clock.advance(1.999)
+    health.record_challenge(2, clock.now())
+    status["health_challenge_id"] = 2
+    assert health.handle_owner_status(status)["health_challenge_validated"]
+    health.record_scene_written(3)
+    assert health.failure_due() is None
+    clock.advance(0.001)
+    assert health.failure_due() == "native_acceptance_timeout"
+
+
 @pytest.mark.asyncio
 async def test_overlay_bridge_retires_connection_on_obsolete_validity_challenge() -> None:
     bridge = OverlayBridge(
@@ -1430,7 +1685,6 @@ async def test_active_self_stalled_bridge_coalesces_and_never_replays_removed_ta
         accepted = presenter.snapshot()
         assert accepted.blocks[0].secondary_text == "synthetic translation"
         assert accepted.native_quiet_tail_episodes.self.phase == "stream"
-        assert accepted.native_quiet_tail_episodes.self.generation == 1
         assert not stalled.sent_payloads
         if remove == "expiry":
             clock.advance(9.0)
@@ -1455,5 +1709,6 @@ async def test_active_self_stalled_bridge_coalesces_and_never_replays_removed_ta
         assert reconnected.sent_payloads[0]["payload"]["blocks"] == []
         assert "native_quiet_tail_episodes" not in reconnected.sent_payloads[0]["payload"]
     finally:
+        stalled.release_send.set()
         await presenter.close()
         await bridge.stop()

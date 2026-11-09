@@ -228,178 +228,6 @@ def test_native_renderer_uses_embedded_flet_without_viewer_owner(monkeypatch) ->
     assert window._window_process_info_provider() == (os.getpid(), None)
 
 
-def test_desktop_overlay_snapshot_mapping_table_covers_block_contract_and_emitted_lines() -> None:
-    rows = {
-        (row.snapshot_field, row.block_type, row.slot): row
-        for row in desktop_overlay.DESKTOP_CAPTION_MAPPING_TABLE
-    }
-    row_by_block_and_role = {
-        (row.block_type, row.role): row for row in desktop_overlay.DESKTOP_CAPTION_MAPPING_TABLE
-    }
-    cases = [
-        (
-            "active_self/self",
-            _block(
-                "self-active",
-                channel="self",
-                block_variant="active_self",
-                appearance_seq=10,
-                primary_text="active self source",
-                secondary_text="active self translation",
-                secondary_enabled=True,
-            ),
-            ("active self source", "active self translation"),
-            {
-                ("blocks[]", "primary"): {
-                    "role": "active_self_source",
-                    "color": _DESKTOP_CAPTION_WHITE,
-                },
-                ("blocks[]", "secondary"): {
-                    "role": "active_self_translation",
-                    "color": _DESKTOP_CAPTION_WHITE,
-                },
-            },
-        ),
-        (
-            "active_peer/peer",
-            _block(
-                "peer-active",
-                channel="peer",
-                block_variant="active_peer",
-                appearance_seq=20,
-                primary_text="",
-                secondary_text="active peer source",
-                secondary_enabled=True,
-            ),
-            ("active peer source",),
-            {
-                ("blocks[]", "primary"): {
-                    "role": "active_peer_source",
-                    "promoted": True,
-                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
-                },
-            },
-        ),
-        (
-            "finalized/peer translated",
-            _block(
-                "peer-translated",
-                channel="peer",
-                block_variant="finalized",
-                appearance_seq=30,
-                primary_text="peer translation",
-                secondary_text="peer original",
-                secondary_enabled=True,
-            ),
-            ("peer translation", "peer original"),
-            {
-                ("blocks[]", "primary"): {
-                    "role": "peer_translation",
-                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
-                },
-                ("blocks[]", "secondary"): {
-                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
-                },
-            },
-        ),
-        (
-            "finalized/peer source-only",
-            _block(
-                "peer-source-only",
-                channel="peer",
-                block_variant="finalized",
-                appearance_seq=40,
-                primary_text="",
-                secondary_text="peer source only",
-                secondary_enabled=True,
-            ),
-            ("peer source only",),
-            {
-                ("blocks[]", "primary"): {
-                    "promoted": True,
-                    "color": _DESKTOP_SPEAKER_COLORS["gray"],
-                },
-            },
-        ),
-        (
-            "finalized/self",
-            _block(
-                "self-finalized",
-                channel="self",
-                block_variant="finalized",
-                appearance_seq=50,
-                primary_text="self source",
-                secondary_text="self translation",
-                secondary_enabled=True,
-            ),
-            ("self source", "self translation"),
-            {
-                ("blocks[]", "secondary"): {
-                    "role": "self_translation",
-                    "color": _DESKTOP_CAPTION_WHITE,
-                },
-            },
-        ),
-        (
-            "finalized/self secondary-only",
-            _block(
-                "self-secondary-only",
-                channel="self",
-                block_variant="finalized",
-                appearance_seq=60,
-                primary_text="",
-                secondary_text="self translation only",
-                secondary_enabled=True,
-            ),
-            ("self translation only",),
-            {
-                ("blocks[]", "primary"): {
-                    "role": "self_translation",
-                    "promoted": True,
-                    "color": _DESKTOP_CAPTION_WHITE,
-                },
-            },
-        ),
-        (
-            "all",
-            None,
-            None,
-            {("calibration", "none"): {"role": "desktop_visual_ignored"}},
-        ),
-        (
-            "none/edit",
-            None,
-            None,
-            {
-                ("blocks[]", "none"): {
-                    "role": "edit_no_caption_empty_card",
-                },
-            },
-        ),
-    ]
-
-    for block_type, block, expected_texts, expected_rows in cases:
-        for (snapshot_field, slot), expected_attrs in expected_rows.items():
-            row = rows[(snapshot_field, block_type, slot)]
-            for attr, value in expected_attrs.items():
-                assert getattr(row, attr) == value, (block_type, slot, attr)
-        if block is None:
-            continue
-        plan = desktop_overlay.build_desktop_caption_plan(
-            OverlayPresentationSnapshot(blocks=[block])
-        )
-        assert tuple(line.text for line in plan.lines) == expected_texts
-        for line in plan.lines:
-            row = row_by_block_and_role[(block_type, line.role)]
-            assert row.slot == line.slot, (block_type, line.role)
-            assert row.promoted is line.promoted, (block_type, line.role)
-            assert row.color == line.color, (block_type, line.role)
-            assert int(row.priority.split(maxsplit=1)[0]) == line.priority, (
-                block_type,
-                line.role,
-            )
-
-
 def test_desktop_overlay_swap_caption_languages_reverses_source_and_target_slots() -> None:
     snapshot = OverlayPresentationSnapshot(
         blocks=[
@@ -834,6 +662,98 @@ def test_desktop_overlay_dynamic_inner_card_width_clamps_to_narrow_window() -> N
     assert inner_card.width == pytest.approx(plan.window_width)
     assert text_layer.width == pytest.approx(slot.card_text_width)
     assert first_line_region.width == pytest.approx(slot.card_text_width)
+
+
+@pytest.mark.parametrize(
+    ("primary_text", "secondary_text", "primary_scale", "secondary_scale"),
+    [
+        ("Hello there", "こんにちは", 1.0, 1.0),
+        ("가" * 69, "訳" * 57, 1.0, 1.0),
+        ("가" * 74, "訳" * 60, 0.9, 0.9),
+        ("가" * 80, "Short translation", 0.8, 1.0),
+        ("Short caption", "訳" * 70, 1.0, 0.8),
+        ("가" * 80, "訳" * 70, 0.8, 0.8),
+        ("가" * 300, "訳" * 300, 0.8, 0.8),
+    ],
+)
+@pytest.mark.parametrize("interaction_mode", ["edit", "pass_through"])
+def test_desktop_overlay_auto_shrink_fits_each_lane_without_changing_geometry_or_text(
+    primary_text: str,
+    secondary_text: str,
+    primary_scale: float,
+    secondary_scale: float,
+    interaction_mode: str,
+) -> None:
+    block = _block(
+        "fitted-self",
+        channel="self",
+        block_variant="finalized",
+        appearance_seq=1,
+        primary_text=primary_text,
+        secondary_text=secondary_text,
+        secondary_enabled=True,
+    )
+    snapshot = OverlayPresentationSnapshot(blocks=[block])
+    plan = desktop_overlay.build_desktop_caption_plan(
+        snapshot,
+        window_width=1344,
+        window_height=336,
+        interaction_mode=interaction_mode,
+    )
+    primary, secondary = plan.lines
+    assert primary.font_size == pytest.approx(41 * primary_scale)
+    assert secondary.font_size == pytest.approx(25 * secondary_scale)
+    assert [line.text for line in plan.lines] == [primary_text, secondary_text]
+    assert (block.primary_text, block.secondary_text) == (primary_text, secondary_text)
+    assert (plan.window_width, plan.window_height) == (1344, 336)
+    assert plan.slot_height == pytest.approx(163)
+    assert plan.primary_region_height == pytest.approx(41 * 1.24 * 2)
+    assert plan.secondary_region_height == pytest.approx(25 * 1.24)
+    if primary_scale < 1.0 or secondary_scale < 1.0:
+        assert plan.slots[0].card_width == 1344
+        assert plan.slots[0].card_text_width == 1300
+
+    surface = desktop_overlay.build_desktop_caption_surface(plan)
+    primary_control = _caption_text_control(surface, primary_text)
+    secondary_control = _caption_text_control(surface, secondary_text)
+    assert primary_control.size == pytest.approx(41 * primary_scale)
+    assert secondary_control.size == pytest.approx(25 * secondary_scale)
+    assert primary_control.style.size == primary_control.size
+    assert secondary_control.style.size == secondary_control.size
+    assert primary_control.max_lines == 2
+    assert secondary_control.max_lines == 1
+    assert primary_control.overflow == ft.TextOverflow.ELLIPSIS
+    assert secondary_control.overflow == ft.TextOverflow.ELLIPSIS
+
+
+@pytest.mark.parametrize(
+    ("primary_text", "scale"),
+    [
+        ("가" * 60 + "나", 1.0),
+        ("가" * 34 + "\n" + "나" * 34, 1.0),
+        ("가" * 60 + "\n" + "나", 0.8),
+    ],
+)
+def test_desktop_overlay_auto_shrink_respects_explicit_newline_line_budget(
+    primary_text: str, scale: float
+) -> None:
+    plan = desktop_overlay.build_desktop_caption_plan(
+        OverlayPresentationSnapshot(
+            blocks=[
+                _block(
+                    "multiline-self",
+                    channel="self",
+                    block_variant="finalized",
+                    appearance_seq=1,
+                    primary_text=primary_text,
+                )
+            ]
+        ),
+        window_width=1344,
+        window_height=336,
+    )
+    assert plan.lines[0].font_size == pytest.approx(41 * scale)
+    assert plan.lines[0].text == primary_text
 
 
 def test_desktop_overlay_caption_text_has_no_shadow_or_stroke() -> None:
@@ -1353,34 +1273,6 @@ def test_desktop_overlay_caption_font_policy_preserves_language_specific_weights
     assert text_control.style.weight == expected_flet_weight
 
 
-def test_desktop_overlay_caption_weight_uses_semibold_for_general_text() -> None:
-    plan = desktop_overlay.build_desktop_caption_plan(
-        OverlayPresentationSnapshot(
-            blocks=[
-                _block(
-                    "caption-weight",
-                    channel="peer",
-                    block_variant="finalized",
-                    appearance_seq=1,
-                    primary_text="Readable semibold caption",
-                )
-            ]
-        )
-    )
-
-    assert {line.weight for line in plan.lines} == {"semibold"}
-
-    surface = desktop_overlay.build_desktop_caption_surface(plan)
-    slot_column = surface.content.controls[0]
-    outer_slot = slot_column.controls[0]
-    inner_card = outer_slot.content
-    text_layer = inner_card.content
-    text_column = text_layer.content
-    text_control = text_column.controls[0].content
-    assert text_control.weight == ft.FontWeight.W_600
-    assert text_control.style.weight == ft.FontWeight.W_600
-
-
 class RecordingLifecycleSink:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
@@ -1433,6 +1325,7 @@ class RecordingWindowZOrderPort:
         self.bound_pids: list[int] = []
         self.reassert_calls = 0
         self.close_calls = 0
+        self.watch_stop_calls = 0
 
     def bind_process(self, pid: int) -> None:
         self.bound_pids.append(pid)
@@ -1479,6 +1372,9 @@ class RecordingWindowZOrderPort:
             raise self.error
         return self.result
 
+    def stop_topmost_watch(self) -> None:
+        self.watch_stop_calls += 1
+
     def close(self) -> None:
         self.close_calls += 1
 
@@ -1486,11 +1382,15 @@ class RecordingWindowZOrderPort:
 class RecordingWebSocket:
     def __init__(self) -> None:
         self.sent_messages: list[dict[str, object]] = []
+        self.close_calls = 0
 
     async def send(self, payload: str) -> None:
         decoded = json.loads(payload)
         assert isinstance(decoded, dict)
         self.sent_messages.append(decoded)
+
+    async def close(self) -> None:
+        self.close_calls += 1
 
 
 class FakeFletWindow:
@@ -1541,11 +1441,11 @@ class FakeFletWindow:
 
     async def close(self) -> None:
         self.close_calls += 1
-        self._app.closed.set()
+        await self._app.shutdown()
 
     async def destroy(self) -> None:
         self.destroy_calls += 1
-        self._app.closed.set()
+        await self._app.shutdown()
 
     async def wait_until_ready_to_show(self) -> None:
         self.ready_wait_calls += 1
@@ -1614,42 +1514,33 @@ class FakeFletPage:
         return task
 
 
-class JumpingRevealFletPage(FakeFletPage):
-    def __init__(self, app: FakeFletApp) -> None:
-        super().__init__(app)
-        self.reveal_jump_done = False
-
-    def update(self) -> None:
-        super().update()
-        if (
-            not self.reveal_jump_done
-            and self.window.visible is True
-            and self.window.ignore_mouse_events is True
-        ):
-            self.window.left = 608
-            self.window.top = 1117
-            self.reveal_jump_done = True
-
-
 class FakeFletApp:
     def __init__(self) -> None:
         self.closed = asyncio.Event()
         self.page = FakeFletPage(self)
         self.targets: list[Any] = []
+        self._page_handler_task: asyncio.Task[Any] | None = None
 
     async def run(self, target: Any) -> None:
         self.targets.append(target)
-        result = target(self.page)
-        if inspect.isawaitable(result):
-            await result
+        self._page_handler_task = asyncio.current_task()
+        try:
+            result = target(self.page)
+            if inspect.isawaitable(result):
+                await result
+        except asyncio.CancelledError:
+            if not self.closed.is_set():
+                raise
+        finally:
+            self._page_handler_task = None
         await self.closed.wait()
 
-
-class JumpingRevealFletApp(FakeFletApp):
-    def __init__(self) -> None:
-        self.closed = asyncio.Event()
-        self.page = JumpingRevealFletPage(self)
-        self.targets: list[Any] = []
+    async def shutdown(self) -> None:
+        self.closed.set()
+        task = self._page_handler_task
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            await task
 
 
 class FakeWindowEvent:
@@ -1676,6 +1567,45 @@ def _caption_text_control(control: object, text: str) -> ft.Text:
         if isinstance(item, ft.Text) and item.value == text:
             return item
     raise AssertionError(f"caption text control not found: {text}")
+
+
+def test_furigana_remains_readable_and_inside_both_caption_regions() -> None:
+    from puripuly_heart.core.overlay.furigana import japanese_readings
+
+    block = _block(
+        "ruby",
+        channel="peer",
+        block_variant="finalized",
+        appearance_seq=1,
+        primary_text="今日は東京で食べる。",
+        secondary_text="日本語を勉強しています。",
+        primary_language="ja",
+        secondary_language="ja",
+        secondary_enabled=True,
+    )
+    block = replace(
+        block,
+        primary_ruby=japanese_readings(block.primary_text, "ja"),
+        secondary_ruby=japanese_readings(block.secondary_text, "ja"),
+    )
+    plan = desktop_overlay.build_desktop_caption_plan(
+        OverlayPresentationSnapshot(revision=1, blocks=[block])
+    )
+    surface = desktop_overlay.build_desktop_caption_surface(plan)
+    readings = [_caption_text_control(surface, reading) for reading in ("きょう", "にほん")]
+    assert readings[0].size >= 19
+    assert readings[1].size >= 12
+    for cell in _walk_control_tree(surface):
+        if isinstance(cell, ft.Column) and len(cell.controls) == 2:
+            base, ruby = cell.controls
+            if (
+                isinstance(base, ft.Container)
+                and isinstance(ruby, ft.Container)
+                and isinstance(base.content, ft.Text)
+                and isinstance(ruby.content, ft.Text)
+            ):
+                assert base.height + ruby.height <= base.content.size * 1.81
+                assert ruby.content.size >= base.content.size * 0.7
 
 
 def _page_text_values(page: FakeFletPage) -> set[str]:
@@ -1804,9 +1734,9 @@ def test_desktop_overlay_caption_card_width_grows_only_within_same_block() -> No
         window_height=336,
     )
 
-    short_applied = window._plan_with_grow_only_caption_card_widths(short_plan)
-    widened_applied = window._plan_with_grow_only_caption_card_widths(widened_plan)
-    shortened_applied = window._plan_with_grow_only_caption_card_widths(shortened_plan)
+    short_applied = window._plan_with_caption_fitting(short_plan)
+    widened_applied = window._plan_with_caption_fitting(widened_plan)
+    shortened_applied = window._plan_with_caption_fitting(shortened_plan)
 
     assert short_applied.slots[0].card_width < widened_applied.slots[0].card_width
     assert shortened_plan.slots[0].card_width == pytest.approx(short_plan.slots[0].card_width)
@@ -1865,13 +1795,60 @@ def test_desktop_overlay_caption_card_width_resets_for_new_block_even_same_occup
         window_height=336,
     )
 
-    long_applied = window._plan_with_grow_only_caption_card_widths(long_plan)
-    new_short_applied = window._plan_with_grow_only_caption_card_widths(new_short_plan)
+    long_applied = window._plan_with_caption_fitting(long_plan)
+    new_short_applied = window._plan_with_caption_fitting(new_short_plan)
 
     assert long_applied.slots[0].card_width > new_short_applied.slots[0].card_width
     assert new_short_applied.slots[0].card_width == pytest.approx(
         new_short_plan.slots[0].card_width
     )
+
+
+@pytest.mark.parametrize("interaction_mode", ["edit", "pass_through"])
+@pytest.mark.parametrize("reset", ["occupant", "appearance", "retirement"])
+def test_desktop_overlay_auto_shrink_resets_only_for_new_caption_identity(
+    interaction_mode: str, reset: str
+) -> None:
+    window = desktop_overlay.FletDesktopRendererWindow()
+    block = _block(
+        "same-caption",
+        channel="self",
+        block_variant="active_self",
+        appearance_seq=1,
+        primary_text="가" * 80,
+        secondary_text="訳" * 70,
+        secondary_enabled=True,
+    )
+
+    def applied_plan(blocks: list[OverlayPresentationBlock]):
+        return window._plan_with_caption_fitting(
+            desktop_overlay.build_desktop_caption_plan(
+                OverlayPresentationSnapshot(blocks=blocks),
+                window_width=1344,
+                window_height=336,
+                interaction_mode=interaction_mode,
+            )
+        )
+
+    long_plan = applied_plan([block])
+    assert [line.font_size for line in long_plan.lines] == pytest.approx([32.8, 20])
+    short_block = replace(
+        block,
+        id="finalized-caption",
+        block_variant="finalized",
+        primary_text="Hello",
+        secondary_text="訳",
+    )
+    continued_plan = applied_plan([short_block])
+    assert [line.font_size for line in continued_plan.lines] == pytest.approx([32.8, 20])
+    if reset == "occupant":
+        short_block = replace(short_block, occupant_key="self:next-occupant")
+    elif reset == "appearance":
+        short_block = replace(short_block, appearance_seq=2)
+    else:
+        applied_plan([])
+    reset_plan = applied_plan([short_block])
+    assert [line.font_size for line in reset_plan.lines] == [41, 25]
 
 
 def test_desktop_overlay_preview_fixtures_cover_required_local_qa_cases() -> None:
@@ -1938,29 +1915,6 @@ def test_desktop_overlay_preview_fixtures_cover_required_local_qa_cases() -> Non
             ),
         )
         assert plan.lines, fixture.id
-
-
-def test_desktop_overlay_preview_no_caption_fixture_supports_manual_qa_states() -> None:
-    catalog = desktop_overlay.build_desktop_overlay_preview_catalog(locale="en")
-
-    fixture = next(fixture for fixture in catalog.fixtures if "no_caption" in fixture.coverage_tags)
-
-    assert fixture.label == desktop_overlay.t_for_locale(
-        "en", "settings.overlay.desktop.preview.fixture.no_captions"
-    )
-    edit_plan = desktop_overlay.build_desktop_caption_plan(
-        fixture.snapshot,
-        interaction_mode="edit",
-    )
-    locked_plan = desktop_overlay.build_desktop_caption_plan(
-        fixture.snapshot,
-        interaction_mode="pass_through",
-    )
-    assert edit_plan.lines == ()
-    assert edit_plan.surface_visible is True
-    assert edit_plan.background_alpha == pytest.approx(0.6)
-    assert locked_plan.lines == ()
-    assert locked_plan.surface_visible is False
 
 
 def test_desktop_overlay_preview_uses_edit_mode_for_no_caption_empty_state() -> None:
@@ -2187,7 +2141,7 @@ def test_desktop_overlay_preview_guard_avoids_provider_broker_stt_translation_se
 
     forbidden_prefixes = (
         "puripuly_heart.app.wiring",
-        "puripuly_heart.core.managed_openrouter_broker_client",
+        "puripuly_heart.core.openrouter.managed_openrouter_broker_client",
         "puripuly_heart.core.storage.secrets",
         "puripuly_heart.core.stt",
         "puripuly_heart.providers",
@@ -3234,6 +3188,7 @@ async def test_desktop_overlay_wait_until_ready_timeout_reports_page_configured_
 
 @pytest.mark.asyncio
 async def test_desktop_overlay_startup_timeout_after_page_exists_reports_phase() -> None:
+    tasks_before = asyncio.all_tasks()
     app = FakeFletApp()
 
     async def hang_ready() -> None:
@@ -3252,7 +3207,17 @@ async def test_desktop_overlay_startup_timeout_after_page_exists_reports_phase()
         await window.start(OverlayPresentationSnapshot(revision=1, blocks=[]))
 
     assert window.startup_phase == "page_configured"
+    runner_task = window._app_task
+    assert runner_task is not None
     await window.close()
+
+    assert app.closed.is_set()
+    assert app.page.window.close_calls == 1
+    assert app.page.window.destroy_calls == 0
+    assert runner_task.done()
+    assert not runner_task.cancelled()
+    assert runner_task.exception() is None
+    assert asyncio.all_tasks() == tasks_before
 
 
 @pytest.mark.asyncio
@@ -3304,10 +3269,12 @@ async def test_desktop_overlay_reasserts_topmost_after_locked_render_update() ->
             )
         ]
         assert port.reassert_calls == 1
+        assert port.watch_stop_calls == 2
     finally:
         await window.close()
 
     assert port.close_calls == 1
+    assert port.watch_stop_calls == 3
 
 
 @pytest.mark.asyncio
@@ -3756,6 +3723,146 @@ async def test_desktop_overlay_render_page_applies_grow_only_card_width_to_visib
 
 
 @pytest.mark.asyncio
+async def test_desktop_overlay_retained_surface_shrinks_lanes_only_until_new_caption() -> None:
+    app = FakeFletApp()
+    window = desktop_overlay.FletDesktopRendererWindow(app_runner=app.run)
+    window.prime_startup_runtime_controls(
+        ({"command": "apply_window_bounds", "x": 0, "y": 0, "width": 1344, "height": 336},)
+    )
+    short_block = _block(
+        "continuing-self",
+        channel="self",
+        block_variant="active_self",
+        appearance_seq=1,
+        primary_text="Hello",
+        secondary_text="訳",
+        secondary_enabled=True,
+    )
+    try:
+        await window.start(OverlayPresentationSnapshot(revision=1, blocks=[short_block]))
+        await window.dispatch_runtime_control(
+            {"command": "set_interaction_mode", "mode": "pass_through"}
+        )
+        model = window._retained_caption_surface
+        assert model is not None
+        primary = model.primary_texts[0]
+        secondary = model.secondary_texts[0]
+        region_heights = (model.primary_regions[0].height, model.secondary_regions[0].height)
+        assert (primary.size, secondary.size) == (41, 25)
+
+        long_secondary = replace(short_block, secondary_text="訳" * 70)
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(revision=2, blocks=[long_secondary])
+        )
+        assert (primary.size, secondary.size) == pytest.approx((41, 20))
+        assert secondary.value == long_secondary.secondary_text
+
+        long_primary = replace(short_block, primary_text="가" * 80)
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(revision=3, blocks=[long_primary])
+        )
+        assert (primary.size, secondary.size) == pytest.approx((32.8, 20))
+        assert primary.value == long_primary.primary_text
+        await window.dispatch_runtime_control({"command": "set_interaction_mode", "mode": "edit"})
+        assert (primary.size, secondary.size) == pytest.approx((32.8, 20))
+
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(
+                revision=4, blocks=[replace(short_block, secondary_enabled=False)]
+            )
+        )
+        assert model.secondary_regions[0].visible is False
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(
+                revision=5,
+                blocks=[replace(short_block, id="finalized-self", block_variant="finalized")],
+            )
+        )
+        assert (primary.size, secondary.size) == pytest.approx((32.8, 20))
+        assert (primary.value, secondary.value) == ("Hello", "訳")
+        assert (
+            model.primary_regions[0].height,
+            model.secondary_regions[0].height,
+        ) == region_heights
+
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(revision=6, blocks=[replace(short_block, appearance_seq=2)])
+        )
+        assert (primary.size, secondary.size) == (41, 25)
+        assert window._retained_caption_surface is model
+        assert app.page.add_calls == 1
+    finally:
+        await window.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("surface_kind", ["runtime", "preview"])
+@pytest.mark.parametrize("interaction_mode", ["edit", "pass_through"])
+async def test_desktop_overlay_runtime_and_local_preview_match_stateless_auto_shrink(
+    surface_kind: str, interaction_mode: str
+) -> None:
+    snapshot = OverlayPresentationSnapshot(
+        revision=1,
+        blocks=[
+            _block(
+                "long-self",
+                channel="self",
+                block_variant="finalized",
+                appearance_seq=1,
+                primary_text="가" * 80,
+                secondary_text="訳" * 70,
+                secondary_enabled=True,
+            )
+        ],
+    )
+    catalog = desktop_overlay.build_desktop_overlay_preview_catalog(locale="en")
+    catalog = replace(catalog, fixtures=(replace(catalog.fixtures[0], snapshot=snapshot),))
+    app = FakeFletApp()
+    window = desktop_overlay.FletDesktopRendererWindow(
+        app_runner=app.run,
+        preview_catalog=catalog if surface_kind == "preview" else None,
+    )
+    window.prime_startup_runtime_controls(
+        ({"command": "apply_window_bounds", "x": 0, "y": 0, "width": 1344, "height": 336},)
+    )
+    try:
+        await window.start(snapshot)
+        await window.dispatch_runtime_control(
+            {"command": "set_interaction_mode", "mode": interaction_mode}
+        )
+        model = window._retained_caption_surface
+        assert model is not None
+        plan = desktop_overlay.build_desktop_caption_plan(
+            snapshot,
+            window_width=1344,
+            window_height=336,
+            interaction_mode=interaction_mode,
+        )
+        stateless_surface = desktop_overlay.build_desktop_caption_surface(plan)
+        for line, retained_text, region in zip(
+            plan.lines,
+            (model.primary_texts[0], model.secondary_texts[0]),
+            (model.primary_regions[0], model.secondary_regions[0]),
+            strict=True,
+        ):
+            stateless_text = _caption_text_control(stateless_surface, line.text)
+            assert retained_text.value == stateless_text.value == line.text
+            assert retained_text.size == stateless_text.size == pytest.approx(line.font_size)
+            assert retained_text.style.size == stateless_text.style.size
+            expected_height = (
+                plan.primary_region_height
+                if line.slot == "primary"
+                else plan.secondary_region_height
+            )
+            assert region.height == pytest.approx(expected_height)
+        assert [line.font_size for line in plan.lines] == pytest.approx([32.8, 20])
+        assert snapshot.blocks[0].primary_text == "가" * 80
+        assert snapshot.blocks[0].secondary_text == "訳" * 70
+    finally:
+        await window.close()
+
+
+@pytest.mark.asyncio
 async def test_desktop_overlay_locked_size_change_clears_stale_card_width_floor() -> None:
     app = FakeFletApp()
     window = desktop_overlay.FletDesktopRendererWindow(
@@ -4002,37 +4109,6 @@ async def test_desktop_overlay_preset_visual_tokens_match_product_table() -> Non
         assert inner_card.padding.left == padding_h
         assert inner_card.padding.top == padding_v
         assert surface.border_radius == radius
-
-
-@pytest.mark.asyncio
-async def test_desktop_overlay_shipping_surface_has_no_overlay_local_controls() -> None:
-    app = FakeFletApp()
-    sink = RecordingLifecycleSink()
-    window = desktop_overlay.FletDesktopRendererWindow(
-        app_runner=app.run,
-        event_sink=sink.emit,
-        locale="en",
-        bounds_debounce_s=0.01,
-    )
-
-    try:
-        await window.start(OverlayPresentationSnapshot(revision=1, blocks=[]))
-        assert app.page.run_task_calls == 0
-        for task in list(app.page.tasks):
-            await task
-        assert sink.events == []
-        _assert_no_overlay_local_renderer_text(app.page)
-        buttons = _text_buttons(app.page)
-        assert [button.content for button in buttons] == [
-            desktop_overlay.t_for_locale("en", "settings.overlay.desktop.empty_state.action.lock")
-        ]
-        assert not any(
-            isinstance(item, ft.Button)
-            for control in app.page.controls
-            for item in _walk_control_tree(control)
-        )
-    finally:
-        await window.close()
 
 
 @pytest.mark.asyncio
@@ -4677,10 +4753,67 @@ async def test_desktop_overlay_snapshot_batching_is_fifo_latest_only_and_reports
 
 
 @pytest.mark.asyncio
-async def test_desktop_overlay_snapshot_batching_matches_sequential_width_reference() -> None:
+@pytest.mark.parametrize("render_fails", [False, True])
+async def test_desktop_overlay_disabled_diagnostics_skip_eager_work_without_skipping_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    render_fails: bool,
+) -> None:
+    window = FailingBatchingRendererWindow() if render_fails else BatchingRendererWindow()
+
+    def unexpected_diagnostic_work(*_args: object, **_kwargs: object) -> None:
+        pytest.fail(
+            "disabled diagnostics must not construct visual state, records, or acknowledgements"
+        )
+
+    monkeypatch.setattr(window, "renderer_visual_state", unexpected_diagnostic_work)
+    monkeypatch.setattr(window, "renderer_visual_state_for_snapshot", unexpected_diagnostic_work)
+    monkeypatch.setattr(
+        desktop_overlay, "validate_desktop_renderer_event", unexpected_diagnostic_work
+    )
+    monkeypatch.setattr(
+        desktop_overlay, "RendererCommitAcknowledgement", unexpected_diagnostic_work
+    )
+    renderer = desktop_overlay.DesktopOverlayRenderer(
+        _manifest(),
+        window=window,
+        lifecycle_sink=RecordingLifecycleSink(),
+        parent_monitor=FakeParentMonitor(),
+    )
+    first = _scheduled_snapshot(10, "first")
+    second = _scheduled_snapshot(11, "second")
+    current = _scheduled_snapshot(12, "current")
+    await renderer.enqueue_snapshot(_scheduled_snapshot(9, "stale"))
+    await renderer.enqueue_snapshot(second)
+    await renderer.enqueue_snapshot(current)
+    await renderer.enqueue_snapshot(_scheduled_snapshot(12, "duplicate"))
+    control = {"command": "set_interaction_mode", "mode": "edit"}
+    await renderer.enqueue_runtime_control(control)
+
+    if render_fails:
+        with pytest.raises(RuntimeError, match="must not enter persisted diagnostics"):
+            await renderer._dispatch_pending_snapshot_batch(first)
+    else:
+        assert await renderer._dispatch_pending_snapshot_batch(first) == (
+            "runtime_control",
+            control,
+        )
+        assert window.snapshots == [current]
+    assert window.history_snapshots == [first, second]
+    assert renderer._last_accepted_snapshot_revision == 12
+    assert renderer._ui_queue.empty()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retire_between_updates", [False, True])
+@pytest.mark.parametrize("diagnostics_enabled", [False, True])
+async def test_desktop_overlay_snapshot_batching_matches_sequential_fitting_reference(
+    retire_between_updates: bool,
+    diagnostics_enabled: bool,
+) -> None:
     short = _scheduled_snapshot(2, "응")
-    long = _scheduled_snapshot(3, "This caption is long enough to grow the retained width floor.")
-    final_short = _scheduled_snapshot(4, "응")
+    long = _scheduled_snapshot(3, "가" * 80)
+    retired = OverlayPresentationSnapshot(revision=4, blocks=[])
+    final_short = _scheduled_snapshot(5 if retire_between_updates else 4, "응")
     sequential_app = FakeFletApp()
     sequential_window = desktop_overlay.FletDesktopRendererWindow(
         app_runner=sequential_app.run,
@@ -4693,8 +4826,13 @@ async def test_desktop_overlay_snapshot_batching_matches_sequential_width_refere
     )
     await sequential_window.dispatch_snapshot(short)
     await sequential_window.dispatch_snapshot(long)
+    if retire_between_updates:
+        await sequential_window.dispatch_snapshot(retired)
+        await sequential_window.dispatch_snapshot(long)
     await sequential_window.dispatch_snapshot(final_short)
     sequential_width = _caption_card_controls(sequential_app.page)[0].width
+    sequential_size = _caption_text_control(sequential_app.page.controls[0], "응").size
+    assert sequential_size == pytest.approx(41 if retire_between_updates else 32.8)
     await sequential_window.close()
 
     token = "scheduled-width-token"
@@ -4727,6 +4865,7 @@ async def test_desktop_overlay_snapshot_batching_matches_sequential_width_refere
         window=window,
         lifecycle_sink=RecordingLifecycleSink(),
         parent_monitor=FakeParentMonitor(),
+        diagnostic_port=RecordingRendererDiagnosticPort() if diagnostics_enabled else None,
     )
     try:
         await renderer.enqueue_runtime_control(
@@ -4734,6 +4873,9 @@ async def test_desktop_overlay_snapshot_batching_matches_sequential_width_refere
         )
         await renderer.enqueue_snapshot(short)
         await renderer.enqueue_snapshot(long)
+        if retire_between_updates:
+            await renderer.enqueue_snapshot(retired)
+            await renderer.enqueue_snapshot(long)
         await renderer.enqueue_snapshot(final_short)
         run_task = asyncio.create_task(renderer.run())
         await _next_bridge_event(bridge, expected_type="overlay_ready")
@@ -4745,6 +4887,9 @@ async def test_desktop_overlay_snapshot_batching_matches_sequential_width_refere
         await asyncio.wait_for(_wait_until_batched_text_rendered(), timeout=1.0)
         assert _page_text_values(app.page) == {"응"}
         assert _caption_card_controls(app.page)[0].width == pytest.approx(sequential_width)
+        assert _caption_text_control(app.page.controls[0], "응").size == pytest.approx(
+            sequential_size
+        )
         await bridge.broadcast_shutdown()
         assert await asyncio.wait_for(run_task, timeout=1.0) == 0
     finally:
@@ -5051,12 +5196,6 @@ def test_desktop_overlay_renderer_diagnostic_policy_requires_exact_safe_flat_sch
     )
 
 
-class FailingStartWindow(FakeRendererWindow):
-    async def start(self, initial_snapshot: OverlayPresentationSnapshot) -> None:
-        await super().start(initial_snapshot)
-        raise RuntimeError("window bootstrap failed")
-
-
 class SensitiveFailingStartWindow(FakeRendererWindow):
     def __init__(self, secret: str) -> None:
         super().__init__()
@@ -5121,17 +5260,6 @@ def test_desktop_overlay_parent_monitor_factory_prefers_windows_handle() -> None
     assert monitor.handle == "handle-4321"
 
 
-def test_desktop_overlay_parent_monitor_factory_falls_back_when_handle_unavailable() -> None:
-    monitor = desktop_overlay.create_parent_monitor(
-        4321,
-        is_windows=True,
-        open_windows_handle=lambda _pid: None,
-    )
-
-    assert isinstance(monitor, desktop_overlay.BridgeDisconnectParentMonitor)
-    assert monitor.parent_pid == 4321
-
-
 @pytest.mark.asyncio
 async def test_desktop_overlay_windows_handle_fallback_does_not_probe_with_os_kill(
     monkeypatch: pytest.MonkeyPatch,
@@ -5152,6 +5280,22 @@ async def test_desktop_overlay_windows_handle_fallback_does_not_probe_with_os_ki
     stop_event.set()
 
     await asyncio.wait_for(wait_task, timeout=1.0)
+
+
+@pytest.mark.parametrize(
+    "contract_version",
+    [OVERLAY_CONTRACT_VERSION - 1, OVERLAY_CONTRACT_VERSION + 1],
+)
+def test_desktop_overlay_manifest_rejects_unmatched_contract(
+    tmp_path: Path,
+    contract_version: int,
+) -> None:
+    manifest_path = _write_manifest(tmp_path, _manifest(contract_version=contract_version))
+
+    with pytest.raises(desktop_overlay.DesktopOverlayStartupError) as exc_info:
+        desktop_overlay.load_renderer_manifest(manifest_path)
+
+    assert exc_info.value.failure_reason == "contract_mismatch"
 
 
 def test_desktop_overlay_manifest_rejects_non_loopback_bridge_and_redacts_token(
@@ -5219,6 +5363,8 @@ async def test_desktop_overlay_bridge_lifecycle_ready_after_auth_snapshot_and_wi
         initial_snapshot=OverlayPresentationSnapshot(revision=7),
         heartbeat_interval_ms=20,
         desktop_runtime_controls_enabled=True,
+        overlay_instance_id="desktop-overlay-test",
+        runtime_generation=1,
     )
     await bridge.start()
     sink = RecordingLifecycleSink()
@@ -5312,8 +5458,11 @@ async def test_desktop_overlay_malformed_initial_snapshot_is_startup_error_with_
         await server.wait_closed()
 
     expected = {"type": "startup_error", "failure_reason": "renderer_init_failed"}
-    assert bridge_event == expected
-    assert expected in sink.events
+    assert bridge_event["type"] == expected["type"]
+    assert bridge_event["failure_reason"] == expected["failure_reason"]
+    assert bridge_event["cause_class_1"] == "ValueError"
+    assert bridge_event["overlay_instance_id"] == "desktop-overlay-test"
+    assert any(event.get("failure_reason") == "renderer_init_failed" for event in sink.events)
     assert sink.events[-1] == {
         "type": "shutdown_complete",
         "overlay_instance_id": "desktop-overlay-test",
@@ -5368,10 +5517,9 @@ async def test_desktop_overlay_rejects_unframed_initial_runtime_controls() -> No
         server.close()
         await server.wait_closed()
 
-    assert bridge_event == {
-        "type": "startup_error",
-        "failure_reason": "runtime_control_invalid",
-    }
+    assert bridge_event["type"] == "startup_error"
+    assert bridge_event["failure_reason"] == "runtime_control_invalid"
+    assert bridge_event["overlay_instance_id"] == "desktop-overlay-test"
     assert window.snapshots == []
 
 
@@ -5439,8 +5587,13 @@ async def test_desktop_overlay_window_start_failure_reports_window_configuration
         await bridge.stop()
 
     expected = {"type": "startup_error", "failure_reason": "window_configuration_failed"}
-    assert bridge_event == expected
-    assert expected in sink.events
+    assert bridge_event["type"] == expected["type"]
+    assert bridge_event["failure_reason"] == expected["failure_reason"]
+    assert bridge_event["exception_class"] == "RuntimeError"
+    assert bridge_event["overlay_instance_id"] == "desktop-overlay-test"
+    assert any(
+        event.get("failure_reason") == "window_configuration_failed" for event in sink.events
+    )
     assert sink.events[-1] == {
         "type": "shutdown_complete",
         "overlay_instance_id": "desktop-overlay-test",
@@ -5753,6 +5906,14 @@ async def test_desktop_overlay_events_are_bridge_only_and_do_not_use_stdout_fall
     finally:
         await renderer.shutdown()
 
+    assert websocket.close_calls == 1
+    assert renderer.is_shutdown is True
+    teardown = capsys.readouterr()
+    assert not any(
+        json.loads(line).get("type") == "runtime_error"
+        for line in (teardown.out + teardown.err).splitlines()
+    )
+
 
 @pytest.mark.asyncio
 async def test_desktop_overlay_lifecycle_errors_keep_stderr_fallback(
@@ -5777,6 +5938,14 @@ async def test_desktop_overlay_lifecycle_errors_keep_stderr_fallback(
         assert json.loads(captured.err) == runtime_error
     finally:
         await renderer.shutdown()
+
+    assert websocket.close_calls == 1
+    assert renderer.is_shutdown is True
+    teardown = capsys.readouterr()
+    assert not any(
+        json.loads(line).get("type") == "runtime_error"
+        for line in (teardown.out + teardown.err).splitlines()
+    )
 
 
 @pytest.mark.asyncio
@@ -5852,10 +6021,9 @@ async def test_desktop_overlay_invalid_runtime_control_reports_error_without_dis
         }
         runtime_error = await asyncio.wait_for(received.get(), timeout=1.0)
 
-        assert runtime_error == {
-            "type": "runtime_error",
-            "failure_reason": "runtime_control_invalid",
-        }
+        assert runtime_error["type"] == "runtime_error"
+        assert runtime_error["failure_reason"] == "runtime_control_invalid"
+        assert runtime_error["overlay_instance_id"] == "desktop-overlay-test"
         assert window.runtime_controls == []
         assert await asyncio.wait_for(run_task, timeout=1.0) == 1
     finally:
@@ -5978,7 +6146,9 @@ async def test_desktop_overlay_parent_monitor_loss_reports_error_and_shutdown_is
         parent_monitor.exited.set()
         runtime_error = await _next_bridge_event(bridge, expected_type="runtime_error")
 
-        assert runtime_error == {"type": "runtime_error", "failure_reason": "runtime_disconnected"}
+        assert runtime_error["type"] == "runtime_error"
+        assert runtime_error["failure_reason"] == "runtime_disconnected"
+        assert runtime_error["overlay_instance_id"] == "desktop-overlay-test"
         assert await asyncio.wait_for(run_task, timeout=1.0) == 1
 
         await renderer.shutdown()
@@ -6080,3 +6250,143 @@ def test_desktop_renderer_on_legacy_active_peer_source_stays_promoted_primary() 
     assert line.slot == "primary"
     assert line.promoted is True
     assert line.font_size == plan.primary_font_size
+
+
+@pytest.mark.asyncio
+async def test_desktop_shutdown_retains_failed_window_and_retries_independent_resources() -> None:
+    class FailedWindow(FakeRendererWindow):
+        async def close(self) -> None:
+            self.close_calls += 1
+            if self.close_calls == 1:
+                raise OSError(5, "SYNTHETIC_PRIVATE_PERSONAL_PATH_CREDENTIAL")
+
+    sink = RecordingLifecycleSink()
+    window = FailedWindow()
+    port = RecordingRendererDiagnosticPort()
+    monitor = ClosableFakeParentMonitor()
+    renderer = desktop_overlay.DesktopOverlayRenderer(
+        _manifest(),
+        window=window,
+        lifecycle_sink=sink,
+        diagnostic_port=port,
+        parent_monitor=monitor,
+    )
+    await renderer.shutdown()
+    assert port.closed
+    assert monitor.close_calls == 1
+    assert renderer.is_shutdown is False
+    receipt = renderer.diagnostic_delivery_receipt()
+    assert receipt["cleanup_failure_reason"] == "shutdown_cleanup_failed"
+    assert receipt["cleanup_fields"]["exception_class"] == "OSError"
+    assert receipt["cleanup_fields"]["errno"] == 5
+    assert "SYNTHETIC_PRIVATE" not in json.dumps(receipt)
+    assert not any(event["type"] == "shutdown_complete" for event in sink.events)
+    await renderer.shutdown()
+    assert renderer.is_shutdown is True
+    assert window.close_calls == 2
+    assert monitor.close_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["window", "ui_update"])
+async def test_desktop_runtime_window_failure_preserves_safe_cause(boundary: str) -> None:
+    class FailedWindow(FakeRendererWindow):
+        async def run_until_closed(self) -> None:
+            raise OSError(5, "SYNTHETIC_PRIVATE_CREDENTIAL_BODY_PATH")
+
+        async def dispatch_runtime_control(self, payload: dict[str, object]) -> None:
+            raise OSError(5, "SYNTHETIC_PRIVATE_CREDENTIAL_BODY_PATH")
+
+    sink = RecordingLifecycleSink()
+    renderer = desktop_overlay.DesktopOverlayRenderer(
+        _manifest(),
+        window=FailedWindow(),
+        lifecycle_sink=sink,
+        parent_monitor=FakeParentMonitor(),
+    )
+    try:
+        if boundary == "window":
+            outcome = await renderer._window_loop()
+        else:
+            await renderer.enqueue_runtime_control({"type": "runtime_control"})
+            outcome = await renderer._ui_update_loop()
+        assert outcome is not None and outcome.exit_code == 1
+        failure = next(event for event in sink.events if event["type"] == "runtime_error")
+        assert failure["failure_reason"] == "window_configuration_failed"
+        assert failure["exception_class"] == "OSError"
+        assert failure["errno"] == 5
+        assert "SYNTHETIC_PRIVATE" not in json.dumps(sink.events)
+    finally:
+        await renderer.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_peer_enters_physical_lower_slot_and_new_caption_promotes_previous() -> None:
+    peer = _block(
+        "peer:first",
+        channel="peer",
+        block_variant="finalized",
+        appearance_seq=1,
+        primary_text="first page",
+        secondary_text="first source",
+        secondary_enabled=True,
+    )
+    next_peer = replace(
+        peer, id="peer:next", occupant_key="peer:next", appearance_seq=2, primary_text="second"
+    )
+    third_peer = replace(
+        peer, id="peer:third", occupant_key="peer:third", appearance_seq=3, primary_text="third"
+    )
+    first = OverlayPresentationSnapshot(revision=1, blocks=[peer])
+    plan = desktop_overlay.build_desktop_caption_plan(first)
+    static = desktop_overlay.build_desktop_caption_surface(plan)
+    assert static.content.controls[0].height == plan.window_height
+    assert static.content.controls[0].alignment == ft.MainAxisAlignment.END
+    app = FakeFletApp()
+    window = desktop_overlay.FletDesktopRendererWindow(app_runner=app.run)
+    try:
+        await window.start(first)
+        model = window._retained_caption_surface
+        assert model is not None
+        assert model.slot_column.height == plan.window_height
+        assert model.slot_column.alignment == ft.MainAxisAlignment.END
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(revision=2, blocks=[peer, next_peer])
+        )
+        assert model.slot_column.alignment == ft.MainAxisAlignment.CENTER
+        assert [text.value for text in model.primary_texts] == ["first page", "second"]
+        await window.dispatch_snapshot(
+            OverlayPresentationSnapshot(revision=3, blocks=[next_peer, third_peer])
+        )
+        assert [text.value for text in model.primary_texts] == ["second", "third"]
+        await window.dispatch_snapshot(OverlayPresentationSnapshot(revision=4, blocks=[third_peer]))
+        assert model.slot_column.alignment == ft.MainAxisAlignment.END
+    finally:
+        await window.close()
+
+
+@pytest.mark.asyncio
+async def test_self_only_surface_retains_existing_centered_placement_after_peer() -> None:
+    app = FakeFletApp()
+    window = desktop_overlay.FletDesktopRendererWindow(app_runner=app.run)
+    peer = _block(
+        "peer:one",
+        channel="peer",
+        block_variant="finalized",
+        appearance_seq=1,
+        primary_text="peer",
+        secondary_text="",
+        secondary_enabled=False,
+    )
+    own = replace(peer, id="self:one", occupant_key="self:one", channel="self", appearance_seq=2)
+    try:
+        await window.start(OverlayPresentationSnapshot(revision=1, blocks=[peer]))
+        await window.dispatch_snapshot(OverlayPresentationSnapshot(revision=2, blocks=[own]))
+        model = window._retained_caption_surface
+        assert model is not None
+        assert model.slot_column.alignment == ft.MainAxisAlignment.CENTER
+        assert model.slot_column.height == pytest.approx(
+            (model.root.height - model.slot_column.spacing) / 2
+        )
+    finally:
+        await window.close()

@@ -9,8 +9,8 @@ from puripuly_heart.ui.flet_runtime import (
     is_hover_active,
     update_control_if_mounted,
 )
-from puripuly_heart.ui.fonts import font_for_language
-from puripuly_heart.ui.i18n import get_locale, t
+from puripuly_heart.ui.i18n import t
+from puripuly_heart.ui.motion import PRESS, close_modal, press_event, show_modal
 from puripuly_heart.ui.theme import (
     COLOR_BACKGROUND,
     COLOR_NEUTRAL_DARK,
@@ -18,6 +18,7 @@ from puripuly_heart.ui.theme import (
     COLOR_PRIMARY,
     COLOR_SECONDARY,
     COLOR_SURFACE,
+    text_style,
 )
 
 _OPTION_CARD_RADIUS = 16
@@ -167,7 +168,7 @@ class OscConnectionModal:
         )
         self._refresh_mode_display()
         self._repaint_mode_cards()
-        self._page.show_dialog(self._dialog)
+        show_modal(self._page, self._dialog)
 
     def _build_port_field(self, *, value: str) -> ft.TextField:
         return ft.TextField(
@@ -189,10 +190,7 @@ class OscConnectionModal:
             bgcolor=ft.Colors.TRANSPARENT,
             color=COLOR_PRIMARY,
             text_size=_PORT_TEXT_SIZE,
-            text_style=ft.TextStyle(
-                weight=ft.FontWeight.BOLD,
-                font_family=font_for_language(get_locale()),
-            ),
+            text_style=text_style(weight=ft.FontWeight.BOLD),
             text_align=ft.TextAlign.CENTER,
             content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
             on_change=self._on_port_change,
@@ -239,7 +237,10 @@ class OscConnectionModal:
                 alignment=ft.Alignment.CENTER,
                 on_click=lambda e, mode=value: self._select_mode(mode),
                 on_hover=self._on_mode_hover,
+                on_tap_down=press_event,
                 animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+                animate_scale=PRESS,
+                scale=1.0,
                 height=_OPTION_CARD_HEIGHT,
             )
             cards[value] = card
@@ -379,7 +380,7 @@ class OscConnectionModal:
 
     def _close(self) -> None:
         try:
-            self._page.pop_dialog()
+            close_modal(self._page, self._dialog)
         except Exception:
             return
 

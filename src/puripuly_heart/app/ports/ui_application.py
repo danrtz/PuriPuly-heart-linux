@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from puripuly_heart.app.language_selection import LanguageSelectionChange
+from puripuly_heart.app.ports.agent_chat import AgentChatPort
 from puripuly_heart.app.ports.application_control import ApplicationControl
 from puripuly_heart.app.ports.chatgpt_account import (
     ChatGptAccountSnapshot,
     ChatGptConnectResult,
     ChatGptSignOutResult,
 )
+from puripuly_heart.app.ports.provider_verifier import ProviderCredentialVerificationOutcome
 from puripuly_heart.app.ports.settings_secrets import SettingsSecretsPort
 from puripuly_heart.app.ports.settings_view import (
     AlibabaConnectionApplyResult,
@@ -23,6 +25,7 @@ from puripuly_heart.app.ports.settings_view import (
     OverlaySettingsSnapshot,
     PromptApplyIntent,
     ProviderApplyIntent,
+    SettingsApplyOutcome,
 )
 from puripuly_heart.app.ports.ui_models import (
     GpuNoticeAction,
@@ -39,6 +42,14 @@ from puripuly_heart.app.services.application_shutdown import (
 )
 from puripuly_heart.config.alibaba_connection import AlibabaEndpointMode, AlibabaRegion
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.core.orchestrator.self_translation_channel import TextSubmissionAdmission
+
+
+@dataclass(frozen=True, slots=True)
+class TranslationEnablePreparation:
+    intent_revision: int
+    selection_generation: int | None
+    ready: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +58,10 @@ class UiApplicationState:
     translation_enabled: bool
     stt_state: object | None
     peer_translation_eula_accepted: bool | None
-    microphone_test_active: bool
+    audio_test_active: bool
     provider_name: str | None
     overlay_target: str | None
     desktop_overlay_captions_locked: bool
-    managed_auth_referral_bonus_applied: bool
     translation_runtime_ready: bool | None = None
 
 
@@ -67,7 +77,22 @@ class UiApplicationFactoryPort(Protocol):
 
 
 class UiApplicationPort(Protocol):
+    def model_asset_entries(self) -> tuple[object, ...]: ...
+
+    async def refresh_model_assets(self) -> tuple[object, ...]: ...
+
+    async def download_model_asset(self, model_id: str, *, source: str | None = None) -> object: ...
+
+    async def import_model_asset(self, model_id: str, directory: Path) -> object: ...
+
+    async def cancel_model_asset(self, model_id: str) -> bool: ...
+
+    async def delete_model_asset(self, model_id: str) -> object: ...
+    @property
+    def diagnostic_instance_id(self) -> str | None: ...
+
     def control(self) -> ApplicationControl: ...
+    def agent_chat(self) -> AgentChatPort | None: ...
     def bind_presentation_close(self, callback: Callable[[], Awaitable[None]]) -> None: ...
 
     async def close_presentation(self) -> None: ...
@@ -77,6 +102,8 @@ class UiApplicationPort(Protocol):
     def effective_osc_ports(self) -> tuple[int | None, int | None]: ...
 
     def output_status(self) -> dict[str, dict[str, object]]: ...
+
+    def scene_observation(self) -> dict[str, object]: ...
 
     async def wait_overlay_transition(self) -> dict[str, object]: ...
 
@@ -112,12 +139,16 @@ class UiApplicationPort(Protocol):
 
     def log_diagnostic(self, message: str, *, level: int = logging.INFO) -> None: ...
 
-    async def submit_text(self, text: str) -> None: ...
+    async def submit_text(self, text: str) -> TextSubmissionAdmission | None: ...
 
     def set_manual_input_activity(self, has_text: bool) -> None: ...
 
     async def set_translation_enabled(
-        self, enabled: bool, *, allow_authorization: bool = True
+        self,
+        enabled: bool,
+        *,
+        allow_authorization: bool = True,
+        preparation: TranslationEnablePreparation | None = None,
     ) -> object: ...
 
     async def set_stt_enabled(self, enabled: bool) -> object: ...
@@ -161,7 +192,12 @@ class UiApplicationPort(Protocol):
         self, settings: AppSettingsVNext
     ) -> AppSettingsVNext: ...
 
-    async def apply_settings(self, settings: AppSettingsVNext) -> object: ...
+    async def apply_settings(
+        self,
+        settings: AppSettingsVNext,
+        *,
+        provider_requested: bool = False,
+    ) -> object: ...
 
     async def apply_providers(
         self,
@@ -176,17 +212,24 @@ class UiApplicationPort(Protocol):
 
     async def ensure_gpu_device_discovery(self) -> None: ...
 
-    async def start_microphone_test(
+    def audio_test_start_revision(self) -> int: ...
+
+    async def start_audio_test(
         self,
         *,
-        meter_callback: Callable[[float], None] | None = None,
+        observation_callback: Callable[[str, tuple[object, ...]], object] | None = None,
+        admission_revision: int | None = None,
     ) -> bool: ...
 
-    def microphone_test_snapshot(self) -> dict[str, object]: ...
+    async def diagnose_audio(
+        self, *, admission_revision: int | None = None
+    ) -> dict[str, object]: ...
 
-    async def wait_microphone_test_ready(self) -> bool: ...
+    def audio_test_snapshot(self) -> dict[str, object]: ...
 
-    async def stop_microphone_test(self) -> None: ...
+    async def wait_audio_test_ready(self) -> bool: ...
+
+    async def stop_audio_test(self) -> None: ...
 
     async def set_desktop_overlay_captions_locked(self, locked: bool) -> dict[str, str]: ...
 
@@ -208,11 +251,17 @@ class UiApplicationPort(Protocol):
 
     def dashboard_managed_auth_prompt_kind(self) -> str: ...
 
+    def managed_account_snapshot(self) -> dict: ...
+
     def managed_auth_last_failure_kind(self) -> str: ...
+
+    def managed_auth_last_message_key(self) -> str | None: ...
 
     async def apply_telemetry_enabled(self, enabled: bool) -> Any | None: ...
 
     async def apply_settings_intent(self, intent: ImmediateSettingsIntent) -> object: ...
+
+    async def apply_settings_change(self, intent: object | None) -> SettingsApplyOutcome: ...
 
     async def apply_prompt_intent(self, intent: PromptApplyIntent) -> object: ...
 
@@ -281,7 +330,9 @@ class UiApplicationPort(Protocol):
     ) -> AlibabaConnectionApplyResult: ...
     def cancel_alibaba_connection_draft(self, *, token: str) -> None: ...
 
-    async def verify_api_key(self, provider: str, key: str) -> tuple[bool, str]: ...
+    async def verify_api_key(
+        self, provider: str, key: str
+    ) -> ProviderCredentialVerificationOutcome: ...
 
     def persist_api_key_verification(
         self,
@@ -381,4 +432,4 @@ class UiApplicationPort(Protocol):
     ) -> object: ...
 
 
-__all__ = ["UiApplicationPort", "UiApplicationState"]
+__all__ = ["TranslationEnablePreparation", "UiApplicationPort", "UiApplicationState"]

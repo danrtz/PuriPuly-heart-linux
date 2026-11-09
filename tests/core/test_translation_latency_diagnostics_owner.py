@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from uuid import uuid4
 
@@ -18,9 +19,15 @@ from puripuly_heart.core.orchestrator.translation_diagnostics import (
     SttEventLoopFailureDiagnostic,
     TranslationLatencyDiagnosticsOwner,
 )
+from puripuly_heart.core.orchestrator.translation_output_projection import (
+    TranslationOutputProjectionOwner,
+    TranslationUiMessageQueue,
+)
 from puripuly_heart.core.osc.chatbox_paginator import ChatboxPaginator
+from puripuly_heart.core.runtime.output import OutputRuntime
 from puripuly_heart.core.stt.backend import STTRecognitionUnit
-from puripuly_heart.domain.models import ChannelId, OSCMessage
+from puripuly_heart.domain.events import SelfTurnPresentation, SelfTurnTargetPresentation
+from puripuly_heart.domain.models import ChannelId, OSCMessage, Translation
 from puripuly_heart.domain.recognition import RecognitionStreamIdentity, RecognitionUnitIdentity
 from tests.helpers.fakes import FakeSender
 
@@ -29,6 +36,28 @@ class RuntimeLogging:
     def __init__(self) -> None:
         self.basic: list[str] = []
         self.detailed: list[str] = []
+
+    def emit_failure(
+        self,
+        diagnostics,
+        *,
+        severity="error",
+        disposition="failed",
+        stage=None,
+        exception=None,
+    ) -> dict:
+        from puripuly_heart.core.diagnostics import normalize_diagnostic
+
+        record = normalize_diagnostic(
+            diagnostics,
+            instance_id=None,
+            severity=severity,
+            disposition=disposition,
+            stage=stage,
+            exception=exception,
+        )
+        self.basic.append(f"[Failure] code={record['code']}")
+        return record
 
     def emit_basic(self, message: str, *, level: int = 20) -> None:
         _ = level
@@ -89,6 +118,7 @@ def make_owner(
     "channel,stage,endpoint",
     [
         ("self", "self_chatbox_send", "chatbox_send"),
+        ("self", "self_chatbox_final_accepted", "chatbox_final_accepted"),
         ("peer", "peer_overlay_applied", "overlay_applied"),
     ],
 )
@@ -135,6 +165,7 @@ def test_native_recognition_measures_frozen_anchor_at_actual_endpoint(
     "channel,stage,endpoint",
     [
         ("self", "self_chatbox_send", "chatbox_send"),
+        ("self", "self_chatbox_final_accepted", "chatbox_final_accepted"),
         ("peer", "peer_overlay_applied", "overlay_applied"),
     ],
 )
@@ -605,7 +636,7 @@ def test_owner_sanitizes_stt_failure_and_tracks_overlay_failure_state() -> None:
             default_channel="self",
         )
     )
-    owner.record_overlay_sink_failure("RuntimeError")
+    owner.record_overlay_sink_failure()
 
     combined = "\n".join(logging.basic + logging.detailed)
     assert "private speech" not in combined
@@ -658,3 +689,342 @@ def test_owner_replaces_overlay_diagnostics_by_expected_identity() -> None:
 
     assert owner.overlay_diagnostics is second
     assert [event for event, _fields in second.records] == ["overlay_emit"]
+
+
+def _stream_latency_projection(clock, logging, sender):
+    owner = make_owner(clock=clock, runtime_logging=logging)
+    paginator = ChatboxPaginator(
+        sender=sender, clock=clock, max_chars=4, stage_recorder=owner.record_chatbox_stage
+    )
+    runtime = OutputRuntime(chatbox=paginator, clock=clock)
+    projection = TranslationOutputProjectionOwner(
+        output_runtime=runtime,
+        ui_messages=TranslationUiMessageQueue(asyncio.Queue(), runtime),
+        diagnostics=owner,
+        clock=clock,
+    )
+    return owner, paginator, runtime, projection
+
+
+def _stream_latency_snapshot(utterance_id, *, final):
+    translation = Translation(utterance_id=utterance_id, text="abcdefghijkl", target_language="en")
+    return SelfTurnPresentation(
+        utterance_id=utterance_id,
+        turn_generation=0,
+        turn_order=0,
+        revision=1,
+        source_revision=1,
+        source_text="source",
+        source_language="en",
+        source_closed=final,
+        status="complete" if final else "active",
+        targets=(SelfTurnTargetPresentation("en", 1, "ready", translation),),
+        created_at=10.0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_managed_failed_first_page_releases_guard_but_retains_first_success_latency():
+    class SelectiveSender(FakeSender):
+        def send_chatbox(self, text):
+            if text != "ijkl":
+                raise OSError("send failed")
+            super().send_chatbox(text)
+
+    clock = FakeClock(_now=10.0)
+    logging = RuntimeLogging()
+    sender = SelectiveSender()
+    owner, paginator, runtime, projection = _stream_latency_projection(clock, logging, sender)
+    utterance_id = uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic(
+            channel="self", utterance_id=utterance_id, stage="last_speech", timestamp=9.0
+        )
+    )
+    configuration = replace(
+        owner.config_snapshot(),
+        value=replace(owner.config_snapshot().value, chatbox_include_source=False),
+    )
+    try:
+        await projection.project_self_turn(
+            _stream_latency_snapshot(utterance_id, final=True), configuration, source="Mic"
+        )
+        owner.clear_latency_timeline("self", utterance_id)
+        clock.advance(3.0)
+        paginator.process_due()
+        assert logging.basic == []
+        clock.advance(3.0)
+        paginator.process_due()
+        assert sender.sent == ["ijkl"]
+        assert logging.basic == [
+            "[Basic][Latency] channel=self endpoint=chatbox_send last_speech_to_chatbox_send_ms=7000"
+        ]
+        dispositions = [
+            decision.reason
+            for decision in runtime.routing_decisions
+            if decision.metadata.get("stage") == "self_stream_delivery"
+        ]
+        assert dispositions == ["output_send_failed"]
+        assert owner.snapshot().timeline_keys == frozenset()
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_promoted_preview_measures_final_acceptance_without_inventing_final_send():
+    clock = FakeClock(_now=10.0)
+    logging = RuntimeLogging()
+    sender = FakeSender()
+    owner, paginator, runtime, projection = _stream_latency_projection(clock, logging, sender)
+    pages = []
+
+    def record(event, **fields):
+        if event == "page_send":
+            pages.append(
+                (fields["page_index"], fields["first_successful_page"], fields["self_turn_final"])
+            )
+        owner.record_chatbox_stage(event, **fields)
+
+    paginator.stage_recorder = record
+    utterance_id = uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic(
+            channel="self", utterance_id=utterance_id, stage="last_speech", timestamp=9.0
+        )
+    )
+    configuration = replace(
+        owner.config_snapshot(),
+        value=replace(owner.config_snapshot().value, chatbox_include_source=False),
+    )
+    preview = _stream_latency_snapshot(utterance_id, final=False)
+    try:
+        await projection.project_self_turn(preview, configuration, source="Mic")
+        assert logging.basic == []
+        clock.advance(2.0)
+        await projection.project_self_turn(
+            replace(preview, revision=2, source_closed=True, status="complete"),
+            configuration,
+            source="Mic",
+        )
+        assert sender.sent == ["abcd"]
+        assert len(logging.basic) == 1
+        fields = dict(part.split("=", 1) for part in logging.basic[0].split()[1:])
+        assert fields == {
+            "channel": "self",
+            "endpoint": "chatbox_final_accepted",
+            "last_speech_to_chatbox_final_accepted_ms": "3000",
+        }
+        await projection.project_self_turn(
+            replace(preview, revision=3, source_closed=True, status="complete"),
+            configuration,
+            source="Mic",
+        )
+        assert len(logging.basic) == 1
+        clock.advance(3.0)
+        paginator.process_due()
+        assert sender.sent == ["abcd", "efgh"]
+        assert pages == [(0, True, False), (1, False, True)]
+        assert len(logging.basic) == 1
+        assert owner.snapshot().timeline_keys == frozenset()
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_preview_later_success_stays_preview_until_genuine_final_send():
+    class FailsOnceSender(FakeSender):
+        def __init__(self):
+            super().__init__()
+            self.attempted = []
+
+        def send_chatbox(self, text):
+            self.attempted.append(text)
+            if len(self.attempted) == 1:
+                raise OSError("send failed")
+            super().send_chatbox(text)
+
+    clock = FakeClock(_now=10.0)
+    logging = RuntimeLogging()
+    sender = FailsOnceSender()
+    owner, paginator, runtime, projection = _stream_latency_projection(clock, logging, sender)
+    pages = []
+
+    def record(event, **fields):
+        if event == "page_send":
+            pages.append(
+                (fields["page_index"], fields["first_successful_page"], fields["self_turn_final"])
+            )
+        owner.record_chatbox_stage(event, **fields)
+
+    paginator.stage_recorder = record
+    utterance_id = uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic(
+            channel="self", utterance_id=utterance_id, stage="last_speech", timestamp=9.0
+        )
+    )
+    configuration = replace(
+        owner.config_snapshot(),
+        value=replace(owner.config_snapshot().value, chatbox_include_source=False),
+    )
+    preview = _stream_latency_snapshot(utterance_id, final=False)
+    try:
+        await projection.project_self_turn(preview, configuration, source="Mic")
+        assert sender.attempted == ["abcd"]
+        assert sender.sent == []
+        clock.advance(3.0)
+        paginator.process_due()
+        assert sender.sent == ["efgh"]
+        assert pages == [(1, True, False)]
+        assert logging.basic == []
+        clock.advance(3.0)
+        paginator.process_due()
+        assert sender.attempted == ["abcd", "efgh", "ijkl"]
+        assert sender.sent == ["efgh", "ijkl"]
+        assert pages == [(1, True, False), (2, False, False)]
+        assert not preview.source_closed and preview.status == "active"
+        assert logging.basic == []
+        assert owner.snapshot().timeline_keys == frozenset({("self", utterance_id)})
+        dispositions = [
+            decision.reason
+            for decision in runtime.routing_decisions
+            if decision.metadata.get("stage") == "self_stream_delivery"
+        ]
+        assert dispositions == ["output_send_failed"]
+        clock.advance(1.0)
+        await projection.project_self_turn(
+            replace(preview, revision=2, source_closed=True, status="complete"),
+            configuration,
+            source="Mic",
+        )
+        assert sender.sent == ["efgh", "ijkl", "abcd"]
+        assert pages[-1] == (0, True, True)
+        assert logging.basic == [
+            "[Basic][Latency] channel=self endpoint=chatbox_send last_speech_to_chatbox_send_ms=8000"
+        ]
+        clock.advance(3.0)
+        paginator.process_due()
+        clock.advance(3.0)
+        paginator.process_due()
+        assert sender.sent == ["efgh", "ijkl", "abcd", "efgh", "ijkl"]
+        assert pages[-2:] == [(1, False, True), (2, False, True)]
+        assert len(logging.basic) == 1
+        assert owner.snapshot().timeline_keys == frozenset()
+        dispositions = [
+            decision.reason
+            for decision in runtime.routing_decisions
+            if decision.metadata.get("stage") == "self_stream_delivery"
+        ]
+        assert dispositions == ["output_send_failed", "first_page_sent"]
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_queued_preview_promoted_before_send_keeps_genuine_final_send_endpoint():
+    clock = FakeClock(_now=10.0)
+    logging = RuntimeLogging()
+    sender = FakeSender()
+    owner, paginator, runtime, projection = _stream_latency_projection(clock, logging, sender)
+    paginator.enqueue(OSCMessage(uuid4(), "xxxxxxxx", created_at=clock.now()))
+    utterance_id = uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", utterance_id, "last_speech", timestamp=9.0)
+    )
+    configuration = replace(
+        owner.config_snapshot(),
+        value=replace(owner.config_snapshot().value, chatbox_include_source=False),
+    )
+    preview = _stream_latency_snapshot(utterance_id, final=False)
+    try:
+        await projection.project_self_turn(preview, configuration, source="Mic")
+        clock.advance(1.0)
+        await projection.project_self_turn(
+            replace(preview, revision=2, source_closed=True, status="complete"),
+            configuration,
+            source="Mic",
+        )
+        assert sender.sent == ["xxxx"]
+        assert logging.basic == []
+        clock.advance(2.0)
+        paginator.process_due()
+        assert sender.sent == ["xxxx", "xxxx", "abcd"]
+        assert len(logging.basic) == 1
+        fields = dict(part.split("=", 1) for part in logging.basic[0].split()[1:])
+        assert fields["endpoint"] == "chatbox_send"
+        assert fields["last_speech_to_chatbox_send_ms"] == "4000"
+        assert owner.snapshot().timeline_keys == frozenset()
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,source_closed",
+    [("failed", True), ("cancelled", True), ("expired", True), ("complete", False)],
+)
+async def test_nonfinal_or_unsuccessful_snapshot_never_summarizes_sent_preview(
+    status, source_closed
+):
+    clock = FakeClock(_now=10.0)
+    logging = RuntimeLogging()
+    sender = FakeSender()
+    owner, paginator, runtime, projection = _stream_latency_projection(clock, logging, sender)
+    utterance_id = uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", utterance_id, "last_speech", timestamp=9.0)
+    )
+    configuration = replace(
+        owner.config_snapshot(),
+        value=replace(owner.config_snapshot().value, chatbox_include_source=False),
+    )
+    preview = _stream_latency_snapshot(utterance_id, final=False)
+    try:
+        await projection.project_self_turn(preview, configuration, source="Mic")
+        clock.advance(1.0)
+        await projection.project_self_turn(
+            replace(preview, revision=2, source_closed=source_closed, status=status),
+            configuration,
+            source="Mic",
+        )
+        clock.advance(3.0)
+        paginator.process_due()
+        assert logging.basic == []
+        assert owner.snapshot().timeline_keys == frozenset()
+    finally:
+        await runtime.close()
+
+
+def test_promoted_final_retains_pending_source_until_actual_speech_anchor_arrives() -> None:
+    logging = RuntimeLogging()
+    owner = make_owner(runtime_logging=logging)
+    source_id, output_id = uuid4(), uuid4()
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", source_id, "stt_final", timestamp=10.0)
+    )
+    owner.inherit_latency(LatencyInheritanceDiagnostic("self", output_id, (source_id,)))
+    owner.retain_latency_until_output("self", output_id)
+    owner.clear_latency_timeline("self", source_id)
+    owner.clear_latency_timeline("self", output_id)
+    owner.record_output_latency_stage(
+        LatencyStageDiagnostic("self", output_id, "self_chatbox_preview_send", timestamp=10.0)
+    )
+    owner.record_output_latency_stage(
+        LatencyStageDiagnostic("self", output_id, "self_chatbox_final_accepted", timestamp=12.0)
+    )
+    assert logging.basic == []
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", source_id, "last_speech", timestamp=9.0, publish_now=False)
+    )
+    owner.record_latency_stage(
+        LatencyStageDiagnostic("self", source_id, "speech_end", timestamp=9.5)
+    )
+    assert len(logging.basic) == 1
+    fields = dict(part.split("=", 1) for part in logging.basic[0].split()[1:])
+    assert fields["endpoint"] == "chatbox_final_accepted"
+    assert fields["last_speech_to_chatbox_final_accepted_ms"] == "3000"
+    assert owner.snapshot().timeline_keys == frozenset()
+    assert not owner.record_output_latency_stage(
+        LatencyStageDiagnostic("self", output_id, "self_chatbox_send", timestamp=13.0)
+    )
+    assert len(logging.basic) == 1

@@ -8,7 +8,7 @@ from typing import Literal
 
 from puripuly_heart.config.paths import user_config_dir
 
-RuntimeHostKind = Literal["source", "pyinstaller", "native"]
+RuntimeHostKind = Literal["source", "native", "pyinstaller"]
 
 
 @dataclass(frozen=True, slots=True)

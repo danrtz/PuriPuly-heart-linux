@@ -104,6 +104,13 @@ def test_state_publisher_uses_translation_selection_ids(
 @pytest.mark.parametrize(
     ("provider", "expected_id"),
     [
+        (STTProviderName.LOCAL_CPU_AUTO, 0),
+        (STTProviderName.LOCAL_GRANITE, 16),
+        (STTProviderName.LOCAL_GIGAAM, 17),
+        (STTProviderName.LOCAL_PARAKEET_JAPANESE, 2),
+        (STTProviderName.LOCAL_QWEN_GPU, 4),
+        (STTProviderName.LOCAL_FUN_ASR_NANO, 14),
+        (STTProviderName.LOCAL_FUN_ASR_MLT_NANO, 15),
         (STTProviderName.CUSTOM_OFFLINE, 8),
         (STTProviderName.CUSTOM_REALTIME, 9),
         (STTProviderName.CUSTOM, 8),
@@ -135,6 +142,13 @@ def test_state_publisher_publishes_custom_asr_ids(
 @pytest.mark.parametrize(
     ("provider", "expected_id"),
     [
+        (STTProviderName.LOCAL_CPU_AUTO, 0),
+        (STTProviderName.LOCAL_GRANITE, 16),
+        (STTProviderName.LOCAL_GIGAAM, 17),
+        (STTProviderName.LOCAL_PARAKEET_JAPANESE, 2),
+        (STTProviderName.LOCAL_QWEN_GPU, 4),
+        (STTProviderName.LOCAL_FUN_ASR_NANO, 14),
+        (STTProviderName.LOCAL_FUN_ASR_MLT_NANO, 15),
         (STTProviderName.GEMINI_TRANSCRIBE, 10),
         (STTProviderName.ELEVENLABS_SCRIBE, 11),
         (STTProviderName.QWEN_AUDIO, 12),
@@ -158,3 +172,51 @@ def test_state_publisher_publishes_peer_asr_ids_for_new_providers(
     OscStatePublisher(sender).start(state_from_settings(settings))
 
     assert ("/avatar/parameters/PuriPuly_PeerASR", expected_id) in sender.messages
+
+
+@pytest.mark.parametrize("provider", ["local_orukeet", "local_parakeet_v3", "local_qwen"])
+def test_retired_cpu_settings_publish_only_the_canonical_auto_slot(provider: str) -> None:
+    baseline = AppSettingsVNext()
+    settings = replace(
+        baseline,
+        intent=replace(
+            baseline.intent,
+            stt=replace(baseline.intent.stt, provider=provider),
+            peer_stt=replace(baseline.intent.peer_stt, provider=provider),
+        ),
+    )
+    sender = FakeSender()
+
+    OscStatePublisher(sender).start(state_from_settings(settings))
+
+    assert ("/avatar/parameters/PuriPuly_SelfASR", 0) in sender.messages
+    assert ("/avatar/parameters/PuriPuly_PeerASR", 0) in sender.messages
+
+
+def test_partial_local_state_send_preserves_prefix_cache_and_failed_parameter() -> None:
+    from puripuly_heart.app.services.osc.state_publisher import OscStatePublicationError
+
+    class PartialSender(FakeSender):
+        fail = True
+
+        def send_message(self, address: str, *values: object) -> None:
+            if self.fail and len(self.messages) == 2:
+                raise OSError(5, "forbidden-udp-body")
+            super().send_message(address, *values)
+
+    sender = PartialSender()
+    publisher = OscStatePublisher(sender)
+    with pytest.raises(OscStatePublicationError) as caught:
+        publisher.start(OscCanonicalState())
+    failure = caught.value
+    assert failure.completed == 2
+    assert failure.requested == 15
+    assert len(publisher.last_published) == 2
+    assert failure.parameter not in publisher.last_published
+    assert isinstance(failure.__cause__, OSError)
+    assert failure.__cause__.errno == 5
+    assert "forbidden-udp-body" not in str(failure)
+    sender.fail = False
+    remaining = publisher.publish_delta(OscCanonicalState())
+    assert len(remaining) == 13
+    assert len(publisher.last_published) == 15

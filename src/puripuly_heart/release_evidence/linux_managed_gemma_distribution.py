@@ -29,15 +29,15 @@ class LinuxRuntimeArchive:
 LINUX_ARCHIVES = (
     LinuxRuntimeArchive(
         "cpu",
-        "llama-b10423-bin-ubuntu-x64.tar.gz",
-        16_606_819,
-        "664ffbf9134dbc12b2de3281d0404cb8f98a2339580911e5f74035dc320e0e84",
+        "llama-b11537-bin-ubuntu-x64.tar.gz",
+        17_801_203,
+        "ee03a40fcf16d2ebf88c02f7eac6ae40fbaf332aec18c18651dcd441610a5451",
     ),
     LinuxRuntimeArchive(
         "vulkan",
-        "llama-b10423-bin-ubuntu-vulkan-x64.tar.gz",
-        32_989_764,
-        "3b1194ef38f4b02b6329d698e29532435a5a7c3567c84b8bb822459ca0893286",
+        "llama-b11537-bin-ubuntu-vulkan-x64.tar.gz",
+        31_763_213,
+        "81908d169e6a07e115d0fbad7f94acba0597140fad957507c8f9dd75e65f4721",
     ),
 )
 MANIFEST_FILENAME = "linux-runtime-manifest.json"

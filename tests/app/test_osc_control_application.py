@@ -227,9 +227,14 @@ async def test_osc_same_model_repairs_invalid_connection_from_saved_history() ->
 
 @pytest.mark.asyncio
 async def test_osc_model_only_restores_regional_managed_connection_history() -> None:
-    from puripuly_heart.config.settings_vnext.defaults import new_settings_for_first_run
-
-    current = new_settings_for_first_run("zh-CN")
+    current = materialize_canonical_translation_settings(
+        _with_translation(
+            AppSettingsVNext(),
+            model="deepseek_v4_flash_41",
+            connection="managed_china",
+            connection_history={"deepseek_v4_flash_41": "managed_china"},
+        )
+    )
 
     async def apply_settings(settings: object) -> object:
         nonlocal current
@@ -514,7 +519,8 @@ async def test_primary_osc_target_change_preserves_a_distinct_secondary_target()
 
 
 @pytest.mark.asyncio
-async def test_asr_controls_skip_apply_when_provider_matches() -> None:
+@pytest.mark.parametrize("retired_provider", ["local_orukeet", "local_parakeet_v3"])
+async def test_asr_controls_skip_apply_when_provider_matches(retired_provider: str) -> None:
     current = _with_peer_stt_provider(
         _with_stt_provider(AppSettingsVNext(), "deepgram"),
         "soniox",
@@ -539,10 +545,10 @@ async def test_asr_controls_skip_apply_when_provider_matches() -> None:
     assert (await application.set_peer_asr("soniox")) is True
     assert applied == 0
 
-    assert (await application.set_self_asr("local_parakeet_v3")) is True
+    assert (await application.set_self_asr(retired_provider)) is True
 
     assert applied == 1
-    assert current.intent.stt.provider == "local_parakeet_v3"
+    assert current.intent.stt.provider == "local_cpu_auto"
     assert current.intent.peer_stt.provider == "soniox"
 
 

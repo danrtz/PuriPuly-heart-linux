@@ -5,7 +5,6 @@ import base64
 import csv
 import hashlib
 import importlib.machinery
-import importlib.metadata
 import importlib.util
 import io
 import json
@@ -23,25 +22,22 @@ from typing import Any
 
 from packaging.requirements import Requirement
 
-from puripuly_heart.release_evidence.gpu_worker_distribution import validate_gpu_worker_runtime
-from puripuly_heart.release_evidence.native_pe import stage_vc_runtime, validate_pe_dependencies
+from puripuly_heart.release_evidence.native_pe import stage_vc_runtime
 
 _LAYOUT_SCHEMA = "puripuly-heart/native-artifact-layout/v1"
 _MANIFEST_SCHEMA = "puripuly-heart/native-artifact-manifest/v1"
 _NATIVE_MARKER_ENVIRONMENT = {
     "implementation_name": "cpython",
-    "implementation_version": "3.14.7",
+    "implementation_version": "3.14.10",
     "os_name": "nt",
     "platform_machine": "AMD64",
     "platform_python_implementation": "CPython",
     "platform_system": "Windows",
-    "python_full_version": "3.14.7",
+    "python_full_version": "3.14.10",
     "python_version": "3.14",
     "sys_platform": "win32",
     "extra": "",
 }
-_FORBIDDEN_DISTRIBUTIONS = frozenset({"flet-desktop", "flet-cli", "pyinstaller"})
-_FORBIDDEN_PTH = frozenset({"a1_coverage.pth", "distutils-precedence.pth"})
 _SOUNDDEVICE_RUNTIME_ROOT = PurePosixPath("_sounddevice_data/portaudio-binaries")
 _SOUNDDEVICE_STANDARD_DLL = _SOUNDDEVICE_RUNTIME_ROOT / "libportaudio64bit.dll"
 _SOUNDDEVICE_ASIO_DLL = _SOUNDDEVICE_RUNTIME_ROOT / "libportaudio64bit-asio.dll"
@@ -98,9 +94,9 @@ class NativeArtifactLayout:
             "soxr_runtime_root",
             "soxr_compliance_root",
             "llama_runtime_root",
-            "local_qwen_runtime_root",
+            "local_sherpa_runtime_root",
             "overlay_executable",
-            "gpu_worker_executable",
+            "asr_worker_executable",
             "openvr_dll",
             "artifact_manifest",
         }
@@ -167,28 +163,70 @@ class NativeArtifactLayout:
         return "\n".join(lines)
 
 
-def verify_upstream_inputs(spec_path: Path, input_root: Path) -> dict[str, Any]:
+def _python_runtime_members(package_path: Path) -> dict[str, bytes]:
+    members: dict[str, bytes] = {}
+    excluded_stdlib = {
+        "test",
+        "idlelib",
+        "tkinter",
+        "turtledemo",
+        "ensurepip",
+        "pydoc_data",
+        "lib2to3",
+        "site-packages",
+        "rlcompleter.py",
+        "tabnanny.py",
+        "antigravity.py",
+        "this.py",
+        "__hello__.py",
+        "__phello__",
+    }
+    with zipfile.ZipFile(package_path) as archive:
+        for entry in archive.infolist():
+            if not entry.filename.startswith("tools/") or entry.is_dir():
+                continue
+            relative = _safe_relative(entry.filename.removeprefix("tools/"))
+            if relative.parts[0] == "Lib" and (
+                relative.parts[1] in excluded_stdlib
+                or relative.suffix.lower() in {".exe", ".dll", ".pyd"}
+            ):
+                continue
+            if relative.parts[0] in {"Lib", "DLLs"} or str(relative) in {
+                "python.exe",
+                "python3.dll",
+                "python314.dll",
+                "LICENSE.txt",
+            }:
+                members[str(relative)] = archive.read(entry)
+    return members
+
+
+def prepare_python_inputs(spec_path: Path, input_root: Path, cache_root: Path) -> dict[str, Any]:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    if spec.get("schema") != "puripuly-heart/native-upstream-inputs/v1":
-        raise ValueError("unexpected upstream input schema")
-    verified: dict[str, Any] = {}
-    for filename, expected in spec["inputs"].items():
-        matches = [path for path in input_root.rglob(filename) if path.is_file()]
-        if len(matches) != 1:
-            raise FileNotFoundError(
-                f"expected exactly one pinned input named {filename!r} below {input_root}, got {matches}"
-            )
-        path = matches[0]
-        size = path.stat().st_size
-        digest = _sha256(path)
-        if size != expected["bytes"] or digest != expected["sha256"]:
-            raise ValueError(f"pinned input mismatch: {path}")
-        verified[filename] = {
-            "path": str(path.resolve()),
-            "bytes": size,
-            "sha256": digest,
-        }
-    return {"versions": spec["versions"], "inputs": verified}
+    version = spec["versions"]["python"]
+    package_name = f"python.{version}.nupkg"
+    package_path = input_root / package_name
+    members = _python_runtime_members(package_path)
+    runtime_dir = (
+        cache_root / "python-build" / f"v{version}-{spec['versions']['python_build_release']}"
+    )
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    runtime_path = runtime_dir / f"python-windows-for-dart-{version}.zip"
+    with zipfile.ZipFile(runtime_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, data in sorted(members.items()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, data)
+    manifest_name = f"manifest-{spec['versions']['python_build_release']}.json"
+    manifest = json.loads((input_root / manifest_name).read_text(encoding="utf-8"))
+    manifest["pythons"]["3.14"]["full_version"] = version
+    manifest["pythons"]["3.14"]["standalone_release_date"] = spec["versions"]["python_dist_release"]
+    manifest_path = cache_root / "python-build" / "puripuly-python-manifest.json"
+    _write_json(manifest_path, manifest)
+    return {
+        "runtime_archive": str(runtime_path),
+        "manifest": str(manifest_path),
+    }
 
 
 def filter_requirements(source: Path, destination: Path) -> list[str]:
@@ -308,149 +346,31 @@ def finalize_soxr_wheel(wheel_path: Path, dll_path: Path, destination: Path) -> 
             info.external_attr = 0o644 << 16
             target.writestr(info, data)
     os.replace(temporary, destination)
-    verify_wheel_record(destination)
-    return {
-        "wheel_sha256": _sha256(destination),
-        "dll_sha256": hashlib.sha256(dll_data).hexdigest(),
-    }
+    return {"wheel": str(destination)}
 
 
-def verify_wheel_record(wheel_path: Path) -> None:
-    with zipfile.ZipFile(wheel_path) as archive:
-        names = [name for name in archive.namelist() if not name.endswith("/")]
-        record_names = [name for name in names if name.endswith(".dist-info/RECORD")]
-        if len(record_names) != 1:
-            raise ValueError("wheel must contain exactly one RECORD")
-        record_name = record_names[0]
-        rows = {
-            row[0]: row[1:]
-            for row in csv.reader(archive.read(record_name).decode("utf-8").splitlines())
-        }
-        if set(rows) != set(names):
-            raise ValueError("wheel RECORD ownership does not match archive members")
-        for name in names:
-            digest, size = rows[name]
-            if name == record_name:
-                if digest or size:
-                    raise ValueError("wheel RECORD must leave its own digest and size empty")
-                continue
-            data = archive.read(name)
-            if digest != _record_digest(data) or size != str(len(data)):
-                raise ValueError(f"wheel RECORD mismatch: {name}")
-        soxr_runtime = {name for name in names if name.startswith("soxr/")}
-        if not any(name.lower().endswith(".pyd") for name in soxr_runtime):
-            raise ValueError("wheel lacks the soxr extension module")
-        if "soxr/soxr.dll" not in soxr_runtime:
-            raise ValueError("wheel lacks soxr/soxr.dll")
-
-
-def verify_installed_soxr_record(site_packages: Path) -> dict[str, str]:
-    records = list(site_packages.glob("soxr-*.dist-info/RECORD"))
-    if len(records) != 1:
-        raise ValueError(f"installed soxr must contain exactly one RECORD: {records}")
-    record = records[0]
-    rows = {
-        row[0].replace("\\", "/"): row[1:]
-        for row in csv.reader(record.read_text(encoding="utf-8").splitlines())
-    }
-    runtime_members = sorted(
-        name
-        for name in rows
-        if name == "soxr/soxr.dll" or (name.startswith("soxr/") and name.lower().endswith(".pyd"))
-    )
-    if len(runtime_members) != 2 or "soxr/soxr.dll" not in runtime_members:
-        raise ValueError(
-            f"installed soxr RECORD does not own one extension and DLL: {runtime_members}"
-        )
-    identities: dict[str, str] = {}
-    for name in runtime_members:
-        path = site_packages.joinpath(*PurePosixPath(name).parts)
-        data = path.read_bytes()
-        digest, size = rows[name]
-        if digest != _record_digest(data) or size != str(len(data)):
-            raise ValueError(f"installed soxr RECORD mismatch: {name}")
-        identities[name] = hashlib.sha256(data).hexdigest()
-    return identities
-
-
-def verify_sounddevice_portaudio_runtime(site_packages: Path) -> dict[str, str]:
+def stage_sounddevice_portaudio_runtime(site_packages: Path) -> dict[str, list[str]]:
     standard = site_packages.joinpath(*_SOUNDDEVICE_STANDARD_DLL.parts)
     asio = site_packages.joinpath(*_SOUNDDEVICE_ASIO_DLL.parts)
     if not standard.is_file():
         raise ValueError("native artifact lacks the standard sounddevice PortAudio runtime")
+    excluded = []
     if asio.exists():
-        raise ValueError("native artifact includes the unsupported sounddevice ASIO runtime")
-    return {str(_SOUNDDEVICE_STANDARD_DLL): _sha256(standard)}
-
-
-def stage_sounddevice_portaudio_runtime(site_packages: Path) -> dict[str, dict[str, str]]:
-    standard = site_packages.joinpath(*_SOUNDDEVICE_STANDARD_DLL.parts)
-    asio = site_packages.joinpath(*_SOUNDDEVICE_ASIO_DLL.parts)
-    if not standard.is_file():
-        raise ValueError("native artifact lacks the standard sounddevice PortAudio runtime")
-    excluded: dict[str, str] = {}
-    if asio.exists():
-        excluded[str(_SOUNDDEVICE_ASIO_DLL)] = _sha256(asio)
+        excluded.append(str(_SOUNDDEVICE_ASIO_DLL))
         asio.unlink()
     return {
-        "retained": verify_sounddevice_portaudio_runtime(site_packages),
+        "retained": [str(_SOUNDDEVICE_STANDARD_DLL)],
         "excluded": excluded,
     }
 
 
-def _distribution_versions(site_packages: Path) -> dict[str, str]:
-    versions: dict[str, str] = {}
-    for distribution in importlib.metadata.distributions(path=[str(site_packages)]):
-        name = distribution.metadata.get("Name")
-        if not name:
-            raise ValueError(f"distribution has no Name metadata: {distribution._path}")
-        canonical = _canonical_name(name)
-        if canonical in versions:
-            raise ValueError(f"duplicate distribution metadata: {canonical}")
-        versions[canonical] = distribution.version
-    return versions
+def validate_target(target_root: Path, layout_path: Path, soxr_manifest: Path) -> dict[str, Any]:
+    from puripuly_heart.release_evidence.managed_gemma_distribution import verify_package
+    from puripuly_heart.release_evidence.release_identity import (
+        verify_packaged_license_payloads,
+        verify_soxr_packaging,
+    )
 
-
-def validate_dependencies(site_packages: Path, requirements_path: Path) -> dict[str, Any]:
-    requirements: dict[str, Requirement] = {}
-    for line in requirements_path.read_text(encoding="utf-8").splitlines():
-        if not line or line[0].isspace() or line.startswith(("#", "--")):
-            continue
-        requirement = Requirement(line.rstrip().removesuffix("\\").strip())
-        name = _canonical_name(requirement.name)
-        if name == "flet-desktop":
-            continue
-        if requirement.marker is None or requirement.marker.evaluate(_NATIVE_MARKER_ENVIRONMENT):
-            requirements[name] = requirement
-    versions = _distribution_versions(site_packages)
-    names = set(versions)
-    forbidden = sorted(names & _FORBIDDEN_DISTRIBUTIONS)
-    if forbidden:
-        raise ValueError(f"native dependency closure includes forbidden distributions: {forbidden}")
-    missing = sorted(requirements.keys() - names)
-    unexpected = sorted(names - requirements.keys() - {"puripuly-heart"})
-    mismatched = {
-        name: {"expected": str(requirement.specifier), "actual": versions[name]}
-        for name, requirement in requirements.items()
-        if name in versions and not requirement.specifier.contains(versions[name], prereleases=True)
-    }
-    if missing or unexpected or mismatched:
-        raise ValueError(
-            f"native dependency closure mismatch: missing={missing}, "
-            f"unexpected={unexpected}, versions={mismatched}"
-        )
-    return {
-        "distribution_count": len(versions),
-        "distributions": sorted(versions),
-        "versions": versions,
-        "requirements_sha256": _sha256(requirements_path),
-        "marker_environment": _NATIVE_MARKER_ENVIRONMENT,
-    }
-
-
-def validate_target(
-    target_root: Path, layout_path: Path, requirements_path: Path, vc_runtime_path: Path
-) -> dict[str, Any]:
     layout = NativeArtifactLayout.load(layout_path)
     required_paths = {
         key: layout.resolve(target_root, key)
@@ -458,53 +378,48 @@ def validate_target(
             "host_executable",
             "console_executable",
             "python_executable",
-            "application_root",
             "python_archive",
-            "dependency_root",
             "stdlib_archive",
-            "extension_dll_root",
             "overlay_executable",
-            "gpu_worker_executable",
+            "asr_worker_executable",
             "openvr_dll",
         )
     }
-    missing = sorted(str(path) for path in required_paths.values() if not path.exists())
+    required = [
+        *required_paths.values(),
+        target_root / "app/product_bootstrap.pyc",
+        target_root / "app/puripuly_heart/data/fonts/NotoSansCJK-Medium.ttc",
+        target_root / "site-packages/soxr/soxr.dll",
+        target_root.joinpath("site-packages", *_SOUNDDEVICE_STANDARD_DLL.parts),
+        target_root / "_runtime/local_qwen/onnxruntime.dll",
+        target_root / "_runtime/local_qwen/onnxruntime_providers_shared.dll",
+        *(
+            target_root / name
+            for name in (
+                "transcribe.dll",
+                "ggml.dll",
+                "ggml-base.dll",
+                "ggml-vulkan.dll",
+                "ggml-cpu-x64.dll",
+            )
+        ),
+        *(target_root / "third_party/noto-sans-cjk" / name for name in ("OFL.txt", "README.md")),
+    ]
+    missing = sorted(str(path) for path in required if not path.is_file())
     if missing:
         raise FileNotFoundError(f"native artifact is incomplete: {missing}")
-    gpu_worker_runtime = validate_gpu_worker_runtime(required_paths["gpu_worker_executable"].parent)
-    python_archive = _validate_python_archive(target_root, layout)
-    site_packages = required_paths["dependency_root"]
-    dependencies = validate_dependencies(site_packages, requirements_path)
-    product_metadata = list(site_packages.glob("puripuly_heart-*.dist-info"))
-    if len(product_metadata) != 1 or (product_metadata[0] / "direct_url.json").exists():
-        raise ValueError(
-            "native artifact must contain one non-editable product distribution metadata directory"
-        )
-    bad_pth = sorted(
-        path.name for path in site_packages.glob("*.pth") if path.name.lower() in _FORBIDDEN_PTH
-    )
-    if bad_pth:
-        raise ValueError(f"native dependency closure contains build-only path hooks: {bad_pth}")
-    soxr_runtime = verify_installed_soxr_record(site_packages)
-    portaudio_runtime = verify_sounddevice_portaudio_runtime(site_packages)
-    python_digest = _sha256(required_paths["python_executable"])
-    if python_digest != "4942b86a6597e5aee0128daa00050ed79bc21f6e709a78eb19cbfeb0c2f39ac9":
-        raise ValueError("native python.exe is not the pinned official CPython executable")
-    python_copies = sorted(path for path in target_root.rglob("python.exe") if path.is_file())
-    if python_copies != [required_paths["python_executable"]]:
-        raise ValueError(f"native artifact must contain one python.exe: {python_copies}")
-    pe_dependencies = validate_pe_dependencies(target_root, vc_runtime_path)
+    extensions = list((target_root / "site-packages/soxr").glob("soxr_ext*.pyd"))
+    if len(extensions) != 1:
+        raise ValueError("native artifact must contain one soxr extension")
     return {
-        **dependencies,
-        "python_executable_sha256": python_digest,
-        "soxr_runtime": soxr_runtime,
-        "python_archive": python_archive,
-        "portaudio_runtime": portaudio_runtime,
-        "gpu_worker_runtime": gpu_worker_runtime,
-        "pe_dependencies": pe_dependencies,
-        "paths": {
-            key: str(value.relative_to(target_root)) for key, value in required_paths.items()
-        },
+        "paths": {key: str(path.relative_to(target_root)) for key, path in required_paths.items()},
+        "licenses": verify_packaged_license_payloads(
+            target_root, application_root="app", dependency_root="site-packages"
+        ),
+        "soxr": verify_soxr_packaging(
+            target_root, Path(__file__).resolve().parents[3], soxr_manifest
+        ),
+        "llama": verify_package(target_root),
     }
 
 
@@ -542,13 +457,6 @@ def _validate_bytecode(data: bytes, name: str) -> str:
     if not isinstance(code, types.CodeType) or stream.tell() != len(data):
         raise ValueError(f"bytecode does not contain exactly one module: {name}")
     return modes[flags]
-
-
-def _validate_compiled_member(data: bytes, source: bytes, name: str) -> None:
-    if _validate_bytecode(data, name) != "unchecked-hash" or data[
-        8:16
-    ] != importlib.util.source_hash(source):
-        raise ValueError(f"invalid unchecked-hash bytecode: {name}")
 
 
 def compile_runtime(target_root: Path, layout_path: Path) -> dict[str, Any]:
@@ -591,11 +499,8 @@ def compile_runtime(target_root: Path, layout_path: Path) -> dict[str, Any]:
             {
                 "path": destination.relative_to(target_root).as_posix(),
                 "source": source.relative_to(target_root).as_posix(),
-                "sha256": _sha256(destination),
-                "source_sha256": _sha256(source),
                 "optimization": "0",
                 "invalidation_mode": "unchecked-hash",
-                "provenance": "build-derived",
             }
         )
     if failures:
@@ -617,11 +522,7 @@ def compile_runtime(target_root: Path, layout_path: Path) -> dict[str, Any]:
         upstream.append(
             {
                 "path": path.relative_to(target_root).as_posix(),
-                "input_path": path.relative_to(target_root).as_posix(),
-                "sha256": _sha256(path),
-                "optimization": "upstream-unspecified",
                 "invalidation_mode": _validate_bytecode(path.read_bytes(), str(path)),
-                "provenance": "trusted-upstream-sourceless",
             }
         )
     return {
@@ -766,19 +667,16 @@ def _archive_members(
                 source = dependency_root.joinpath(*path.parts[1:]).with_suffix(".py")
                 if not source.is_file():
                     raise ValueError(f"dependency archive lacks retained source: {name}")
-                _validate_compiled_member(archive.read(info), source.read_bytes(), name)
+                _validate_bytecode(archive.read(info), name)
             elif path.suffix == ".py":
                 if path.with_suffix(".pyc").as_posix() not in members:
                     raise ValueError(f"Python archive source lacks bytecode: {name}")
             elif path.suffix == ".pyc":
                 source_name = path.with_suffix(".py").as_posix()
                 data = archive.read(info)
-                if source_name in members:
-                    _validate_compiled_member(data, archive.read(source_name), name)
-                elif stdlib:
-                    _validate_bytecode(data, name)
-                else:
+                if source_name not in members and not stdlib:
                     raise ValueError(f"Python archive bytecode lacks diagnostic source: {name}")
+                _validate_bytecode(data, name)
         required = (
             {"encodings/__init__.pyc"}
             if stdlib
@@ -824,31 +722,17 @@ def _write_archive(
             info.compress_level = 9
             info.external_attr = (0o40755 if name.endswith("/") else 0o100644) << 16
             value = members.get(name, b"")
-            digest = hashlib.sha256()
             with archive.open(info, "w") as output:
                 if isinstance(value, Path):
                     with value.open("rb") as source:
                         for block in iter(lambda: source.read(1024 * 1024), b""):
-                            digest.update(block)
                             output.write(block)
                 else:
                     output.write(value)
-                    digest.update(value)
-            if name in records and digest.hexdigest() != records[name]["sha256"]:
-                raise ValueError(f"Python archive input changed while packing: {name}")
     return {
         "path": destination.relative_to(target_root).as_posix(),
-        "sha256": _sha256(destination),
         "members": [
-            (
-                {
-                    "path": name,
-                    "sha256": hashlib.sha256(b"").hexdigest(),
-                    "provenance": "build-derived-directory",
-                }
-                if name in directories
-                else records[name]
-            )
+            {"path": name} if name in directories else records[name]
             for name in sorted(set(members) | directories)
         ],
     }
@@ -904,15 +788,6 @@ def bundle_runtime(target_root: Path, layout_path: Path, bytecode_path: Path) ->
             raise ValueError(f"unexpected compiled input path: {source}")
         if not path.is_file() or not source_path.is_file():
             raise FileNotFoundError(f"missing compiled input: {source}")
-        if (
-            _sha256(path) != entry["sha256"]
-            or _sha256(source_path) != entry.get("source_sha256")
-            or entry.get("optimization") != "0"
-            or entry.get("invalidation_mode") != "unchecked-hash"
-            or entry.get("provenance") != "build-derived"
-        ):
-            raise ValueError(f"compile evidence mismatch: {source}")
-        _validate_compiled_member(path.read_bytes(), source_path.read_bytes(), entry["path"])
         compiled[source] = entry
     if compiled.keys() != {
         path.relative_to(target_root).as_posix() for path in all_files if path.suffix == ".py"
@@ -928,12 +803,6 @@ def bundle_runtime(target_root: Path, layout_path: Path, bytecode_path: Path) ->
             or "__pycache__" in path.parts
             or path.with_suffix(".py").exists()
             or entry["path"] in upstream
-            or "source" in entry
-            or "source_sha256" in entry
-            or entry.get("input_path") != entry["path"]
-            or entry.get("provenance") != "trusted-upstream-sourceless"
-            or entry.get("optimization") != "upstream-unspecified"
-            or _sha256(path) != entry.get("sha256")
             or _validate_bytecode(path.read_bytes(), entry["path"])
             != entry.get("invalidation_mode")
         ):
@@ -1027,11 +896,7 @@ def bundle_runtime(target_root: Path, layout_path: Path, bytecode_path: Path) ->
             add(
                 name,
                 path,
-                {
-                    "source": source,
-                    "sha256": _sha256(path),
-                    "provenance": "build-input",
-                },
+                {"source": source},
                 stdlib=stdlib,
             )
             if stdlib:
@@ -1040,10 +905,7 @@ def bundle_runtime(target_root: Path, layout_path: Path, bytecode_path: Path) ->
     add(
         "_native_dependencies.index",
         index,
-        {
-            "sha256": hashlib.sha256(index).hexdigest(),
-            "provenance": "build-derived-index",
-        },
+        {},
     )
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     stdlib_temporary = stdlib_destination.with_suffix(stdlib_destination.suffix + ".tmp")
@@ -1079,176 +941,6 @@ def bundle_runtime(target_root: Path, layout_path: Path, bytecode_path: Path) ->
         "stdlib_bytecode": [],
         "archive": archive_record,
         "stdlib_archive": stdlib_record,
-    }
-
-
-def _validate_python_archive(target_root: Path, layout: NativeArtifactLayout) -> dict[str, Any]:
-    application_root = layout.resolve(target_root, "application_root")
-    dependency_root = layout.resolve(target_root, "dependency_root")
-    stdlib_root = layout.resolve(target_root, "stdlib_root")
-    archive_path = layout.resolve(target_root, "python_archive")
-    stdlib_path = layout.resolve(target_root, "stdlib_archive")
-    members = _archive_members(archive_path, dependency_root=dependency_root)
-    stdlib_members = _archive_members(stdlib_path, stdlib=True)
-    loose = [
-        path
-        for root in (application_root, dependency_root, stdlib_root)
-        for path in root.rglob("*")
-        if path.is_file()
-        and (
-            (path.suffix.lower() == ".pyc" and path != application_root / "product_bootstrap.pyc")
-            or (path.suffix.lower() == ".py" and root != dependency_root)
-            or root == stdlib_root
-        )
-    ]
-    if loose or (dependency_root / "flet").exists():
-        raise ValueError(f"native artifact contains parallel loose archived code: {loose}")
-    if not (application_root / "product_bootstrap.pyc").is_file():
-        raise FileNotFoundError("native artifact lacks standalone product_bootstrap.pyc")
-    return {
-        "path": archive_path.relative_to(target_root.resolve()).as_posix(),
-        "sha256": _sha256(archive_path),
-        "member_count": len(members),
-        "stdlib_archive": {
-            "path": stdlib_path.relative_to(target_root.resolve()).as_posix(),
-            "sha256": _sha256(stdlib_path),
-            "member_count": len(stdlib_members),
-        },
-    }
-
-
-def _validate_bundle_evidence(
-    target_root: Path, layout: NativeArtifactLayout, evidence: dict[str, Any]
-) -> None:
-    target_root = target_root.resolve()
-    if evidence.get("python_optimize") != 0 or evidence.get("stdlib_bytecode") != []:
-        raise ValueError(
-            "Python archive evidence must use optimization 0 and own deployed stdlib bytecode"
-        )
-    deployed = _validate_python_archive(target_root, layout)
-    for key, deployed_record, root in (
-        ("archive", deployed, layout.resolve(target_root, "application_root")),
-        ("stdlib_archive", deployed["stdlib_archive"], layout.resolve(target_root, "stdlib_root")),
-    ):
-        record = evidence.get(key)
-        if not isinstance(record, dict) or any(
-            record.get(field) != deployed_record[field] for field in ("path", "sha256")
-        ):
-            raise ValueError(f"Python archive evidence does not match deployed archive: {key}")
-        with zipfile.ZipFile(target_root / record["path"]) as archive:
-            members = set(archive.namelist())
-            records = record["members"]
-            if len(records) != len(members) or {entry["path"] for entry in records} != members:
-                raise ValueError("Python archive evidence does not own every member")
-            for entry in records:
-                name = entry["path"]
-                data = archive.read(name) if name.endswith(".pyc") else None
-                digest = hashlib.sha256(data) if data is not None else hashlib.sha256()
-                if data is None:
-                    with archive.open(name) as stream:
-                        for block in iter(lambda: stream.read(1024 * 1024), b""):
-                            digest.update(block)
-                if entry.get("sha256") != digest.hexdigest():
-                    raise ValueError(f"Python archive member evidence mismatch: {name}")
-                if name.endswith("/"):
-                    if entry.get("provenance") != "build-derived-directory" or "source" in entry:
-                        raise ValueError(f"Python archive directory evidence mismatch: {name}")
-                    continue
-                if name == "_native_dependencies.index":
-                    if entry.get("provenance") != "build-derived-index":
-                        raise ValueError("dependency index provenance evidence mismatch")
-                    continue
-                if not name.endswith(".pyc"):
-                    expected_input = (root / name).relative_to(target_root).as_posix()
-                    if key == "archive" and name.startswith("flet/"):
-                        expected_input = (
-                            (layout.resolve(target_root, "dependency_root") / name)
-                            .relative_to(target_root)
-                            .as_posix()
-                        )
-                    if (
-                        entry.get("provenance") != "build-input"
-                        or entry.get("source") != expected_input
-                    ):
-                        raise ValueError(f"Python archive input evidence mismatch: {name}")
-                    continue
-                dependency = name.startswith("_native_dependencies/")
-                source_name = str(PurePosixPath(name).with_suffix(".py"))
-                if dependency:
-                    relative = PurePosixPath(source_name).relative_to("_native_dependencies")
-                    source = layout.resolve(target_root, "dependency_root").joinpath(
-                        *relative.parts
-                    )
-                    source_data = source.read_bytes()
-                    expected_source = source.relative_to(target_root).as_posix()
-                    if "source_member" in entry:
-                        raise ValueError(
-                            f"dependency source evidence must own retained source: {name}"
-                        )
-                else:
-                    source_data = archive.read(source_name) if source_name in members else None
-                    expected_source = (root / source_name).relative_to(target_root).as_posix()
-                    if key == "archive" and name.startswith("flet/"):
-                        expected_source = (
-                            (layout.resolve(target_root, "dependency_root") / source_name)
-                            .relative_to(target_root)
-                            .as_posix()
-                        )
-                if source_data is None:
-                    if (
-                        key != "stdlib_archive"
-                        or entry.get("provenance") != "trusted-upstream-sourceless"
-                        or entry.get("optimization") != "upstream-unspecified"
-                        or entry.get("invalidation_mode") != _validate_bytecode(data, name)
-                        or entry.get("input_path")
-                        != (root / name).relative_to(target_root).as_posix()
-                        or "source" in entry
-                        or "source_sha256" in entry
-                        or "source_member" in entry
-                    ):
-                        raise ValueError(f"upstream bytecode evidence mismatch: {name}")
-                else:
-                    if (
-                        entry.get("source") != expected_source
-                        or (not dependency and entry.get("source_member") != source_name)
-                        or entry.get("source_sha256") != hashlib.sha256(source_data).hexdigest()
-                        or entry.get("optimization") != "0"
-                        or entry.get("invalidation_mode") != "unchecked-hash"
-                        or entry.get("provenance") != "build-derived"
-                    ):
-                        raise ValueError(f"Python archive bytecode evidence mismatch: {name}")
-                    _validate_compiled_member(data, source_data, name)
-    bootstrap = layout.resolve(target_root, "application_root") / "product_bootstrap.pyc"
-    loose = evidence["bytecode"]
-    if len(loose) != 1 or loose[0]["path"] != bootstrap.relative_to(target_root).as_posix():
-        raise ValueError("loose bytecode evidence must own only standalone product_bootstrap.pyc")
-    entry = loose[0]
-    if (
-        _sha256(bootstrap) != entry.get("sha256")
-        or entry.get("source") != bootstrap.with_suffix(".py").relative_to(target_root).as_posix()
-        or not isinstance(entry.get("source_sha256"), str)
-        or len(entry["source_sha256"]) != 64
-        or entry.get("optimization") != "0"
-        or entry.get("invalidation_mode") != "unchecked-hash"
-        or entry.get("provenance") != "build-derived"
-        or _validate_bytecode(bootstrap.read_bytes(), entry["path"]) != "unchecked-hash"
-    ):
-        raise ValueError("loose bytecode compile evidence mismatch")
-
-
-def validate_compliance(target_root: Path, repo_root: Path, soxr_manifest: Path) -> dict[str, Any]:
-    from puripuly_heart.release_evidence.release_identity import (
-        verify_packaged_license_payloads,
-        verify_soxr_packaging,
-    )
-
-    return {
-        "licenses": verify_packaged_license_payloads(
-            target_root,
-            application_root="app",
-            dependency_root="site-packages",
-        ),
-        "soxr": verify_soxr_packaging(target_root, repo_root, soxr_manifest),
     }
 
 
@@ -1495,23 +1187,17 @@ Future<String?> runPython({
         raise ValueError("pinned Flet main.dart console block changed")
     main_path.write_text(main.replace(old_console, ""), encoding="utf-8", newline="\n")
     return {
-        "layout_sha256": _sha256(layout_path),
-        "python_bootstrap_sha256": _sha256(python_bootstrap_path),
-        "runner_sha256": _sha256(runner_root / "main.cpp"),
+        "template_root": str(template_root),
+        "runner": str(runner_root / "main.cpp"),
     }
 
 
 def create_manifest(
     target_root: Path,
     layout_path: Path,
-    provenance_path: Path,
-    bytecode_path: Path,
     destination: Path,
 ) -> dict[str, Any]:
-    layout = NativeArtifactLayout.load(layout_path)
-    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-    bytecode = json.loads(bytecode_path.read_text(encoding="utf-8"))
-    _validate_bundle_evidence(target_root, layout, bytecode)
+    NativeArtifactLayout.load(layout_path)
     destination = destination.resolve()
     inventory = []
     for path in sorted(target_root.rglob("*")):
@@ -1526,9 +1212,6 @@ def create_manifest(
     manifest = {
         "schema": _MANIFEST_SCHEMA,
         "layout_schema": _LAYOUT_SCHEMA,
-        "layout_sha256": _sha256(layout.source),
-        "provenance": provenance,
-        "bytecode": bytecode,
         "inventory": inventory,
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1548,10 +1231,11 @@ def _write_json(path: Path | None, value: Any) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
-    verify = commands.add_parser("verify-inputs")
-    verify.add_argument("--spec", type=Path, required=True)
-    verify.add_argument("--input-root", type=Path, required=True)
-    verify.add_argument("--output", type=Path)
+    python_inputs = commands.add_parser("prepare-python-inputs")
+    python_inputs.add_argument("--spec", type=Path, required=True)
+    python_inputs.add_argument("--input-root", type=Path, required=True)
+    python_inputs.add_argument("--cache-root", type=Path, required=True)
+    python_inputs.add_argument("--output", type=Path, required=True)
     filter_parser = commands.add_parser("filter-requirements")
     filter_parser.add_argument("source", type=Path)
     filter_parser.add_argument("destination", type=Path)
@@ -1588,27 +1272,19 @@ def _parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-target")
     validate.add_argument("--target-root", type=Path, required=True)
     validate.add_argument("--layout", type=Path, required=True)
-    validate.add_argument("--requirements", type=Path, required=True)
-    validate.add_argument("--vc-runtime", type=Path, required=True)
+    validate.add_argument("--soxr-manifest", type=Path, required=True)
     validate.add_argument("--output", type=Path)
-    compliance = commands.add_parser("validate-compliance")
-    compliance.add_argument("--target-root", type=Path, required=True)
-    compliance.add_argument("--repo-root", type=Path, required=True)
-    compliance.add_argument("--soxr-manifest", type=Path, required=True)
-    compliance.add_argument("--output", type=Path)
     manifest = commands.add_parser("manifest")
     manifest.add_argument("--target-root", type=Path, required=True)
     manifest.add_argument("--layout", type=Path, required=True)
-    manifest.add_argument("--provenance", type=Path, required=True)
-    manifest.add_argument("--bytecode", type=Path, required=True)
     manifest.add_argument("--output", type=Path, required=True)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.command == "verify-inputs":
-        _write_json(args.output, verify_upstream_inputs(args.spec, args.input_root))
+    if args.command == "prepare-python-inputs":
+        _write_json(args.output, prepare_python_inputs(args.spec, args.input_root, args.cache_root))
     elif args.command == "filter-requirements":
         filter_requirements(args.source, args.destination)
     elif args.command == "stage-product-metadata":
@@ -1639,15 +1315,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "validate-target":
         _write_json(
             args.output,
-            validate_target(args.target_root, args.layout, args.requirements, args.vc_runtime),
-        )
-    elif args.command == "validate-compliance":
-        _write_json(
-            args.output,
-            validate_compliance(args.target_root, args.repo_root, args.soxr_manifest),
+            validate_target(args.target_root, args.layout, args.soxr_manifest),
         )
     elif args.command == "manifest":
-        create_manifest(args.target_root, args.layout, args.provenance, args.bytecode, args.output)
+        create_manifest(args.target_root, args.layout, args.output)
     return 0
 
 

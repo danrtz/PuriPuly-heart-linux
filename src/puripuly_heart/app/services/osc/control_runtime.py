@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 
 from puripuly_heart.app.ports.osc_control import (
     OSC_PARAMETER_DEFINITIONS,
     OscConnectionMode,
     OscControlCodecError,
+    OscControlMessage,
     decode_control_message,
 )
 from puripuly_heart.app.ports.oscquery import OscQueryServicePort
@@ -17,17 +20,37 @@ from puripuly_heart.app.ports.ui_models import (
     OscControlPresentationName,
     OscControlPresentationState,
 )
+from puripuly_heart.app.ports.vrchat_osc_presence import VrchatOscPresence
 from puripuly_heart.app.services.vrc_mic_sync import VrcMicSyncOwner
+from puripuly_heart.core.diagnostics import (
+    current_diagnostic_operation,
+    emit_failure,
+    safe_exception_fields,
+)
 from puripuly_heart.core.lifecycle import LifecycleScope, start_lifecycle_task
+from puripuly_heart.core.messages import ErrorDiagnostics
 from puripuly_heart.core.runtime.oscquery import (
     VRCHAT_OSC_DEFAULT_INPUT_PORT,
     OscQueryRuntime,
 )
 
 from .control_application import SettingsBackedOscControlApplication
-from .control_router import OscControlRouter
+from .control_router import RUNTIME_BOOL_CONTROLS, OscControlRouter, OscDispatchResult
 from .noop_query import NoopOscQueryService
-from .state_publisher import OscCanonicalState, OscStatePublisher
+from .state_publisher import (
+    OscCanonicalState,
+    OscPublishedValue,
+    OscStatePublicationError,
+    OscStatePublisher,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _IngressObservation:
+    value: bool | int
+    revision: int
 
 
 class OscControlIntegrationOwner:
@@ -37,7 +60,9 @@ class OscControlIntegrationOwner:
         receiver_owner: VrcMicSyncOwner,
         settings_provider: Callable[[], object | None],
         apply_settings: Callable[[object], object],
-        apply_mutation: Callable[[Callable[[object], object]], object] | None = None,
+        apply_mutation: (
+            Callable[[Callable[[object], object], Callable[[], bool]], object] | None
+        ) = None,
         application_provider: Callable[[], object | None],
         sender_provider: Callable[[], object | None],
         state_provider: Callable[[], OscCanonicalState],
@@ -50,6 +75,9 @@ class OscControlIntegrationOwner:
         query_service: OscQueryServicePort | None = None,
         error_sink: Callable[[str], None] | None = None,
         resync_timeout_seconds: float = 1.5,
+        connection_changed: Callable[[], None] | None = None,
+        local_listener_probe: Callable[[str, int], Awaitable[VrchatOscPresence]] | None = None,
+        discovery_timeout_seconds: float = 5.0,
     ) -> None:
         self._receiver_owner = receiver_owner
         self._settings_provider = settings_provider
@@ -59,11 +87,20 @@ class OscControlIntegrationOwner:
         self._ui_state_provider = ui_state_provider
         self._ui_state_sink = ui_state_sink
         self._error_sink = error_sink
+        self._connection_changed = connection_changed
+        self._local_listener_probe = local_listener_probe
+        self._local_listener: dict[str, object] | None = None
+        self._listener_destination: tuple[str, int] | None = None
+        self._effective_destination: tuple[str, int] | None = None
+        self._discovery_timeout_seconds = float(discovery_timeout_seconds)
+        self._discovery_retry_task: asyncio.Task[object] | None = None
         self._mode: OscConnectionMode = "off"
         self._send_port = 9000
         self._receive_port = 9001
         self._host = "127.0.0.1"
         self._configured_connection: tuple[str, OscConnectionMode, int, int] | None = None
+        self._settings_connection_at_configuration: tuple[object, ...] | None = None
+        self._connection_lock = asyncio.Lock()
         self._accepting_ingress = True
         self._closed = False
         self._resync_timeout_seconds = float(resync_timeout_seconds)
@@ -78,12 +115,19 @@ class OscControlIntegrationOwner:
         self._automatic_query_task: asyncio.Task[None] | None = None
         self._scope = LifecycleScope("OscControlIntegrationOwner")
         self._query_failure: str | None = None
+        self._publication_failure: ErrorDiagnostics | None = None
+        self._publication_pending: set[str] | None = None
+        self._resync_operation_identity: dict[str, str | None] = {}
         self._apply_settings_callback = apply_settings
+        self._apply_mutation_callback = apply_mutation
+        self._ingress_observations: dict[str, _IngressObservation] = {}
+        self._peer_comparison: dict[str, bool | int] = {}
+        self._retryable_runtime_ingress: set[str] = set()
 
         application = SettingsBackedOscControlApplication(
             settings_provider=settings_provider,
             apply_settings=self._apply_settings,
-            apply_mutation=apply_mutation,
+            apply_mutation=self._apply_mutation if apply_mutation is not None else None,
             translation_model_normalizer=translation_model_normalizer,
             set_self_capture_command=self._application_command("set_stt_enabled"),
             set_peer_capture_command=self._application_command("set_peer_translation_enabled"),
@@ -98,6 +142,10 @@ class OscControlIntegrationOwner:
             canonical_state_full_republisher=self._publish_full,
             canonical_state_projector=self._project_ui_state,
             error_sink=error_sink,
+            command_observer=self._observe_ingress,
+            settlement_observer=self._settle_ingress,
+            application_orders_runtime_controls=True,
+            application_orders_mutations=apply_mutation is not None,
         )
         self._receiver_owner.set_packet_handlers(
             control_packet_handler=self._handle_control_packet,
@@ -114,6 +162,7 @@ class OscControlIntegrationOwner:
             resync_starter=self._begin_query_resync,
             resync_generation_provider=self._current_resync_generation,
             avatar_inspector=self._inspect_avatar_tree,
+            application_current=self._query_current,
         )
 
     @property
@@ -141,6 +190,11 @@ class OscControlIntegrationOwner:
         if self._mode == "automatic":
             return self.query_runtime.effective_send_port or VRCHAT_OSC_DEFAULT_INPUT_PORT
         return self._send_port
+
+    @property
+    def effective_send_host(self) -> str:
+        destination = self._effective_destination
+        return destination[0] if destination is not None else self._host
 
     @property
     def accepting_ingress(self) -> bool:
@@ -186,12 +240,53 @@ class OscControlIntegrationOwner:
             "sender_available": sender_available,
             "query_service_started": query.started,
             "query_advertised_port": query.advertised_port,
+            "discovered_remote_present": query.service_info is not None,
             "discovered_remote": (
                 {"host": query.service_info.host, "send_port": query.service_info.osc_send_port}
                 if query.service_info is not None
                 else None
             ),
             "query_failure": self._query_failure,
+            "destination_source": (
+                "off"
+                if self._mode == "off" or self._closed
+                else (
+                    "manual"
+                    if self._mode == "manual"
+                    else (
+                        "discovered"
+                        if query.service_info is not None
+                        and query.service_info.osc_send_port is not None
+                        else "fallback"
+                    )
+                )
+            ),
+            "local_listener": dict(
+                self._local_listener
+                if self._local_listener is not None
+                and self._listener_destination == self._effective_destination
+                and self._discovery_rejection() is None
+                else {"status": "unknown", "vrchat_running": None, "observed_at": None}
+            ),
+            "state_publication": (
+                {
+                    "diagnostic_id": self._publication_failure.diagnostic_id,
+                    "code": self._publication_failure.code,
+                    "local_send_completed": self._publication_failure.fields.get(
+                        "local_send_completed"
+                    ),
+                    "local_send_requested": self._publication_failure.fields.get(
+                        "local_send_requested"
+                    ),
+                    "disposition": (
+                        "partial"
+                        if self._publication_failure.fields.get("local_send_completed", 0)
+                        else "failed"
+                    ),
+                }
+                if self._publication_failure is not None
+                else None
+            ),
             "local_availability": availability,
             "remote_delivery": "unacknowledged",
         }
@@ -204,6 +299,7 @@ class OscControlIntegrationOwner:
                 "query_runtime",
                 "_publisher",
                 "_scope",
+                "_discovery_retry_task",
             ),
             "stop_ingress": "reject OSC packets and configuration changes",
             "shutdown_policy": "stop discovery, receiver, publisher, and command worker",
@@ -215,6 +311,9 @@ class OscControlIntegrationOwner:
         self._set_sender_enabled(False)
         self.router.set_ingress_enabled(False)
         self._receiver_owner.stop_ingress()
+        retry = self._discovery_retry_task
+        if retry is not None and retry is not asyncio.current_task():
+            retry.cancel()
 
     async def configure(self, *, enabled: bool) -> None:
         if not self._accepting_ingress:
@@ -253,6 +352,185 @@ class OscControlIntegrationOwner:
     ) -> None:
         if not self._accepting_ingress:
             return
+        async with self._connection_lock:
+            await self._configure_connection(
+                mode=mode,
+                send_port=send_port,
+                receive_port=receive_port,
+                host=host,
+            )
+
+    def _settings_connection(self) -> tuple[object, ...] | None:
+        settings = self._settings_provider()
+        if settings is None:
+            return None
+        osc = settings.intent.osc
+        return (
+            osc.host,
+            osc.connection_mode,
+            int(osc.send_port or osc.port),
+            int(osc.receive_port),
+        )
+
+    def _query_current(self) -> bool:
+        return (
+            self._accepting_ingress
+            and not self._closed
+            and self._settings_connection_at_configuration == self._settings_connection()
+        )
+
+    def _discovery_rejection(self) -> str | None:
+        if not self._accepting_ingress or self._closed:
+            return "lifecycle_stopped"
+        settings = self._settings_provider()
+        if settings is None:
+            return "settings_unavailable"
+        osc = settings.intent.osc
+        key = (
+            osc.host,
+            osc.connection_mode,
+            int(osc.send_port or osc.port),
+            int(osc.receive_port),
+        )
+        if self._configured_connection != key:
+            return "connection_changed"
+        if self._mode != "automatic":
+            return "automatic_mode_required"
+        return None
+
+    async def retry_automatic_discovery(self) -> dict[str, object]:
+        stopped = not self._accepting_ingress or self._closed
+        if stopped or self._discovery_retry_task is not None or self._automatic_query_inflight():
+            return {
+                "status": "rejected",
+                "reason": "lifecycle_stopped" if stopped else "discovery_in_progress",
+                "retry_started": False,
+                "output": self.output_snapshot(),
+            }
+        self._discovery_retry_task = asyncio.current_task()
+        attempted = False
+        reason = None
+        status = "rejected"
+        try:
+            async with self._connection_lock:
+                reason = self._discovery_rejection()
+                if reason is None:
+                    attempted = True
+                    key = self._configured_connection
+
+                    def current() -> bool:
+                        return (
+                            self._configured_connection == key
+                            and self._discovery_rejection() is None
+                        )
+
+                    try:
+                        async with asyncio.timeout(self._discovery_timeout_seconds):
+                            if self.query_runtime.started:
+                                found = await self.query_runtime.refresh(
+                                    publish_snapshot=False,
+                                    force_requery=True,
+                                    is_current=current,
+                                )
+                            else:
+                                await self.query_runtime.start(
+                                    "automatic",
+                                    preserve_receiver=True,
+                                    publish_snapshot=False,
+                                    is_current=current,
+                                )
+                                service = self.query_runtime.service_info
+                                found = service is not None and service.osc_send_port is not None
+                            reason = self._discovery_rejection()
+                            if reason is None:
+                                self._query_failure = None
+                                if self._sender_provider() is None:
+                                    reason = "local_sender_unavailable"
+                                elif not found:
+                                    reason = "target_not_found"
+                                applied_service = self.query_runtime.service_info
+                                applied_destination = self._effective_destination
+                                applied_sender = self._sender_provider()
+                                await self._observe_local_listener(current)
+                                if reason is None:
+                                    target_applied = await self.query_runtime.target_is_applied(
+                                        applied_service
+                                    )
+                                    if self._sender_provider() is not applied_sender:
+                                        reason = "local_sender_unavailable"
+                                    elif (
+                                        not target_applied
+                                        or self._effective_destination != applied_destination
+                                    ):
+                                        reason = "target_not_found"
+                    except TimeoutError:
+                        reason = "discovery_timeout"
+                        self._query_failure = "oscquery_unavailable"
+                        if not self.query_runtime.started and current():
+                            await self._set_sender_destination(
+                                self._host, VRCHAT_OSC_DEFAULT_INPUT_PORT
+                            )
+                    except Exception:
+                        reason = "oscquery_unavailable"
+                        self._query_failure = reason
+                        if not self.query_runtime.started and current():
+                            await self._set_sender_destination(
+                                self._host, VRCHAT_OSC_DEFAULT_INPUT_PORT
+                            )
+                    rejection = self._discovery_rejection()
+                    if rejection is not None:
+                        reason = rejection
+                        status = "rejected"
+                    else:
+                        status = "applied" if reason is None else "degraded"
+        except asyncio.CancelledError:
+            if self._accepting_ingress and not self._closed:
+                raise
+            reason = "lifecycle_stopped"
+        finally:
+            self._discovery_retry_task = None
+            self._notify_connection_changed()
+        result = {
+            "status": status,
+            "retry_started": attempted,
+            "output": self.output_snapshot(),
+        }
+        if attempted and status != "rejected":
+            result["effect"] = (
+                "discovery_target_applied" if status == "applied" else "discovery_unavailable"
+            )
+        if reason is not None:
+            result["reason"] = reason
+        return result
+
+    async def _observe_local_listener(self, current: Callable[[], bool]) -> None:
+        destination = self._effective_destination
+        self._local_listener = None
+        if destination is None or self._local_listener_probe is None:
+            return
+        try:
+            presence = await self._local_listener_probe(*destination)
+        except Exception:
+            presence = VrchatOscPresence(vrchat_running=None, osc_listening=None)
+        if not current() or destination != self._effective_destination:
+            return
+        self._listener_destination = destination
+        self._local_listener = {
+            "status": presence.listener_status,
+            "vrchat_running": presence.vrchat_running,
+            "observed_at": time.time(),
+        }
+
+    async def _configure_connection(
+        self,
+        *,
+        mode: OscConnectionMode,
+        send_port: int,
+        receive_port: int,
+        host: str,
+    ) -> None:
+        if not self._accepting_ingress:
+            return
         if mode not in {"automatic", "manual", "off"}:
             raise ValueError(f"unsupported OSC connection mode: {mode!r}")
         if not 1 <= int(send_port) <= 65535:
@@ -263,7 +541,7 @@ class OscControlIntegrationOwner:
         key = (host, mode, int(send_port), int(receive_port))
         if self._configured_connection == key and mode == "off":
             self._set_sender_enabled(False)
-            await self.router.suspend_ingress()
+            await self.router.suspend_ingress(invalidate=True)
             if self._publisher is not None:
                 self._publisher.close()
             return
@@ -277,16 +555,22 @@ class OscControlIntegrationOwner:
             return
 
         self._set_sender_enabled(False)
-        self._mode = "off"
-        await self.router.suspend_ingress()
+        await self.router.suspend_ingress(invalidate=mode == "off")
+        if not self._accepting_ingress:
+            return
         await self._cancel_automatic_query_start()
+        self._local_listener = None
         self._query_failure = None
         await self.query_runtime.stop()
+        if not self._accepting_ingress:
+            return
         self._send_port = int(send_port)
         self._receive_port = int(receive_port)
         self._host = host
         self._mode = mode
         self._configured_connection = (host, mode, self._send_port, self._receive_port)
+        self._settings_connection_at_configuration = self._settings_connection()
+        self._notify_connection_changed()
         resync_generation = self._begin_resync() if mode != "off" else None
         receiver_port = 0 if mode == "automatic" else self._receive_port
         await self._receiver_owner.configure_control(
@@ -295,6 +579,8 @@ class OscControlIntegrationOwner:
             port=receiver_port,
             force_restart=True,
         )
+        if not self._accepting_ingress:
+            return
         if mode == "off":
             if self._publisher is not None:
                 self._publisher.close()
@@ -304,10 +590,10 @@ class OscControlIntegrationOwner:
         if mode == "manual":
             await self._set_sender_destination(host, self._send_port)
             self._publish_start(resync_generation)
-            self.router.set_ingress_enabled(True)
+            self.router.resume_ingress()
             return
 
-        self.router.set_ingress_enabled(True)
+        self.router.resume_ingress()
         self._schedule_automatic_query_start(resync_generation)
 
     def _automatic_query_inflight(self) -> bool:
@@ -322,6 +608,7 @@ class OscControlIntegrationOwner:
             self._run_automatic_query_start(resync_generation, generation),
             name=f"oscquery-automatic-start-{generation}",
         )
+        self._notify_connection_changed()
 
     async def _run_automatic_query_start(
         self,
@@ -329,27 +616,48 @@ class OscControlIntegrationOwner:
         generation: int,
     ) -> None:
         try:
+            if generation != self._automatic_query_generation or not self._query_current():
+                return
             await self.query_runtime.start(
                 "automatic",
                 snapshot_generation=resync_generation,
+                preserve_receiver=True,
             )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            if (
-                generation != self._automatic_query_generation
-                or not self._accepting_ingress
-                or self._closed
-            ):
+            if generation != self._automatic_query_generation or not self._query_current():
                 return
-            self._query_failure = type(exc).__name__
-            self._report_error(f"OSCQuery automatic discovery unavailable: {type(exc).__name__}")
+            self._query_failure = "oscquery_unavailable"
+            emit_failure(
+                logger,
+                ErrorDiagnostics(
+                    component="osc_control",
+                    operation="discovery",
+                    code="oscquery_unavailable",
+                    category="network",
+                    visibility="basic",
+                    content_policy="metadata_only",
+                    status_code=None,
+                    retry_after_ms=None,
+                    fields={"remote_delivery": "unacknowledged"},
+                    generation=resync_generation,
+                    **self._resync_operation_identity,
+                ),
+                severity="warning",
+                disposition="degraded",
+                stage="automatic_discovery",
+                exception=exc,
+            )
             await self._receiver_owner.ensure_receiver()
+            if generation != self._automatic_query_generation or not self._query_current():
+                return
             await self._set_sender_destination(self._host, VRCHAT_OSC_DEFAULT_INPUT_PORT)
             self._publish_start(resync_generation)
         finally:
             if self._automatic_query_task is asyncio.current_task():
                 self._automatic_query_task = None
+                self._notify_connection_changed()
 
     async def _cancel_automatic_query_start(self) -> None:
         task = self._automatic_query_task
@@ -371,13 +679,15 @@ class OscControlIntegrationOwner:
             return
         self.stop_ingress()
         self._closed = True
-        await self._cancel_automatic_query_start()
-        await self._scope.close()
-        await self.query_runtime.stop()
-        await self.router.close()
-        if self._publisher is not None:
-            self._publisher.close()
-        await self._receiver_owner.close()
+        self._notify_connection_changed()
+        async with self._connection_lock:
+            await self._cancel_automatic_query_start()
+            await self._scope.close()
+            await self.query_runtime.stop()
+            await self.router.close()
+            if self._publisher is not None:
+                self._publisher.close()
+            await self._receiver_owner.close()
 
     def _application_command(
         self,
@@ -388,17 +698,25 @@ class OscControlIntegrationOwner:
             method = getattr(application, method_name, None) if application is not None else None
             if not callable(method):
                 raise RuntimeError(f"OSC application command is not wired: {method_name}")
-            result = await (
-                method(value, allow_authorization=False)
-                if method_name == "set_translation_enabled"
-                else method(value)
-            )
+            arguments = {}
+            if method_name == "set_translation_enabled":
+                arguments["allow_authorization"] = False
+            if self._apply_mutation_callback is not None:
+                arguments["admission_current"] = self.router.current_invocation_guard()
+            result = await method(value, **arguments)
             if not self._dashboard_command_matches_canonical_state(method_name, value):
                 return False
             self._publish_delta()
             return result
 
         return command
+
+    async def _apply_mutation(self, mutate: Callable[[object], object]) -> object:
+        callback = self._apply_mutation_callback
+        if callback is None:
+            raise RuntimeError("OSC control mutation owner is unavailable")
+        result = callback(mutate, self.router.current_invocation_guard())
+        return await result if inspect.isawaitable(result) else result
 
     async def _apply_settings(self, settings: object) -> object:
         result = self._apply_settings_callback(settings)
@@ -433,6 +751,8 @@ class OscControlIntegrationOwner:
             setter(enabled)
 
     async def _set_sender_destination(self, host: str, port: int) -> None:
+        if not self._accepting_ingress or self._closed:
+            return
         sender = self._sender_provider()
         if sender is None:
             return
@@ -440,36 +760,83 @@ class OscControlIntegrationOwner:
         if not callable(setter):
             raise RuntimeError("VRChat OSC sender does not support destination changes")
         setter(host, int(port))
+        destination = (host, int(port))
+        if self._effective_destination != destination:
+            self._local_listener = None
+        self._effective_destination = destination
         self._set_sender_enabled(self._mode != "off" and self._accepting_ingress)
+        self._notify_connection_changed()
+
+    def _notify_connection_changed(self) -> None:
+        if self._connection_changed is not None:
+            with contextlib.suppress(Exception):
+                self._connection_changed()
 
     def _ensure_publisher(self) -> OscStatePublisher | None:
         sender = self._sender_provider()
         if sender is None:
             return None
         if self._publisher is None:
-            self._publisher = OscStatePublisher(sender)
+            self._publisher = OscStatePublisher(sender, sent_value_sink=self._observe_local_send)
         return self._publisher
 
-    def _is_echo(self, message: object) -> bool:
-        publisher = self._publisher
-        if publisher is None:
+    def _observe_ingress(self, message: OscControlMessage, revision: int) -> None:
+        self._ingress_observations[message.name] = _IngressObservation(message.value, revision)
+        self._peer_comparison[message.name] = message.value
+        self._retryable_runtime_ingress.discard(message.name)
+
+    def _settle_ingress(
+        self, message: OscControlMessage, revision: int, result: OscDispatchResult | None
+    ) -> None:
+        latest = self._ingress_observations.get(message.name)
+        if latest is not None and latest.revision == revision:
+            if message.name in RUNTIME_BOOL_CONTROLS and (result is None or not result.applied):
+                self._retryable_runtime_ingress.add(message.name)
+        self._publish_delta()
+
+    def _observe_local_send(self, item: OscPublishedValue) -> None:
+        self._peer_comparison[item.parameter] = item.value
+
+    def _pending_controls(self) -> tuple[tuple[str, bool | int], ...]:
+        application = self._application_provider()
+        provider = getattr(application, "osc_pending_controls", None)
+        owner_pending = tuple(provider()) if callable(provider) else ()
+        router_pending = tuple(
+            (message.name, message.value)
+            for message in self.router.pending_controls
+            if not callable(provider) or message.name not in RUNTIME_BOOL_CONTROLS
+        )
+        return owner_pending + router_pending
+
+    def _is_echo(self, message: OscControlMessage) -> bool:
+        latest = self._ingress_observations.get(message.name)
+        if (
+            message.name in self._retryable_runtime_ingress
+            and latest is not None
+            and OscStatePublisher.values_equal(message.name, message.value, latest.value)
+        ):
             return False
-        parameter = getattr(message, "name", None)
-        value = getattr(message, "value", None)
-        return (
-            isinstance(parameter, str)
-            and isinstance(value, (bool, int))
-            and publisher.is_echo(
-                parameter,
-                value,
-            )
+        comparison = self._peer_comparison.get(message.name)
+        if comparison is None or not OscStatePublisher.values_equal(
+            message.name, message.value, comparison
+        ):
+            return False
+        canonical = OscStatePublisher.value_for_state(self._state_provider(), message.name)
+        return OscStatePublisher.values_equal(message.name, message.value, canonical) and not any(
+            parameter == message.name
+            and not OscStatePublisher.values_equal(parameter, value, message.value)
+            for parameter, value in self._pending_controls()
         )
 
     def _begin_resync(self) -> int:
         self._resync_generation += 1
+        self._resync_operation_identity = current_diagnostic_operation()
         self._resync_deadline = time.monotonic() + self._resync_timeout_seconds
         self._resync_unsettled = set(OSC_PARAMETER_DEFINITIONS)
         self._resync_ready_generation = None
+        self._ingress_observations.clear()
+        self._peer_comparison.clear()
+        self._retryable_runtime_ingress.clear()
         return self._resync_generation
 
     def _current_resync_generation(self) -> int:
@@ -502,10 +869,14 @@ class OscControlIntegrationOwner:
         if publisher is None:
             return
         try:
-            publisher.start(self._state_provider())
-        except Exception:
+            published = publisher.start(self._state_provider())
+        except Exception as exc:
+            self._record_publication_failure(
+                "startup_state", exc, origin=self._resync_operation_identity
+            )
             return
         self._mark_resync_ready(generation)
+        self._record_publication_success("startup_state", published)
 
     def _publish_delta(self) -> None:
         if self._mode == "off":
@@ -513,8 +884,22 @@ class OscControlIntegrationOwner:
         publisher = self._ensure_publisher()
         if publisher is None:
             return
-        with contextlib.suppress(Exception):
-            publisher.publish_state(self._state_provider())
+        try:
+            blocked = {parameter for parameter, _value in self._pending_controls()}
+            values = OscStatePublisher.values_for_state(self._state_provider())
+            last_published = publisher.last_published
+            published = publisher.publish_values(
+                tuple(
+                    OscPublishedValue(parameter, value)
+                    for parameter, value in values.items()
+                    if parameter not in blocked
+                    and self._peer_comparison.get(parameter, last_published.get(parameter)) != value
+                )
+            )
+        except Exception as exc:
+            self._record_publication_failure("delta_state", exc)
+        else:
+            self._record_publication_success("delta_state", published)
 
     def publish_delta(self) -> None:
         self._publish_delta()
@@ -526,9 +911,20 @@ class OscControlIntegrationOwner:
         if publisher is None:
             return
         try:
-            publisher.publish_full(self._state_provider())
-        except Exception:
+            blocked = {parameter for parameter, _value in self._pending_controls()}
+            published = publisher.publish_values(
+                tuple(
+                    OscPublishedValue(parameter, value)
+                    for parameter, value in OscStatePublisher.values_for_state(
+                        self._state_provider()
+                    ).items()
+                    if parameter not in blocked
+                )
+            )
+        except Exception as exc:
+            self._record_publication_failure("full_state", exc)
             return
+        self._record_publication_success("full_state", published)
 
     async def _publish_snapshot(
         self,
@@ -545,15 +941,96 @@ class OscControlIntegrationOwner:
         try:
             state = self._state_provider()
             if reason == "avatar_change":
-                publisher.on_avatar_change(state)
+                published = publisher.on_avatar_change(state)
             elif reason == "discovery":
-                publisher.on_discovery(state)
+                published = publisher.on_discovery(state)
             else:
-                publisher.start(state)
+                published = publisher.start(state)
         except Exception as exc:
-            self._report_error(f"OSC state publication failed: {type(exc).__name__}")
+            self._record_publication_failure(
+                "snapshot_state",
+                exc,
+                origin=self._resync_operation_identity if generation is not None else None,
+            )
             return
         self._mark_resync_ready(generation)
+        self._record_publication_success("snapshot_state", published)
+
+    def _record_publication_failure(
+        self, stage: str, exception: Exception, *, origin: dict[str, str | None] | None = None
+    ) -> None:
+        fields = {"remote_delivery": "unacknowledged", **safe_exception_fields(exception)}
+        if isinstance(exception, OscStatePublicationError):
+            fields.update(
+                local_send_completed=exception.completed,
+                local_send_requested=exception.requested,
+            )
+        diagnostics = ErrorDiagnostics(
+            component="osc_control",
+            operation="publish_state",
+            code="osc_state_send_failed",
+            category="network",
+            visibility="basic",
+            content_policy="metadata_only",
+            status_code=None,
+            retry_after_ms=None,
+            fields=fields,
+            generation=self._resync_generation,
+            **(current_diagnostic_operation() if origin is None else origin),
+        )
+        if self._publication_failure is None:
+            self._publication_failure = diagnostics
+            self._publication_pending = (
+                set(exception.pending_parameters)
+                if isinstance(exception, OscStatePublicationError)
+                else None
+            )
+        elif self._publication_pending is not None:
+            if isinstance(exception, OscStatePublicationError):
+                self._publication_pending.difference_update(exception.completed_parameters)
+                self._publication_pending.update(exception.pending_parameters)
+            else:
+                self._publication_pending = None
+        emit_failure(logger, diagnostics, severity="warning", disposition="degraded", stage=stage)
+
+    def _record_publication_success(
+        self,
+        stage: str,
+        published: tuple[OscPublishedValue, ...],
+    ) -> None:
+        failure = self._publication_failure
+        if failure is None or not published:
+            return
+        if self._publication_pending is None:
+            if stage == "delta_state":
+                return
+        else:
+            self._publication_pending.difference_update(item.parameter for item in published)
+            if self._publication_pending:
+                return
+        self._publication_failure = None
+        self._publication_pending = None
+        completed = len(published)
+        diagnostics = ErrorDiagnostics(
+            component="osc_control",
+            operation="publish_state",
+            code="osc_state_send_recovered",
+            category="network",
+            visibility="basic",
+            content_policy="metadata_only",
+            status_code=None,
+            retry_after_ms=None,
+            fields={
+                "local_send_completed": completed,
+                "local_send_requested": completed,
+                "remote_delivery": "unacknowledged",
+            },
+            generation=self._resync_generation,
+            cause_id=failure.diagnostic_id,
+            operation_id=failure.operation_id,
+            request_id=failure.request_id,
+        )
+        emit_failure(logger, diagnostics, severity="info", disposition="recovered", stage=stage)
 
     async def _inspect_avatar_tree(self, tree: object) -> None:
         parameters = _extract_avatar_parameters(tree)

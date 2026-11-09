@@ -18,6 +18,7 @@ from puripuly_heart.core.clock import Clock, SystemClock
 from .bridge_mailbox import OverlayBridgeMailbox, OverlayDeliveryReceipt
 from .bridge_session import AuthenticatedSessionHealth
 from .bridge_transport import OverlayTransportExecutor, TransportWriteCancelled
+from .child_diagnostics import project_child_failure
 from .diagnostics import OverlayDiagnosticsRecorder
 from .manifest import (
     OVERLAY_CONTRACT_VERSION,
@@ -41,11 +42,13 @@ _CLOSE_TIMEOUT_SECONDS = 1.0
 _DELIVERY_RECEIPT_LIMIT = 128
 _REVERSE_CONTROL_TYPES = {
     "runtime_error",
+    "owner_status",
     "startup_error",
     "overlay_ready",
     "desktop_first_visible",
     "shutdown_ack",
     "shutdown_complete",
+    "runtime_stop_requested",
     "window_bounds_changed",
     "interaction_mode_changed",
     "reset_to_bottom_center",
@@ -454,6 +457,8 @@ class OverlayBridge:
                     if message.get("type") == "owner_status":
                         await self.messages.put(self._session_health.handle_owner_status(message))
                         continue
+                    if message.get("type") in {"startup_error", "runtime_error"}:
+                        message = project_child_failure(message)
                     await self.messages.put(message)
                 except ValueError:
                     await self._retire_connection(

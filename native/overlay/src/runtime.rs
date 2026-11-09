@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
@@ -19,16 +20,14 @@ use crate::manifest::{
     validate_manifest, HandoffExperiment, OverlayManifest, QuietTailProfile,
     EXPECTED_CONTRACT_VERSION,
 };
-#[cfg(test)]
-use crate::openvr::OpenVrError;
 use crate::openvr::{
     perform_startup_preflight, OpenVrEventClass, OpenVrOverlay, OpenVrRuntimeEvent,
-    OpenVrStartupPreflightError, OverlayFrameSubmitter, SpatialReanchorOutcome,
+    OpenVrStartupPreflightError, OverlayFrameSubmitter, RuntimeStopReason, SpatialReanchorOutcome,
 };
 use crate::presentation::{
     HandoffMode, PresentationBackend, PresentationCause, PresentationCauseChannel,
     PresentationCauseKind, PresentationCauses, PresentationCorrelation, PresentationDiagnostics,
-    ReadinessCancellation, ReadinessOutcome,
+    PresentationOutcome, PresentationStage, ReadinessCancellation, ReadinessOutcome,
 };
 use crate::renderer::{
     CaptionBlock, CaptionBlockVariant, CaptionChannel, CaptionLayoutResult, CaptionPresentation,
@@ -246,6 +245,8 @@ pub struct PresentationRuntime {
     spatial_pose_unavailable: bool,
     readiness_status_context: ReadinessStatusContext,
     last_renderer_degradation: Option<RendererDegradationSummary>,
+    diagnostic_dropped: u64,
+    reliable_delivery_failures: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -301,6 +302,8 @@ struct LogicalCaptionBlockIdentity {
     secondary_text: String,
     secondary_enabled: bool,
     primary_language: Option<String>,
+    primary_ruby: Vec<crate::state::RubySegment>,
+    secondary_ruby: Vec<crate::state::RubySegment>,
     secondary_language: Option<String>,
     speaker_style: Option<String>,
 }
@@ -351,6 +354,8 @@ impl PresentationRuntime {
             retained_frame: None,
             readiness_status_context: ReadinessStatusContext::default(),
             last_renderer_degradation: None,
+            diagnostic_dropped: 0,
+            reliable_delivery_failures: 0,
         };
         if runtime.state.seed_snapshot(&snapshot) {
             runtime.redraw_requested = true;
@@ -462,6 +467,8 @@ impl PresentationRuntime {
                 .map(|record| record.stage),
             primary_failure_reason,
             cleanup_failure_reason,
+            diagnostic_dropped: self.diagnostic_dropped,
+            reliable_delivery_failures: self.reliable_delivery_failures,
         });
         bridge
             .send_json(projection.payload)
@@ -662,7 +669,7 @@ impl PresentationRuntime {
                     "revision": "r2"
                 },
                 "native_presentation_retry": {
-                    "version": 1,
+                    "version": 2,
                     "ownership": "exclusive"
                 },
                 "speaker_identity_presentation": {
@@ -1294,10 +1301,14 @@ fn frame_content_identity(blocks: &[CaptionBlock], presentation: &CaptionPresent
     blocks.len().hash(&mut hasher);
     for block in blocks {
         block.id.hash(&mut hasher);
+        block.occupant_key.hash(&mut hasher);
+        block.occupant_generation.hash(&mut hasher);
         block.primary_text.hash(&mut hasher);
         block.secondary_text.hash(&mut hasher);
         block.secondary_enabled.hash(&mut hasher);
         block.primary_language.hash(&mut hasher);
+        block.primary_ruby.hash(&mut hasher);
+        block.secondary_ruby.hash(&mut hasher);
         block.secondary_language.hash(&mut hasher);
         block.block_variant.hash(&mut hasher);
         block.channel.hash(&mut hasher);
@@ -1351,6 +1362,8 @@ pub struct NativePresentationOwner<S: OverlayFrameSubmitter> {
     readiness_retry_due: Option<Instant>,
     pose_wait_suspended: bool,
     next_status_due: Instant,
+    last_retry_diagnostic_sequence: u64,
+    runtime_stop_reason: Option<RuntimeStopReason>,
 }
 
 impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
@@ -1380,6 +1393,8 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
             readiness_retry_due: None,
             pose_wait_suspended: false,
             next_status_due: Instant::now(),
+            last_retry_diagnostic_sequence: 0,
+            runtime_stop_reason: None,
         }
     }
 
@@ -1507,18 +1522,83 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
     }
 
     fn push_fresh_retry_audit(&mut self, schedule: NativeFreshSchedule, outcome: &'static str) {
-        self.retry_episodes.record(&schedule, outcome);
+        let correlation = (outcome == "completed")
+            .then(|| self.runtime.frame_progress().correlation)
+            .flatten();
+        let execution = correlation.map(|correlation| {
+            let mut observed = (false, false, false);
+            for record in self
+                .runtime
+                .presentation_diagnostics
+                .records()
+                .iter()
+                .rev()
+                .filter(|record| {
+                    record.render_generation == Some(correlation.render_generation)
+                        && record.submission_attempt == Some(correlation.submission_attempt)
+                        && record.scene_generation == correlation.scene_generation
+                })
+            {
+                match (record.stage, record.outcome) {
+                    (PresentationStage::RenderReturned, PresentationOutcome::Success) => {
+                        observed.0 = true
+                    }
+                    (PresentationStage::ReadinessObserved, PresentationOutcome::Ready) => {
+                        observed.1 = true
+                    }
+                    (PresentationStage::SubmissionReturned, PresentationOutcome::Success) => {
+                        observed.2 = true
+                    }
+                    _ => {}
+                }
+                if observed == (true, true, true) {
+                    break;
+                }
+            }
+            observed
+        });
+        self.retry_episodes
+            .record(&schedule, outcome, correlation, execution);
+        if outcome == "completed" && schedule.completed >= schedule.max_completed {
+            self.retry_episodes
+                .record(&schedule, "exhausted", None, None);
+        }
     }
 
-    #[cfg(test)]
-    fn finish_initial_reconcile(
-        &mut self,
-        result: Result<(), RuntimeFailure>,
-    ) -> Result<(), RuntimeFailure> {
-        if result.is_err() {
-            let _ = self.teardown();
+    async fn flush_retry_diagnostics(&mut self, bridge: &BridgeClient, logger: &OverlayLogger) {
+        for fact in self
+            .retry_episodes
+            .diagnostics_since(self.last_retry_diagnostic_sequence)
+        {
+            let correlation = fact.correlation;
+            let _ = logger.warn(format!("native_retry {}", json!({
+                "overlay_instance_id": bridge.overlay_instance_id(),
+                "runtime_generation": bridge.runtime_generation(),
+                "sequence": fact.sequence,
+                "channel": fact.channel.name(),
+                "trigger_generation": fact.trigger_generation,
+                "scene_generation": fact.scene_generation,
+                "episode_generation": fact.episode_generation,
+                "phase": fact.phase,
+                "target_identity_hash": fact.target_identity_hash,
+                "outcome": fact.outcome,
+                "completed": fact.completed,
+                "maximum": fact.max_completed,
+                "active": fact.active,
+                "due_in_ms": fact.due_in.as_millis() as u64,
+                "deadline_in_ms": fact.deadline_in.as_millis() as u64,
+                "observed_at_ms": fact.at.as_millis() as u64,
+                "render_generation": correlation.map(|value| value.render_generation),
+                "submission_attempt": correlation.map(|value| value.submission_attempt),
+                "submitted_scene_generation": correlation.map(|value| value.scene_generation),
+                "fresh_rendered": fact.execution.map(|value| value.0),
+                "producer_ready": fact.execution.map(|value| value.1),
+                "submission_succeeded": fact.execution.map(|value| value.2),
+                "audit_dropped": self.retry_episodes.audit_dropped(),
+                "physical_hmd_visibility": "not_observable",
+            }))).await;
+            self.last_retry_diagnostic_sequence = fact.sequence;
         }
-        result
     }
 
     fn channel_generation(&self, channel: FreshRetryChannel) -> Option<u64> {
@@ -1540,6 +1620,31 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
             FreshRetryChannel::SelfChannel => generations.self_target.as_ref(),
             FreshRetryChannel::Peer => generations.peer_target.as_ref(),
         };
+        if channel == FreshRetryChannel::SelfChannel
+            && selected.is_some_and(|target| target == "scene:self")
+        {
+            let phase = self.channel_episode(channel)?.phase;
+            let (nonempty, active_self) = self
+                .runtime
+                .state()
+                .blocks()
+                .iter()
+                .filter(|block| {
+                    !block.primary_text.trim().is_empty()
+                        || (block.secondary_enabled && !block.secondary_text.trim().is_empty())
+                })
+                .fold((false, false), |(_, active), block| {
+                    (
+                        true,
+                        active
+                            || (block.channel == "self"
+                                && block.block_variant
+                                    == OverlayPresentationBlockVariant::ActiveSelf),
+                    )
+                });
+            return (nonempty && (phase == NativeQuietTailPhase::Stream) == active_self)
+                .then(|| "scene:self".to_string());
+        }
         let fallback;
         let selected = if let Some(selected) = selected {
             selected
@@ -1681,7 +1786,10 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
         &mut self,
         bridge: &mut BridgeClient,
         health_challenge_id: Option<u64>,
+        logger: &OverlayLogger,
     ) -> Result<(), RuntimeFailure> {
+        self.runtime.diagnostic_dropped = logger.dropped_records();
+        self.runtime.reliable_delivery_failures = logger.reliable_delivery_failures();
         let now = Instant::now();
         let due_elapsed_ms = self
             .readiness_no_progress_deadline
@@ -1711,7 +1819,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
         bridge: &mut BridgeClient,
         primary_failure_reason: Option<&'static str>,
         cleanup_failure_reason: Option<&'static str>,
-    ) {
+    ) -> Result<(), RuntimeFailure> {
         let now = Instant::now();
         let due_elapsed_ms = self
             .readiness_no_progress_deadline
@@ -1722,8 +1830,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                 now.saturating_duration_since(started).as_millis() as u64
             })
             .unwrap_or(0);
-        let _ = self
-            .runtime
+        self.runtime
             .emit_owner_status(
                 bridge,
                 None,
@@ -1734,7 +1841,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                 primary_failure_reason,
                 cleanup_failure_reason,
             )
-            .await;
+            .await
     }
 
     async fn finish_run(
@@ -1745,13 +1852,28 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
     ) -> Result<(), RuntimeFailure> {
         let primary_failure_reason = result.as_ref().err().map(RuntimeFailure::failure_reason);
         let cleanup_result = self.teardown();
+        self.flush_retry_diagnostics(bridge, logger).await;
         let cleanup_failure_reason = cleanup_result
             .as_ref()
             .err()
             .map(RuntimeFailure::failure_reason);
+        self.runtime.diagnostic_dropped = logger.dropped_records();
+        self.runtime.reliable_delivery_failures = logger.reliable_delivery_failures();
         if primary_failure_reason.is_some() || cleanup_failure_reason.is_some() {
-            self.emit_terminal_status(bridge, primary_failure_reason, cleanup_failure_reason)
+            let terminal_status = self
+                .emit_terminal_status(bridge, primary_failure_reason, cleanup_failure_reason)
                 .await;
+            let _ = logger.emit_stdout_event(&json!({
+                "type": if self.runtime.ready_sent() { "runtime_error" } else { "startup_error" },
+                "overlay_instance_id": bridge.overlay_instance_id(),
+                "runtime_generation": bridge.runtime_generation(),
+                "failure_reason": primary_failure_reason.or(cleanup_failure_reason),
+                "primary_failure_reason": primary_failure_reason,
+                "cleanup_failure_reason": cleanup_failure_reason,
+                "diagnostic_dropped": logger.dropped_records(),
+                "reliable_delivery_failures": logger.reliable_delivery_failures(),
+                "evidence_state": if terminal_status.is_ok() { "retained" } else { "incomplete" },
+            })).await;
         }
         let outcome = match result {
             Err(primary) => Err(primary),
@@ -1761,7 +1883,12 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                     .emit_stdout_event(&json!({
                         "type": "shutdown_complete",
                         "overlay_instance_id": bridge.overlay_instance_id(),
-                        "runtime_generation": bridge.runtime_generation()
+                        "runtime_generation": bridge.runtime_generation(),
+                        "stop_origin": if self.runtime_stop_reason.is_some() { "openvr" } else { "parent" },
+                        "stop_reason": self.runtime_stop_reason.map_or_else(
+                            || json!("app_requested"), |reason| json!(reason)
+                        ),
+                        "cleanup_succeeded": true,
                     }))
                     .await
                     .map_err(|error| RuntimeFailure::Bridge(error.to_string())),
@@ -1839,7 +1966,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                 now <= schedule.deadline
                     && (schedule.next_due <= now
                         || (schedule.completed == 0
-                            && schedule.required_scene_generation == scene_revision
+                            && schedule.required_scene_generation <= scene_revision
                             && (self.runtime.redraw_requested() || current_handoff_due)))
             })
             .cloned()
@@ -1912,6 +2039,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                 };
                 self.record_fresh_retry(schedule, disposition);
             } else {
+                self.retry_episodes.record(&schedule, "due", None, None);
                 due.push(schedule);
             }
         }
@@ -1995,6 +2123,14 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
             let Some(active) = self.retry_episodes.schedule(channel) else {
                 continue;
             };
+            if active.expired_at(Instant::now()) {
+                let expired = self
+                    .retry_episodes
+                    .take_schedule(channel)
+                    .expect("active schedule");
+                self.record_fresh_retry(expired, "expired");
+                continue;
+            }
             if !Self::submission_covers_schedule(
                 correlation,
                 active,
@@ -2017,15 +2153,69 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
         Ok(())
     }
 
+    #[doc(hidden)]
+    pub fn fresh_retry_evidence_for_test(&self) -> Vec<serde_json::Value> {
+        self.retry_episodes
+            .diagnostics_since(0)
+            .map(|fact| {
+                json!({
+                    "channel": fact.channel.name(),
+                    "trigger_generation": fact.trigger_generation,
+                    "episode_generation": fact.episode_generation,
+                    "scene_generation": fact.scene_generation,
+                    "outcome": fact.outcome,
+                    "active": fact.active,
+                    "render_generation": fact.correlation.map(|value| value.render_generation),
+                    "submission_attempt": fact.correlation.map(|value| value.submission_attempt),
+                    "fresh_rendered": fact.execution.map(|value| value.0),
+                    "producer_ready": fact.execution.map(|value| value.1),
+                    "submission_succeeded": fact.execution.map(|value| value.2),
+                })
+            })
+            .collect()
+    }
+
+    #[doc(hidden)]
+    pub fn fresh_retry_schedules_for_test(&self) -> Vec<serde_json::Value> {
+        let now = Instant::now();
+        self.retry_episodes
+            .schedules()
+            .map(|schedule| {
+                json!({
+                    "channel": schedule.channel.name(),
+                    "trigger_generation": schedule.trigger_generation,
+                    "scene_generation": schedule.required_scene_generation,
+                    "episode_generation": schedule.episode_generation,
+                    "phase": schedule.phase,
+                    "completed": schedule.completed,
+                    "maximum": schedule.max_completed,
+                    "due": schedule.next_due <= now,
+                    "expired": schedule.expired_at(now),
+                })
+            })
+            .collect()
+    }
+
     pub async fn run(
         &mut self,
         bridge: &mut BridgeClient,
         logger: &OverlayLogger,
     ) -> Result<(), RuntimeFailure> {
-        self.emit_current_status(bridge, None).await?;
+        if let Err(error) = self.pump_openvr_events(logger, bridge).await {
+            return self.finish_run(bridge, logger, Err(error)).await;
+        }
+        if self.runtime.is_stopped() {
+            return self.finish_run(bridge, logger, Ok(())).await;
+        }
+        if let Err(error) = self.emit_current_status(bridge, None, logger).await {
+            return self.finish_run(bridge, logger, Err(error)).await;
+        }
         self.next_status_due = Instant::now() + Duration::from_millis(250);
         if self.runtime.has_accepted_due_work() {
             self.arm_due_deadline();
+        }
+        if let Err(error) = self.reconcile_fresh_schedules(logger).await {
+            return self.finish_run(bridge, logger, Err(error)).await;
         }
         self.sync_runtime_readiness_status_context();
         let initial_result = {
@@ -2062,17 +2252,28 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
         self.finish_run(bridge, logger, result).await
     }
 
-    async fn pump_openvr_events(&mut self) -> Result<(), RuntimeFailure> {
+    async fn pump_openvr_events(
+        &mut self,
+        logger: &OverlayLogger,
+        bridge: &BridgeClient,
+    ) -> Result<(), RuntimeFailure> {
         let events = {
             let openvr = self.openvr.as_mut().expect("active OpenVR session");
             openvr.poll_runtime_events(MAX_OPENVR_EVENTS_PER_TURN)
         };
         let mut saw_overlay_hidden = false;
+        let mut stop_reason = None;
+        let mut quit_requested = false;
+        let mut fatal_event = None;
         for event in events {
             match event.classify() {
                 OpenVrEventClass::Ignore => {}
+                OpenVrEventClass::StopRequested(reason) => {
+                    stop_reason.get_or_insert(reason);
+                    quit_requested |= reason == RuntimeStopReason::RuntimeQuit;
+                }
                 OpenVrEventClass::Fatal => {
-                    return Err(RuntimeFailure::OpenVr(format!("event={}", event.as_str())));
+                    fatal_event.get_or_insert(event);
                 }
                 OpenVrEventClass::Reconfigure => match event {
                     OpenVrRuntimeEvent::OverlayShown => {
@@ -2085,6 +2286,40 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                     _ => {}
                 },
             }
+        }
+        let stop_result = if let Some(reason) = stop_reason {
+            self.runtime_stop_reason = Some(reason);
+            self.retry_sender = None;
+            self.retry_receiver.close();
+            self.runtime.shutdown_presentation();
+            let admission = logger
+                .emit_stdout_event(&json!({
+                    "type": "runtime_stop_requested",
+                    "overlay_instance_id": bridge.overlay_instance_id(),
+                    "runtime_generation": bridge.runtime_generation(),
+                    "stop_origin": "openvr",
+                    "stop_reason": reason,
+                }))
+                .await
+                .map_err(|error| RuntimeFailure::Bridge(error.to_string()));
+            let acknowledgement = if quit_requested {
+                self.openvr
+                    .as_mut()
+                    .expect("active OpenVR session")
+                    .acknowledge_quit_exiting()
+                    .map_err(|error| RuntimeFailure::OpenVr(error.to_string()))
+            } else {
+                Ok(())
+            };
+            admission.and(acknowledgement)
+        } else {
+            Ok(())
+        };
+        if let Some(event) = fatal_event {
+            return Err(RuntimeFailure::OpenVr(format!("event={}", event.as_str())));
+        }
+        if stop_reason.is_some() {
+            return stop_result;
         }
         let observed = {
             let openvr = self.openvr.as_mut().expect("active OpenVR session");
@@ -2131,7 +2366,11 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
     ) -> Result<(), RuntimeFailure> {
         let mut pending_message = None;
         loop {
-            self.pump_openvr_events().await?;
+            self.flush_retry_diagnostics(bridge, logger).await;
+            self.pump_openvr_events(logger, bridge).await?;
+            if self.runtime.is_stopped() {
+                return Ok(());
+            }
             if self
                 .readiness_no_progress_deadline
                 .is_some_and(|deadline| deadline <= Instant::now())
@@ -2153,7 +2392,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                             return Err(RuntimeFailure::ReadinessStalled);
                         }
                         if now >= self.next_status_due {
-                            self.emit_current_status(bridge, None).await?;
+                            self.emit_current_status(bridge, None, logger).await?;
                             self.next_status_due = now
                                 + if self.readiness_no_progress_deadline.is_some() {
                                     Duration::from_millis(250)
@@ -2252,7 +2491,7 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
             };
             if let Some(message) = message {
                 if let Ok(BridgeIncoming::HealthChallenge(challenge)) = &message {
-                    self.emit_current_status(bridge, Some(challenge.challenge_id))
+                    self.emit_current_status(bridge, Some(challenge.challenge_id), logger)
                         .await?;
                     continue;
                 }
@@ -2271,6 +2510,14 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                     self.arm_due_deadline();
                 }
                 self.sync_runtime_readiness_status_context();
+                let message = match message {
+                    Ok(BridgeIncoming::Snapshot(snapshot)) => {
+                        self.runtime.apply_snapshot(snapshot);
+                        self.reconcile_fresh_schedules(logger).await?;
+                        None
+                    }
+                    other => Some(other),
+                };
                 let previous_submission = self.runtime.frame_progress().correlation;
                 let captured_schedules =
                     self.submission_eligible_fresh_schedules(Instant::now(), current_handoff_due);
@@ -2284,10 +2531,16 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
                 }
                 let renderer = self.renderer.as_ref().expect("active renderer");
                 let openvr = self.openvr.as_mut().expect("active OpenVR session");
-                let handled = self
-                    .runtime
-                    .handle_bridge_message(message, renderer, openvr, bridge, logger)
-                    .await;
+                let handled = if let Some(message) = message {
+                    self.runtime
+                        .handle_bridge_message(message, renderer, openvr, bridge, logger)
+                        .await
+                } else {
+                    self.runtime
+                        .submit_frame_if_needed_with_timing(renderer, openvr, bridge, logger, true)
+                        .await
+                        .map(|outcome| (true, outcome.pending_message()))
+                };
                 let (continue_running, preempted_message) = match handled {
                     Ok(handled) => handled,
                     Err(RuntimeFailure::ReadinessTimedOut) => {
@@ -2332,13 +2585,28 @@ impl<S: OverlayFrameSubmitter> NativePresentationOwner<S> {
             self.push_fresh_retry_audit(schedule, "teardown");
         }
         self.runtime.shutdown_presentation();
-        let cleanup_result = self
-            .openvr
-            .as_mut()
-            .map(|openvr| openvr.set_overlay_visible(false))
-            .transpose()
-            .map(|_| ())
-            .map_err(|error| RuntimeFailure::OpenVr(format!("cleanup hide failed: {error}")));
+        let cleanup_result = if let Some(openvr) = self.openvr.as_mut() {
+            let hide_result = if self.runtime_stop_reason.is_none() {
+                openvr.set_overlay_visible(false)
+            } else {
+                Ok(())
+            };
+            let release_result = openvr.release_resources();
+            match (hide_result, release_result) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(hide), Ok(())) => Err(RuntimeFailure::OpenVr(format!(
+                    "cleanup hide failed: {hide}"
+                ))),
+                (Ok(()), Err(release)) => Err(RuntimeFailure::OpenVr(format!(
+                    "cleanup release failed: {release}"
+                ))),
+                (Err(hide), Err(release)) => Err(RuntimeFailure::OpenVr(format!(
+                    "cleanup hide failed: {hide}; cleanup release failed: {release}"
+                ))),
+            }
+        } else {
+            Ok(())
+        };
         self.openvr = None;
         self.renderer = None;
         cleanup_result
@@ -2360,6 +2628,8 @@ fn logical_caption_identity(state: &OverlayState) -> LogicalCaptionIdentity {
                 secondary_text: slot.secondary_text.clone(),
                 secondary_enabled: slot.secondary_enabled,
                 primary_language: slot.primary_language.clone(),
+                primary_ruby: slot.primary_ruby.clone(),
+                secondary_ruby: slot.secondary_ruby.clone(),
                 secondary_language: slot.secondary_language.clone(),
                 speaker_style: slot.speaker_style.clone(),
             })
@@ -2430,26 +2700,14 @@ async fn run_with_manifest_and_profile(
                 .await;
         }
 
-        let (mut bridge, snapshot) = match BridgeClient::connect(&manifest).await {
-            Ok(result) => result,
+        let initialized = initialize_and_connect_runtime(&manifest, async {
+            perform_startup_preflight().map_err(startup_error_from_preflight)?;
+            initialize_runtime_resources(&manifest, &logger).await
+        })
+        .await;
+        let ((renderer, openvr), mut bridge, snapshot) = match initialized {
+            Ok(initialized) => initialized,
             Err(error) => {
-                let startup_error = startup_error_from_bridge_error(error);
-                emit_startup_failure(&logger, &startup_error).await;
-                break 'runtime startup_error.exit_code();
-            }
-        };
-
-        if let Err(error) = perform_startup_preflight() {
-            let startup_error = startup_error_from_preflight(error);
-            let _ = bridge.close().await;
-            emit_startup_failure(&logger, &startup_error).await;
-            break 'runtime startup_error.exit_code();
-        }
-
-        let (renderer, openvr) = match initialize_runtime_resources(&manifest, &logger).await {
-            Ok(resources) => resources,
-            Err(error) => {
-                let _ = bridge.close().await;
                 emit_startup_failure(&logger, &error).await;
                 break 'runtime error.exit_code();
             }
@@ -2478,15 +2736,9 @@ async fn run_with_manifest_and_profile(
             Ok(()) => 0,
             Err(RuntimeFailure::RuntimeDisconnected) => 1,
             Err(error) => {
-                let detail: String = match &error {
-                    RuntimeFailure::Render(message) | RuntimeFailure::OpenVr(message) => {
-                        message.chars().take(512).collect()
-                    }
-                    _ => String::new(),
-                };
                 let _ = logger
                     .error(format!(
-                        "runtime_failure reason={} revision={} detail={detail:?}",
+                        "runtime_failure reason={} revision={}",
                         error.failure_reason(),
                         owner.runtime().state().snapshot().revision,
                     ))
@@ -2526,10 +2778,13 @@ pub async fn run_cli(args: &[String]) -> i32 {
         })();
         return match result {
             Ok(()) => {
-                println!("{}", json!({
-                    "rendered": true, "path": args[2], "backend": "pango_cairo",
-                    "width": 4096, "height": 1056
-                }));
+                println!(
+                    "{}",
+                    json!({
+                        "rendered": true, "path": args[2], "backend": "pango_cairo",
+                        "width": 4096, "height": 1056
+                    })
+                );
                 0
             }
             Err(error) => {
@@ -2550,7 +2805,7 @@ pub async fn run_cli(args: &[String]) -> i32 {
                 "contract_version": EXPECTED_CONTRACT_VERSION,
                 "app_version": env!("CARGO_PKG_VERSION"),
                 "execution_contract": {"version": 1, "revision": "r2"},
-                "native_presentation_retry": {"version": 1, "ownership": "exclusive"},
+                "native_presentation_retry": {"version": 2, "ownership": "exclusive"},
                 "speaker_identity_presentation": {"version": 2, "policy": "immutable_first_readable_style"},
             })
         );
@@ -2623,18 +2878,15 @@ fn startup_error_from_renderer(error: crate::renderer::CaptionRenderError) -> St
     StartupError::RendererInit(error.to_string())
 }
 
-#[cfg(test)]
-fn prepare_openvr_runtime<T, P, F>(
-    overlay_instance_id: &str,
-    preflight: P,
-    overlay_factory: F,
-) -> Result<T, StartupError>
-where
-    P: FnOnce() -> Result<(), OpenVrStartupPreflightError>,
-    F: FnOnce(&str) -> Result<T, OpenVrError>,
-{
-    preflight().map_err(startup_error_from_preflight)?;
-    overlay_factory(overlay_instance_id).map_err(startup_error_from_openvr)
+async fn initialize_and_connect_runtime<R>(
+    manifest: &OverlayManifest,
+    initialize: impl Future<Output = Result<R, StartupError>>,
+) -> Result<(R, BridgeClient, OverlayPresentationSnapshot), StartupError> {
+    let resources = initialize.await?;
+    let (bridge, snapshot) = BridgeClient::connect(manifest)
+        .await
+        .map_err(startup_error_from_bridge_error)?;
+    Ok((resources, bridge, snapshot))
 }
 
 async fn initialize_runtime_resources(
@@ -2697,6 +2949,7 @@ fn caption_block_for_strip(strip: &OverlaySlot) -> CaptionBlock {
     };
 
     CaptionBlock::new(strip.id.clone(), strip.primary_text.clone())
+        .with_occupant(strip.occupant_key.clone(), strip.slot_entry_order)
         .with_channel(channel)
         .with_speaker_style(SpeakerStyle::from_token(strip.speaker_style.as_deref()))
         .with_variant(variant)
@@ -2705,6 +2958,7 @@ fn caption_block_for_strip(strip: &OverlaySlot) -> CaptionBlock {
             strip.primary_language.clone(),
             strip.secondary_language.clone(),
         )
+        .with_ruby(strip.primary_ruby.clone(), strip.secondary_ruby.clone())
         .with_visual_state(1.0, 0.0, 1.0)
         .with_slot(strip.slot_index, strip.anchor_top_px)
 }
@@ -2712,7 +2966,7 @@ fn caption_block_for_strip(strip: &OverlaySlot) -> CaptionBlock {
 #[cfg(test)]
 mod tests {
     use super::{
-        prepare_openvr_runtime, startup_error_from_runtime_failure, FrameCycleOutcome,
+        initialize_and_connect_runtime, startup_error_from_runtime_failure, FrameCycleOutcome,
         FreshRetryChannel, NativeFreshSchedule, NativePresentationOwner, OverlayRuntime,
         RetainedFrame, RuntimeFailure, SnapshotApplyOutcome, StartupError,
         NATIVE_FRESH_AUDIT_CAPACITY, NATIVE_FRESH_RETRY_MAX_COMPLETED,
@@ -2746,8 +3000,7 @@ mod tests {
         );
     }
     use crate::openvr::{
-        FakeOpenVr, OpenVrError, OpenVrRuntimeEvent, OpenVrStartupPreflightError,
-        OverlayFrameSubmitter, SpatialReanchorOutcome,
+        FakeOpenVr, OpenVrError, OpenVrRuntimeEvent, OverlayFrameSubmitter, SpatialReanchorOutcome,
     };
     use crate::presentation::{
         AdapterIdentity, PresentationBackend, PresentationCause, PresentationCauseChannel,
@@ -2763,7 +3016,6 @@ mod tests {
     };
     use futures_util::{SinkExt, StreamExt};
     use serde_json::json;
-    use std::cell::Cell;
     use std::io;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
@@ -2857,32 +3109,6 @@ mod tests {
     }
 
     #[test]
-    fn direct_native_owner_uses_and_reports_p05_defaults() {
-        let mut owner = NativePresentationOwner::new(
-            OverlayPresentationSnapshot::default(),
-            CaptionRenderer::new_for_test().unwrap(),
-            FakeOpenVr::default(),
-        );
-        assert_eq!(owner.retry_profile, "p05");
-        assert_eq!(owner.retry_policy.deadline, Duration::from_millis(500));
-        assert_eq!(owner.retry_policy.max_completed, 5);
-        owner
-            .runtime
-            .presentation_diagnostics
-            .accept_logical_revision(PresentationBackend::Test, 1, PresentationCauses::default());
-        assert_eq!(
-            owner
-                .runtime
-                .presentation_diagnostics
-                .records()
-                .back()
-                .unwrap()
-                .retry_profile,
-            "p05"
-        );
-    }
-
-    #[test]
     fn native_fresh_audit_drops_oldest_with_bounded_count() {
         let mut owner = NativePresentationOwner::new(
             OverlayPresentationSnapshot::default(),
@@ -2971,6 +3197,44 @@ mod tests {
         assert!(due
             .iter()
             .any(|value| value.channel == FreshRetryChannel::Peer));
+    }
+
+    #[test]
+    fn newer_fresh_scene_captures_unserved_surviving_intent_without_future_or_extra_credit() {
+        let mut owner = NativePresentationOwner::new(
+            OverlayPresentationSnapshot {
+                revision: 2,
+                blocks: vec![block("peer:survivor", "peer", "synthetic", "", true)],
+                ..Default::default()
+            },
+            CaptionRenderer::new_for_test().unwrap(),
+            FakeOpenVr::default(),
+        );
+        let now = Instant::now();
+        let mut pending = schedule(FreshRetryChannel::Peer, 2, 1, now);
+        pending.target_identity = "peer:survivor".into();
+        owner
+            .retry_episodes
+            .replace_schedule(FreshRetryChannel::Peer, pending.clone());
+        assert_eq!(
+            owner.submission_eligible_fresh_schedules(now, true).len(),
+            1
+        );
+        pending.required_scene_generation = 3;
+        owner
+            .retry_episodes
+            .replace_schedule(FreshRetryChannel::Peer, pending.clone());
+        assert!(owner
+            .submission_eligible_fresh_schedules(now, true)
+            .is_empty());
+        pending.required_scene_generation = 1;
+        pending.completed = 1;
+        owner
+            .retry_episodes
+            .replace_schedule(FreshRetryChannel::Peer, pending);
+        assert!(owner
+            .submission_eligible_fresh_schedules(now, true)
+            .is_empty());
     }
 
     #[tokio::test]
@@ -3098,7 +3362,7 @@ mod tests {
         assert_eq!(final_schedule.max_completed, 5);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn python_active_self_projection_drives_native_stream_and_final_accounting() {
         use crate::{NATIVE_FRESH_RETRY_CADENCE, NATIVE_FRESH_RETRY_DEADLINE};
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -3109,7 +3373,7 @@ mod tests {
         let output = std::process::Command::new("uv")
             .args([
                 "run",
-                "--frozen",
+                "--locked",
                 "python",
                 "-m",
                 "tests.helpers.overlay_active_freshness",
@@ -3138,45 +3402,30 @@ mod tests {
             first.deadline - (first.next_due - NATIVE_FRESH_RETRY_CADENCE),
             NATIVE_FRESH_RETRY_DEADLINE
         );
-        let completed = owner
-            .retry_episodes
-            .complete_matching(&first, first.next_due, NATIVE_FRESH_RETRY_CADENCE)
-            .unwrap();
-        assert_eq!(completed.completed, 1);
+        owner.arm_due_deadline();
+        let no_progress_deadline = owner.readiness_no_progress_deadline;
+        tokio::time::advance(Duration::from_millis(800)).await;
         owner.runtime.apply_snapshot(snapshots[1].clone());
         owner.reconcile_fresh_schedules(&logger).await.unwrap();
         let updated = owner.retry_episodes.schedule(channel).unwrap().clone();
-        assert_eq!(updated.completed, 1);
-        assert_eq!(updated.deadline, first.deadline);
-        assert_eq!(updated.next_due, completed.next_due);
-        assert_eq!(updated.episode_generation, first.episode_generation);
-        assert_ne!(updated.trigger_generation, first.trigger_generation);
-        owner.runtime.apply_snapshot(snapshots[2].clone());
-        owner.reconcile_fresh_schedules(&logger).await.unwrap();
-        for count in 2..=4 {
-            let due = owner.retry_episodes.schedule(channel).unwrap().clone();
-            let result = owner
-                .retry_episodes
-                .complete_matching(&due, due.next_due, NATIVE_FRESH_RETRY_CADENCE)
-                .unwrap();
-            assert_eq!(result.completed, count);
-        }
-        assert!(owner.retry_episodes.schedule(channel).is_none());
-        owner.runtime.apply_snapshot(snapshots[3].clone());
-        owner.reconcile_fresh_schedules(&logger).await.unwrap();
-        assert!(owner.retry_episodes.schedule(channel).is_none());
-        assert_eq!(
-            owner.retry_episodes.accounting(channel).unwrap().completed,
-            4
-        );
-        for snapshot in &snapshots[4..6] {
+        assert_eq!(updated.completed, 0);
+        assert!(updated.deadline > first.deadline);
+        assert_eq!(updated.episode_generation, 3);
+        assert_eq!(updated.trigger_generation, 3);
+        assert_eq!(owner.readiness_no_progress_deadline, no_progress_deadline);
+        assert!(owner
+            .active_fresh_schedules(updated.next_due)
+            .iter()
+            .any(|value| value.same_intent(&updated)));
+        for (index, snapshot) in snapshots[2..6].iter().enumerate() {
             owner.runtime.apply_snapshot(snapshot.clone());
             owner.reconcile_fresh_schedules(&logger).await.unwrap();
-            let final_schedule = owner.retry_episodes.schedule(channel).unwrap().clone();
-            assert_eq!(final_schedule.completed, 0);
-            assert_eq!(final_schedule.max_completed, 5);
-            assert_ne!(final_schedule.episode_generation, first.episode_generation);
-            for count in 1..=5 {
+            let fresh = owner.retry_episodes.schedule(channel).unwrap().clone();
+            assert_eq!(fresh.completed, 0);
+            assert_eq!(fresh.max_completed, if index < 2 { 4 } else { 5 });
+            assert_eq!(fresh.trigger_generation, 5 + index as u64 * 2);
+            assert_eq!(fresh.episode_generation, fresh.trigger_generation);
+            for count in 1..=fresh.max_completed {
                 let due = owner.retry_episodes.schedule(channel).unwrap().clone();
                 let result = owner
                     .retry_episodes
@@ -3184,6 +3433,7 @@ mod tests {
                     .unwrap();
                 assert_eq!(result.completed, count);
             }
+            assert!(owner.retry_episodes.schedule(channel).is_none());
         }
         owner.runtime.apply_snapshot(snapshots[6].clone());
         owner.reconcile_fresh_schedules(&logger).await.unwrap();
@@ -3317,9 +3567,32 @@ mod tests {
         transferred.trigger_generation = 8;
         transferred.required_scene_generation = 12;
         assert!(
+            !NativePresentationOwner::<FakeOpenVr>::submission_covers_schedule(
+                correlation,
+                &transferred,
+                &captured,
+                PresentationCauseKind::ActiveRetryIntent,
+                Some(8),
+                Some("[\"target\"]"),
+            )
+        );
+        assert!(
             NativePresentationOwner::<FakeOpenVr>::submission_covers_schedule(
                 correlation_for(&captured, 12, PresentationCauseKind::ActiveRetryIntent),
                 &transferred,
+                &captured,
+                PresentationCauseKind::ActiveRetryIntent,
+                Some(8),
+                Some("[\"target\"]"),
+            )
+        );
+        let mut new_episode = transferred.clone();
+        new_episode.episode_generation += 1;
+        new_episode.completed = 0;
+        assert!(
+            !NativePresentationOwner::<FakeOpenVr>::submission_covers_schedule(
+                correlation_for(&captured, 12, PresentationCauseKind::ActiveRetryIntent),
+                &new_episode,
                 &captured,
                 PresentationCauseKind::ActiveRetryIntent,
                 Some(8),
@@ -3393,23 +3666,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn initial_reconcile_failure_path_releases_owner_resources_and_handle() {
-        let mut owner = NativePresentationOwner::new(
-            OverlayPresentationSnapshot::default(),
-            CaptionRenderer::new_for_test().unwrap(),
-            FakeOpenVr::default(),
-        );
-        let retry = owner.retry_handle();
-
-        let result = owner.finish_initial_reconcile(Err(RuntimeFailure::Bridge(
-            "injected reconcile logging failure".into(),
-        )));
-
-        assert!(matches!(result, Err(RuntimeFailure::Bridge(_))));
-        assert!(owner.resources_released());
-        assert!(!retry.request());
-    }
     use std::io::Write;
     use std::time::Duration;
     use tokio::time::Instant;
@@ -3492,6 +3748,8 @@ mod tests {
             secondary_text: secondary_text.to_string(),
             secondary_enabled,
             primary_language: None,
+            primary_ruby: Vec::new(),
+            secondary_ruby: Vec::new(),
             secondary_language: None,
             update_id: None,
             origin_wall_clock_ms: None,
@@ -3517,6 +3775,8 @@ mod tests {
             secondary_text: String::new(),
             secondary_enabled: true,
             primary_language: None,
+            primary_ruby: Vec::new(),
+            secondary_ruby: Vec::new(),
             secondary_language: None,
             update_id: None,
             origin_wall_clock_ms: None,
@@ -3680,6 +3940,115 @@ mod tests {
         (bridge, server)
     }
     #[tokio::test]
+    async fn startup_initialization_can_exceed_acceptance_budget_before_authentication() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let manifest = controlled_manifest(listener.local_addr().unwrap());
+        let initialization_release = Arc::new(tokio::sync::Notify::new());
+        let server_release = initialization_release.clone();
+        let server = tokio::spawn(async move {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(2100), listener.accept())
+                    .await
+                    .is_err()
+            );
+            server_release.notify_one();
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = accept_async(stream).await.unwrap();
+            let auth = ws.next().await.unwrap().unwrap();
+            let auth: serde_json::Value = serde_json::from_str(auth.to_text().unwrap()).unwrap();
+            assert_eq!(auth["type"], "auth");
+            ws.send(Message::Text(
+                json!({
+                    "type": "snapshot",
+                    "payload": {"revision": 9, "blocks": []}
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            wait_for_owner_ready(&mut ws).await;
+            ws.send(Message::Text(json!({"type":"shutdown"}).to_string().into()))
+                .await
+                .unwrap();
+            while ws.next().await.is_some() {}
+        });
+        let start = Instant::now();
+        let initialized = initialize_and_connect_runtime(&manifest, async {
+            initialization_release.notified().await;
+            Ok((
+                CaptionRenderer::new_for_test().unwrap(),
+                FakeOpenVr::default(),
+            ))
+        });
+        let ((renderer, openvr), mut bridge, snapshot) =
+            tokio::time::timeout(Duration::from_secs(15), initialized)
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(start.elapsed() > Duration::from_secs(2));
+        assert_eq!(snapshot.revision, 9);
+        let logger = controlled_logger(ControlledSink::new(ControlledSinkMode::Success));
+        let mut owner = NativePresentationOwner::new(snapshot, renderer, openvr);
+        tokio::time::timeout(Duration::from_secs(2), owner.run(&mut bridge, &logger))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(owner.runtime().ready_sent());
+        let _ = bridge.close().await;
+        server.await.unwrap();
+        logger.shutdown().unwrap();
+    }
+
+    #[tokio::test]
+    async fn startup_initialization_failures_preserve_cause_without_authentication() {
+        for error in [
+            StartupError::SteamVrNotRunning,
+            StartupError::OpenVrInit("controlled OpenVR failure".into()),
+            StartupError::RendererInit("controlled renderer failure".into()),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let manifest = controlled_manifest(listener.local_addr().unwrap());
+            let result =
+                initialize_and_connect_runtime::<()>(&manifest, async { Err(error.clone()) }).await;
+            assert!(matches!(result, Err(actual) if actual == error));
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), listener.accept())
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_bridge_rejection_releases_initialized_resources() {
+        struct Resources(Arc<AtomicUsize>);
+        impl Drop for Resources {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let manifest = controlled_manifest(listener.local_addr().unwrap());
+        let drops = Arc::new(AtomicUsize::new(0));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = accept_async(stream).await.unwrap();
+            let _auth = ws.next().await.unwrap().unwrap();
+            ws.send(Message::Text(
+                json!({"type":"auth_error"}).to_string().into(),
+            ))
+            .await
+            .unwrap();
+        });
+        let result =
+            initialize_and_connect_runtime(&manifest, async { Ok(Resources(drops.clone())) }).await;
+        assert!(matches!(result, Err(StartupError::BridgeAuth(_))));
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn production_owner_openvr_event_flood_does_not_starve_snapshot_submit() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -3822,6 +4191,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn terminal_pipe_preserves_primary_cleanup_and_delivery_health_without_private_detail() {
+        let (mut bridge, server) = controlled_test_bridge(None).await;
+        let stdout = ControlledSink::new(ControlledSinkMode::Success);
+        let logger = controlled_logger(stdout.clone());
+        let mut owner = NativePresentationOwner::new(
+            OverlayPresentationSnapshot::default(),
+            CaptionRenderer::new_for_test().unwrap(),
+            HideFailureProbe,
+        );
+        let result = owner
+            .finish_run(
+                &mut bridge,
+                &logger,
+                Err(RuntimeFailure::Render("private-token-body-path".into())),
+            )
+            .await;
+        assert!(matches!(result, Err(RuntimeFailure::Render(_))));
+        assert!(owner.resources_released());
+        let emitted = String::from_utf8(stdout.contents()).unwrap();
+        let terminal = emitted
+            .lines()
+            .filter_map(|line| line.strip_prefix("EVENT "))
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|value| value["type"] == "startup_error")
+            .unwrap();
+        assert_eq!(terminal["failure_reason"], "render_failed");
+        assert_eq!(terminal["primary_failure_reason"], "render_failed");
+        assert_eq!(terminal["cleanup_failure_reason"], "openvr_failed");
+        assert_eq!(terminal["diagnostic_dropped"], 0);
+        assert_eq!(terminal["reliable_delivery_failures"], 0);
+        assert!(!emitted.contains("private-token-body-path"));
+        assert!(!emitted.contains("\"type\":\"shutdown_complete\""));
+        logger.shutdown().unwrap();
+        drop(bridge);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn spatial_diagnostic_write_failure_cannot_block_pose_unavailable_texture_submit() {
         let (mut bridge, server) = controlled_test_bridge(None).await;
         let renderer = CaptionRenderer::new_for_test().unwrap();
@@ -3838,38 +4245,6 @@ mod tests {
         });
         runtime.first_texture_submitted = true;
         runtime.overlay_visible = true;
-        let mut submitter = SpatialSubmitProbe {
-            outcome: SpatialReanchorOutcome::PoseUnavailable,
-            operations: Vec::new(),
-        };
-
-        let result = runtime
-            .submit_frame_if_needed(&renderer, &mut submitter, &mut bridge, &logger)
-            .await;
-
-        assert!(result.is_ok());
-        assert_eq!(submitter.operations, vec!["reanchor"]);
-        assert!(runtime.redraw_requested);
-        drop(bridge);
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn spatial_diagnostic_write_error_does_not_block_first_visible_pose_unavailable_reveal() {
-        let (mut bridge, server) = controlled_test_bridge(None).await;
-        let renderer = CaptionRenderer::new_for_test().unwrap();
-        let logger = controlled_logger(ControlledSink::new(ControlledSinkMode::Error));
-        let mut runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
-            revision: 1,
-            calibration: OverlayPresentationCalibration {
-                anchor: "spatial_locked".to_string(),
-                ..OverlayPresentationCalibration::default()
-            },
-            blocks: vec![block("self:A", "self", "A", "", true)],
-            native_fresh_render_generations: None,
-            ..Default::default()
-        });
-        runtime.first_texture_submitted = true;
         let mut submitter = SpatialSubmitProbe {
             outcome: SpatialReanchorOutcome::PoseUnavailable,
             operations: Vec::new(),
@@ -4027,30 +4402,6 @@ mod tests {
     }
 
     #[test]
-    fn caption_blocks_follow_snapshot_order_exactly() {
-        let runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
-            native_fresh_render_generations: None,
-            revision: 3,
-            calibration: OverlayPresentationCalibration::default(),
-            blocks: vec![
-                block("peer:1", "peer", "peer one", "원문", true),
-                block("self:2", "self", "self two", "translated", true),
-            ],
-            ..Default::default()
-        });
-
-        let blocks = runtime.caption_blocks();
-
-        assert_eq!(
-            blocks
-                .iter()
-                .map(|block| (block.id.as_str(), block.primary_text.as_str()))
-                .collect::<Vec<_>>(),
-            vec![("peer:1", "peer one"), ("self:2", "self two"),]
-        );
-    }
-
-    #[test]
     fn apply_snapshot_replaces_snapshot_blocks_and_calibration_without_retaining_removed_rows() {
         let mut runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
             native_fresh_render_generations: None,
@@ -4118,30 +4469,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn runtime_converts_active_peer_snapshot_to_active_peer_caption_block() {
-        let mut active_peer = slot_block("peer:active", "peer:turn-1", 1, "peer", "");
-        active_peer.block_variant = OverlayPresentationBlockVariant::ActivePeer;
-        active_peer.secondary_text = "Can you hear me?".into();
-        active_peer.secondary_enabled = true;
-        let runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
-            native_fresh_render_generations: None,
-            revision: 5,
-            calibration: OverlayPresentationCalibration::default(),
-            blocks: vec![active_peer],
-            ..Default::default()
-        });
-
-        let blocks = runtime.caption_blocks();
-
-        assert_eq!(blocks[0].id, "peer:active");
-        assert_eq!(blocks[0].block_variant, CaptionBlockVariant::ActivePeer);
-        assert_eq!(blocks[0].channel, Some(CaptionChannel::PeerChannel));
-        assert_eq!(blocks[0].primary_text, "");
-        assert_eq!(blocks[0].secondary_text, "Can you hear me?");
-        assert!(blocks[0].secondary_enabled);
-    }
-
     #[tokio::test]
     async fn renderer_degradation_warning_is_bounded_to_changed_failure_episode() {
         let stdout = ControlledSink::new(ControlledSinkMode::Success);
@@ -4205,37 +4532,6 @@ mod tests {
     }
 
     #[test]
-    fn prepare_openvr_runtime_orders_preflight_before_overlay_factory() {
-        let overlay_factory_calls = Cell::new(0);
-
-        let result = prepare_openvr_runtime(
-            "overlay-test",
-            || Err(OpenVrStartupPreflightError::SteamVrNotRunning),
-            |_| {
-                overlay_factory_calls.set(overlay_factory_calls.get() + 1);
-                Ok(())
-            },
-        );
-
-        assert_eq!(result, Err(StartupError::SteamVrNotRunning));
-        assert_eq!(overlay_factory_calls.get(), 0);
-
-        let overlay_factory_calls = Cell::new(0);
-
-        let result = prepare_openvr_runtime(
-            "overlay-test",
-            || Ok(()),
-            |_| {
-                overlay_factory_calls.set(overlay_factory_calls.get() + 1);
-                Ok::<_, OpenVrError>("overlay-ready")
-            },
-        );
-
-        assert_eq!(result, Ok("overlay-ready"));
-        assert_eq!(overlay_factory_calls.get(), 1);
-    }
-
-    #[test]
     fn runtime_apply_snapshot_reports_ignored_revisions_without_redraw() {
         let mut runtime = OverlayRuntime::new(OverlayPresentationSnapshot {
             native_fresh_render_generations: None,
@@ -4262,6 +4558,207 @@ mod tests {
             }
         );
         assert!(!runtime.redraw_requested());
+    }
+    mod runtime_stop_tests {
+        use super::*;
+        use futures_util::{SinkExt, StreamExt};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::net::TcpListener;
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        struct StopProbe {
+            events: Vec<OpenVrRuntimeEvent>,
+            during_startup: bool,
+            submitted: bool,
+            release_fails: bool,
+            acknowledgements: Arc<AtomicUsize>,
+            releases: Arc<AtomicUsize>,
+        }
+
+        impl OverlayFrameSubmitter for StopProbe {
+            fn submit_frame(
+                &mut self,
+                _: &RenderedFrame,
+            ) -> Result<(), crate::openvr::OpenVrError> {
+                self.submitted = true;
+                Ok(())
+            }
+
+            fn set_overlay_visible(
+                &mut self,
+                visible: bool,
+            ) -> Result<(), crate::openvr::OpenVrError> {
+                assert!(visible, "runtime shutdown must not require HideOverlay");
+                Ok(())
+            }
+
+            fn poll_runtime_events(&mut self, _: usize) -> Vec<OpenVrRuntimeEvent> {
+                if self.during_startup || self.submitted {
+                    std::mem::take(&mut self.events)
+                } else {
+                    Vec::new()
+                }
+            }
+
+            fn acknowledge_quit_exiting(&mut self) -> Result<(), crate::openvr::OpenVrError> {
+                self.acknowledgements.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+
+            fn release_resources(&mut self) -> Result<(), crate::openvr::OpenVrError> {
+                self.releases.fetch_add(1, Ordering::SeqCst);
+                if self.release_fails {
+                    Err(crate::openvr::OpenVrError::Submit("release failed".into()))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn runtime_stop_releases_resources_without_hide_and_preserves_exact_cause() {
+            for event in [
+                OpenVrRuntimeEvent::Quit,
+                OpenVrRuntimeEvent::DriverRequestedQuit,
+            ] {
+                for during_startup in [false, true] {
+                    for release_fails in [false, true] {
+                        for (own_fault, quit_first) in [(false, false), (true, false), (true, true)]
+                        {
+                            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                            let address = listener.local_addr().unwrap();
+                            let server = tokio::spawn(async move {
+                                let (stream, _) = listener.accept().await.unwrap();
+                                let mut ws = accept_async(stream).await.unwrap();
+                                ws.next().await.unwrap().unwrap();
+                                ws.send(Message::Text(json!({
+                            "type": "snapshot", "payload": OverlayPresentationSnapshot::default()
+                        }).to_string().into())).await.unwrap();
+                                while ws.next().await.is_some() {}
+                            });
+                            let manifest = OverlayManifest {
+                                contract_version: EXPECTED_CONTRACT_VERSION,
+                                app_version: env!("CARGO_PKG_VERSION").into(),
+                                overlay_instance_id: "runtime-stop".into(),
+                                bridge_url: format!("ws://{address}"),
+                                session_token: "synthetic".into(),
+                                parent_pid: 1,
+                                startup_deadline_ms: 3000,
+                                log_dir: std::env::temp_dir().display().to_string(),
+                                log_level: "INFO".into(),
+                                locale: "en".into(),
+                            };
+                            let (mut bridge, snapshot) =
+                                BridgeClient::connect(&manifest).await.unwrap();
+                            let stdout = ControlledSink::new(ControlledSinkMode::Success);
+                            let logger = controlled_logger(stdout.clone());
+                            let acknowledgements = Arc::new(AtomicUsize::new(0));
+                            let releases = Arc::new(AtomicUsize::new(0));
+                            let foreign_quit = OpenVrRuntimeEvent::ProcessQuit {
+                                source: crate::openvr::OpenVrEventSource::System,
+                                pid: std::process::id().wrapping_add(1).max(1),
+                                old_pid: 0,
+                                forced: false,
+                                connection_lost: true,
+                            };
+                            let mut batch = vec![foreign_quit, OpenVrRuntimeEvent::Ignored(101)];
+                            let owned_quit = OpenVrRuntimeEvent::ProcessQuit {
+                                source: crate::openvr::OpenVrEventSource::System,
+                                pid: std::process::id(),
+                                old_pid: 0,
+                                forced: false,
+                                connection_lost: true,
+                            };
+                            if own_fault && !quit_first {
+                                batch.push(owned_quit);
+                            }
+                            batch.push(event);
+                            if own_fault && quit_first {
+                                batch.push(owned_quit);
+                            }
+                            let mut owner = NativePresentationOwner::new(
+                                snapshot,
+                                CaptionRenderer::new_for_test().unwrap(),
+                                StopProbe {
+                                    events: batch,
+                                    during_startup,
+                                    submitted: false,
+                                    release_fails,
+                                    acknowledgements: acknowledgements.clone(),
+                                    releases: releases.clone(),
+                                },
+                            );
+                            let retry = owner.retry_handle();
+                            let outcome = owner.run(&mut bridge, &logger).await;
+                            assert_eq!(outcome.is_ok(), !release_fails && !own_fault);
+                            assert!(owner.resources_released());
+                            assert!(!retry.request());
+                            assert_eq!(releases.load(Ordering::SeqCst), 1);
+                            assert_eq!(
+                                acknowledgements.load(Ordering::SeqCst),
+                                usize::from(event == OpenVrRuntimeEvent::Quit)
+                            );
+                            let events: Vec<serde_json::Value> =
+                                String::from_utf8(stdout.contents())
+                                    .unwrap()
+                                    .lines()
+                                    .filter_map(|line| line.strip_prefix("EVENT "))
+                                    .map(|line| serde_json::from_str(line).unwrap())
+                                    .collect();
+                            let admission = events
+                                .iter()
+                                .position(|value| value["type"] == "runtime_stop_requested")
+                                .unwrap();
+                            assert_eq!(events[admission]["stop_origin"], "openvr");
+                            assert_eq!(
+                                events[admission]["stop_reason"],
+                                if event == OpenVrRuntimeEvent::Quit {
+                                    "runtime_quit"
+                                } else {
+                                    "driver_requested_quit"
+                                }
+                            );
+                            let terminal = events
+                                .iter()
+                                .position(|value| value["type"] == "shutdown_complete");
+                            if release_fails || own_fault {
+                                assert!(terminal.is_none());
+                                if release_fails {
+                                    assert!(events
+                                        .iter()
+                                        .any(|value| value["cleanup_failure_reason"]
+                                            == "openvr_failed"));
+                                }
+                                if own_fault {
+                                    assert!(events
+                                        .iter()
+                                        .any(|value| value["primary_failure_reason"]
+                                            == "openvr_failed"));
+                                    assert!(
+                                        matches!(&outcome, Err(RuntimeFailure::OpenVr(reason)) if reason == "event=process_quit")
+                                    );
+                                }
+                            } else {
+                                let terminal = terminal.unwrap();
+                                assert!(admission < terminal);
+                                assert_eq!(
+                                    events[terminal]["stop_reason"],
+                                    events[admission]["stop_reason"]
+                                );
+                                assert_eq!(events[terminal]["cleanup_succeeded"], true);
+                                assert!(!events
+                                    .iter()
+                                    .any(|value| value["type"] == "runtime_error"
+                                        || value["type"] == "startup_error"));
+                            }
+                            logger.shutdown().unwrap();
+                            drop(bridge);
+                            server.await.unwrap();
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -84,7 +84,11 @@ impl LinuxCaptionRenderer {
             .context()
             .set_language(language.map(Language::from_string).as_ref());
         layout.set_text(&text.replace(['\n', '\r'], " "));
-        layout.set_width((width * SCALE as f32) as i32);
+        layout.set_width(if width <= 0.0 {
+            -1
+        } else {
+            (width * SCALE as f32) as i32
+        });
         layout.set_height((line_height * lines as f32 * SCALE as f32).round() as i32);
         layout.set_wrap(WrapMode::WordChar);
         layout.set_ellipsize(EllipsizeMode::End);
@@ -96,6 +100,96 @@ impl LinuxCaptionRenderer {
         layout.set_attributes(Some(&attributes));
         self.cache.insert(key, layout.clone());
         layout
+    }
+
+    fn draw_ruby(
+        &mut self,
+        segments: &[crate::state::RubySegment],
+        size: f32,
+        width: f32,
+        line_height: f32,
+        max_lines: usize,
+        y: f32,
+        color: (f32, f32, f32, f32),
+    ) -> Result<bool, CaptionRenderError> {
+        let size = size.min(line_height / 1.8);
+        let mut rows: Vec<Vec<(Layout, Option<Layout>, f32)>> = vec![Vec::new()];
+        let mut row_width = 0.0;
+        let mut truncated = false;
+        for segment in segments {
+            let units: Vec<_> = if segment.reading.is_empty() {
+                segment
+                    .text
+                    .chars()
+                    .map(|ch| (ch.to_string(), String::new()))
+                    .collect()
+            } else {
+                vec![(segment.text.clone(), segment.reading.clone())]
+            };
+            for (text, reading) in units {
+                let base = self.layout(&text, Some("ja"), size, 0.0, size * 1.02, 1);
+                let ruby = if reading.is_empty() {
+                    None
+                } else {
+                    Some(self.layout(&reading, Some("ja"), size * 0.72, 0.0, size * 0.76, 1))
+                };
+                let unit_width = (base.pixel_size().0 as f32)
+                    .max(ruby.as_ref().map_or(0.0, |l| l.pixel_size().0 as f32))
+                    + size * 0.04;
+                if row_width + unit_width > width && !rows.last().unwrap().is_empty() {
+                    if rows.len() == max_lines {
+                        truncated = true;
+                        break;
+                    }
+                    rows.push(Vec::new());
+                    row_width = 0.0;
+                }
+                rows.last_mut().unwrap().push((base, ruby, unit_width));
+                row_width += unit_width;
+            }
+            if truncated {
+                break;
+            }
+        }
+        if truncated {
+            let ellipsis = self.layout("…", Some("ja"), size, 0.0, size * 1.2, 1);
+            if let Some(row) = rows.last_mut() {
+                row.pop();
+                row.push((ellipsis, None, size));
+            }
+        }
+        for (index, row) in rows.iter().enumerate() {
+            let total: f32 = row.iter().map(|item| item.2).sum();
+            let row_scale = (width / total.max(1.0)).min(1.0);
+            self.context.save().map_err(draw_error)?;
+            self.context.translate(
+                ((width - total * row_scale) / 2.0) as f64,
+                (y + index as f32 * line_height) as f64,
+            );
+            self.context.scale(row_scale as f64, 1.0);
+            let mut x = 0.0;
+            for (base, ruby, unit_width) in row {
+                self.context.save().map_err(draw_error)?;
+                self.context.translate(
+                    (x + (unit_width - base.pixel_size().0 as f32) / 2.0) as f64,
+                    0.0,
+                );
+                draw_layout(&self.context, base, 0.0, color)?;
+                self.context.restore().map_err(draw_error)?;
+                if let Some(ruby) = ruby {
+                    self.context.save().map_err(draw_error)?;
+                    self.context.translate(
+                        (x + (unit_width - ruby.pixel_size().0 as f32) / 2.0) as f64,
+                        0.0,
+                    );
+                    draw_layout(&self.context, ruby, size * 1.04, color)?;
+                    self.context.restore().map_err(draw_error)?;
+                }
+                x += unit_width;
+            }
+            self.context.restore().map_err(draw_error)?;
+        }
+        Ok(truncated)
     }
 
     pub(super) fn render(
@@ -182,9 +276,33 @@ impl LinuxCaptionRenderer {
                 .channel
                 .map(|c| fill_color_for_channel(c, source.speaker_style))
                 .unwrap_or(SELF_TEXT_FILL_COLOR);
-            draw_layout(&self.context, &primary, padding, color)?;
+            if source.primary_ruby.is_empty() {
+                draw_layout(&self.context, &primary, padding, color)?;
+            } else {
+                block.truncated_primary = self.draw_ruby(
+                    &source.primary_ruby,
+                    font_size,
+                    block.content_width_px,
+                    DEFAULT_PRIMARY_LINE_HEIGHT_PX as f32 * scale,
+                    primary_budget,
+                    padding,
+                    color,
+                )?;
+            }
             if let Some(secondary) = secondary {
-                draw_layout(&self.context, &secondary, secondary_y, color)?;
+                if source.secondary_ruby.is_empty() {
+                    draw_layout(&self.context, &secondary, secondary_y, color)?;
+                } else {
+                    block.truncated_secondary = self.draw_ruby(
+                        &source.secondary_ruby,
+                        font_size * SECONDARY_FONT_SCALE,
+                        block.content_width_px,
+                        DEFAULT_SECONDARY_LINE_HEIGHT_PX as f32 * scale,
+                        1,
+                        secondary_y,
+                        color,
+                    )?;
+                }
             }
             self.context.pop_group_to_source().map_err(draw_error)?;
             self.context

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -8,6 +8,7 @@ from typing import Protocol
 import flet as ft
 
 from puripuly_heart.app.ports.chatgpt_account import ChatGptAccountSnapshot
+from puripuly_heart.app.ports.provider_verifier import ProviderCredentialVerificationOutcome
 from puripuly_heart.app.ports.settings_secrets import SettingsSecretsPort
 from puripuly_heart.app.ports.settings_view import (
     GeneralSettingsSnapshot,
@@ -42,7 +43,7 @@ class SettingsChatGptIntents:
 class SettingsProviderIntents:
     providers_changed: Callable[[], None]
     request_openrouter_pkce: Callable[[OpenRouterPkceTarget], None]
-    verify_api_key: Callable[[str, str], object]
+    verify_api_key: Callable[[str, str], Awaitable[ProviderCredentialVerificationOutcome]]
     provider_secret_change: Callable[[str, str], object]
     secret_cleared: Callable[[str], None]
     local_llm_secret_changed: Callable[[], None]
@@ -50,11 +51,12 @@ class SettingsProviderIntents:
     settings_secrets: SettingsSecretsPort
     custom_stt_secret_changed: Callable[[], None] | None = None
     chatgpt: SettingsChatGptIntents | None = None
+    open_model_assets: Callable[[], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class SettingsGeneralIntents:
-    start_microphone_test: Callable[[], None]
+    start_audio_test: Callable[[], None]
     telemetry_enabled_change: Callable[[bool], None]
     list_loopback_capture_options: Callable[[], object]
     list_loopback_process_options: Callable[[], object]
@@ -68,6 +70,7 @@ class SettingsGeneralIntents:
 @dataclass(frozen=True, slots=True)
 class SettingsPromptIntents:
     prompt_apply_settings: Callable[[PromptApplyIntent], None]
+    pending_prompt_changed: Callable[[PromptApplyIntent], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,9 +125,6 @@ class SettingsProviderStateSink(Protocol):
         *,
         visible: bool,
         remaining_percent: int | None = None,
-        referral_id: str | None = None,
-        pass_status: object | None = None,
-        remember_referral_id: bool = True,
     ) -> None: ...
 
     def set_managed_trial_usage_state(
@@ -167,7 +167,7 @@ class SettingsApiSlotProvider(Protocol):
 
     def gpu_llm_control(self) -> ft.Control: ...
 
-    def gpu_refresh_control(self) -> ft.Control: ...
+    def model_assets_control(self) -> ft.Control: ...
 
     def local_llm_connection_control(self) -> ft.Control: ...
 
@@ -188,7 +188,7 @@ class SettingsApiSurfaceSlots:
     soniox_speaker_diarization: ft.Control
     gpu_device: ft.Control
     gpu_llm: ft.Control
-    gpu_refresh: ft.Control
+    model_assets: ft.Control
     local_llm_connection: ft.Control
     custom_stt_connection: ft.Control
     managed_key: ft.Control
@@ -209,7 +209,7 @@ class SettingsApiSurfaceSlots:
             soniox_speaker_diarization=provider.soniox_speaker_diarization_control(),
             gpu_device=provider.gpu_device_control(),
             gpu_llm=provider.gpu_llm_control(),
-            gpu_refresh=provider.gpu_refresh_control(),
+            model_assets=provider.model_assets_control(),
             local_llm_connection=provider.local_llm_connection_control(),
             custom_stt_connection=provider.custom_stt_connection_control(),
             managed_key=provider.managed_key_control(),
@@ -237,7 +237,7 @@ class SettingsGeneralSurfaceSlots:
     audio_host_api: ft.Control
     microphone: ft.Control
     loopback: ft.Control
-    microphone_test: ft.Control
+    audio_test: ft.Control
     self_vad: ft.Control
     peer_vad: ft.Control
     clipboard_auto_translate: ft.Control
@@ -274,6 +274,7 @@ class SettingsOverlaySurfaceSlots:
     desktop_reset_spacer: ft.Control
     desktop_status: ft.Control
     desktop_status_trailing: ft.Control
+    furigana: ft.Control | None = None
 
 
 @dataclass(frozen=True, slots=True)

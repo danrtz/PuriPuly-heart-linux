@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Literal, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 from puripuly_heart.core.clock import Clock, SystemClock
@@ -13,6 +13,7 @@ from puripuly_heart.domain.models import ChannelId, SpeakerAssignment, Transcrip
 
 AppliedContextMode = Literal["integrated"]
 OverlayTurnKind = Literal["manual", "self", "peer"]
+PeerPacingWaitObserver = Callable[[str], None]
 _ADAPTER_SEQUENCE_NAMESPACES = itertools.count(1)
 
 
@@ -34,6 +35,8 @@ class OverlayPublicationScope:
     target_index: int = 0
     target_count: int = 1
     retained_payload_bytes: int = 0
+    operation_id: str | None = None
+    request_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -58,6 +61,8 @@ class OverlayEvent:
     target_index: int = 0
     target_count: int = 1
     retained_payload_bytes: int = 0
+    operation_id: str | None = None
+    request_id: str | None = None
 
     EVENT_TYPE: ClassVar[str] = "overlay_event"
 
@@ -99,6 +104,11 @@ class SelfActiveUpdate(OverlayEvent):
     secondary_text: str = ""
     source_language: str = ""
     target_language: str = ""
+    caption_source_closed: bool | None = None
+    caption_complete: bool = False
+    caption_cancelled: bool = False
+    retained_only: bool = False
+    caption_revision: int = 0
 
     EVENT_TYPE: ClassVar[str] = "self_active_update"
 
@@ -148,6 +158,8 @@ class TranslationStreamUpdate(OverlayEvent):
     is_final: bool = False
     applied_context_mode: AppliedContextMode | None = None
     source_text: str = ""
+    peer_caption_revision: int = 0
+    peer_superseded_unit_ids: tuple[UUID, ...] = ()
 
     EVENT_TYPE: ClassVar[str] = "translation_stream_update"
 
@@ -189,15 +201,21 @@ class OverlaySink(Protocol):
     ) -> OverlayApplicationReceipt | None: ...
 
 
-@dataclass(slots=True)
-class NullOverlaySink:
-    async def emit(self, event: OverlayEventUnion) -> OverlayApplicationReceipt:
-        return OverlayApplicationReceipt(
-            stage="application_accepted",
-            outcome="applied",
-            publication_id=event.event_id,
-            scene_revision=None,
-        )
+@runtime_checkable
+class PeerCaptionAdmissionPort(Protocol):
+    async def emit_peer_when_admissible(
+        self,
+        event: OverlayEventUnion,
+        *,
+        on_wait: PeerPacingWaitObserver | None = None,
+        admission_started_at: float | None = None,
+    ) -> OverlayApplicationReceipt: ...
+
+
+@runtime_checkable
+class PeerCaptionLayoutPort(Protocol):
+    @property
+    def peer_caption_text_scale(self) -> float: ...
 
 
 @dataclass(slots=True)
@@ -265,6 +283,9 @@ class OverlayEventAdapter:
         source_text_len: int | None = None,
         logical_turn_key: str | None = None,
         output_scope: OverlayPublicationScope | None = None,
+        speaker_assignment: SpeakerAssignment | None = None,
+        peer_caption_revision: int = 0,
+        peer_superseded_unit_ids: tuple[UUID, ...] = (),
     ) -> TranslationStreamUpdate:
         return TranslationStreamUpdate(
             **self._common_event_fields(
@@ -278,6 +299,7 @@ class OverlayEventAdapter:
                 source_text_len=source_text_len,
                 logical_turn_key=logical_turn_key,
                 output_scope=output_scope,
+                speaker_assignment=speaker_assignment,
             ),
             text=text,
             source_text=source_text,
@@ -285,6 +307,8 @@ class OverlayEventAdapter:
             target_language=target_language,
             is_final=False,
             applied_context_mode=applied_context_mode,
+            peer_caption_revision=peer_caption_revision,
+            peer_superseded_unit_ids=peer_superseded_unit_ids,
         )
 
     def self_active_update(
@@ -303,6 +327,13 @@ class OverlayEventAdapter:
         source_text_hash: str | None = None,
         source_text_len: int | None = None,
         logical_turn_key: str | None = None,
+        caption_source_closed: bool | None = None,
+        caption_complete: bool = False,
+        caption_cancelled: bool = False,
+        retained_only: bool = False,
+        caption_revision: int = 0,
+        turn_generation: int | None = None,
+        turn_order: int | None = None,
     ) -> SelfActiveUpdate:
         return SelfActiveUpdate(
             **self._common_event_fields(
@@ -315,12 +346,19 @@ class OverlayEventAdapter:
                 source_text_hash=source_text_hash,
                 source_text_len=source_text_len,
                 logical_turn_key=logical_turn_key,
+                turn_generation=turn_generation,
+                turn_order=turn_order,
             ),
             text=text,
             secondary_text=secondary_text,
             occupant_key=occupant_key,
             source_language=source_language,
             target_language=target_language,
+            caption_source_closed=caption_source_closed,
+            caption_complete=caption_complete,
+            caption_cancelled=caption_cancelled,
+            retained_only=retained_only,
+            caption_revision=caption_revision,
         )
 
     def peer_active_update(
@@ -385,6 +423,8 @@ class OverlayEventAdapter:
         logical_turn_key: str | None = None,
         speaker_assignment: SpeakerAssignment | None = None,
         output_scope: OverlayPublicationScope | None = None,
+        peer_caption_revision: int = 0,
+        peer_superseded_unit_ids: tuple[UUID, ...] = (),
     ) -> TranslationFinal:
         return TranslationFinal(
             **self._common_event_fields(
@@ -406,6 +446,8 @@ class OverlayEventAdapter:
             target_language=target_language,
             is_final=True,
             applied_context_mode=applied_context_mode,
+            peer_caption_revision=peer_caption_revision,
+            peer_superseded_unit_ids=peer_superseded_unit_ids,
         )
 
     def utterance_closed(
@@ -479,6 +521,8 @@ class OverlayEventAdapter:
             "target_index": target_index,
             "target_count": target_count,
             "retained_payload_bytes": retained_payload_bytes,
+            "operation_id": output_scope.operation_id if output_scope is not None else None,
+            "request_id": output_scope.request_id if output_scope is not None else None,
         }
 
 
@@ -498,7 +542,11 @@ class SubtitleOverlayOutputAdapter:
 
         if translation_text.strip():
             await self.sink.emit(
-                self.event_adapter.translation_final(
+                (
+                    self.event_adapter.translation_final
+                    if publication.is_final
+                    else self.event_adapter.translation_stream_update
+                )(
                     utterance_id=utterance_id,
                     channel="peer",
                     text=translation_text,
@@ -506,6 +554,8 @@ class SubtitleOverlayOutputAdapter:
                     source_language=source_language,
                     target_language=target_language,
                     applied_context_mode=self.applied_context_mode,
+                    peer_caption_revision=publication.peer_caption_revision,
+                    peer_superseded_unit_ids=publication.peer_superseded_unit_ids,
                     **protocol_metadata,
                 )
             )

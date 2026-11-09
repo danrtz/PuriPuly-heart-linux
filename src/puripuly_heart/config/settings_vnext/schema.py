@@ -18,14 +18,17 @@ from puripuly_heart.config.audio_host_api import (
 )
 from puripuly_heart.config.overlay_calibration import OverlayCalibration
 from puripuly_heart.config.prompts import normalize_system_prompt_override
-from puripuly_heart.config.provider_values import normalize_cloud_free_tier_providers
+from puripuly_heart.config.provider_values import (
+    normalize_cloud_free_tier_providers,
+    normalize_stt_provider,
+)
 from puripuly_heart.config.resolved import normalize_legacy_vad_onset_threshold
 from puripuly_heart.core.translation_policy import (
     FIXED_TRANSLATION_POLICY,
     TranslationRuntimePolicy,
 )
 
-VNEXT_SETTINGS_SCHEMA_VERSION: Final = 52
+VNEXT_SETTINGS_SCHEMA_VERSION: Final = 54
 OSC_DEFAULT_HOST: Final = "127.0.0.1"
 OSC_DEFAULT_SEND_PORT: Final = 9000
 OSC_DEFAULT_RECEIVE_PORT: Final = 9001
@@ -337,6 +340,12 @@ class TranslationIntent:
     gpu_device_id: str = "auto"
 
     def __post_init__(self) -> None:
+        if self.model == "managed_gemma_26b":
+            object.__setattr__(self, "connection", "gpu")
+        history = dict(self.connection_history)
+        if "managed_gemma_26b" in history:
+            history["managed_gemma_26b"] = "gpu"
+        object.__setattr__(self, "connection_history", history)
         device_id = self.gpu_device_id if isinstance(self.gpu_device_id, str) else "auto"
         object.__setattr__(self, "gpu_device_id", device_id.strip() or "auto")
 
@@ -369,11 +378,15 @@ class ElevenLabsScribeSTTIntent:
 
 @dataclass(frozen=True, slots=True)
 class SonioxSTTIntent:
-    model: str = "stt-rt-v5"
+    model: str = "stt-rt-v6"
     endpoint: str = "wss://stt-rt.soniox.com/transcribe-websocket"
     keepalive_interval_s: float = 10.0
     trailing_silence_ms: int = 100
     enable_speaker_diarization: bool = True
+
+    def __post_init__(self) -> None:
+        if self.model == "stt-rt-v5":
+            object.__setattr__(self, "model", "stt-rt-v6")
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,6 +418,7 @@ class STTIntent:
     custom: CustomSTTIntent = field(default_factory=CustomSTTIntent)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "provider", normalize_stt_provider(self.provider))
         device_id = self.gpu_device_id if isinstance(self.gpu_device_id, str) else "auto"
         object.__setattr__(self, "gpu_device_id", device_id.strip() or "auto")
         object.__setattr__(
@@ -425,6 +439,9 @@ class STTIntent:
 @dataclass(frozen=True, slots=True)
 class PeerSTTIntent:
     provider: str = "local_cpu_auto"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "provider", normalize_stt_provider(self.provider))
 
 
 @dataclass(frozen=True, slots=True)
@@ -679,6 +696,7 @@ class OverlayIntent:
     target: str = "steamvr"
     show_translation: bool = True
     show_peer_original: bool = True
+    japanese_furigana: bool = False
     calibration: OverlayCalibration = field(default_factory=OverlayCalibration)
     desktop_flet: DesktopFletOverlayIntent = field(default_factory=DesktopFletOverlayIntent)
 
@@ -894,8 +912,6 @@ class ManagedConnectionState:
     active_managed_credential_ref: str | None = None
     active_managed_expires_at: str | None = None
     founder_letter_seen_credential_ref: str | None = None
-    referral_id: str | None = None
-    referral_source: str | None = None
     local_managed_claim_sources: tuple[str, ...] = ()
     pending_delivery_ack_source: str | None = None
     pending_delivery_ack_delivery_id: str | None = None
@@ -907,12 +923,6 @@ class ManagedConnectionState:
     pending_managed_operation_state: str | None = None
 
     def __post_init__(self) -> None:
-        referral_source = _normalize_optional_state_text(self.referral_source)
-        if referral_source not in {"discord", "qq"}:
-            referral_source = (
-                "discord" if _normalize_optional_state_text(self.referral_id) is not None else None
-            )
-        object.__setattr__(self, "referral_source", referral_source)
         source = _normalize_optional_state_text(self.pending_delivery_ack_source)
         if source not in MANAGED_KEY_DELIVERY_ACK_SOURCES:
             source = None
@@ -989,6 +999,11 @@ class IntegratedContextState:
 
 
 @dataclass(frozen=True, slots=True)
+class MainInputHintState:
+    first_launch_completed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class TelemetryOperationalState:
     anonymous_id: str | None = field(default_factory=new_anonymous_telemetry_identifier)
     last_sent_date_utc: str | None = None
@@ -1011,6 +1026,7 @@ class PersistedOperationalState:
     github_star_prompt: GithubStarPromptState = field(default_factory=GithubStarPromptState)
     peer_translation: PeerTranslationState = field(default_factory=PeerTranslationState)
     integrated_context: IntegratedContextState = field(default_factory=IntegratedContextState)
+    main_input_hint: MainInputHintState = field(default_factory=MainInputHintState)
     telemetry: TelemetryOperationalState = field(default_factory=TelemetryOperationalState)
 
 
@@ -1121,6 +1137,7 @@ __all__ = [
     "is_safe_compatibility_extension_key",
     "LanguageIntent",
     "LocalLLMIntent",
+    "MainInputHintState",
     "ManagedConnectionState",
     "MANAGED_AUTH_CLAIM_SOURCE_DISCORD",
     "MANAGED_AUTH_CLAIM_SOURCE_QQ",

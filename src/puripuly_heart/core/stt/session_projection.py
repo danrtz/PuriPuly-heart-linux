@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
+from puripuly_heart.core.messages import ErrorDiagnostics
 from puripuly_heart.core.stt.backend import (
     STTBackendTranscriptEvent,
     STTProviderEpochEnded,
@@ -39,13 +41,16 @@ class STTSessionEventProjection:
         else:
             self._scoped_events = STTProviderEventBuffer()
         self._active_identity: STTProviderTurnIdentity | None = None
+        self.channel: str | None = None
         self._payload_sequences: dict[STTProviderTurnIdentity, int] = {}
         self._update_sequences: dict[STTProviderTurnIdentity, int] = {}
+        self._first_nonempty_at: dict[STTProviderTurnIdentity, float] = {}
         self._sealed_identities: set[STTProviderTurnIdentity] = set()
         self._draining_identities: set[STTProviderTurnIdentity] = set()
         self._retired = False
         self._epoch_ended = False
         self._closed = False
+        self._terminal_admission_generation = 0
 
     @property
     def projection(self) -> STTSessionProjection:
@@ -85,6 +90,10 @@ class STTSessionEventProjection:
         return self._retired
 
     @property
+    def terminal_admission_generation(self) -> int:
+        return self._terminal_admission_generation
+
+    @property
     def scoped_event_depth(self) -> int:
         return self._scoped_buffer().depth
 
@@ -106,6 +115,7 @@ class STTSessionEventProjection:
         self._active_identity = request.identity
         self._payload_sequences[request.identity] = 0
         self._update_sequences[request.identity] = 0
+        self.channel = request.channel
 
     def require_open(self, identity: STTProviderTurnIdentity) -> None:
         self._require_scoped_projection()
@@ -167,24 +177,65 @@ class STTSessionEventProjection:
             except asyncio.QueueEmpty:
                 return
 
-    def put_update(self, event: STTProviderTurnUpdate) -> bool:
+    async def admit_update(self, event: STTProviderTurnUpdate) -> bool:
         if not self.is_current(event.identity):
             return False
+        event = self._observe_update(event)
+        buffer = self._scoped_buffer()
+        if not await buffer.wait_for_capacity(
+            event, is_current=lambda: self.is_current(event.identity)
+        ):
+            return False
+        return self.put_update(event, preserve_observations=True)
+
+    async def admit_terminal(self, event: STTProviderTurnTerminal) -> bool:
+        if not await self.wait_for_terminal_capacity(event):
+            return False
+        return self.terminal(event, preserve_observations=True)
+
+    async def wait_for_terminal_capacity(self, event: STTProviderTurnTerminal) -> bool:
+        generation = self._terminal_admission_generation
+        return await self._scoped_buffer().wait_for_capacity(
+            event,
+            is_current=lambda: (
+                generation == self._terminal_admission_generation
+                and self.can_terminal(event.identity)
+            ),
+        )
+
+    def _observe_update(self, event: STTProviderTurnUpdate) -> STTProviderTurnUpdate:
+        if self.channel == "peer":
+            if event.text.strip() and event.observed_at is not None:
+                self._first_nonempty_at.setdefault(event.identity, event.observed_at)
+            return replace(event, first_nonempty_at=self._first_nonempty_at.get(event.identity))
+        return event
+
+    def put_update(
+        self, event: STTProviderTurnUpdate, *, preserve_observations: bool = False
+    ) -> bool:
+        if not self.is_current(event.identity):
+            return False
+        event = self._observe_update(event)
         buffer = self._scoped_buffer()
         try:
-            accepted = buffer.put(event)
+            accepted = buffer.put(event, preserve_observations=preserve_observations)
         except STTProviderEventBufferClosed:
             return False
         if not accepted and event.stability != "provisional":
             self._retire_after_overflow(event.identity)
         return accepted
 
-    def terminal(self, event: STTProviderTurnTerminal | STTProviderInputTerminal) -> bool:
+    def terminal(
+        self,
+        event: STTProviderTurnTerminal | STTProviderInputTerminal,
+        *,
+        preserve_observations: bool = False,
+    ) -> bool:
         if not self.can_terminal(event.identity):
             return False
         buffer = self._scoped_buffer()
         try:
-            accepted = buffer.put(event)
+            accepted = buffer.put(event, preserve_observations=preserve_observations)
         except STTProviderEventBufferClosed:
             accepted = False
         if event.epoch_disposition == "retire" or not accepted:
@@ -193,6 +244,7 @@ class STTSessionEventProjection:
             self._draining_identities.discard(event.identity)
         self._payload_sequences.pop(event.identity, None)
         self._update_sequences.pop(event.identity, None)
+        self._first_nonempty_at.pop(event.identity, None)
         self._sealed_identities.discard(event.identity)
         self._draining_identities.discard(event.identity)
         if self._active_identity == event.identity:
@@ -214,9 +266,22 @@ class STTSessionEventProjection:
             self._retired = True
         return accepted
 
+    def retire_for_terminal(self) -> None:
+        self._retired = True
+        self._draining_identities.update(self._payload_sequences)
+        self._scoped_buffer().wake_admission()
+
     def retire(self) -> None:
+        self._terminal_admission_generation += 1
         self._retired = True
         self._draining_identities.clear()
+        if self._scoped_events is not None:
+            self._scoped_events.wake_admission()
+
+    def revoke_admission(self) -> None:
+        self.retire()
+        self._draining_identities.update(self._payload_sequences)
+        self._scoped_buffer().discard_updates()
 
     def end_epoch(
         self,
@@ -225,6 +290,7 @@ class STTSessionEventProjection:
         reason: str,
         provider_turn_id: str | None = None,
         failure_retryable: bool = False,
+        failure_diagnostics: ErrorDiagnostics | None = None,
     ) -> bool:
         if not self.is_scoped or self._epoch_ended or self._closed:
             return False
@@ -234,12 +300,14 @@ class STTSessionEventProjection:
         self._retired = True
         self._epoch_ended = True
         self._draining_identities.clear()
+        self._scoped_buffer().wake_admission()
         event = STTProviderEpochEnded(
             provider_epoch_id=epoch_id,
             orderly=orderly,
             reason=reason,
             provider_turn_id=provider_turn_id,
             failure_retryable=failure_retryable,
+            failure_diagnostics=failure_diagnostics,
         )
         try:
             return self._scoped_buffer().put(event)
@@ -286,6 +354,7 @@ class STTSessionEventProjection:
 
     def _retire_after_overflow(self, identity: STTProviderTurnIdentity) -> None:
         self._retired = True
+        self._scoped_buffer().wake_admission()
         self._payload_sequences.pop(identity, None)
         self._update_sequences.pop(identity, None)
         self._sealed_identities.discard(identity)

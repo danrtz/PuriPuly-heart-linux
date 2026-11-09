@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from puripuly_heart.core.local_stt_assets import (
+
+from puripuly_heart.core.local_asr import local_stt_assets as local_stt_assets_module
+from puripuly_heart.core.local_asr.local_stt_assets import (
     InstalledLocalSTTManifest,
     LocalSTTAssetFile,
     LocalSTTAssetManifest,
@@ -15,14 +17,11 @@ from puripuly_heart.core.local_stt_assets import (
     LocalSTTManifestInvalidError,
     default_local_stt_installed_manifest_path,
     default_local_stt_model_dir,
-    default_local_stt_model_root,
     default_local_stt_source_for_locale,
     inspect_local_stt_install_state,
     load_local_stt_asset_manifest,
     validate_local_stt_install,
 )
-
-from puripuly_heart.core import local_stt_assets as local_stt_assets_module
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -33,10 +32,10 @@ def _test_manifest() -> LocalSTTAssetManifest:
     return LocalSTTAssetManifest(
         manifest_version=1,
         installed_manifest_version=1,
-        model_id="qwen3-asr-0.6b-int8-sherpa",
+        model_id="test-model",
         engine="sherpa-onnx",
-        upstream_repo="zengshuishui/Qwen3-ASR-onnx",
-        install_dirname="qwen3-asr-0.6b-int8-sherpa",
+        upstream_repo="test/repository",
+        install_dirname="test-model",
         sources={
             "huggingface": LocalSTTAssetSource(
                 name="huggingface",
@@ -77,38 +76,19 @@ def _write_valid_install(root: Path, manifest: LocalSTTAssetManifest) -> None:
     )
 
 
-def test_default_local_stt_paths_use_user_config_dir(monkeypatch: pytest.MonkeyPatch) -> None:
-    from puripuly_heart.config import paths
-
-    def _fake_user_config_dir(*, app_dir_name: str = paths.APP_DIR_NAME) -> Path:
-        return Path("/tmp") / app_dir_name
-
-    monkeypatch.setattr(paths, "user_config_dir", _fake_user_config_dir)
-
-    assert default_local_stt_model_root() == Path("/tmp") / paths.APP_DIR_NAME / "models"
-    assert (
-        default_local_stt_model_dir()
-        == Path("/tmp") / paths.APP_DIR_NAME / "models" / "qwen3-asr-0.6b-int8-sherpa"
-    )
-    assert (
-        default_local_stt_installed_manifest_path()
-        == Path("/tmp")
-        / paths.APP_DIR_NAME
-        / "models"
-        / "qwen3-asr-0.6b-int8-sherpa"
-        / "installed-manifest.json"
-    )
-
-
-def test_load_local_stt_asset_manifest_parses_packaged_manifest() -> None:
-    manifest = load_local_stt_asset_manifest()
-
-    assert manifest.model_id == "qwen3-asr-0.6b-int8-sherpa"
-    assert manifest.engine == "sherpa-onnx"
-    assert manifest.upstream_repo == "zengshuishui/Qwen3-ASR-onnx"
-    assert manifest.install_dirname == "qwen3-asr-0.6b-int8-sherpa"
-    assert set(manifest.sources) == {"huggingface", "modelscope"}
-    assert manifest.files
+@pytest.mark.parametrize(
+    "retired_model_id",
+    [
+        "orukeet-q8-0-transcribe-cpu",
+        "qwen3-asr-0.6b-int8-sherpa",
+        "parakeet-tdt-0.6b-v3-int8-sherpa",
+    ],
+)
+def test_retired_models_are_not_discoverable_or_downloadable(retired_model_id: str) -> None:
+    with pytest.raises(LocalSTTManifestInvalidError, match="unknown local STT model_id"):
+        load_local_stt_asset_manifest(retired_model_id)
+    with pytest.raises(LocalSTTManifestInvalidError, match="unknown local STT model_id"):
+        default_local_stt_model_dir(retired_model_id)
 
 
 def test_validate_local_stt_install_accepts_matching_manifest_and_checksums(
@@ -300,16 +280,14 @@ def test_inspect_local_stt_install_state_returns_ready_for_valid_install(tmp_pat
     assert state.installed_manifest.selected_source == "huggingface"
 
 
-def test_default_local_stt_source_for_locale_uses_modelscope_only_for_simplified_chinese() -> None:
-    assert default_local_stt_source_for_locale("zh-CN") == "modelscope"
-    assert default_local_stt_source_for_locale("zh-cn") == "modelscope"
-    assert default_local_stt_source_for_locale("zh-HK") == "modelscope"
-    assert default_local_stt_source_for_locale("zh_HK") == "modelscope"
-    assert default_local_stt_source_for_locale("zh-Hant-HK") == "modelscope"
-    assert default_local_stt_source_for_locale("ko") == "huggingface"
-    assert default_local_stt_source_for_locale("en") == "huggingface"
-    assert default_local_stt_source_for_locale("zh-TW") == "huggingface"
-    assert default_local_stt_source_for_locale(None) == "huggingface"
+@pytest.mark.parametrize("locale", ["zh-CN", "zh-cn", "zh-HK", "zh_HK", "zh-Hant-HK"])
+def test_chinese_source_prefers_registered_modelscope_or_derived_mirror(locale) -> None:
+    from dataclasses import replace
+
+    manifest = _test_manifest()
+    assert default_local_stt_source_for_locale(locale, manifest=manifest) == "modelscope"
+    huggingface_only = replace(manifest, sources={"huggingface": manifest.sources["huggingface"]})
+    assert default_local_stt_source_for_locale(locale, manifest=huggingface_only) == "hf_mirror"
 
 
 def test_local_stt_asset_file_round_trips_source_path_overrides() -> None:
@@ -327,51 +305,3 @@ def test_local_stt_asset_file_round_trips_source_path_overrides() -> None:
     assert asset.to_dict() == payload
     assert asset.remote_path_for_source("huggingface") == "conv_frontend.onnx"
     assert asset.remote_path_for_source("modelscope") == "model_0.6B/conv_frontend.onnx"
-
-
-def test_packaged_local_stt_manifest_matches_modelscope_fallback_contract() -> None:
-    manifest = load_local_stt_asset_manifest()
-
-    modelscope = manifest.sources["modelscope"]
-    assert modelscope.repo_id == "zengshuishui/Qwen3-ASR-onnx"
-    assert modelscope.revision == "c69fb1666ccb59a82c09840c511a6c894e6a2482"
-    assert (
-        modelscope.download_url_template
-        == "https://www.modelscope.cn/api/v1/models/zengshuishui/Qwen3-ASR-onnx/repo?Revision=c69fb1666ccb59a82c09840c511a6c894e6a2482&FilePath={path}"
-    )
-
-    files = {asset.relative_path: asset for asset in manifest.files}
-    assert (
-        files["conv_frontend.onnx"].remote_path_for_source("modelscope")
-        == "model_0.6B/conv_frontend.onnx"
-    )
-    assert (
-        files["encoder.int8.onnx"].remote_path_for_source("modelscope")
-        == "model_0.6B/encoder.int8.onnx"
-    )
-    assert (
-        files["decoder.int8.onnx"].remote_path_for_source("modelscope")
-        == "model_0.6B/decoder.int8.onnx"
-    )
-    assert (
-        files["tokenizer/merges.txt"].remote_path_for_source("modelscope") == "tokenizer/merges.txt"
-    )
-    assert (
-        files["tokenizer/tokenizer_config.json"].remote_path_for_source("modelscope")
-        == "tokenizer/tokenizer_config.json"
-    )
-    assert (
-        files["tokenizer/vocab.json"].remote_path_for_source("modelscope") == "tokenizer/vocab.json"
-    )
-
-
-def test_packaged_local_stt_manifest_matches_huggingface_mirror_contract() -> None:
-    manifest = load_local_stt_asset_manifest()
-
-    huggingface = manifest.sources["huggingface"]
-    assert huggingface.repo_id == "csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
-    assert huggingface.revision == "2cc50d1abfe4d4f2df8d71f536d108bb40f943d2"
-    assert (
-        huggingface.download_url_template
-        == "https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/2cc50d1abfe4d4f2df8d71f536d108bb40f943d2/{path}"
-    )

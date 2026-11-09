@@ -7,10 +7,10 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from puripuly_heart.app.ports.gpu_worker import (
-    GpuWorkerActivation,
-    GpuWorkerDevice,
-    GpuWorkerTranscription,
+from puripuly_heart.app.ports.asr_worker import (
+    ASRWorkerActivation,
+    ASRWorkerDevice,
+    ASRWorkerTranscription,
 )
 from puripuly_heart.core.audio.ownership import (
     AudioSegmentIdentity,
@@ -32,8 +32,8 @@ from puripuly_heart.core.stt.backend import (
 )
 from puripuly_heart.providers.stt.local_gpu import LocalGpuSTTBackend
 from tests.core.runtime.test_gpu_asr import (
-    FakeGpuWorkerClient,
-    FakeGpuWorkerFactory,
+    FakeASRWorkerClient,
+    FakeASRWorkerFactory,
 )
 
 SCOPED_PROJECTION = STTSessionProjection(mode="scoped", provider_epoch_id="gpu-epoch")
@@ -61,12 +61,14 @@ class FakeSharedGpuRuntime:
         model_path: Path,
         model_id: str,
         device_id: str,
-    ) -> GpuWorkerActivation:
+        operation_id: str | None = None,
+        request_id: str | None = None,
+    ) -> ASRWorkerActivation:
         self.active_channels.add(channel)
         self.owners.setdefault(channel, set()).add(owner)
         self.activations.append((channel, model_path, model_id, device_id))
-        return GpuWorkerActivation(
-            device=GpuWorkerDevice(
+        return ASRWorkerActivation(
+            device=ASRWorkerDevice(
                 device_id="vk:0",
                 registry_index=0,
                 name="GPU",
@@ -86,11 +88,11 @@ class FakeSharedGpuRuntime:
         *,
         speech_end_at: float,
         language_hint: str | None = None,
-    ) -> GpuWorkerTranscription:
+    ) -> ASRWorkerTranscription:
         self.submissions.append((channel, samples_f32.copy(), speech_end_at, language_hint))
         if self.submit_failures:
             raise self.submit_failures.pop(0)
-        return GpuWorkerTranscription(
+        return ASRWorkerTranscription(
             text="hello",
             detected_language=self.detected_language,
             audio_seconds=0.01,
@@ -105,7 +107,7 @@ class FakeSharedGpuRuntime:
         *,
         speech_end_at: float,
         language_hint: str | None = None,
-    ) -> GpuWorkerTranscription:
+    ) -> ASRWorkerTranscription:
         from puripuly_heart.core.audio.format import pcm16le_bytes_to_float32
 
         return await self.submit(
@@ -293,7 +295,7 @@ async def test_gpu_active_timeout_quarantines_resource_until_repeated_off_cleanu
             *,
             speech_end_at: float,
             language_hint: str | None = None,
-        ) -> GpuWorkerTranscription:
+        ) -> ASRWorkerTranscription:
             self.submissions.append((channel, samples_f32.copy(), speech_end_at, language_hint))
             self.started.set()
             try:
@@ -301,7 +303,7 @@ async def test_gpu_active_timeout_quarantines_resource_until_repeated_off_cleanu
             except asyncio.CancelledError:
                 await self.release.wait()
                 raise
-            return GpuWorkerTranscription(
+            return ASRWorkerTranscription(
                 text="late",
                 detected_language=None,
                 audio_seconds=0.01,
@@ -415,8 +417,8 @@ async def test_backend_close_can_retry_after_runtime_shutdown_failure(tmp_path: 
 
 
 async def test_preparation_and_session_open_share_one_resource(tmp_path: Path) -> None:
-    client = FakeGpuWorkerClient(activation_gate=asyncio.Event())
-    factory = FakeGpuWorkerFactory([client])
+    client = FakeASRWorkerClient(activation_gate=asyncio.Event())
+    factory = FakeASRWorkerFactory([client])
     runtime = SharedGpuASRRuntime(process_factory=factory)
     backend = LocalGpuSTTBackend(
         runtime=runtime,
@@ -454,11 +456,11 @@ async def test_preparation_and_session_open_share_one_resource(tmp_path: Path) -
         await runtime.close()
 
 
-async def test_cancelled_preparation_releases_only_self_during_shared_activation(
+async def test_closing_preparation_releases_only_self_during_shared_activation(
     tmp_path: Path,
 ) -> None:
-    client = FakeGpuWorkerClient(activation_gate=asyncio.Event())
-    factory = FakeGpuWorkerFactory([client])
+    client = FakeASRWorkerClient(activation_gate=asyncio.Event())
+    factory = FakeASRWorkerFactory([client])
     runtime = SharedGpuASRRuntime(process_factory=factory)
     backends = {
         channel: LocalGpuSTTBackend(
@@ -477,10 +479,9 @@ async def test_cancelled_preparation_releases_only_self_during_shared_activation
         async with asyncio.timeout(1):
             while "self" not in runtime.active_channels:
                 await asyncio.sleep(0)
-        self_preparing.cancel()
+        await asyncio.wait_for(backends["self"].close(), timeout=1)
         with pytest.raises(asyncio.CancelledError):
-            await self_preparing
-        await backends["self"].close()
+            await asyncio.wait_for(self_preparing, timeout=1)
         assert runtime.active_channels == frozenset({"peer"})
         assert client.close_calls == 0
         assert not peer_preparing.done()
@@ -500,9 +501,11 @@ async def test_cancelled_preparation_releases_only_self_during_shared_activation
         await runtime.close()
 
 
-async def test_close_serializes_with_resource_preparation(tmp_path: Path) -> None:
-    client = FakeGpuWorkerClient(activation_gate=asyncio.Event())
-    runtime = SharedGpuASRRuntime(process_factory=FakeGpuWorkerFactory([client]))
+async def test_close_aborts_preparation_and_session_open_without_model_readiness(
+    tmp_path: Path,
+) -> None:
+    client = FakeASRWorkerClient(activation_gate=asyncio.Event())
+    runtime = SharedGpuASRRuntime(process_factory=FakeASRWorkerFactory([client]))
     backend = LocalGpuSTTBackend(
         runtime=runtime,
         channel="self",
@@ -512,16 +515,24 @@ async def test_close_serializes_with_resource_preparation(tmp_path: Path) -> Non
     )
     preparing = asyncio.create_task(backend.prepare())
     await asyncio.wait_for(client.activation_started.wait(), timeout=1)
-    closing = asyncio.create_task(backend.close())
-    client.activation_gate.set()
+    opening = asyncio.create_task(backend.open_session(projection=SCOPED_PROJECTION))
+    await asyncio.sleep(0)
     try:
-        await asyncio.wait_for(preparing, timeout=1)
-        await asyncio.wait_for(closing, timeout=1)
+        await asyncio.wait_for(backend.close(), timeout=1)
+        for pending in (preparing, opening):
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(pending, timeout=1)
+        assert not client.activation_gate.is_set()
         assert runtime.active_channels == frozenset()
         assert client.close_calls == 1
+        assert client.is_closed
+        assert runtime.worker_pid is None
+        assert runtime.state == GpuASRRuntimeState.STOPPED
         with pytest.raises(RuntimeError, match="backend is closed"):
             await backend.prepare()
     finally:
+        client.activation_gate.set()
+        await asyncio.gather(preparing, opening, return_exceptions=True)
         await backend.close()
         await runtime.close()
 
@@ -749,10 +760,10 @@ async def test_two_scoped_gpu_adapters_share_lease_and_cancel_only_one_client(
             *,
             speech_end_at: float,
             language_hint: str | None = None,
-        ) -> GpuWorkerTranscription:
+        ) -> ASRWorkerTranscription:
             self.submissions.append((channel, samples_f32.copy(), speech_end_at, language_hint))
             await self.gates[channel].wait()
-            return GpuWorkerTranscription(
+            return ASRWorkerTranscription(
                 text=f"{channel}-text",
                 detected_language="en",
                 audio_seconds=0.01,
@@ -883,8 +894,8 @@ async def test_scoped_gpu_pending_capacity_reason_is_preserved() -> None:
 async def test_failed_same_channel_preparation_cannot_release_live_owner(
     tmp_path: Path,
 ) -> None:
-    client = FakeGpuWorkerClient()
-    factory = FakeGpuWorkerFactory([client])
+    client = FakeASRWorkerClient()
+    factory = FakeASRWorkerFactory([client])
     runtime = SharedGpuASRRuntime(process_factory=factory)
     current = LocalGpuSTTBackend(
         runtime=runtime,

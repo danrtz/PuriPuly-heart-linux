@@ -8,14 +8,16 @@ from uuid import uuid4
 
 import numpy as np
 import pytest
-from puripuly_heart.app.adapters.self_capture_vad_sink import SelfCaptureVadSinkAdapter
 
+from puripuly_heart.app.adapters.self_capture.self_capture_vad_sink import SelfCaptureVadSinkAdapter
 from puripuly_heart.config.resolved import vad_exit_threshold
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 from puripuly_heart.core.audio.ownership import (
     AudioSegmentIdentity,
+    AudioSegmentTerminalReceipt,
     CaptureStreamInput,
 )
+from puripuly_heart.core.audio.source import AudioSourceOpenFailure
 from puripuly_heart.core.runtime.self_capture import SelfCaptureSessionOwner
 from puripuly_heart.core.self_capture import (
     SelfCaptureAdmission,
@@ -119,7 +121,7 @@ class RecordingProvider:
         if self.start_failure is not None:
             raise self.start_failure
 
-    async def warmup(self) -> None:
+    async def warmup(self, *, operation_id=None, request_id=None) -> None:
         self.warmup_calls += 1
 
     async def reconfigure(self, session_options: object) -> None:
@@ -149,9 +151,13 @@ class RecordingSource:
 class RecordingSink:
     def __init__(self) -> None:
         self.events: list[object] = []
+        self.retired_sources: list[AudioSegmentTerminalReceipt] = []
 
     async def handle_vad_event(self, event: object) -> None:
         self.events.append(event)
+
+    async def handle_source_segment_retired(self, receipt: AudioSegmentTerminalReceipt) -> None:
+        self.retired_sources.append(receipt)
 
 
 class BlockingRecognitionSink(RecordingSink):
@@ -806,12 +812,16 @@ async def test_same_effective_self_intent_preserves_stream_ownership_for_next_in
     class StreamSink:
         def __init__(self, engine: ScopedRecognitionEngine) -> None:
             self.engine = engine
+            self.retired_sources: list[AudioSegmentTerminalReceipt] = []
 
         async def handle_vad_event(self, event: object) -> None:
             await self.engine.handle_owned_vad_event(event)
 
         async def handle_stream_input(self, event: object) -> None:
             await self.engine.handle_stream_input(event)
+
+        async def handle_source_segment_retired(self, receipt: AudioSegmentTerminalReceipt) -> None:
+            self.retired_sources.append(receipt)
 
     class StreamSession(BlockingScopedSession):
         accepts_stream_input = True
@@ -847,7 +857,11 @@ async def test_same_effective_self_intent_preserves_stream_ownership_for_next_in
             return None
 
         async def seal_turn(self, identity: STTProviderTurnIdentity, **_kwargs: object) -> None:
-            await self.events.put(STTProviderInputTerminal(identity, "submitted", channel="self"))
+            await self.events.put(
+                STTProviderInputTerminal(
+                    identity, "submitted", channel="self", independent_recognition=True
+                )
+            )
             assert self.stream is not None
             await self.events.put(
                 STTRecognitionUnit(
@@ -885,7 +899,8 @@ async def test_same_effective_self_intent_preserves_stream_ownership_for_next_in
         event_sink=on_event,
         watchdog_resolver=lambda _settings: STTRecognitionWatchdogs(write_timeout_s=1.0),
     )
-    owner, _, _, _, loop, _ = build_owner(sink=StreamSink(engine))
+    sink = StreamSink(engine)
+    owner, _, _, _, loop, _ = build_owner(sink=sink)
     capture_box.append(owner)
     session_config = replace(
         config(),
@@ -956,6 +971,7 @@ async def test_same_effective_self_intent_preserves_stream_ownership_for_next_in
             receipt.identity.activation_generation == initial.generation
             for receipt in guarded.ledger.terminal_receipts
         )
+        assert sink.retired_sources == []
     finally:
         await owner.close()
         await engine.close_backend()
@@ -1417,9 +1433,13 @@ async def test_latest_intent_cancels_pending_admission_without_opening_source() 
 
     enable_task = asyncio.create_task(owner.apply_intent(session_config, enabled=True))
     await wait_until(lambda: len(admission.calls) == 1)
+    assert owner.mutation_authority(enable_task) is True
+    assert owner.pending_mutations() == (True,)
     disable_snapshot = await owner.apply_intent(session_config, enabled=False)
     gate.set()
     enable_snapshot = await enable_task
+    assert owner.mutation_authority(enable_task) is None
+    assert owner.pending_mutations() == ()
 
     assert disable_snapshot.state is SelfCaptureSessionState.STOPPED
     assert enable_snapshot.state is SelfCaptureSessionState.STOPPED
@@ -2095,7 +2115,7 @@ async def test_failed_provider_mutation_preserves_startup_failure_identity(
         SelfCaptureProviderMutationStatus.FAILED,
         reason="worker_process_exited",
         failure_code="worker_process_exited",
-        failure_type="GpuWorkerClosedError",
+        failure_type="ASRWorkerClosedError",
         failure_stage=stage,
     )
     try:
@@ -2125,3 +2145,104 @@ async def test_failed_provider_mutation_preserves_startup_failure_identity(
         assert failures[0].failure_stage == stage
     finally:
         await owner.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disposition", ["recoverable", "abort", "gap_shutdown"])
+async def test_qwen_source_gap_forwards_only_exact_new_cancellations_while_capture_survives(
+    disposition: str,
+) -> None:
+    class GapSink(RecordingSink):
+        async def handle_stream_input(self, _event: object) -> None:
+            if disposition == "gap_shutdown":
+                await owner.close()
+
+    sink = GapSink()
+    owner, _, _, _, loop, _ = build_owner(sink=sink)
+    try:
+        await owner.apply_intent(replace(config(), provider_id="qwen_audio"), enabled=True)
+        await loop.started.wait()
+        guarded = loop.calls[0]["sink"]
+        first_id = uuid4()
+        await guarded.handle_vad_event(
+            SpeechStart(first_id, np.empty(0, dtype=np.float32), np.ones(8, dtype=np.float32))
+        )
+        await wait_until(lambda: len(sink.events) == 1)
+        await guarded.handle_vad_event(SpeechEnd(first_id))
+        await wait_until(lambda: len(sink.events) == 2)
+        first = sink.events[0].segment
+        owner.note_input_terminal(
+            STTProviderInputTerminal(
+                STTProviderTurnIdentity(first.identity, "epoch", "first", ()),
+                "submitted",
+                channel="self",
+            )
+        )
+        second_id = uuid4()
+        await guarded.handle_vad_event(
+            SpeechStart(second_id, np.empty(0, dtype=np.float32), np.ones(8, dtype=np.float32))
+        )
+        await wait_until(lambda: len(sink.events) == 3)
+        second = sink.events[2].segment.identity
+        if disposition == "abort":
+            await owner.close()
+        else:
+            await guarded.handle_stream_input(
+                CaptureStreamInput(
+                    np.empty(0, dtype=np.float32),
+                    (),
+                    boundary_reason="source_discontinuity",
+                )
+            )
+        assert [
+            (receipt.identity, receipt.outcome) for receipt in guarded.ledger.terminal_receipts
+        ] == [
+            (first.identity, "submitted"),
+            (second, "cancelled"),
+        ]
+        if disposition == "recoverable":
+            assert [(receipt.identity, receipt.outcome) for receipt in sink.retired_sources] == [
+                (second, "cancelled")
+            ]
+            assert owner.snapshot.effective_active
+            await guarded.handle_vad_event(
+                SpeechStart(uuid4(), np.empty(0, dtype=np.float32), np.ones(8, dtype=np.float32))
+            )
+            await wait_until(lambda: len(sink.events) == 4)
+        else:
+            assert sink.retired_sources == []
+            assert not owner.snapshot.effective_active
+        await owner.close()
+        assert len(sink.retired_sources) == (1 if disposition == "recoverable" else 0)
+    finally:
+        await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_partial_source_open_failure_keeps_cleanup_owner_and_blocks_reactivation():
+    source = RecordingSource([OSError("retained native close failure")])
+    calls = []
+    failure = AudioSourceOpenFailure(source, OSError("source open cleanup failed"))
+    owner, _, provider, _, _, _ = build_owner()
+
+    def create_source(_config):
+        calls.append(_config)
+        if len(calls) == 1:
+            raise failure
+        return RecordingSource()
+
+    owner._source_factory = create_source
+    snapshot = await owner.apply_intent(config(), enabled=True)
+    assert snapshot.state is SelfCaptureSessionState.FAULTED
+    assert snapshot.failure_reason is SelfCaptureFailureReason.SOURCE_OPEN_FAILED
+    assert snapshot.cleanup_debt == 1
+    assert owner.cleanup_source is source
+    assert owner.last_cleanup_exception is failure
+    assert provider.release_calls == [("abort", None)]
+    with pytest.raises(OSError, match="retained native close failure"):
+        await owner.apply_intent(config(), enabled=True)
+    assert len(calls) == 1 and owner.snapshot.cleanup_debt == 1
+    await owner.apply_intent(config(), enabled=True)
+    assert len(calls) == 2 and owner.snapshot.cleanup_debt == 0
+    assert owner.snapshot.state is SelfCaptureSessionState.RUNNING
+    await owner.close()

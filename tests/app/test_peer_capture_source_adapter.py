@@ -3,9 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from puripuly_heart.app.adapters.peer_capture_source import PeerCaptureSourceAdapter
 
-from puripuly_heart.app.wiring import create_peer_capture_source_adapter
+from puripuly_heart.app.adapters.peer_capture.peer_capture_source import PeerCaptureSourceAdapter
 from puripuly_heart.core.peer_capture import (
     PeerCaptureLanguageFacts,
     PeerCaptureResolvedTarget,
@@ -166,6 +165,8 @@ def test_wiring_factory_composes_internal_peer_capture_source_adapter(
     monkeypatch, platform
 ) -> None:
     monkeypatch.setattr("puripuly_heart.app.wiring.wiring_composition.sys.platform", platform)
+    from puripuly_heart.app.wiring.wiring_composition import create_peer_capture_source_adapter
+
     adapter = create_peer_capture_source_adapter(
         log_diagnostic=lambda _message: None,
         wrap_source=lambda source: source,

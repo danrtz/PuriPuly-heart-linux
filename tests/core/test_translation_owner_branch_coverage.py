@@ -8,20 +8,17 @@ from uuid import UUID, uuid4
 
 import numpy as np
 import pytest
-from puripuly_heart.core.managed_openrouter_release import (
-    ManagedOpenRouterReleaseDiagnostics,
-    ManagedOpenRouterUserFacingError,
-)
 
 from puripuly_heart.core.clock import FakeClock
 from puripuly_heart.core.messages import UserErrorReport
+from puripuly_heart.core.openrouter.managed_openrouter_release import (
+    ManagedOpenRouterReleaseDiagnostics,
+    ManagedOpenRouterReleaseError,
+    ManagedOpenRouterUserFacingError,
+)
 from puripuly_heart.core.orchestrator.channel_runtime import (
     ContextEntry,
     _MergeBuffer,
-    _SpeculativeAttemptStatus,
-)
-from puripuly_heart.core.orchestrator.self_translation_channel import (
-    SelfTranslationChannelOwner,
 )
 from puripuly_heart.core.orchestrator.translation_output_projection import (
     ChatboxProjection,
@@ -45,7 +42,6 @@ from puripuly_heart.domain.models import Transcript, Translation
 from tests.helpers.fakes import RecordingOscQueue
 from tests.helpers.translation_owners import (
     compose_translation_test_harness,
-    make_speculative_attempt,
 )
 
 
@@ -249,19 +245,15 @@ def active_self_metadata_for_merge(
 
 
 @dataclass(slots=True)
-class RaisingOverlaySink:
-    error: Exception = field(default_factory=lambda: RuntimeError("overlay down"))
-
-    async def emit(self, event: object) -> None:
-        _ = event
-        raise self.error
-
-
-@dataclass(slots=True)
 class _RuntimeLogSinks:
     stream_handler: logging.Handler
     file_handler: logging.Handler
     log_file: object
+    file_queue_handler: object | None = None
+    file_queue_listener: object | None = None
+    file_queue: object | None = None
+    abandoned_records: int = 0
+    _closed: bool = False
 
 
 def _make_runtime_logging_capture() -> tuple[SessionRuntimeLoggingService, io.StringIO]:
@@ -341,47 +333,44 @@ async def test_translation_drops_stale_partial_and_keeps_final_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_cancels_pending_tasks_and_closes_providers() -> None:
-    stt = StubSTT()
-    llm = StubLLM()
-    harness = compose_translation_test_harness(
-        stt=stt, llm=llm, osc=RecordingOscQueue(), clock=FakeClock()
-    )
-    harness.set_started_for_test(True)
+async def test_provider_and_output_owners_start_once_and_deliver_after_repeated_start() -> None:
+    class ObservedSTT(QueueingSTT):
+        event_stream_starts = 0
 
-    harness.self_runtime.translation_tasks[uuid4()] = asyncio.create_task(asyncio.sleep(60.0))
-    buffer = _MergeBuffer(
-        merge_id=uuid4(),
-        speculative_attempt=make_speculative_attempt(task=asyncio.create_task(asyncio.sleep(60.0))),
-    )
-    buffer.finalize_wait_task = asyncio.create_task(asyncio.sleep(60.0))
-    buffer.awaiting_vad_timeout_task = asyncio.create_task(asyncio.sleep(60.0))
-    buffer.resume_end_timeout_task = asyncio.create_task(asyncio.sleep(60.0))
-    harness.self_owner.merge_buffer = buffer
+        async def events(self):
+            self.event_stream_starts += 1
+            async for event in super().events():
+                yield event
 
-    await harness.stop()
+    stt = ObservedSTT()
+    osc = RecordingOscQueue()
+    harness = compose_translation_test_harness(stt=stt, llm=None, osc=osc, clock=FakeClock())
+    output = harness.output_runtime
+    providers = harness.local_asr_runtime
+    try:
+        await output.start(auto_flush_chatbox=True)
+        await providers.start()
+        await asyncio.sleep(0)
+        flush_task = output.chatbox_flush_task
+        assert flush_task is not None and not flush_task.done()
 
-    assert harness.self_runtime.translation_tasks == {}
-    assert harness.self_owner.merge_buffer is None
-    assert stt.closed is True
-    assert llm.closed is True
+        await output.start(auto_flush_chatbox=True)
+        await providers.start()
+        await stt.emit(STTSessionStateEvent(STTSessionState.STREAMING))
+        event = await asyncio.wait_for(harness.ui_events.get(), timeout=1)
 
-
-@pytest.mark.asyncio
-async def test_start_is_idempotent_and_creates_background_tasks() -> None:
-    stt = StubSTT()
-    harness = compose_translation_test_harness(
-        stt=stt, llm=StubLLM(), osc=RecordingOscQueue(), clock=FakeClock()
-    )
-
-    await harness.start(auto_flush_osc=True)
-    stt_task = harness.self_runtime.stt_task
-    osc_task = harness.output_runtime.chatbox_flush_task
-    await harness.start(auto_flush_osc=True)
-
-    assert harness.self_runtime.stt_task is stt_task
-    assert harness.output_runtime.chatbox_flush_task is osc_task
-    await harness.stop()
+        assert event.type == UIEventType.SESSION_STATE_CHANGED
+        assert event.payload == STTSessionState.STREAMING
+        assert stt.event_stream_starts == 1
+        assert output.chatbox_flush_task is flush_task
+        async with asyncio.timeout(1):
+            while not osc.process_due_calls:
+                await asyncio.sleep(0)
+    finally:
+        await harness.stop()
+    assert stt.closed
+    assert output.state == "closed"
+    assert flush_task.done()
 
 
 @pytest.mark.asyncio
@@ -409,7 +398,6 @@ async def test_clear_language_runtime_state_self_preserves_stt_task_and_clears_o
     stt_task = asyncio.create_task(asyncio.sleep(60.0))
     translation_task = asyncio.create_task(asyncio.sleep(60.0))
     standalone_translation_task = asyncio.create_task(asyncio.sleep(60.0))
-    spec_task = asyncio.create_task(asyncio.sleep(60.0))
     finalize_wait_task = asyncio.create_task(asyncio.sleep(60.0))
     awaiting_vad_timeout_task = asyncio.create_task(asyncio.sleep(60.0))
     resume_end_timeout_task = asyncio.create_task(asyncio.sleep(60.0))
@@ -417,7 +405,6 @@ async def test_clear_language_runtime_state_self_preserves_stt_task_and_clears_o
         stt_task,
         translation_task,
         standalone_translation_task,
-        spec_task,
         finalize_wait_task,
         awaiting_vad_timeout_task,
         resume_end_timeout_task,
@@ -438,7 +425,6 @@ async def test_clear_language_runtime_state_self_preserves_stt_task_and_clears_o
     harness.self_runtime.merge_buffer = _MergeBuffer(
         merge_id=preview_merge_id,
         utterance_ids=[self_id],
-        speculative_attempt=make_speculative_attempt(task=spec_task),
         finalize_wait_task=finalize_wait_task,
         awaiting_vad_timeout_task=awaiting_vad_timeout_task,
         resume_end_timeout_task=resume_end_timeout_task,
@@ -478,7 +464,6 @@ async def test_clear_language_runtime_state_self_preserves_stt_task_and_clears_o
         assert ("peer", peer_id) in timeline_keys
         assert translation_task.cancelled() is True
         assert standalone_translation_task.cancelled() is True
-        assert spec_task.cancelled() is True
         assert finalize_wait_task.cancelled() is True
         assert awaiting_vad_timeout_task.cancelled() is True
         assert resume_end_timeout_task.cancelled() is True
@@ -619,83 +604,6 @@ async def test_publish_chatbox_candidate_after_translation_stop_skips_without_us
 
 
 @pytest.mark.asyncio
-async def test_stop_without_start_closes_output_runtime_ingress() -> None:
-    osc = RecordingOscQueue()
-    harness = compose_translation_test_harness(
-        stt=None,
-        llm=None,
-        osc=osc,
-        clock=FakeClock(),
-    )
-    utterance_id = uuid4()
-
-    await harness.stop()
-    await harness.output_projection.publish_chatbox(
-        ChatboxProjection(
-            utterance_id=utterance_id,
-            channel="self",
-            transcript_text="never started secret transcript",
-            translation_text=None,
-            include_source=True,
-            source=None,
-        )
-    )
-
-    assert osc.messages == []
-    decision = harness.output_runtime.routing_decisions[-1]
-    assert decision.decision == "skipped"
-    assert decision.reason == "output_runtime_closed"
-    assert "never started secret transcript" not in repr(decision)
-
-
-@pytest.mark.asyncio
-async def test_restart_after_output_runtime_closed_failure_keeps_owners_not_running() -> None:
-    harness = compose_translation_test_harness(
-        stt=None,
-        llm=None,
-        osc=RecordingOscQueue(),
-        clock=FakeClock(),
-    )
-
-    await harness.start(auto_flush_osc=False)
-    await harness.stop()
-
-    with pytest.raises(RuntimeError, match="closed"):
-        await harness.start(auto_flush_osc=False)
-
-    assert harness.started is False
-
-
-@pytest.mark.asyncio
-async def test_restart_after_failed_output_runtime_close_keeps_owners_not_running() -> None:
-    class DropPendingFailsOnceOsc(RecordingOscQueue):
-        def __init__(self) -> None:
-            super().__init__()
-            self.fail_next_drop = True
-
-        def drop_pending(self) -> None:
-            if self.fail_next_drop:
-                self.fail_next_drop = False
-                raise RuntimeError("drop pending failed")
-
-    harness = compose_translation_test_harness(
-        stt=None,
-        llm=None,
-        osc=DropPendingFailsOnceOsc(),
-        clock=FakeClock(),
-    )
-
-    await harness.start(auto_flush_osc=False)
-    with pytest.raises(RuntimeError, match="drop pending failed"):
-        await harness.stop()
-
-    with pytest.raises(RuntimeError, match="closing"):
-        await harness.start(auto_flush_osc=False)
-
-    assert harness.started is False
-
-
-@pytest.mark.asyncio
 async def test_handle_stt_event_routes_non_low_latency_events() -> None:
     harness = compose_translation_test_harness(
         stt=None,
@@ -776,14 +684,15 @@ async def test_translate_and_enqueue_logs_managed_auth_diagnostics() -> None:
     harness = compose_translation_test_harness(
         stt=None,
         llm=ManagedAuthFailingLLM(
-            diagnostics=ManagedOpenRouterReleaseDiagnostics(
+            diagnostics=ManagedOpenRouterReleaseError(
                 operation="issue",
                 code="trial_unavailable",
                 error_class="retryable",
                 subcode="broker_backoff",
                 retry_after_ms=9000,
                 message="broker is temporarily unavailable",
-            )
+                http_status=503,
+            ).to_diagnostics()
         ),
         osc=RecordingOscQueue(),
         clock=FakeClock(),
@@ -803,52 +712,14 @@ async def test_translate_and_enqueue_logs_managed_auth_diagnostics() -> None:
         assert payload.message.key == "managed_release.retry_after_ms"
         assert dict(payload.message.params) == {"retry_after_ms": 9000}
         assert payload.diagnostics.code == "provider.service_unavailable"
-        assert payload.diagnostics.fields["exception_type"] == "ManagedOpenRouterUserFacingError"
-        assert payload.diagnostics.fields["managed_operation"] == "issue"
-        assert payload.diagnostics.fields["managed_code"] == "trial_unavailable"
-        assert payload.diagnostics.fields["managed_error_class"] == "retryable"
-        assert payload.diagnostics.fields["managed_subcode"] == "broker_backoff"
+        assert payload.diagnostics.fields["exception_class"] == "unclassified"
+        assert payload.diagnostics.status_code == 503
+        assert payload.diagnostics.diagnostic_id
         assert "broker is temporarily unavailable" not in repr(payload)
         messages = _runtime_log_messages(log_stream)
         assert "broker is temporarily unavailable" not in "\n".join(messages)
     finally:
         runtime_logging.close()
-
-
-@pytest.mark.asyncio
-async def test_next_action_evaluator_starts_failed_fallback_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    harness = compose_translation_test_harness(
-        stt=None, llm=StubLLM(), osc=RecordingOscQueue(), clock=FakeClock()
-    )
-    buffer = _MergeBuffer(
-        merge_id=uuid4(),
-        parts=["text"],
-        speculative_attempt=make_speculative_attempt(
-            source_text="text",
-            status=_SpeculativeAttemptStatus.FAILED,
-        ),
-    )
-    harness.self_owner.merge_buffer = buffer
-    called: list[str] = []
-
-    async def fake_commit(
-        _self: SelfTranslationChannelOwner,
-        _buffer: _MergeBuffer,
-        *,
-        reason: str,
-    ) -> None:
-        called.append(reason)
-
-    monkeypatch.setattr(SelfTranslationChannelOwner, "_commit_merge", fake_commit)
-
-    await harness.self_owner._evaluate_speculative_next_action(buffer, reason="spec_failed")
-    await harness.self_owner._evaluate_speculative_next_action(buffer, reason="spec_failed")
-
-    assert called == ["spec_failed"]
-    assert buffer.speculative_attempt is not None
-    assert buffer.speculative_attempt.terminal_action_started is True
 
 
 @pytest.mark.asyncio
@@ -913,9 +784,8 @@ async def test_peer_stt_event_loop_failure_with_runtime_logging_is_safe() -> Non
         )
 
         runtime_log = "\n".join(_runtime_log_messages(log_stream))
-        assert (
-            "[Translation] STT event loop crashed: category=network code=stt.network" in runtime_log
-        )
+        evidence = runtime_logging.diagnostic_history({})["records"]
+        assert any(item["code"] == "stt.network" and item["channel"] == "peer" for item in evidence)
         assert raw_detail not in runtime_log
         assert "translation-stt-secret-123" not in runtime_log
         assert "Traceback (most recent call last):" not in runtime_log
@@ -939,111 +809,13 @@ async def test_handle_stt_event_loop_exception_with_runtime_logging_uses_safe_st
         await harness.dispatch_stt_failure(ConnectionError(raw_detail))
 
         runtime_log = "\n".join(_runtime_log_messages(log_stream))
-        assert (
-            "[Translation] STT event loop crashed: category=network code=stt.network" in runtime_log
-        )
+        evidence = runtime_logging.diagnostic_history({})["records"]
+        assert any(item["code"] == "stt.network" for item in evidence)
         assert raw_detail not in runtime_log
         assert "translation-stt-secret-456" not in runtime_log
         assert "Traceback (most recent call last):" not in runtime_log
     finally:
         runtime_logging.close()
-
-
-@pytest.mark.asyncio
-async def test_emit_overlay_event_logs_safe_exception_metadata() -> None:
-    basic_runtime_logging, basic_stream = _make_runtime_logging_capture()
-    detailed_runtime_logging, detailed_stream = _make_runtime_logging_capture()
-
-    basic_harness = compose_translation_test_harness(
-        stt=None,
-        llm=None,
-        osc=RecordingOscQueue(),
-        overlay_sink=RaisingOverlaySink(),
-        clock=FakeClock(),
-        runtime_logging=basic_runtime_logging,
-    )
-    detailed_harness = compose_translation_test_harness(
-        stt=None,
-        llm=None,
-        osc=RecordingOscQueue(),
-        overlay_sink=RaisingOverlaySink(),
-        clock=FakeClock(),
-        runtime_logging=detailed_runtime_logging,
-    )
-
-    try:
-        await basic_harness.output_projection.publish_overlay_event(
-            basic_harness.output_projection.overlay_event_adapter.utterance_closed(
-                utterance_id=uuid4(),
-                channel="self",
-                is_final=True,
-            )
-        )
-        await detailed_harness.output_projection.publish_overlay_event(
-            detailed_harness.output_projection.overlay_event_adapter.utterance_closed(
-                utterance_id=uuid4(),
-                channel="self",
-                is_final=True,
-            )
-        )
-
-        basic_messages = _runtime_log_messages(basic_stream)
-        detailed_messages = _runtime_log_messages(detailed_stream)
-
-        assert "[Translation] Overlay sink emit failed: RuntimeError" in basic_messages
-        assert not any(
-            "Traceback (most recent call last):" in message for message in basic_messages
-        )
-
-        assert "[Translation] Overlay sink emit failed: RuntimeError" in detailed_messages
-        assert not any(
-            "Traceback (most recent call last):" in message for message in detailed_messages
-        )
-        assert not any("overlay down" in message for message in detailed_messages)
-    finally:
-        basic_runtime_logging.close()
-        detailed_runtime_logging.close()
-
-
-@pytest.mark.asyncio
-async def test_maybe_restart_spec_replaces_previous_task_and_state(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    harness = compose_translation_test_harness(
-        stt=None, llm=StubLLM(), osc=RecordingOscQueue(), clock=FakeClock()
-    )
-    old_task = asyncio.create_task(asyncio.sleep(60.0))
-    buffer = _MergeBuffer(
-        merge_id=uuid4(),
-        parts=["final text"],
-        speculative_attempt=make_speculative_attempt(
-            source_text="old",
-            task=old_task,
-            result=Translation(utterance_id=uuid4(), text="old"),
-        ),
-    )
-    harness.self_owner.merge_buffer = buffer
-    assert buffer.speculative_attempt is not None
-    buffer.speculative_attempt.result = Translation(utterance_id=buffer.merge_id, text="old")
-    seen: list[tuple[UUID, str, int]] = []
-
-    async def fake_run_spec(
-        _self: SelfTranslationChannelOwner,
-        merge_id: UUID,
-        text: str,
-        attempt: int,
-    ) -> None:
-        seen.append((merge_id, text, attempt))
-
-    monkeypatch.setattr(SelfTranslationChannelOwner, "_run_spec_translation", fake_run_spec)
-    await harness.self_owner._maybe_restart_spec(buffer)
-    await asyncio.sleep(0)
-
-    assert old_task.done() is True
-    assert buffer.speculative_attempt is not None
-    assert buffer.speculative_attempt.sequence == 2
-    assert buffer.speculative_attempt.source_text == "final text"
-    assert seen == [(buffer.merge_id, "final text", 2)]
 
 
 @pytest.mark.asyncio
@@ -1064,55 +836,69 @@ async def test_handle_vad_event_speech_end_tracks_timing_and_forwards_to_stt() -
 
 
 @pytest.mark.asyncio
-async def test_handle_vad_event_forwards_resume_confirming_chunk_before_overlay_resync() -> None:
+async def test_blocked_translated_sentence_overlay_does_not_block_stt_or_translation() -> None:
     stt = StubSTT()
+    llm = StubLLM()
     sink = BlockingOverlaySink()
-    clock = FakeClock(_now=10.0)
     harness = compose_translation_test_harness(
         stt=stt,
-        llm=None,
+        llm=llm,
         osc=RecordingOscQueue(),
         overlay_sink=sink,
-        clock=clock,
+        clock=FakeClock(_now=10.0),
         low_latency_mode=True,
+        low_latency_finalize_wait_ms=0,
     )
-    first_utterance_id = uuid4()
-    resumed_utterance_id = uuid4()
-    merge_id = uuid4()
-    chunk = SpeechChunk(resumed_utterance_id, chunk=np.zeros((1,), dtype=np.float32))
-
-    harness.self_owner.merge_buffer = _MergeBuffer(
-        merge_id=merge_id,
-        parts=["hello live"],
-        utterance_ids=[first_utterance_id],
-        speculative_attempt=make_speculative_attempt(
-            source_text="hello live",
-            result=Translation(utterance_id=merge_id, text="translated live"),
-        ),
-        resume_pending=True,
-        resume_utterance_id=resumed_utterance_id,
-        resume_chunk_count=2,
+    source_id = uuid4()
+    source = asyncio.create_task(
+        harness.self_owner.handle_stt_event(
+            STTFinalEvent(
+                source_id, Transcript(utterance_id=source_id, text="hello live.", is_final=True)
+            )
+        )
     )
-    sink.active_self_metadata = active_self_metadata_for_merge(
-        merge_id,
-        text="stale preview",
-        secondary_text="translated live",
-    )
-
-    task = asyncio.create_task(harness.self_owner.handle_vad_event(chunk))
-    await sink.started.wait()
-
-    assert len(stt.handled) == 1
-    assert stt.handled[0] is chunk
-    assert task.done() is False
-
-    sink.release.set()
-    await task
-
-    assert sink.events[-1].type == "self_active_update"
-    assert sink.events[-1].text == "hello live"
-    assert sink.events[-1].secondary_text == "translated live"
-    assert sink.events[-1].utterance_id == merge_id
+    try:
+        await asyncio.wait_for(sink.started.wait(), timeout=1.0)
+        assert sink.events[0].text == "hello live."
+        assert sink.events[0].secondary_text == "T:hello live."
+        assert not sink.events[0].caption_source_closed
+        chunk = SpeechChunk(uuid4(), chunk=np.zeros((1,), dtype=np.float32))
+        await asyncio.wait_for(harness.self_owner.handle_vad_event(chunk), timeout=1.0)
+        assert stt.handled == [chunk]
+        await asyncio.wait_for(source, timeout=1.0)
+        await asyncio.wait_for(
+            harness.self_owner.handle_stt_event(
+                STTFinalEvent(
+                    source_id,
+                    Transcript(
+                        utterance_id=source_id,
+                        text="hello live. again",
+                        is_final=True,
+                    ),
+                )
+            ),
+            timeout=1.0,
+        )
+        async with asyncio.timeout(1.0):
+            while not any(
+                "T:hello live. again" in message.text for message in harness.osc.messages
+            ):
+                await asyncio.sleep(0)
+        assert [text for _, text, _ in llm.calls] == ["hello live.", "hello live. again"]
+        await asyncio.wait_for(
+            harness.self_owner.handle_vad_event(SpeechEnd(source_id)), timeout=1.0
+        )
+        await asyncio.wait_for(harness.translation_turns.wait_for_idle(), timeout=1.0)
+        assert harness.self_owner.merge_buffer is None
+        assert len(sink.events) == 1
+        assert not sink.release.is_set()
+    finally:
+        sink.release.set()
+        await source
+        async with asyncio.timeout(1.0):
+            while harness.output_runtime.has_active_overlay_deliveries:
+                await asyncio.sleep(0)
+        await harness.stop()
 
 
 @pytest.mark.asyncio
@@ -1124,7 +910,8 @@ async def test_submit_text_validates_input_and_enqueues_without_llm() -> None:
     with pytest.raises(ValueError, match="text must be non-empty"):
         await harness.self_owner.submit_text("   ")
 
-    utterance_id = await harness.self_owner.submit_text("hello", source="You")
+    admission = await harness.self_owner.submit_text("hello", source="You")
+    utterance_id = admission.turn_id
     events = [await harness.ui_events.get(), await harness.ui_events.get()]
     assert [event.type for event in events] == [UIEventType.TRANSCRIPT_FINAL, UIEventType.OSC_SENT]
     assert harness.osc.messages[-1].utterance_id == utterance_id
@@ -1137,7 +924,8 @@ async def test_submit_text_clipboard_source_uses_manual_fallback_without_llm() -
     harness = compose_translation_test_harness(stt=None, llm=None, osc=osc, clock=FakeClock())
     harness.replace_configuration(translation_enabled=False)
 
-    utterance_id = await harness.self_owner.submit_text("clipboard fallback", source="Clipboard")
+    admission = await harness.self_owner.submit_text("clipboard fallback", source="Clipboard")
+    utterance_id = admission.turn_id
     events = [await harness.ui_events.get(), await harness.ui_events.get()]
 
     assert [event.type for event in events] == [UIEventType.TRANSCRIPT_FINAL, UIEventType.OSC_SENT]

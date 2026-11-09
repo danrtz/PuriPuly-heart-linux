@@ -3,9 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from puripuly_heart.app.services.settings_application import settings_view_surface_snapshots
 
 from puripuly_heart.app.ports.ui_models import OverlayPeerPresentationState
+from puripuly_heart.app.services.settings.settings_application import (
+    settings_view_surface_snapshots,
+)
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
 from puripuly_heart.ui.event_bridge import UIEventBridge
 from puripuly_heart.ui.presentation_adapter import FletUiPresentationAdapter
@@ -71,7 +73,6 @@ def test_presentation_adapter_exposes_only_named_destinations_and_events() -> No
         ),
         show_qq_managed_auth_dialog=lambda: events.append(("qq",)),
         show_founder_letter_dialog=lambda: events.append(("founder",)),
-        show_local_qwen_hallucination_dialog=lambda: events.append(("qwen",)),
     )
     adapter = FletUiPresentationAdapter(host)
 
@@ -102,7 +103,6 @@ def test_presentation_adapter_exposes_only_named_destinations_and_events() -> No
     adapter.on_desktop_overlay_state_changed("connected", interaction_mode="locked")
     adapter.show_qq_managed_auth_dialog()
     adapter.show_founder_letter_dialog()
-    adapter.show_local_qwen_hallucination_dialog()
 
     assert events == [
         ("settings-overlay-contract", host.overlay_peer_contract),
@@ -116,7 +116,6 @@ def test_presentation_adapter_exposes_only_named_destinations_and_events() -> No
         ("desktop-overlay", ("connected",), {"interaction_mode": "locked"}),
         ("qq",),
         ("founder",),
-        ("qwen",),
     ]
     assert not hasattr(adapter, "controller")
     assert not hasattr(adapter, "hub")
@@ -234,8 +233,6 @@ def test_presentation_adapter_projects_semantic_dashboard_and_settings_outputs(
     adapter.set_settings_managed_key_state(
         visible=True,
         remaining_percent=50,
-        referral_id="ABC123",
-        pass_status=None,
     )
 
     assert adapter.dashboard_translation_enabled() is False
@@ -268,7 +265,7 @@ def test_presentation_adapter_projects_semantic_dashboard_and_settings_outputs(
     ) in events
     assert (
         "managed-key",
-        {"visible": True, "remaining_percent": 50, "referral_id": "ABC123", "pass_status": None},
+        {"visible": True, "remaining_percent": 50},
     ) in events
 
 

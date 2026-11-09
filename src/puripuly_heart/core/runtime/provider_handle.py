@@ -3,13 +3,25 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
+
+from puripuly_heart.core.stt.backend import scoped_event_for_delivery
 
 ProviderEventHandler = Callable[[object], Awaitable[None]]
 ProviderExceptionHandler = Callable[[Exception], Awaitable[None] | None]
 ProviderStateChanged = Callable[["ProviderRuntimeHandle"], None]
 logger = logging.getLogger(__name__)
+
+
+class ProviderResourceQuarantinedError(RuntimeError):
+    code = "provider_resource_quarantined"
+
+    def __init__(self, owners: list[object]) -> None:
+        super().__init__(self.code)
+        self.cleanup_debt = sum(int(getattr(owner, "cleanup_debt", 0)) for owner in owners)
+        self.owner_count = len(owners)
 
 
 class ProviderRuntimeHandle:
@@ -21,6 +33,7 @@ class ProviderRuntimeHandle:
         "idle_release_task",
         "retained_scoped_providers",
         "generation",
+        "provider_uses",
     )
     max_retained_scoped_providers = 9
     toggle_off_policy = (
@@ -62,6 +75,7 @@ class ProviderRuntimeHandle:
         self._retained_scoped_providers: list[object] = []
         self._retirement_tasks: set[asyncio.Task[None]] = set()
         self._pending_handoff: tuple[object, bool, asyncio.Future[object | None]] | None = None
+        self._provider_uses: dict[int, tuple[int, asyncio.Event]] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -91,6 +105,7 @@ class ProviderRuntimeHandle:
             or bool(self._retirement_tasks)
             or bool(self._retained_scoped_providers)
             or self._pending_handoff is not None
+            or bool(self._provider_uses)
         )
 
     @property
@@ -106,6 +121,26 @@ class ProviderRuntimeHandle:
         """Return whether a captured provider/generation is still current."""
 
         return generation == self._generation and provider is self._provider and not self._closed
+
+    @contextmanager
+    def retain_current_provider(self) -> Iterator[tuple[object | None, int]]:
+        provider, generation = self.current_provider_generation()
+        if provider is None or self._closed:
+            yield None, generation
+            return
+        key = id(provider)
+        use = self._provider_uses.get(key)
+        count, settled = use if use is not None else (0, asyncio.Event())
+        self._provider_uses[key] = count + 1, settled
+        try:
+            yield provider, generation
+        finally:
+            count, settled = self._provider_uses[key]
+            if count == 1:
+                self._provider_uses.pop(key)
+                settled.set()
+            else:
+                self._provider_uses[key] = count - 1, settled
 
     def lifecycle_owner_snapshot(self) -> dict[str, object]:
         return {
@@ -123,12 +158,24 @@ class ProviderRuntimeHandle:
     def attach_provider_reference(self, provider: object | None) -> None:
         """Synchronize a compatibility field assignment without closing resources."""
 
+        if self._is_qwen_provider(provider):
+            owners = self._qwen_cleanup_owners(
+                include_current=provider is not self._provider,
+                settings_scope=getattr(provider, "scoped_settings_scope", None),
+            )
+            if owners:
+                raise ProviderResourceQuarantinedError(owners)
         self._provider = provider
         self._closed = False
         self._notify_state_changed()
 
     async def start(self) -> None:
         async with self._lock:
+            if self._is_qwen_provider(self._provider):
+                await self._reclaim_qwen_resources_locked(
+                    include_current=False,
+                    settings_scope=getattr(self._provider, "scoped_settings_scope", None),
+                )
             await self._cancel_idle_release_task()
             self._running = True
             self._closed = False
@@ -139,6 +186,11 @@ class ProviderRuntimeHandle:
         async with self._lock:
             if self._provider is not expected_provider:
                 return False
+            if self._is_qwen_provider(expected_provider):
+                await self._reclaim_qwen_resources_locked(
+                    include_current=False,
+                    settings_scope=getattr(expected_provider, "scoped_settings_scope", None),
+                )
             await self._cancel_idle_release_task()
             self._running = True
             self._closed = False
@@ -148,6 +200,11 @@ class ProviderRuntimeHandle:
 
     async def replace_provider(self, provider: object | None, *, start: bool) -> object | None:
         async with self._lock:
+            if self._is_qwen_provider(provider):
+                await self._reclaim_qwen_resources_locked(
+                    include_current=provider is not self._provider,
+                    settings_scope=getattr(provider, "scoped_settings_scope", None),
+                )
             await self._cancel_idle_release_task()
             old_provider = self._provider
             self._generation += 1
@@ -165,7 +222,7 @@ class ProviderRuntimeHandle:
                 else:
                     try:
                         await self._close_provider_for_shutdown(old_provider)
-                    except Exception:
+                    except Exception, asyncio.CancelledError:
                         self._retain_retired_provider(old_provider)
                         raise
             return old_provider
@@ -180,6 +237,10 @@ class ProviderRuntimeHandle:
         future: asyncio.Future[object | None] = loop.create_future()
         superseded: object | None = None
         async with self._lock:
+            if self._is_qwen_provider(provider):
+                await self._reclaim_qwen_resources_locked(
+                    settings_scope=getattr(provider, "scoped_settings_scope", None)
+                )
             await self._cancel_idle_release_task()
             pending = self._pending_handoff
             if pending is not None:
@@ -217,6 +278,16 @@ class ProviderRuntimeHandle:
         if pending is None:
             return None
         provider, start, future = pending
+        if self._is_qwen_provider(provider):
+            owners = self._qwen_cleanup_owners(
+                include_current=True,
+                settings_scope=getattr(provider, "scoped_settings_scope", None),
+            )
+            if owners:
+                self._pending_handoff = None
+                if not future.done():
+                    future.set_exception(ProviderResourceQuarantinedError(owners))
+                return None
         old_provider = self._provider
         old_event_task = self._event_task
         retain_scoped = (
@@ -279,7 +350,7 @@ class ProviderRuntimeHandle:
             result = wait_for_ingress()
             if inspect.isawaitable(result):
                 await result
-        await _call_async_method(provider, "close")
+        await self._close_provider_for_shutdown(provider)
         if bool(getattr(provider, "cleanup_debt", 0)):
             return False
         async with self._lock:
@@ -290,7 +361,6 @@ class ProviderRuntimeHandle:
                 for candidate in self._retained_scoped_providers
                 if candidate is not provider
             ]
-        self._schedule_provider_retirement(provider, event_task=None)
         return True
 
     async def retire_for_dormant_reuse(self, provider: object) -> None:
@@ -420,6 +490,9 @@ class ProviderRuntimeHandle:
             return
 
         async def dispatch(event: object) -> None:
+            event = scoped_event_for_delivery(event)
+            if event is None:
+                return
             handler = self._event_handler_for(provider=provider, generation=generation)
             if handler is not None:
                 await handler(event)
@@ -568,6 +641,9 @@ class ProviderRuntimeHandle:
     async def _close_provider_for_shutdown(self, provider: object | None) -> None:
         if provider is None:
             return
+        use = self._provider_uses.get(id(provider))
+        if use is not None:
+            await use[1].wait()
         close_backend = getattr(provider, "close_backend", None)
         if callable(close_backend):
             result = close_backend()
@@ -582,6 +658,8 @@ class ProviderRuntimeHandle:
         *,
         event_task: asyncio.Task[None] | None,
     ) -> None:
+        if self._is_qwen_provider(provider):
+            self._retain_retired_provider(provider)
         task = self._create_task(
             self._retire_handed_off_provider(provider, event_task=event_task),
             task_name="retire-provider",
@@ -602,6 +680,10 @@ class ProviderRuntimeHandle:
                 result = wait_for_ingress()
                 if inspect.isawaitable(result):
                     await result
+        except Exception:
+            if self._is_qwen_provider(provider):
+                self._retain_retired_provider(provider)
+            raise
         finally:
             if event_task is not None and not event_task.done():
                 event_task.cancel()
@@ -609,7 +691,16 @@ class ProviderRuntimeHandle:
             self._draining_event_tasks = [
                 entry for entry in self._draining_event_tasks if entry[0] is not provider
             ]
-        await self._close_provider_for_shutdown(provider)
+        try:
+            await self._close_provider_for_shutdown(provider)
+        except Exception:
+            if self._is_qwen_provider(provider):
+                self._retain_retired_provider(provider)
+            raise
+        if self._is_qwen_provider(provider) and not bool(getattr(provider, "cleanup_debt", 0)):
+            self._retired_providers = [
+                candidate for candidate in self._retired_providers if candidate is not provider
+            ]
 
     @staticmethod
     def _should_retain_for_scoped_dispatch(provider: object) -> bool:
@@ -651,6 +742,90 @@ class ProviderRuntimeHandle:
         if any(retired_provider is provider for retired_provider in self._retired_providers):
             return
         self._retired_providers.append(provider)
+
+    @staticmethod
+    def _is_qwen_provider(provider: object | None) -> bool:
+        scope = getattr(provider, "scoped_settings_scope", None)
+        return bool(scope and scope[0] == "qwen_audio")
+
+    def _qwen_cleanup_owners(
+        self,
+        *,
+        include_current: bool,
+        settings_scope: tuple[object, ...] | None = None,
+        admitted_provider: object | None = None,
+    ) -> list[object]:
+        owners = [
+            provider for provider in self._retired_providers if self._is_qwen_provider(provider)
+        ]
+        candidates = list(self._retained_scoped_providers)
+        if include_current and self._provider is not None:
+            candidates.append(self._provider)
+        for provider in candidates:
+            if (
+                self._is_qwen_provider(provider)
+                and provider is not admitted_provider
+                and (
+                    bool(getattr(provider, "cleanup_debt", 0))
+                    or getattr(provider, "scoped_settings_scope", None) != settings_scope
+                )
+                and not any(owner is provider for owner in owners)
+            ):
+                owners.append(provider)
+        return owners
+
+    async def reclaim_qwen_resources(
+        self,
+        *,
+        settings_scope: tuple[object, ...] | None = None,
+        admitted_provider: object | None = None,
+    ) -> None:
+        async with self._lock:
+            await self._reclaim_qwen_resources_locked(
+                settings_scope=settings_scope, admitted_provider=admitted_provider
+            )
+
+    async def _reclaim_qwen_resources_locked(
+        self,
+        *,
+        include_current: bool = True,
+        settings_scope: tuple[object, ...] | None = None,
+        admitted_provider: object | None = None,
+    ) -> None:
+        owners = self._qwen_cleanup_owners(
+            include_current=include_current,
+            settings_scope=settings_scope,
+            admitted_provider=admitted_provider,
+        )
+        for provider in owners:
+            try:
+                await self._close_provider_for_shutdown(provider)
+            except Exception as exc:
+                raise ProviderResourceQuarantinedError(
+                    self._qwen_cleanup_owners(
+                        include_current=include_current,
+                        settings_scope=settings_scope,
+                        admitted_provider=admitted_provider,
+                    )
+                ) from exc
+            if bool(getattr(provider, "cleanup_debt", 0)):
+                raise ProviderResourceQuarantinedError(
+                    self._qwen_cleanup_owners(
+                        include_current=include_current,
+                        settings_scope=settings_scope,
+                        admitted_provider=admitted_provider,
+                    )
+                )
+            self._retired_providers = [
+                candidate for candidate in self._retired_providers if candidate is not provider
+            ]
+            self._retained_scoped_providers = [
+                candidate
+                for candidate in self._retained_scoped_providers
+                if candidate is not provider
+            ]
+        if owners:
+            self._notify_state_changed()
 
     async def _close_retired_providers(self) -> list[Exception]:
         failures: list[Exception] = []

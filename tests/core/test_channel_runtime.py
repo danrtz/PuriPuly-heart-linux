@@ -11,13 +11,11 @@ from puripuly_heart.core.orchestrator.channel_runtime import (
     ChannelRuntime,
     ContextEntry,
     _MergeBuffer,
-    _SpeculativeAttemptStatus,
 )
 from puripuly_heart.domain.events import STTFinalEvent
 from puripuly_heart.domain.models import Transcript
 from tests.helpers.translation_owners import (
     compose_translation_test_harness,
-    make_speculative_attempt,
 )
 
 
@@ -34,9 +32,9 @@ class FakeOscQueue:
     def set_typing_reason(self, reason: str, active: bool) -> None:
         _ = active
 
-    def send_immediate(self, text: str) -> bool:
+    def send_immediate(self, text: str) -> tuple[bool, None]:
         _ = text
-        return True
+        return True, None
 
     def process_due(self) -> None:
         return None
@@ -67,28 +65,6 @@ def test_channel_runtime_keeps_merge_and_history_separate_per_channel() -> None:
     assert [entry.text for entry in peer_runtime.translation_history] == ["world"]
     assert self_runtime.merge_buffer.parts == ["self part"]
     assert peer_runtime.merge_buffer.parts == ["peer part"]
-
-
-def test_translation_fixture_uses_fixed_self_and_peer_owner_runtimes() -> None:
-    harness = compose_translation_test_harness(stt=None, llm=None, osc=FakeOscQueue())
-
-    assert harness.self_runtime.channel == "self"
-    assert harness.peer_runtime.channel == "peer"
-    assert harness.self_owner.runtime is harness.self_runtime
-    assert harness.peer_owner.runtime is harness.peer_runtime
-    assert harness.self_owner.translation_requests is harness.translation_requests
-    assert harness.peer_owner.translation_requests is harness.translation_requests
-    assert harness.translation_requests.self_runtime is harness.self_runtime
-    assert harness.translation_requests.peer_runtime is harness.peer_runtime
-
-
-def test_self_runtime_state_is_visible_through_the_self_owner() -> None:
-    harness = compose_translation_test_harness(stt=None, llm=None, osc=FakeOscQueue())
-    buffer = _MergeBuffer(merge_id=uuid4())
-
-    harness.self_runtime.merge_buffer = buffer
-
-    assert harness.self_owner.merge_buffer is buffer
 
 
 def test_low_latency_committed_utterance_tombstones_are_bounded() -> None:
@@ -133,14 +109,12 @@ async def test_clear_live_translation_state_preserves_history_and_stt_task() -> 
     preserved_id = uuid4()
     stt_task = asyncio.create_task(asyncio.sleep(60.0))
     translation_task = asyncio.create_task(asyncio.sleep(60.0))
-    spec_task = asyncio.create_task(asyncio.sleep(60.0))
     finalize_wait_task = asyncio.create_task(asyncio.sleep(60.0))
     awaiting_vad_timeout_task = asyncio.create_task(asyncio.sleep(60.0))
     resume_end_timeout_task = asyncio.create_task(asyncio.sleep(60.0))
     all_tasks = [
         stt_task,
         translation_task,
-        spec_task,
         finalize_wait_task,
         awaiting_vad_timeout_task,
         resume_end_timeout_task,
@@ -170,13 +144,10 @@ async def test_clear_live_translation_state_preserves_history_and_stt_task() -> 
     runtime.merge_buffer = _MergeBuffer(
         merge_id=uuid4(),
         utterance_ids=[merge_id_1, merge_id_2],
-        speculative_attempt=make_speculative_attempt(task=spec_task),
         finalize_wait_task=finalize_wait_task,
         awaiting_vad_timeout_task=awaiting_vad_timeout_task,
         resume_end_timeout_task=resume_end_timeout_task,
     )
-    speculative_attempt = runtime.merge_buffer.speculative_attempt
-    assert speculative_attempt is not None
 
     try:
         await runtime.clear_live_translation_state()
@@ -206,8 +177,6 @@ async def test_clear_live_translation_state_preserves_history_and_stt_task() -> 
         assert runtime.utterance_start_times == {preserved_id: 3.0}
         assert runtime.speech_ended_ids == {preserved_id}
         assert translation_task.cancelled() is True
-        assert spec_task.cancelled() is True
-        assert speculative_attempt.status is _SpeculativeAttemptStatus.CANCELLED
         assert finalize_wait_task.cancelled() is True
         assert awaiting_vad_timeout_task.cancelled() is True
         assert resume_end_timeout_task.cancelled() is True
@@ -264,81 +233,38 @@ async def test_clear_live_translation_state_clears_standalone_translation_latenc
 
 
 @pytest.mark.asyncio
-async def test_reset_runtime_state_clears_both_channel_runtimes() -> None:
-    harness = compose_translation_test_harness(stt=None, llm=None, osc=FakeOscQueue())
-    self_id = uuid4()
-    peer_id = uuid4()
-    self_task = asyncio.create_task(asyncio.sleep(60.0))
-    peer_task = asyncio.create_task(asyncio.sleep(60.0))
-    self_stt_task = asyncio.create_task(asyncio.sleep(60.0))
-    peer_stt_task = asyncio.create_task(asyncio.sleep(60.0))
-
-    harness.self_runtime.stt_task = self_stt_task
-    harness.peer_runtime.stt_task = peer_stt_task
-
-    harness.self_runtime.translation_tasks[self_id] = self_task
-    harness.peer_runtime.translation_tasks[peer_id] = peer_task
-    harness.self_runtime.get_or_create_bundle(self_id)
-    harness.peer_runtime.get_or_create_bundle(peer_id)
-    harness.self_runtime.utterance_sources[self_id] = "Mic"
-    harness.peer_runtime.utterance_sources[peer_id] = "Peer"
-    harness.self_runtime.utterance_start_times[self_id] = 1.0
-    harness.peer_runtime.utterance_start_times[peer_id] = 2.0
-    harness.self_runtime.speech_ended_ids.add(self_id)
-    harness.peer_runtime.speech_ended_ids.add(peer_id)
-    harness.self_runtime.remember_low_latency_committed_utterance(self_id)
-    harness.peer_runtime.remember_low_latency_committed_utterance(peer_id)
-    harness.self_runtime.merge_buffer = _MergeBuffer(merge_id=uuid4(), utterance_ids=[self_id])
-    harness.peer_runtime.merge_buffer = _MergeBuffer(merge_id=uuid4(), utterance_ids=[peer_id])
-    harness.self_runtime.translation_history.append(
-        ContextEntry(
-            text="self line",
-            source_language="en",
-            target_language="ko",
-            timestamp=1.0,
-            channel="self",
-        )
+@pytest.mark.parametrize("channel", ["self", "peer"])
+async def test_channel_reset_cancels_translation_but_not_provider_owned_task(channel) -> None:
+    runtime = ChannelRuntime(channel=channel)
+    utterance_id = uuid4()
+    translation_task = asyncio.create_task(asyncio.sleep(60))
+    stt_task = asyncio.create_task(asyncio.sleep(60))
+    runtime.stt_task = stt_task
+    runtime.translation_tasks[utterance_id] = translation_task
+    runtime.get_or_create_bundle(utterance_id)
+    runtime.utterance_sources[utterance_id] = "synthetic source"
+    runtime.utterance_start_times[utterance_id] = 1
+    runtime.speech_ended_ids.add(utterance_id)
+    runtime.remember_low_latency_committed_utterance(utterance_id)
+    runtime.merge_buffer = _MergeBuffer(merge_id=uuid4(), utterance_ids=[utterance_id])
+    runtime.remember_context(
+        "synthetic history", timestamp=1, source_language="en", target_language="ko"
     )
-    harness.peer_runtime.translation_history.append(
-        ContextEntry(
-            text="peer line",
-            source_language="en",
-            target_language="ko",
-            timestamp=1.0,
-            channel="peer",
-        )
-    )
-
     try:
-        await harness.reset_runtime_state()
+        await runtime.reset_runtime_state()
 
-        assert harness.self_runtime.translation_tasks == {}
-        assert harness.peer_runtime.translation_tasks == {}
-        assert harness.self_runtime.utterances == {}
-        assert harness.peer_runtime.utterances == {}
-        assert harness.self_runtime.utterance_sources == {}
-        assert harness.peer_runtime.utterance_sources == {}
-        assert harness.self_runtime.utterance_start_times == {}
-        assert harness.peer_runtime.utterance_start_times == {}
-        assert harness.self_runtime.speech_ended_ids == set()
-        assert harness.peer_runtime.speech_ended_ids == set()
-        assert harness.self_runtime.low_latency_committed_utterance_ids == {}
-        assert harness.peer_runtime.low_latency_committed_utterance_ids == {}
-        assert harness.self_runtime.merge_buffer is None
-        assert harness.peer_runtime.merge_buffer is None
-        assert harness.self_runtime.translation_history == []
-        assert harness.peer_runtime.translation_history == []
-        assert harness.self_runtime.stt_task is None
-        assert harness.peer_runtime.stt_task is None
-        assert harness.self_runtime.stt_task is None
+        assert translation_task.cancelled()
+        assert not stt_task.done()
+        assert runtime.translation_tasks == {}
+        assert runtime.stt_task is None
+        assert runtime.utterances == {}
+        assert runtime.utterance_sources == {}
+        assert runtime.utterance_start_times == {}
+        assert runtime.speech_ended_ids == set()
+        assert runtime.low_latency_committed_utterance_ids == {}
+        assert runtime.merge_buffer is None
+        assert runtime.translation_history == []
     finally:
-        for task in (self_task, peer_task, self_stt_task, peer_stt_task):
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(
-            self_task,
-            peer_task,
-            self_stt_task,
-            peer_stt_task,
-            return_exceptions=True,
-        )
+        for task in (translation_task, stt_task):
+            task.cancel()
+        await asyncio.gather(translation_task, stt_task, return_exceptions=True)

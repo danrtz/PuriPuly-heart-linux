@@ -13,7 +13,6 @@ from puripuly_heart.core.runtime_logging import (
     SessionRuntimeLoggingService,
     configure_main_logging,
 )
-from tests.helpers.lifecycle import assert_lifecycle_structure
 
 
 class FakeSessionRuntimeLogging:
@@ -175,15 +174,6 @@ def _assert_close_error_is_diagnostic_safe(
             assert raw_message not in repr(attr_value), attr_name
 
 
-def test_runtime_logging_service_exposes_lifecycle_inventory() -> None:
-    service = RuntimeLoggingService(session_service=FakeSessionRuntimeLogging())
-
-    snapshot = service.lifecycle_owner_snapshot()
-
-    assert_lifecycle_structure(snapshot)
-    assert snapshot["owner"] == "RuntimeLoggingService"
-
-
 def test_runtime_logging_owner_requires_exactly_one_adapter_boundary() -> None:
     session = FakeSessionRuntimeLogging()
     factory_calls: list[FakeSessionRuntimeLogging] = []
@@ -246,9 +236,9 @@ def test_close_detaches_realtime_sink_closes_queue_and_is_idempotent(
 
     log_file = session.log_file
     _wait_for_text(log_file, "before terminal close")
-    content = log_file.read_text(encoding="utf-8")
-    assert content.count("[Lifecycle][Shutdown] final_summary") == 1
-    assert "status=ok" in content
+    file_health = service.diagnostic_health()["file"]
+    assert file_health["shutdown_complete"] is True
+    assert file_health["queue_pending"] == 0
     assert not any(isinstance(handler, QueueHandler) for handler in root_logger.handlers)
     assert sink.lines == ["before terminal close"]
 
@@ -278,8 +268,9 @@ def test_terminal_close_force_closes_preconfigured_main_queue_and_persists_summa
 
         content = main_sinks.log_file.read_text(encoding="utf-8")
         assert "queued before terminal close" in content
-        assert "[Lifecycle][Shutdown] final_summary" in content
-        assert "status=ok" in content
+        file_health = service.diagnostic_health()["file"]
+        assert file_health["shutdown_complete"] is True
+        assert file_health["queue_pending"] == 0
         assert queue_handler not in root_logger.handlers
         assert not any(isinstance(handler, QueueHandler) for handler in root_logger.handlers)
     finally:

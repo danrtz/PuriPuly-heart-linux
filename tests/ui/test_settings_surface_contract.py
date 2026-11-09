@@ -39,7 +39,7 @@ class _SlotProvider:
                 "soniox_speaker_diarization",
                 "gpu_device",
                 "gpu_llm",
-                "gpu_refresh",
+                "model_assets",
                 "local_llm_connection",
                 "custom_stt_connection",
                 "managed_key",
@@ -71,8 +71,8 @@ class _SlotProvider:
     def gpu_llm_control(self) -> ft.Control:
         return self.controls["gpu_llm"]
 
-    def gpu_refresh_control(self) -> ft.Control:
-        return self.controls["gpu_refresh"]
+    def model_assets_control(self) -> ft.Control:
+        return self.controls["model_assets"]
 
     def local_llm_connection_control(self) -> ft.Control:
         return self.controls["local_llm_connection"]
@@ -138,7 +138,7 @@ def test_settings_api_surface_places_every_slot_in_the_accepted_position() -> No
     assert surface.gpu_device_controls.controls == [
         provider.controls["gpu_device"],
         provider.controls["gpu_llm"],
-        provider.controls["gpu_refresh"],
+        provider.controls["model_assets"],
     ]
 
 
@@ -153,10 +153,6 @@ def test_settings_api_surface_preserves_accepted_initial_row_visibility() -> Non
 def test_bind_settings_intents_carries_every_previously_ad_hoc_g14_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings_view_module.SettingsView, "_populate_host_apis", lambda self: None)
-    monkeypatch.setattr(
-        settings_view_module.SettingsView, "_refresh_microphones", lambda self: None
-    )
     monkeypatch.setattr(settings_view_module.SettingsView, "update", lambda self: None)
     view = settings_view_module.SettingsView()
 
@@ -179,10 +175,11 @@ def test_bind_settings_intents_carries_every_previously_ad_hoc_g14_callback(
         secret_cleared=make("secret_cleared"),
         local_llm_secret_changed=make("local_llm_secret_changed"),
         gpu_discovery_requested=make("gpu_discovery_requested"),
+        open_model_assets=make("open_model_assets"),
         settings_secrets=SettingsSecretsOwner(secret_store_factory=lambda: None),
     )
     general = SettingsGeneralIntents(
-        start_microphone_test=make("start_microphone_test"),
+        start_audio_test=make("start_audio_test"),
         telemetry_enabled_change=make("telemetry_enabled_change"),
         list_loopback_capture_options=make("list_loopback_capture_options"),
         list_loopback_process_options=make("list_loopback_process_options"),
@@ -191,7 +188,10 @@ def test_bind_settings_intents_carries_every_previously_ad_hoc_g14_callback(
         apply_loopback_capture_option=make("apply_loopback_capture_option"),
         loopback_capture_summary=make("loopback_capture_summary"),
     )
-    prompt = SettingsPromptIntents(prompt_apply_settings=make("prompt_apply_settings"))
+    prompt = SettingsPromptIntents(
+        prompt_apply_settings=make("prompt_apply_settings"),
+        pending_prompt_changed=make("pending_prompt_changed"),
+    )
     overlay = SettingsOverlayIntents(
         desktop_overlay_lock_change=make("desktop_overlay_lock_change"),
         desktop_overlay_size_change=make("desktop_overlay_size_change"),
@@ -222,8 +222,9 @@ def test_bind_settings_intents_carries_every_previously_ad_hoc_g14_callback(
     assert view.on_secret_cleared is provider.secret_cleared
     assert view.on_local_llm_secret_changed is provider.local_llm_secret_changed
     assert view.on_gpu_discovery_requested is provider.gpu_discovery_requested
+    assert view.on_open_model_assets is provider.open_model_assets
     assert view._settings_secrets is provider.settings_secrets
-    assert view.on_start_microphone_test is general.start_microphone_test
+    assert view.on_start_audio_test is general.start_audio_test
     assert view.on_telemetry_enabled_change is general.telemetry_enabled_change
     assert view.on_list_loopback_capture_options is general.list_loopback_capture_options
     assert view.on_list_loopback_process_options is general.list_loopback_process_options
@@ -232,6 +233,7 @@ def test_bind_settings_intents_carries_every_previously_ad_hoc_g14_callback(
     assert view.on_apply_loopback_capture_option is general.apply_loopback_capture_option
     assert view.on_loopback_capture_summary is general.loopback_capture_summary
     assert view.on_prompt_apply_settings is prompt.prompt_apply_settings
+    assert view.on_pending_prompt_changed is prompt.pending_prompt_changed
     assert view.on_desktop_overlay_lock_change is overlay.desktop_overlay_lock_change
     assert view.on_desktop_overlay_size_change is overlay.desktop_overlay_size_change
     assert view.on_desktop_overlay_recovery_action is overlay.desktop_overlay_recovery_action
@@ -246,10 +248,6 @@ def test_bind_settings_intents_carries_every_previously_ad_hoc_g14_callback(
 def test_bind_settings_intents_keeps_optional_presentation_sinks_untouched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings_view_module.SettingsView, "_populate_host_apis", lambda self: None)
-    monkeypatch.setattr(
-        settings_view_module.SettingsView, "_refresh_microphones", lambda self: None
-    )
     monkeypatch.setattr(settings_view_module.SettingsView, "update", lambda self: None)
     view = settings_view_module.SettingsView()
     existing_basic = view.runtime_log_basic
@@ -271,7 +269,7 @@ def test_bind_settings_intents_keeps_optional_presentation_sinks_untouched(
             settings_secrets=SettingsSecretsOwner(secret_store_factory=lambda: None),
         ),
         general=SettingsGeneralIntents(
-            start_microphone_test=lambda *_a, **_k: None,
+            start_audio_test=lambda *_a, **_k: None,
             telemetry_enabled_change=lambda *_a, **_k: None,
             list_loopback_capture_options=lambda *_a, **_k: None,
             list_loopback_process_options=lambda *_a, **_k: None,
@@ -322,15 +320,15 @@ def test_overlay_surface_preserves_target_specific_and_recovery_visibility() -> 
         placeholder_factory=lambda: _track(placeholders),
     )
 
-    assert len(surface.rows) == 6
-    assert len(placeholders) == 1
+    assert len(surface.rows) == 7
+    assert len(placeholders) == 3
     assert surface.rows[0] is surface.target_row
-    assert surface.vr_rows == (surface.rows[1], surface.rows[2])
-    assert surface.desktop_rows == (surface.rows[3], surface.rows[4])
-    assert surface.desktop_controls_row is surface.rows[3]
-    assert surface.recovery_row is surface.rows[5]
+    assert surface.vr_rows == (surface.rows[2], surface.rows[3])
+    assert surface.desktop_rows == (surface.rows[4], surface.rows[5])
+    assert surface.desktop_controls_row is surface.rows[4]
+    assert surface.recovery_row is surface.rows[6]
     assert surface.recovery_row.visible is False
-    for row in surface.rows[:5]:
+    for row in surface.rows[:6]:
         assert row.visible is True
 
     assert surface.target_row.content.controls == [
@@ -338,14 +336,14 @@ def test_overlay_surface_preserves_target_specific_and_recovery_visibility() -> 
         slots.overlay_translation,
         slots.overlay_peer_original,
     ]
-    assert surface.rows[1].content.controls == [slots.anchor, slots.distance, slots.offset_x]
-    assert surface.rows[2].content.controls == [slots.offset_y, slots.text_scale, slots.vr_reset]
-    assert surface.rows[3].content.controls == [
+    assert surface.rows[2].content.controls == [slots.anchor, slots.distance, slots.offset_x]
+    assert surface.rows[3].content.controls == [slots.offset_y, slots.text_scale, slots.vr_reset]
+    assert surface.rows[4].content.controls == [
         slots.desktop_size,
         slots.desktop_lock,
         slots.desktop_background_alpha,
     ]
-    assert surface.rows[4].content.controls == [
+    assert surface.rows[5].content.controls == [
         slots.desktop_swap_caption_languages,
         slots.desktop_reset,
         slots.desktop_reset_spacer,

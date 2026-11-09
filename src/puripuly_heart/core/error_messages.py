@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from typing import Final
 
 from puripuly_heart.core.diagnostic_validation import (
@@ -14,7 +15,13 @@ from puripuly_heart.core.diagnostic_validation import (
     PROVIDER_RESPONSE_BODY_KEYS,
     PROVIDER_RESPONSE_BODY_REDACTION_MARKER,
     DiagnosticSink,
+    redact_raw_assignment_values,
     validate_diagnostics_for_sink,
+)
+from puripuly_heart.core.diagnostics import (
+    safe_exception_fields,
+    sanitize_diagnostic_fields,
+    sanitize_diagnostics,
 )
 from puripuly_heart.core.llm.fallback_racing import LLMProviderRaceError
 from puripuly_heart.core.messages import (
@@ -22,7 +29,6 @@ from puripuly_heart.core.messages import (
     DIAGNOSTIC_CATEGORIES,
     DIAGNOSTIC_CATEGORY_AUTH,
     DIAGNOSTIC_CATEGORY_INVALID_RESPONSE,
-    DIAGNOSTIC_CATEGORY_LIFECYCLE,
     DIAGNOSTIC_CATEGORY_NETWORK,
     DIAGNOSTIC_CATEGORY_QUOTA,
     DIAGNOSTIC_CATEGORY_RATE_LIMIT,
@@ -62,7 +68,6 @@ def _legacy_raw_key_pattern(key: str) -> str:
     return r"[_ -]?".join(re.escape(part) for part in key.split("_"))
 
 
-_STATUS_CODE_RE: Final = re.compile(r"(?i)\bstatus(?:_code)?\s*[=:]\s*(\d{3})\b")
 _LEGACY_RAW_ERROR_TEXT_MAX_LENGTH: Final = 512
 _PROVIDER_RESPONSE_TEXT_RE: Final = _legacy_raw_key_assignment_re(PROVIDER_RESPONSE_BODY_KEYS)
 _BROKER_RAW_TEXT_RE: Final = _legacy_raw_key_assignment_re(BROKER_RAW_MESSAGE_KEYS)
@@ -82,12 +87,12 @@ _PRIVATE_KEY_BLOCK_RE: Final = re.compile(
 
 
 def provider_failure_report(
-    exc: BaseException | None,
+    exc: BaseException | ErrorDiagnostics | None,
     *,
     provider: str,
     operation: str,
 ) -> UserErrorReport:
-    return _failure_report(
+    report = _failure_report(
         exc,
         surface="provider",
         message_key="provider.failure",
@@ -96,6 +101,35 @@ def provider_failure_report(
         operation=operation,
         extra_fields={},
     )
+    if report.diagnostics.fields.get("provider") == "openai":
+        return replace(
+            report,
+            message=replace(
+                report.message,
+                key=_openai_message_key(report.diagnostics),
+            ),
+        )
+    return report
+
+
+def _openai_message_key(diagnostics: ErrorDiagnostics) -> str:
+    if diagnostics.status_code in (400, 422):
+        if diagnostics.fields.get("openai_error_code") == "model_not_found":
+            return "error.openai.model_unavailable"
+        return "error.openai.request_rejected"
+    if diagnostics.status_code == 401:
+        return "error.openai.authentication_rejected"
+    if diagnostics.status_code == 403:
+        return "error.openai.permission_denied"
+    if diagnostics.status_code == 404:
+        return "error.openai.model_unavailable"
+    return {
+        "quota": "error.openai.quota",
+        "rate_limit": "error.openai.rate_limit",
+        "service_unavailable": "error.openai.service_unavailable",
+        "timeout": "error.network_timeout",
+        "network": "error.network_error",
+    }.get(diagnostics.category, "error.openai.request_failed")
 
 
 def openrouter_auth_failure_report(
@@ -117,7 +151,7 @@ def openrouter_auth_failure_report(
             retry_after_ms=None,
             fields={
                 "provider": "openrouter",
-                "exception_type": failure.exception_type,
+                **safe_exception_fields(failure),
                 **safe_transport_fields(failure),
             },
         ),
@@ -125,17 +159,36 @@ def openrouter_auth_failure_report(
 
 
 def stt_failure_report(
-    exc: BaseException | None,
+    exc: BaseException | ErrorDiagnostics | None,
     *,
     provider: str,
     operation: str,
     channel: str,
     attempts: int | None = None,
 ) -> UserErrorReport:
+    preserved = getattr(exc, "failure_diagnostics", None)
+    if isinstance(preserved, ErrorDiagnostics):
+        exc = preserved
+    if isinstance(exc, ErrorDiagnostics):
+        exc = sanitize_diagnostics(exc)
+        return UserErrorReport(
+            message=UserMessageRef(
+                key="stt.failure",
+                params={
+                    "category": exc.category,
+                    "operation": exc.operation or "unknown",
+                    "provider": _diagnostic_provider(
+                        None, str(exc.fields.get("provider", provider))
+                    ),
+                },
+                severity=SEVERITY_ERROR,
+            ),
+            diagnostics=exc,
+        )
     extra_fields: dict[str, DiagnosticFieldValue] = {"channel": _safe_label(channel, "unknown")}
     if attempts is not None:
         extra_fields["attempts"] = attempts
-    return _failure_report(
+    report = _failure_report(
         exc,
         surface="stt",
         message_key="stt.failure",
@@ -144,6 +197,12 @@ def stt_failure_report(
         operation=operation,
         extra_fields=extra_fields,
     )
+    return replace(
+        report,
+        diagnostics=replace(
+            report.diagnostics, channel=channel if channel in {"self", "peer"} else None
+        ),
+    )
 
 
 def format_error_report_for_log(
@@ -151,10 +210,14 @@ def format_error_report_for_log(
     *,
     sink: DiagnosticSink = DIAGNOSTIC_SINK_BASIC_LOGS,
 ) -> str:
-    validation = validate_diagnostics_for_sink(report.diagnostics, sink)
+    diagnostics = sanitize_diagnostics(report.diagnostics)
+    validation = validate_diagnostics_for_sink(diagnostics, sink)
     if validation.status != DIAGNOSTIC_VALIDATION_STATUS_ACCEPTED or validation.diagnostics is None:
-        return "category=unknown code=diagnostics.rejected diagnostic_status=rejected"
-
+        return (
+            f"category={diagnostics.category} code={diagnostics.code} "
+            f"component={diagnostics.component} operation={diagnostics.operation or 'unknown'} "
+            "diagnostic_status=rejected"
+        )
     diagnostics = validation.diagnostics
     parts = [
         f"category={diagnostics.category}",
@@ -172,6 +235,9 @@ def format_error_report_for_log(
         "managed_code",
         "managed_error_class",
         "managed_subcode",
+        "openai_error_code",
+        "openai_error_type",
+        "openai_error_param",
         *TRANSPORT_FIELD_KEYS,
     ):
         value = diagnostics.fields.get(key)
@@ -179,6 +245,8 @@ def format_error_report_for_log(
             parts.append(f"{key}={value}")
     if diagnostics.retry_after_ms is not None:
         parts.append(f"retry_after_ms={diagnostics.retry_after_ms}")
+    if diagnostics.rejected_fields:
+        parts.append(f"diagnostic_status=rejected rejected_fields={diagnostics.rejected_fields}")
     return " ".join(parts)
 
 
@@ -187,17 +255,17 @@ def sanitize_legacy_raw_user_visible_error_text(value: object) -> str | None:
     if not text:
         return None
 
-    text = _redact_raw_assignment_values(
+    text = redact_raw_assignment_values(
         text,
         _PROVIDER_RESPONSE_TEXT_RE,
         PROVIDER_RESPONSE_BODY_REDACTION_MARKER,
     )
-    text = _redact_raw_assignment_values(
+    text = redact_raw_assignment_values(
         text,
         _BROKER_RAW_TEXT_RE,
         BROKER_RAW_MESSAGE_REDACTION_MARKER,
     )
-    text = _redact_raw_assignment_values(
+    text = redact_raw_assignment_values(
         text,
         _LOCAL_LLM_EXTRA_BODY_TEXT_RE,
         LOCAL_LLM_EXTRA_BODY_REDACTION_MARKER,
@@ -220,73 +288,8 @@ def _redact_secret_assignment(match: re.Match[str]) -> str:
     return f"{match.group(1)}={DIAGNOSTIC_REDACTION_MARKER}"
 
 
-def _redact_raw_assignment_values(
-    text: str,
-    pattern: re.Pattern[str],
-    marker: str,
-) -> str:
-    redacted_parts: list[str] = []
-    cursor = 0
-    for match in pattern.finditer(text):
-        if match.start() < cursor:
-            continue
-        redacted_parts.append(text[cursor : match.start()])
-        redacted_parts.append(marker)
-        cursor = _raw_assignment_value_end(text, match.end())
-    redacted_parts.append(text[cursor:])
-    return "".join(redacted_parts)
-
-
-def _raw_assignment_value_end(text: str, start: int) -> int:
-    if start >= len(text):
-        return start
-    char = text[start]
-    if char in ("{", "["):
-        return _balanced_raw_value_end(text, start)
-    if char in ("'", '"'):
-        return _quoted_raw_value_end(text, start)
-
-    end = start
-    while end < len(text) and text[end] not in "\n;":
-        end += 1
-    return end
-
-
-def _balanced_raw_value_end(text: str, start: int) -> int:
-    closing_for_open = {"{": "}", "[": "]"}
-    expected_closers = [closing_for_open[text[start]]]
-    index = start + 1
-    while index < len(text):
-        char = text[index]
-        if char in ("'", '"'):
-            index = _quoted_raw_value_end(text, index)
-            continue
-        if char in closing_for_open:
-            expected_closers.append(closing_for_open[char])
-        elif char == expected_closers[-1]:
-            expected_closers.pop()
-            if not expected_closers:
-                return index + 1
-        index += 1
-    return len(text)
-
-
-def _quoted_raw_value_end(text: str, start: int) -> int:
-    quote = text[start]
-    index = start + 1
-    while index < len(text):
-        char = text[index]
-        if char == "\\":
-            index += 2
-            continue
-        if char == quote:
-            return index + 1
-        index += 1
-    return len(text)
-
-
 def _failure_report(
-    exc: BaseException | None,
+    exc: BaseException | ErrorDiagnostics | None,
     *,
     surface: str,
     message_key: str,
@@ -295,6 +298,55 @@ def _failure_report(
     operation: str,
     extra_fields: Mapping[str, DiagnosticFieldValue],
 ) -> UserErrorReport:
+    preserved = (
+        exc if isinstance(exc, ErrorDiagnostics) else getattr(exc, "failure_diagnostics", None)
+    )
+    if preserved is None:
+        preserved = getattr(exc, "diagnostics", None)
+    if isinstance(preserved, ErrorDiagnostics):
+        if isinstance(exc, BaseException):
+            status = preserved.status_code or _status_code(exc)
+            category = (
+                _classify_failure(exc, status_code=status)
+                if preserved.category == DIAGNOSTIC_CATEGORY_UNKNOWN
+                else preserved.category
+            )
+            preserved = replace(
+                preserved,
+                status_code=status,
+                category=category,
+                code=(
+                    f"{surface}.{category}"
+                    if preserved.code == f"{surface}.unknown"
+                    and category != DIAGNOSTIC_CATEGORY_UNKNOWN
+                    else preserved.code
+                ),
+                fields={
+                    **preserved.fields,
+                    **safe_exception_fields(exc),
+                    **safe_transport_fields(exc),
+                },
+            )
+        preserved = sanitize_diagnostics(preserved)
+        provider_label = _diagnostic_provider(None, str(preserved.fields.get("provider", provider)))
+        if preserved.status_code == 402 and provider_label == "openrouter":
+            message_key = _openrouter_402_message_key(preserved.fields)
+        if provider_label == "chatgpt" and isinstance(exc, BaseException):
+            message_key = _chatgpt_message_key(exc, preserved.status_code) or message_key
+        return UserErrorReport(
+            message=UserMessageRef(
+                key=message_key,
+                params={
+                    "category": preserved.category,
+                    "operation": preserved.operation or "unknown",
+                    "provider": _diagnostic_provider(
+                        None, str(preserved.fields.get("provider", provider))
+                    ),
+                },
+                severity=SEVERITY_ERROR,
+            ),
+            diagnostics=preserved,
+        )
     operation_label = _safe_label(operation, "unknown")
     race = next(
         (item for item in _exception_chain(exc) if isinstance(item, LLMProviderRaceError)),
@@ -362,9 +414,12 @@ def _failure_report(
         if provider_label == "chatgpt":
             message_key = _chatgpt_message_key(exc, status_code) or message_key
     fields: dict[str, DiagnosticFieldValue] = dict(extra_fields)
-    fields["exception_type"] = type(exc).__name__ if exc is not None else "UnknownError"
+    fields["exception_class"] = (
+        str(safe_exception_fields(exc)["exception_class"]) if exc is not None else "unclassified"
+    )
     fields["provider"] = provider_label
     if exc is not None:
+        fields.update(safe_exception_fields(exc))
         fields.update(safe_transport_fields(exc))
     fields.update(_managed_diagnostic_fields(exc))
     fields.update(shared_fields)
@@ -378,16 +433,18 @@ def _failure_report(
             },
             severity=SEVERITY_ERROR,
         ),
-        diagnostics=ErrorDiagnostics(
-            component=component,
-            operation=operation_label,
-            code=f"{surface}.{category}",
-            category=category,
-            visibility=DIAGNOSTIC_VISIBILITY_BASIC,
-            content_policy=CONTENT_POLICY_METADATA_ONLY,
-            status_code=status_code,
-            retry_after_ms=retry_after_ms,
-            fields=fields,
+        diagnostics=sanitize_diagnostics(
+            ErrorDiagnostics(
+                component=component,
+                operation=operation_label,
+                code=f"{surface}.{category}",
+                category=category,
+                visibility=DIAGNOSTIC_VISIBILITY_BASIC,
+                content_policy=CONTENT_POLICY_METADATA_ONLY,
+                status_code=status_code,
+                retry_after_ms=retry_after_ms,
+                fields=fields,
+            )
         ),
     )
 
@@ -452,13 +509,19 @@ def _classify_failure(
     *,
     status_code: int | None,
 ) -> DiagnosticCategory:
-    text = _exception_chain_text(exc)
+    explicit_categories = tuple(
+        category
+        for item in _exception_chain(exc)
+        if isinstance(category := getattr(item, "diagnostic_category", None), str)
+        and category in DIAGNOSTIC_CATEGORIES
+        and category != DIAGNOSTIC_CATEGORY_UNKNOWN
+    )
     if status_code in (401, 403):
         return DIAGNOSTIC_CATEGORY_AUTH
     if status_code == 408:
         return DIAGNOSTIC_CATEGORY_TIMEOUT
     if status_code == 429:
-        if "quota" in text:
+        if DIAGNOSTIC_CATEGORY_QUOTA in explicit_categories:
             return DIAGNOSTIC_CATEGORY_QUOTA
         return DIAGNOSTIC_CATEGORY_RATE_LIMIT
     if status_code in (500, 502, 503, 504):
@@ -468,44 +531,14 @@ def _classify_failure(
     if status_code is not None and 400 <= status_code < 500:
         return DIAGNOSTIC_CATEGORY_INVALID_RESPONSE
 
-    for item in _exception_chain(exc):
-        explicit_category = getattr(item, "diagnostic_category", None)
-        if explicit_category in DIAGNOSTIC_CATEGORIES:
-            return explicit_category
+    if explicit_categories:
+        return explicit_categories[0]
 
     transport = classify_transport_error(exc) if exc is not None else None
     if transport == "timeout":
         return DIAGNOSTIC_CATEGORY_TIMEOUT
     if transport is not None:
         return DIAGNOSTIC_CATEGORY_NETWORK
-    if _is_timeout_exception(exc) or "timeout" in text or "timed out" in text:
-        return DIAGNOSTIC_CATEGORY_TIMEOUT
-    if isinstance(exc, ConnectionError | OSError) or any(
-        marker in text for marker in ("connection", "network", "socket", "dns")
-    ):
-        return DIAGNOSTIC_CATEGORY_NETWORK
-    if any(marker in text for marker in ("unauthorized", "forbidden", "api key", "auth")):
-        return DIAGNOSTIC_CATEGORY_AUTH
-    if "quota" in text:
-        return DIAGNOSTIC_CATEGORY_QUOTA
-    if any(marker in text for marker in ("rate limit", "rate_limit", "too many requests")):
-        return DIAGNOSTIC_CATEGORY_RATE_LIMIT
-    if any(marker in text for marker in ("unavailable", "overloaded", "bad gateway")):
-        return DIAGNOSTIC_CATEGORY_SERVICE_UNAVAILABLE
-    if any(
-        marker in text
-        for marker in (
-            "invalid json",
-            "not valid json",
-            "malformed",
-            "did not contain",
-            "empty message content",
-            "truncated",
-        )
-    ):
-        return DIAGNOSTIC_CATEGORY_INVALID_RESPONSE
-    if any(marker in text for marker in ("not configured", "closed", "cancelled")):
-        return DIAGNOSTIC_CATEGORY_LIFECYCLE
     return DIAGNOSTIC_CATEGORY_UNKNOWN
 
 
@@ -513,33 +546,40 @@ def _diagnostic_provider(exc: BaseException | None, fallback: str) -> str:
     for item in _exception_chain(exc):
         provider = getattr(item, "diagnostic_provider", None)
         if isinstance(provider, str) and provider.strip():
-            return _safe_label(provider, "unknown")
-    return _safe_label(fallback, "unknown")
+            fields, _rejected = sanitize_diagnostic_fields({"provider": provider})
+            if "provider" in fields:
+                return str(fields["provider"])
+    fields, _rejected = sanitize_diagnostic_fields({"provider": fallback})
+    return str(fields.get("provider", "unknown"))
 
 
 def _status_code(exc: BaseException | None) -> int | None:
     for item in _exception_chain(exc):
         status = getattr(item, "status_code", None)
-        if isinstance(status, int):
+        if type(status) is int and 100 <= status <= 599:
             return status
+        native_status = getattr(item, "http_status", None)
+        if type(native_status) is int and 100 <= native_status <= 599:
+            return native_status
         response = getattr(item, "response", None)
         response_status = getattr(response, "status_code", None)
-        if isinstance(response_status, int):
+        if type(response_status) is int and 100 <= response_status <= 599:
             return response_status
-        match = _STATUS_CODE_RE.search(str(item))
-        if match:
-            return int(match.group(1))
+        if type(item).__module__.startswith(("google.genai.errors", "google.api_core.exceptions")):
+            sdk_status = getattr(item, "code", None)
+            if type(sdk_status) is int and 100 <= sdk_status <= 599:
+                return sdk_status
     return None
 
 
 def _retry_after_ms(exc: BaseException | None) -> int | None:
     for item in _exception_chain(exc):
         retry_after = getattr(item, "retry_after_ms", None)
-        if isinstance(retry_after, int):
+        if type(retry_after) is int and 0 <= retry_after < 2**31:
             return retry_after
         diagnostics = getattr(item, "diagnostics", None)
         diagnostic_retry_after = getattr(diagnostics, "retry_after_ms", None)
-        if isinstance(diagnostic_retry_after, int):
+        if type(diagnostic_retry_after) is int and 0 <= diagnostic_retry_after < 2**31:
             return diagnostic_retry_after
     return None
 
@@ -571,28 +611,8 @@ def _add_optional_field(
         fields[key] = _safe_label(value, "unknown")
 
 
-def _exception_chain_text(exc: BaseException | None) -> str:
-    return " ".join(_exception_text_for_classification(item) for item in _exception_chain(exc))
-
-
-def _exception_text_for_classification(exc: BaseException) -> str:
-    if hasattr(exc, "message_key") and hasattr(exc, "diagnostics"):
-        diagnostics = getattr(exc, "diagnostics", None)
-        parts = [type(exc).__name__, str(getattr(exc, "message_key", ""))]
-        for attr in ("operation", "code", "error_class", "subcode"):
-            value = getattr(diagnostics, attr, None)
-            if isinstance(value, str):
-                parts.append(value)
-        return " ".join(parts).lower()
-    return str(exc).lower()
-
-
 def _exception_chain(exc: BaseException | None) -> Iterator[BaseException]:
     yield from transport_exception_chain(exc)
-
-
-def _is_timeout_exception(exc: BaseException | None) -> bool:
-    return any("timeout" in type(item).__name__.lower() for item in _exception_chain(exc))
 
 
 def _safe_label(value: object, default: str) -> str:

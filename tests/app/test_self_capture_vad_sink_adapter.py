@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from puripuly_heart.app.adapters.self_capture_vad_sink import (
+
+from puripuly_heart.app.adapters.self_capture.self_capture_vad_sink import (
     SelfCaptureVadSinkAdapter,
 )
-
-from puripuly_heart.app.wiring import create_self_capture_vad_sink_adapter
 
 
 class Runtime:
@@ -15,9 +14,13 @@ class Runtime:
         self.events: list[object] = []
         self.rejections: list[tuple[object, str, str]] = []
         self.failures: list[tuple[object, str]] = []
+        self.retired_sources: list[object] = []
 
     async def handle_vad_event(self, event: object) -> None:
         self.events.append(event)
+
+    async def handle_source_segment_retired(self, receipt: object) -> None:
+        self.retired_sources.append(receipt)
 
     async def reject_owned_segment(
         self,
@@ -55,6 +58,7 @@ async def test_adapter_forwards_required_recognition_terminal_operations() -> No
     adapter = SelfCaptureVadSinkAdapter(runtime_provider=lambda: runtime)
     rejected = object()
     failed = object()
+    retired = object()
 
     await adapter.reject_owned_segment(
         rejected,
@@ -62,9 +66,11 @@ async def test_adapter_forwards_required_recognition_terminal_operations() -> No
         outcome="expired",
     )
     await adapter.fail_owned_segment(failed, reason="buffer_exhausted")
+    await adapter.handle_source_segment_retired(retired)
 
     assert runtime.rejections == [(rejected, "recognition_admission_timeout", "expired")]
     assert runtime.failures == [(failed, "buffer_exhausted")]
+    assert runtime.retired_sources == [retired]
 
 
 @pytest.mark.asyncio
@@ -92,11 +98,3 @@ async def test_adapter_propagates_downstream_exception_and_cancellation() -> Non
     adapter = SelfCaptureVadSinkAdapter(runtime_provider=CancellingRuntime)
     with pytest.raises(asyncio.CancelledError):
         await adapter.handle_vad_event(object())
-
-
-def test_wiring_factory_composes_internal_self_vad_sink_adapter() -> None:
-    runtime = Runtime()
-    adapter = create_self_capture_vad_sink_adapter(runtime_provider=lambda: runtime)
-
-    assert isinstance(adapter, SelfCaptureVadSinkAdapter)
-    assert adapter.runtime_provider() is runtime

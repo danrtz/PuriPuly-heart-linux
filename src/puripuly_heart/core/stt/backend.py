@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
-from typing import AsyncIterator, Literal, Protocol, runtime_checkable
-
-import numpy as np
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from typing import AsyncIterator, Literal, Protocol, TypeVar, runtime_checkable
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
 from puripuly_heart.core.audio.ownership import (
@@ -12,13 +11,15 @@ from puripuly_heart.core.audio.ownership import (
     AudioSegmentSettingsSnapshot,
     SegmentTerminalOutcome,
 )
-from puripuly_heart.core.runtime.local_asr_transition import LocalASRSessionOptions
+from puripuly_heart.core.messages import ErrorDiagnostics
 from puripuly_heart.core.speech_boundary import SpeechBoundaryReason
 from puripuly_heart.domain.models import FinalLanguageRun, FinalSpeakerRun
 from puripuly_heart.domain.recognition import (
     NativeTranscriptionEvidence,
     RecognitionStreamIdentity,
+    RecognitionTextOrigin,
     RecognitionUnitIdentity,
+    slice_recognition_origins,
 )
 
 
@@ -95,6 +96,10 @@ class STTProviderTurnUpdate:
     final_speaker_runs: tuple[FinalSpeakerRun, ...] = ()
     provenance: STTNativeProvenance = STTNativeProvenance()
     contribution: STTTextContribution | None = None
+    recognition_origins: tuple[RecognitionTextOrigin, ...] = ()
+    is_current: Callable[[], bool] | None = field(default=None, compare=False, repr=False)
+    observed_at: float | None = None
+    first_nonempty_at: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +116,43 @@ class STTProviderTurnTerminal:
     recovery_pending: bool = False
     provenance: tuple[STTNativeProvenance, ...] = ()
     included_contributions: tuple[STTTextContribution, ...] = ()
+    failure_diagnostics: ErrorDiagnostics | None = None
+    recognition_origins: tuple[RecognitionTextOrigin, ...] = ()
+    is_current: Callable[[], bool] | None = field(default=None, compare=False, repr=False)
+
+
+class STTScopedWriteFailure(RuntimeError):
+    def __init__(self, terminal: STTProviderTurnTerminal, cause: BaseException | None) -> None:
+        super().__init__(terminal.failure_reason or "provider_write_failed")
+        self.terminal = terminal
+        self.__cause__ = cause
+
+
+_ProviderEvent = TypeVar("_ProviderEvent")
+
+
+def scoped_event_for_delivery(
+    event: _ProviderEvent,
+) -> _ProviderEvent | STTProviderTurnTerminal | None:
+    if not isinstance(event, STTProviderTurnUpdate | STTProviderTurnTerminal):
+        return event
+    if event.is_current is None or event.is_current():
+        return event
+    if isinstance(event, STTProviderTurnUpdate):
+        return None
+    return replace(
+        event,
+        outcome="cancelled",
+        text="",
+        final_language_runs=(),
+        final_speaker_runs=(),
+        text_authority="none",
+        failure_reason="cancelled",
+        epoch_disposition="retire",
+        included_contributions=(),
+        recognition_origins=(),
+        is_current=None,
+    )
 
 
 class STTContributionConsumptionLedger:
@@ -131,51 +173,53 @@ class STTContributionConsumptionLedger:
         self,
         event: STTProviderTurnUpdate | STTProviderTurnTerminal,
     ) -> str:
+        text, _origins = self.consume_with_origins(event)
+        return text
+
+    def consume_with_origins(
+        self,
+        event: STTProviderTurnUpdate | STTProviderTurnTerminal,
+    ) -> tuple[str, tuple[RecognitionTextOrigin, ...]]:
         self._remember_identity(event.identity)
+        ranges: list[tuple[int, int]] = []
         if isinstance(event, STTProviderTurnUpdate):
-            contribution = event.contribution
-            if event.stability != "stable" or contribution is None:
-                return ""
-            return self._consume_contribution(event.identity, event.text, contribution)
-        contributions = event.included_contributions
-        if not contributions:
-            if event.identity in self._consumed_terminal_tails:
-                return ""
-            request_consumed = any(identity == event.identity for identity, _item in self._consumed)
-            if request_consumed:
-                return ""
-            self._consumed_terminal_tails.add(event.identity)
-            return event.text
-        include_terminal_only = event.identity not in self._consumed_terminal_tails
-        pieces: list[str] = []
+            contributions = (event.contribution,) if event.contribution is not None else ()
+            if event.stability != "stable":
+                return "", ()
+            include_terminal_only = False
+        else:
+            contributions = event.included_contributions
+            include_terminal_only = event.identity not in self._consumed_terminal_tails
+            if not contributions and any(
+                identity == event.identity for identity, _item in self._consumed
+            ):
+                return "", ()
         cursor = 0
         for contribution in contributions:
-            if contribution.text_start < cursor:
-                raise ValueError("contribution ranges overlap or are out of order")
-            if contribution.text_start > len(event.text):
-                raise ValueError("contribution range exceeds assembled text")
-            if include_terminal_only:
-                pieces.append(event.text[cursor : contribution.text_start])
-            pieces.append(self._consume_contribution(event.identity, event.text, contribution))
+            if contribution.text_start < cursor or contribution.text_end > len(event.text):
+                raise ValueError("invalid assembled contribution range")
+            if include_terminal_only and cursor < contribution.text_start:
+                ranges.append((cursor, contribution.text_start))
+            key = (event.identity, contribution.contribution_id)
+            if key not in self._consumed:
+                self._consumed.add(key)
+                ranges.append((contribution.text_start, contribution.text_end))
             cursor = contribution.text_end
         if include_terminal_only:
-            pieces.append(event.text[cursor:])
+            ranges.append((cursor, len(event.text)))
             self._consumed_terminal_tails.add(event.identity)
-        return "".join(pieces)
-
-    def _consume_contribution(
-        self,
-        identity: STTProviderTurnIdentity,
-        text: str,
-        contribution: STTTextContribution,
-    ) -> str:
-        key = (identity, contribution.contribution_id)
-        if key in self._consumed:
-            return ""
-        if contribution.text_end > len(text):
-            raise ValueError("contribution range exceeds assembled text")
-        self._consumed.add(key)
-        return text[contribution.text_start : contribution.text_end]
+        text = ""
+        origins: tuple[RecognitionTextOrigin, ...] = ()
+        for start, end in ranges:
+            offset = len(text)
+            text += event.text[start:end]
+            origins += tuple(
+                replace(
+                    origin, text_start=origin.text_start + offset, text_end=origin.text_end + offset
+                )
+                for origin in slice_recognition_origins(event.recognition_origins, start, end)
+            )
+        return text, origins
 
     def retire(self, identity: STTProviderTurnIdentity) -> None:
         self._remember_identity(identity)
@@ -200,6 +244,7 @@ class STTProviderEpochEnded:
     reason: str
     provider_turn_id: str | None = None
     failure_retryable: bool = False
+    failure_diagnostics: ErrorDiagnostics | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +255,8 @@ class STTProviderInputTerminal:
     failure_reason: str | None = None
     epoch_disposition: Literal["reuse", "retire"] = "reuse"
     recovery_pending: bool = False
+    failure_diagnostics: ErrorDiagnostics | None = None
+    independent_recognition: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,24 +267,15 @@ class STTRecognitionUnit:
     final_language_runs: tuple[FinalLanguageRun, ...] = ()
     final_speaker_runs: tuple[FinalSpeakerRun, ...] = ()
     estimated_last_speech_at: float | None = None
+    is_final: bool = True
+    observed_at: float | None = None
 
     @property
     def retained_bytes(self) -> int:
         size = len(self.text.encode("utf-8"))
         native = self.provenance.transcription
         if native is not None:
-            size += len(native.words) * 64
-            size += sum(
-                len(value.encode("utf-8"))
-                for value in (native.language_code, native.speaker_label)
-                if value is not None
-            )
-            size += sum(
-                len(value.encode("utf-8"))
-                for word in native.words
-                for value in word
-                if value is not None
-            )
+            size += native.retained_bytes
         return size
 
 
@@ -279,7 +317,7 @@ class STTScopedTurnSession(Protocol):
         observed_trailing_silence_ms: int | None,
     ) -> None: ...
     async def abort_turn(self, identity: STTProviderTurnIdentity, *, reason: str) -> None: ...
-    async def turn_events(self) -> AsyncIterator[STTProviderTurnEvent]: ...
+    def turn_events(self) -> AsyncIterator[STTProviderTurnEvent]: ...
     async def stop(self) -> None: ...
     async def close(self) -> None: ...
 
@@ -323,19 +361,9 @@ class STTBackendSession(Protocol):
     async def events(self) -> AsyncIterator[STTBackendTranscriptEvent]: ...
 
 
-@runtime_checkable
-class STTBackendFloat32Session(Protocol):
-    async def send_audio_f32(self, samples_f32: np.ndarray) -> None: ...
-
-
 class STTBackend(Protocol):
     async def open_session(
         self,
         *,
         projection: STTSessionProjection = LEGACY_STT_SESSION_PROJECTION,
     ) -> STTBackendSession: ...
-
-
-@runtime_checkable
-class LocalASRReconfigurableBackend(Protocol):
-    async def reconfigure_session_options(self, options: LocalASRSessionOptions) -> None: ...

@@ -26,7 +26,7 @@ fi
 if (( ! skip_native )); then
     scripts/linux/build-native.sh
 fi
-for native in build/desktop/libpuripuly-gtk-rgba.so build/gpu_worker/PuriPulyHeartGpuWorker build/overlay/PuriPulyHeartOverlay build/llama.cpp/llama.cpp-b10423/cpu/llama-server build/llama.cpp/llama.cpp-b10423/vulkan/llama-server; do
+for native in build/desktop/libpuripuly-gtk-rgba.so build/asr_worker/PuriPulyHeartASRWorker build/overlay/PuriPulyHeartOverlay build/llama.cpp/llama.cpp-b11537/cpu/llama-server build/llama.cpp/llama.cpp-b11537/vulkan/llama-server; do
     if [[ ! -x "$native" ]]; then
         printf 'Missing native runtime: %s. Run scripts/linux/build-native.sh.\n' "$native" >&2
         exit 1
@@ -45,7 +45,7 @@ data_root = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "s
 applications = data_root / "applications"
 icon = data_root / "icons" / "hicolor" / "256x256" / "apps" / "puripuly-heart.png"
 launchers = {
-    "puripuly-heart": ("puripuly_heart.main", "run-gui"),
+    "puripuly-heart": ("puripuly_heart.main",),
     "puripuly": ("puripuly_heart.cli.main",),
 }
 for name in launchers:

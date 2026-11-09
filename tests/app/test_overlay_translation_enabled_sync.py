@@ -25,7 +25,6 @@ from puripuly_heart.app.wiring.wiring_translation_runtime_configuration import (
     replace_translation_runtime_enabled,
 )
 from puripuly_heart.composition.application_runtime import compose_application_runtime
-from puripuly_heart.composition.application_settings import load_application_settings
 from puripuly_heart.config.overlay_calibration import OverlayCalibration
 from puripuly_heart.config.resolved import ResolvedOverlayConfig
 from puripuly_heart.core.clock import FakeClock
@@ -33,6 +32,7 @@ from puripuly_heart.core.orchestrator.configuration import (
     TranslationRuntimeConfig,
     TranslationRuntimeConfigurationOwner,
 )
+from puripuly_heart.core.overlay.bridge import OverlayBridge
 from puripuly_heart.core.overlay.manifest import (
     OVERLAY_EXECUTION_CONTRACT,
     OVERLAY_NATIVE_RETRY_CONTRACT,
@@ -257,6 +257,8 @@ class _TestManagedProcess:
     _events: asyncio.Queue[dict[str, object]] = dataclass_field(default_factory=asyncio.Queue)
     _exit_future: asyncio.Future[int | None] | None = dataclass_field(default=None, init=False)
     terminated: bool = dataclass_field(default=False, init=False)
+    shutdown_requested: bool = dataclass_field(default=False, init=False)
+    readers_finished: bool = dataclass_field(default=False, init=False)
 
     def __post_init__(self) -> None:
         loop = asyncio.get_running_loop()
@@ -287,7 +289,19 @@ class _TestManagedProcess:
         return await asyncio.shield(self._exit_future)
 
     async def finish_readers(self) -> None:
-        return None
+        self.readers_finished = True
+
+    def acknowledge_shutdown(self) -> None:
+        assert self._exit_future is not None
+        self.shutdown_requested = True
+        if not self._exit_future.done():
+            self._events.put_nowait(
+                {
+                    "type": "shutdown_complete",
+                    "overlay_instance_id": self.overlay_instance_id,
+                }
+            )
+            self._exit_future.set_result(0)
 
     async def terminate(self) -> None:
         self.terminated = True
@@ -352,6 +366,36 @@ class _GatedProcessRunner:
         return self.last_process
 
 
+@pytest.fixture
+def fake_process_runner(monkeypatch: pytest.MonkeyPatch) -> Any:
+    runners: list[Any] = []
+    broadcast_shutdown = OverlayBridge.broadcast_shutdown
+
+    async def shutdown(bridge: OverlayBridge) -> None:
+        await broadcast_shutdown(bridge)
+        for runner in runners:
+            process = runner.last_process
+            if process is not None and process.overlay_instance_id == bridge.overlay_instance_id:
+                process.acknowledge_shutdown()
+                return
+        raise AssertionError("shutdown requested without a matching fake process")
+
+    def register(runner: Any) -> Any:
+        runners.append(runner)
+        return runner
+
+    monkeypatch.setattr(OverlayBridge, "broadcast_shutdown", shutdown)
+    yield register
+
+    for runner in runners:
+        process = runner.last_process
+        assert process is not None
+        assert process.shutdown_requested
+        assert process.returncode == 0
+        assert process.readers_finished
+        assert not process.terminated
+
+
 async def _start_via_begin_start(
     owner: OverlayApplicationOwner,
     runner: object,
@@ -392,12 +436,17 @@ async def _restart_via_transition(
 
 async def test_disabled_startup_first_snapshot_is_source_primary(
     monkeypatch: pytest.MonkeyPatch,
+    fake_process_runner: Any,
 ) -> None:
     config_owner = TranslationRuntimeConfigurationOwner(
         TranslationRuntimeConfig(translation_enabled=False)
     )
     owner = make_owner(config_owner)
-    runtime = await _start_via_begin_start(owner, _TestProcessRunner(), monkeypatch)
+    runtime = await _start_via_begin_start(
+        owner, fake_process_runner(_TestProcessRunner()), monkeypatch
+    )
+    manager = runtime.process_manager
+    assert manager is not None
     try:
         assert owner.state == "connected"
         presenter = cast(OverlayPresenter, runtime.presenter)
@@ -446,15 +495,24 @@ async def test_disabled_startup_first_snapshot_is_source_primary(
     finally:
         await owner.teardown(preserve_presenter_state=False)
 
+    receipt = manager.shutdown_receipt()
+    assert receipt["graceful_completed"] is True
+    assert receipt["forced"] is False
+    assert receipt["cleanup_succeeded"] is True
+    assert receipt["terminal_cause"] is None
+
 
 async def test_restart_reuse_rebuilds_visible_row_as_source_primary(
     monkeypatch: pytest.MonkeyPatch,
+    fake_process_runner: Any,
 ) -> None:
     config_owner = TranslationRuntimeConfigurationOwner(
         TranslationRuntimeConfig(translation_enabled=True)
     )
     owner = make_owner(config_owner)
-    first_runtime = await _start_via_begin_start(owner, _TestProcessRunner(), monkeypatch)
+    first_runtime = await _start_via_begin_start(
+        owner, fake_process_runner(_TestProcessRunner()), monkeypatch
+    )
     try:
         assert owner.state == "connected"
         first_presenter = cast(OverlayPresenter, first_runtime.presenter)
@@ -488,7 +546,9 @@ async def test_restart_reuse_rebuilds_visible_row_as_source_primary(
         before = first_presenter.snapshot().blocks[0]
         assert before.primary_text == "peer translation toggle"
         replace_translation_runtime_enabled(config_owner, False)
-        second_runtime = await _restart_via_transition(owner, _TestProcessRunner(), monkeypatch)
+        second_runtime = await _restart_via_transition(
+            owner, fake_process_runner(_TestProcessRunner()), monkeypatch
+        )
         assert owner.state == "connected", owner.failure_reason
         reused = cast(OverlayPresenter, second_runtime.presenter)
         assert reused is first_presenter
@@ -506,13 +566,14 @@ async def test_restart_reuse_rebuilds_visible_row_as_source_primary(
 
 async def test_paused_start_applies_latest_translation_request(
     monkeypatch: pytest.MonkeyPatch,
+    fake_process_runner: Any,
 ) -> None:
     config_owner = TranslationRuntimeConfigurationOwner(
         TranslationRuntimeConfig(translation_enabled=True)
     )
     owner = make_owner(config_owner)
     enable_owner, _dashboard = make_enable_owner(config_owner, owner, llm_available=True)
-    runner = _GatedProcessRunner()
+    runner = fake_process_runner(_GatedProcessRunner())
     monkeypatch.setattr(
         OverlayApplicationOwner,
         "process_runner",
@@ -525,7 +586,7 @@ async def test_paused_start_applies_latest_translation_request(
     start_task = runtime.start_task
     try:
         await runner.entered.wait()
-        assert await enable_owner.set_enabled(False) is False
+        assert await enable_owner.set_enabled(False) is True
         runner.gate.set()
         await start_task
         await _drain()
@@ -559,13 +620,16 @@ async def test_paused_start_applies_latest_translation_request(
 
 async def test_generation_failure_preserves_source_primary_truth(
     monkeypatch: pytest.MonkeyPatch,
+    fake_process_runner: Any,
 ) -> None:
     config_owner = TranslationRuntimeConfigurationOwner(
         TranslationRuntimeConfig(translation_enabled=False)
     )
     owner = make_owner(config_owner)
     runtime = await _start_via_begin_start(
-        owner, _TestProcessRunner(failure_reason="startup_timeout"), monkeypatch
+        owner,
+        fake_process_runner(_TestProcessRunner(failure_reason="startup_timeout")),
+        monkeypatch,
     )
     try:
         assert owner.state == "failed"
@@ -584,7 +648,7 @@ async def test_composed_app_translation_disable_rebuilds_overlay_source_primary(
         presentation=presentation,
         config_path=tmp_path / "settings.json",
     )
-    load_application_settings(settings=app._settings.settings)
+    app._settings.settings.start()
     pipeline = app._input_runtime.pipeline
     config_owner = TranslationRuntimeConfigurationOwner(
         TranslationRuntimeConfig(translation_enabled=True)
@@ -622,7 +686,7 @@ async def test_composed_app_translation_disable_rebuilds_overlay_source_primary(
         )
         assert presenter.snapshot().blocks[0].primary_text == "peer translation toggle"
         snapshots_before = len(bridge.snapshots)
-        assert await app._input_runtime.translation.set_enabled(False) is False
+        assert await app._input_runtime.translation.set_enabled(False) is True
         await _drain()
         assert config_owner.snapshot().value.translation_enabled is False
         off_block = presenter.snapshot().blocks[0]
@@ -674,7 +738,7 @@ async def test_accepted_toggle_round_trip_rebuilds_without_new_speech() -> None:
     )
     enable_owner, _dashboard = make_enable_owner(config_owner, owner, llm_available=True)
     snapshots_before = len(bridge.snapshots)
-    assert await enable_owner.set_enabled(False) is False
+    assert await enable_owner.set_enabled(False) is True
     await _drain()
     off_block = presenter.snapshot().blocks[0]
     assert off_block.primary_text == "peer source toggle"
@@ -721,6 +785,80 @@ async def test_rejected_enable_keeps_source_primary_without_republish() -> None:
     assert block.secondary_text == ""
     assert block.secondary_enabled is False
     assert len(bridge.snapshots) == snapshots_before
+
+
+async def test_failed_warmup_rebuilds_existing_row_as_source_primary() -> None:
+    config_owner = TranslationRuntimeConfigurationOwner(
+        TranslationRuntimeConfig(translation_enabled=False)
+    )
+    owner = make_owner(config_owner)
+    runtime, presenter, bridge = attach_live_presenter(owner, config_owner)
+    adapter = OverlayEventAdapter(clock=FakeClock(_now=10.0))
+    peer_turn_id = uuid4()
+    await presenter.emit(
+        adapter.transcript_final(
+            Transcript(
+                utterance_id=peer_turn_id,
+                channel="peer",
+                text="retained peer source",
+                is_final=True,
+                created_at=10.0,
+            ),
+            source_language="en",
+            target_language="ko",
+        )
+    )
+    await presenter.emit(
+        adapter.translation_final(
+            utterance_id=peer_turn_id,
+            channel="peer",
+            text="retained peer translation",
+            source_language="en",
+            target_language="ko",
+            applied_context_mode=None,
+            created_at=10.1,
+        )
+    )
+    enable_owner, dashboard = make_enable_owner(config_owner, owner, llm_available=True)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    failure = OSError("controlled warmup failure")
+
+    async def warmup() -> None:
+        entered.set()
+        await release.wait()
+        raise failure
+
+    enable_owner.warmup = warmup
+    enabling = asyncio.create_task(enable_owner.set_enabled(True))
+    try:
+        await entered.wait()
+        await _drain()
+        assert presenter.snapshot().blocks[0].primary_text == "retained peer translation"
+        snapshots_before_failure = len(bridge.snapshots)
+        release.set()
+        with pytest.raises(OSError) as caught:
+            await enabling
+        assert caught.value is failure
+        await _drain()
+        assert config_owner.snapshot().value.translation_enabled is False
+        assert dashboard == [False]
+        assert presenter.translation_enabled is False
+        block = presenter.snapshot().blocks[0]
+        assert block.primary_text == "retained peer source"
+        assert block.secondary_text == ""
+        assert block.secondary_enabled is False
+        assert len(bridge.snapshots) == snapshots_before_failure + 1
+    finally:
+        release.set()
+        await asyncio.gather(enabling, return_exceptions=True)
+        await runtime.close(
+            preserve_presenter_state=False,
+            overlay_sink_detach=None,
+            preview_reset=None,
+            diagnostics_detach=None,
+            emit_shutdown=False,
+        )
 
 
 async def test_managed_exhaustion_rebuilds_visible_row_as_source_primary() -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import locale
 from dataclasses import replace
 
+from puripuly_heart.config.llm_profiles import OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41
 from puripuly_heart.config.settings_vnext.schema import (
     AppSettingsVNext,
     UiIntent,
@@ -37,7 +38,7 @@ def resolve_first_run_ui_locale(system_locale: str | None) -> str:
     return "en"
 
 
-def new_settings_for_first_run(system_locale: str | None = None) -> AppSettingsVNext:
+def new_settings_for_reset(system_locale: str | None = None) -> AppSettingsVNext:
     locale_value = resolve_first_run_ui_locale(
         detect_system_locale() if system_locale is None else system_locale
     )
@@ -52,10 +53,38 @@ def new_settings_for_first_run(system_locale: str | None = None) -> AppSettingsV
                 **translation.connection_history,
                 "deepseek_v4_flash_41": "managed_china",
             },
-            openrouter_model="deepseek/deepseek-v4.1-flash",
+            openrouter_model=OPENROUTER_MODEL_DEEPSEEK_V4_FLASH_41,
             openrouter_selection_alias="deepseek_v4_flash_41_managed",
             openrouter_provider_routing="deepseek_v4_flash_41_strict",
         )
+    settings = replace(
+        settings,
+        intent=replace(
+            settings.intent,
+            translation=translation,
+            ui=UiIntent(locale=locale_value),
+        ),
+    )
+    return with_telemetry_enabled(settings, True)
+
+
+def new_settings_for_first_run(system_locale: str | None = None) -> AppSettingsVNext:
+    locale_value = resolve_first_run_ui_locale(
+        detect_system_locale() if system_locale is None else system_locale
+    )
+    settings = AppSettingsVNext()
+    translation = replace(
+        settings.intent.translation,
+        model="index_translate_35b",
+        connection="public_api",
+        openrouter_selected_source="none",
+        openrouter_selection_alias=None,
+        openrouter_provider_routing="default",
+        connection_history={
+            **settings.intent.translation.connection_history,
+            "index_translate_35b": "public_api",
+        },
+    )
     settings = replace(
         settings,
         intent=replace(

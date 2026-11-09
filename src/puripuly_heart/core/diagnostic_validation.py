@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Final, Literal, TypeAlias
@@ -29,6 +29,99 @@ from puripuly_heart.core.messages import (
 from puripuly_heart.core.network_diagnostics import (
     TRANSPORT_ENUM_FIELDS,
     TRANSPORT_NUMERIC_FIELDS,
+)
+
+QWEN_FAILURE_ENUM_FIELDS: Final = MappingProxyType(
+    {
+        "qwen_failure_kind": frozenset(
+            {
+                "native",
+                "websocket_close",
+                "websocket_handshake",
+                "websocket_protocol",
+                "configuration",
+                "tls",
+                "proxy",
+                "transport",
+                "unknown",
+            }
+        ),
+        "qwen_native_code": frozenset(
+            {
+                "unknown",
+                "CLIENT_ERROR",
+                "InvalidApiKey",
+                "AccessDenied",
+                "AccessDenied.Unpurchased",
+                "InvalidParameter",
+                "DataInspectionFailed",
+                "ModelNotFound",
+                "Throttling",
+                "Throttling.RateQuota",
+                "Throttling.BurstRate",
+                "Throttling.AllocationQuota",
+                "Throttling.ServiceOverloaded",
+                "Throttling.ResourceExhausted",
+                "InternalError",
+                "InternalError.Timeout",
+                "SystemError",
+                "RequestTimeOut",
+                "ServiceUnavailable",
+                "ModelUnavailable",
+            }
+        ),
+    }
+)
+QWEN_FAILURE_NUMERIC_FIELDS: Final = ("ws_close_code", "idle_ms")
+
+OPENAI_FAILURE_ENUM_FIELDS: Final = MappingProxyType(
+    {
+        "openai_error_code": frozenset(
+            {
+                "unknown",
+                "invalid_api_key",
+                "invalid_parameter",
+                "invalid_value",
+                "unsupported_parameter",
+                "unsupported_value",
+                "model_not_found",
+                "context_length_exceeded",
+                "insufficient_quota",
+                "billing_hard_limit_reached",
+                "rate_limit_exceeded",
+                "permission_denied",
+                "account_deactivated",
+                "server_error",
+            }
+        ),
+        "openai_error_type": frozenset(
+            {
+                "unknown",
+                "invalid_request_error",
+                "authentication_error",
+                "permission_error",
+                "rate_limit_error",
+                "insufficient_quota",
+                "server_error",
+            }
+        ),
+        "openai_error_param": frozenset(
+            {
+                "unknown",
+                "model",
+                "messages",
+                "messages[0].role",
+                "messages[0].content",
+                "messages[0].content[0].prompt_cache_breakpoint",
+                "reasoning_effort",
+                "temperature",
+                "max_completion_tokens",
+                "prompt_cache_options",
+                "prompt_cache_options.mode",
+                "prompt_cache_options.ttl",
+            }
+        ),
+    }
 )
 
 DiagnosticSink: TypeAlias = Literal[
@@ -233,6 +326,9 @@ _STT_STARTUP_FAILURE_CODES: Final = frozenset(
         "saved_device_missing",
         "self_channel_inactive",
         "strict_vulkan_rejected",
+        "strict_cpu_rejected",
+        "channel_rejected",
+        "channel_mismatch",
         "unsupported_capability",
         "warmup_failed",
         "worker_closed",
@@ -254,16 +350,15 @@ _STT_STARTUP_FAILURE_TYPES: Final = frozenset(
         "ModuleNotFoundError",
         "FileNotFoundError",
         "PermissionError",
-        "GpuWorkerError",
-        "GpuWorkerRequestError",
-        "GpuWorkerClosedError",
+        "ASRWorkerError",
+        "ASRWorkerRequestError",
+        "ASRWorkerClosedError",
         "GpuASRRuntimeError",
         "GpuASRManualRetryRequired",
         "LocalSTTAssetError",
         "LocalSTTModelMissingError",
         "LocalSTTManifestInvalidError",
-        "LocalQwenRuntimeBootstrapError",
-        "LocalQwenSherpaLoadError",
+        "LocalSherpaRuntimeBootstrapError",
         "LocalParakeetSherpaLoadError",
         "ProviderReadinessError",
         "SelfCaptureIngressError",
@@ -852,8 +947,19 @@ def _field_shape_reasons(
         if key in TRANSPORT_ENUM_FIELDS:
             if type(value) is not str or value not in TRANSPORT_ENUM_FIELDS[key]:
                 reasons.append(DIAGNOSTIC_VALIDATION_REASON_UNSUPPORTED_FIELD_TYPE)
+        elif key in QWEN_FAILURE_ENUM_FIELDS:
+            if type(value) is not str or value not in QWEN_FAILURE_ENUM_FIELDS[key]:
+                reasons.append(DIAGNOSTIC_VALIDATION_REASON_UNSUPPORTED_FIELD_TYPE)
+        elif key in OPENAI_FAILURE_ENUM_FIELDS:
+            if type(value) is not str or value not in OPENAI_FAILURE_ENUM_FIELDS[key]:
+                reasons.append(DIAGNOSTIC_VALIDATION_REASON_UNSUPPORTED_FIELD_TYPE)
         elif key in TRANSPORT_NUMERIC_FIELDS and type(value) is not int:
             reasons.append(DIAGNOSTIC_VALIDATION_REASON_UNSUPPORTED_FIELD_TYPE)
+        elif key in QWEN_FAILURE_NUMERIC_FIELDS:
+            if type(value) is not int or not 0 <= value < (
+                5000 if key == "ws_close_code" else 2**64
+            ):
+                reasons.append(DIAGNOSTIC_VALIDATION_REASON_UNSUPPORTED_FIELD_TYPE)
         if _max_depth(value) > DIAGNOSTIC_FIELD_MAX_DEPTH:
             reasons.append(DIAGNOSTIC_VALIDATION_REASON_EXCESSIVE_DEPTH)
         if not _is_supported_diagnostic_value(value):
@@ -953,27 +1059,27 @@ def _redact_fields(
 
 def _redact_text_payload(text: str) -> tuple[str, bool]:
     redacted = text.replace("\r\n", "\n").replace("\r", "\n")
-    redacted = _redact_raw_assignment_values(
+    redacted = redact_raw_assignment_values(
         redacted,
         _PROVIDER_RESPONSE_BODY_TEXT_RE,
         PROVIDER_RESPONSE_BODY_REDACTION_MARKER,
     )
-    redacted = _redact_raw_assignment_values(
+    redacted = redact_raw_assignment_values(
         redacted,
         _BROKER_RAW_MESSAGE_TEXT_RE,
         BROKER_RAW_MESSAGE_REDACTION_MARKER,
     )
-    redacted = _redact_raw_assignment_values(
+    redacted = redact_raw_assignment_values(
         redacted,
         _LOCAL_LLM_EXTRA_BODY_TEXT_RE,
         LOCAL_LLM_EXTRA_BODY_REDACTION_MARKER,
     )
-    redacted = _redact_raw_assignment_values(
+    redacted = redact_raw_assignment_values(
         redacted,
         _UNSAFE_TEXT_PAYLOAD_TEXT_RE,
         DIAGNOSTIC_REDACTION_MARKER,
     )
-    redacted = _redact_raw_assignment_values(
+    redacted = redact_raw_assignment_values(
         redacted,
         _SENSITIVE_TOKEN_ASSIGNMENT_TEXT_RE,
         DIAGNOSTIC_REDACTION_MARKER,
@@ -1040,7 +1146,7 @@ def _text_content_reasons(text: str) -> tuple[DiagnosticValidationReason, ...]:
     return tuple(dict.fromkeys(reasons))
 
 
-def _redact_raw_assignment_values(
+def redact_raw_assignment_values(
     text: str,
     pattern: re.Pattern[str],
     marker: str,
@@ -1113,17 +1219,7 @@ def _copy_diagnostics_with_fields(
     diagnostics: ErrorDiagnostics,
     fields: Mapping[str, object],
 ) -> ErrorDiagnostics:
-    return ErrorDiagnostics(
-        component=diagnostics.component,
-        operation=diagnostics.operation,
-        code=diagnostics.code,
-        category=diagnostics.category,
-        visibility=diagnostics.visibility,
-        content_policy=diagnostics.content_policy,
-        status_code=diagnostics.status_code,
-        retry_after_ms=diagnostics.retry_after_ms,
-        fields=fields,
-    )
+    return replace(diagnostics, fields=fields)
 
 
 def _is_supported_diagnostic_value(value: object) -> bool:
@@ -1247,15 +1343,19 @@ def _value_contains_sensitive_extra_body_key(value: object) -> bool:
     return False
 
 
+def contains_known_secret_pattern(text: str) -> bool:
+    return bool(
+        _SENSITIVE_TOKEN_ASSIGNMENT_TEXT_RE.search(text)
+        or any(pattern.search(text) for pattern in _SECRET_VALUE_PATTERNS)
+    )
+
+
 def _contains_unredacted_secret_pattern(key: str, value: object) -> bool:
     if _is_safe_redaction_marker(value):
         return False
     if _is_sensitive_key(key):
         return True
-    return isinstance(value, str) and (
-        bool(_SENSITIVE_TOKEN_ASSIGNMENT_TEXT_RE.search(value))
-        or any(pattern.search(value) for pattern in _SECRET_VALUE_PATTERNS)
-    )
+    return isinstance(value, str) and contains_known_secret_pattern(value)
 
 
 def _contains_unredacted_unsafe_text_payload(key: str, value: object) -> bool:
@@ -1318,6 +1418,7 @@ __all__ = [
     "MESSAGE_PARAM_REDACTION_POLICY",
     "redact_diagnostics_for_sink",
     "redact_message_params_for_sink",
+    "redact_raw_assignment_values",
     "redact_text_for_sink",
     "redact_user_message_ref_for_sink",
     "stt_startup_failure_code",

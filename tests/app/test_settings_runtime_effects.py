@@ -4,20 +4,20 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from puripuly_heart.app.wiring_provider_runtime import (
-    project_translation_runtime_settings_from_vnext,
-)
-from puripuly_heart.app.wiring_translation_runtime_configuration import (
-    build_translation_runtime_config,
-)
 
 from puripuly_heart.app.ports.settings_runtime_effects import SettingsRuntimeTransition
 from puripuly_heart.app.services.settings.settings_runtime_effects import (
     SettingsRuntimeEffectsAdapter,
 )
+from puripuly_heart.app.wiring.wiring_provider_runtime import (
+    project_translation_runtime_settings_from_vnext,
+)
 from puripuly_heart.app.wiring.wiring_stt_factory import (
     build_peer_capture_session_config_from_vnext,
     build_peer_stt_runtime_signature_from_vnext,
+)
+from puripuly_heart.app.wiring.wiring_translation_runtime_configuration import (
+    build_translation_runtime_config,
 )
 from puripuly_heart.config.prompts import get_translation_prompt_template
 from puripuly_heart.config.runtime_resolution import OPENAI_MODEL_GPT_6_LUNA
@@ -120,7 +120,7 @@ async def test_live_model_settings_refresh_runtime_prompt_without_changing_overr
     adapter._canonical_settings = lambda value: value
     adapter._self_runtime_converged = lambda _settings: None
     adapter._peer_runtime_converged = lambda _settings: None
-    adapter._sync_signatures = lambda _settings: None
+    adapter._sync_stt_signatures = lambda _settings: None
     adapter._rebuild_managed_gemma = _AsyncNoop().inspect_cpu
 
     previous = generic
@@ -240,7 +240,7 @@ async def test_failed_self_runtime_apply_does_not_write_target_signature_cache_f
     adapter._canonical_settings = lambda value: value
     adapter._sync_effective_translation_flags = lambda _settings: None
     adapter._peer_runtime_converged = lambda _settings: None
-    adapter._sync_signatures = lambda _settings: events.append("signature_cache_write")
+    adapter._sync_stt_signatures = lambda _settings: events.append("signature_cache_write")
 
     async def fail_self_replace(_smooth: bool) -> None:
         events.append("self_replace")
@@ -337,7 +337,7 @@ async def test_peer_refresh_recomputes_activation_after_eula_transition() -> Non
     adapter._canonical_settings = lambda value: value
     adapter._sync_effective_translation_flags = lambda _settings: events.append("peer_flags")
     adapter._peer_runtime_converged = lambda _settings: None
-    adapter._sync_signatures = lambda _settings: events.append("signature_cache_write")
+    adapter._sync_stt_signatures = lambda _settings: events.append("signature_cache_write")
 
     async def no_self_replace(_smooth: bool) -> None:
         events.append("self_replace")
@@ -418,7 +418,7 @@ async def test_stale_active_peer_with_matching_cache_retries_without_caching_non
     adapter._rebuild_managed_gemma = lambda: None
     adapter._canonical_settings = lambda value: value
     adapter._sync_effective_translation_flags = lambda _settings: events.append("peer_flags")
-    adapter._sync_signatures = lambda _settings: events.append("signature_cache_write")
+    adapter._sync_stt_signatures = lambda _settings: events.append("signature_cache_write")
     adapter._peer_runtime_converged = lambda _settings: False
 
     async def no_self_replace(_smooth: bool) -> None:

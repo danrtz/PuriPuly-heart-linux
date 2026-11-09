@@ -47,7 +47,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="command")
-
     desktop_overlay = sub.add_parser(
         "run-desktop-overlay",
         help="Run the desktop Flet overlay renderer",
@@ -76,8 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     verify_desktop_repro.add_argument("--output-dir", type=Path, required=True)
 
     sub.add_parser(
-        "local-qwen-runtime-check",
-        help="Verify the Local Qwen Windows runtime DLL directory",
+        "local-sherpa-runtime-check",
+        help="Verify the Local sherpa Windows runtime DLL directory",
     )
     sub.add_parser(
         "soxr-runtime-check",
@@ -132,8 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_local_qwen_runtime_check() -> int:
-    from puripuly_heart.app.local_qwen_runtime_check import run_local_qwen_runtime_check as run
+def run_local_sherpa_runtime_check() -> int:
+    from puripuly_heart.app.local_sherpa_runtime_check import run_local_sherpa_runtime_check as run
 
     return run()
 
@@ -165,12 +164,12 @@ def run_local_asr_production_composition_evidence(
 
 def run_hf_xet_runtime_check() -> int:
     from importlib.machinery import EXTENSION_SUFFIXES
+    from importlib.metadata import version
 
     import hf_xet
-    import huggingface_hub
 
-    if huggingface_hub.__version__ != "1.26.0":
-        raise RuntimeError("unexpected packaged huggingface_hub version")
+    if version("huggingface-hub") != "2.3.0" or version("hf-xet") != "1.7.0":
+        raise RuntimeError("unexpected packaged Hugging Face runtime versions")
     if not any(
         Path(hf_xet.__file__).with_name("hf_xet" + suffix).is_file()
         for suffix in EXTENSION_SUFFIXES
@@ -393,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "hf-xet-download-worker":
-        from puripuly_heart.core.local_stt_huggingface_xet_adapter import (
+        from puripuly_heart.core.local_asr.local_stt_huggingface_xet_adapter import (
             run_huggingface_xet_worker,
         )
 
@@ -453,8 +452,8 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_logging_sinks=logging_sinks,
             )
 
-        if args.command == "local-qwen-runtime-check":
-            return run_local_qwen_runtime_check()
+        if args.command == "local-sherpa-runtime-check":
+            return run_local_sherpa_runtime_check()
 
         if args.command == "soxr-runtime-check":
             return run_soxr_runtime_check()

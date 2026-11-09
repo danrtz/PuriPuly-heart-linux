@@ -70,9 +70,9 @@ OSC_INTEGER_PARAMETER_NAMES: Final = tuple(INTEGER_CONTROLS)
 ASR_IDS: Final[Mapping[int, str]] = MappingProxyType(
     {
         0: "local_cpu_auto",
-        1: "local_parakeet_v3",
+        1: "local_cpu_auto",
         2: "local_parakeet_ja",
-        3: "local_qwen",
+        3: "local_cpu_auto",
         4: "local_qwen_gpu",
         5: "deepgram",
         7: "soniox",
@@ -82,6 +82,10 @@ ASR_IDS: Final[Mapping[int, str]] = MappingProxyType(
         11: "elevenlabs_scribe",
         12: "qwen_audio",
         13: "rolling_free",
+        14: "local_fun_asr_nano",
+        15: "local_fun_asr_mlt_nano",
+        16: "local_granite",
+        17: "local_gigaam",
     }
 )
 
@@ -100,6 +104,8 @@ TRANSLATION_MODEL_IDS: Final[Mapping[int, str]] = MappingProxyType(
         11: "managed_gemma",
         13: "deepseek_v4_flash_41",
         14: "gpt_6_luna",
+        15: "managed_gemma_26b",
+        16: "index_translate_35b",
     }
 )
 
@@ -107,6 +113,8 @@ TRANSLATION_CONNECTION_BY_MODEL_ID: Final[Mapping[int, str]] = MappingProxyType(
     {
         10: "cpu",
         11: "gpu",
+        15: "gpu",
+        16: "public_api",
     }
 )
 
@@ -160,6 +168,7 @@ SECONDARY_LANGUAGE_IDS: Final[Mapping[int, str]] = MappingProxyType(
 ASR_ID_BY_PROVIDER: Final[Mapping[str, int]] = MappingProxyType(
     {
         **{value: identifier for identifier, value in ASR_IDS.items()},
+        "local_cpu_auto": 0,
         "custom": 8,
     }
 )
@@ -175,6 +184,8 @@ TRANSLATION_MODEL_ID_BY_SELECTION: Final[Mapping[tuple[str, str], int]] = Mappin
     {
         ("managed_gemma", "cpu"): 10,
         ("managed_gemma", "gpu"): 11,
+        ("managed_gemma_26b", "gpu"): 15,
+        ("index_translate_35b", "public_api"): 16,
     }
 )
 LANGUAGE_ID_BY_CODE: Final[Mapping[str, int]] = MappingProxyType(
@@ -215,7 +226,7 @@ def registry_for_parameter(name: str) -> Mapping[int, str] | None:
 
 
 def translation_model_id_for_selection(model: str, connection: str) -> int:
-    if model == "managed_gemma":
+    if model in {"managed_gemma", "managed_gemma_26b"}:
         return TRANSLATION_MODEL_ID_BY_SELECTION[(model, connection)]
     return TRANSLATION_MODEL_ID_BY_VALUE[model]
 

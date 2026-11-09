@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import queue
 import threading
@@ -16,6 +17,7 @@ from puripuly_heart.core.audio.format import (
     AudioCaptureSpan,
     AudioFrameF32,
 )
+from puripuly_heart.core.owned_thread import run_owned_thread_call
 from puripuly_heart.core.runtime_logging import emit_basic_log
 
 logger = logging.getLogger(__name__)
@@ -543,6 +545,13 @@ class AudioSource(Protocol):
     async def close(self) -> None: ...
 
 
+class AudioSourceOpenFailure(RuntimeError):
+    def __init__(self, source: AudioSource, failure: Exception) -> None:
+        super().__init__("audio_source_open_cleanup_failed")
+        self.source = source
+        self.failure = failure
+
+
 @dataclass(slots=True)
 class SoundDeviceAudioSource(AudioSource):
     """Audio source using sounddevice/PortAudio.
@@ -562,6 +571,9 @@ class SoundDeviceAudioSource(AudioSource):
     _queue: janus.Queue[AudioFrameF32 | None] = field(init=False, repr=False)
     _stream: object = field(init=False, repr=False)
     _closed: bool = field(init=False, default=False)
+    _close_complete: bool = field(init=False, default=False, repr=False)
+    _native_close_complete: bool = field(init=False, default=False, repr=False)
+    _native_close_error: Exception | None = field(init=False, default=None, repr=False)
     _actual_sample_rate_hz: int = field(init=False, repr=False)
     _opened_channels: int = field(init=False, repr=False)
     _frame_channels: int = field(init=False, repr=False)
@@ -640,20 +652,40 @@ class SoundDeviceAudioSource(AudioSource):
             )
 
         stream = sd.InputStream(**stream_kwargs)
-        actual_sample_rate_hz = int(stream.samplerate)
-        self._actual_sample_rate_hz = actual_sample_rate_hz
-        self._progression = PhysicalCaptureProgression(sample_rate_hz=actual_sample_rate_hz)
-        try:
-            stream.start()
-        except Exception:
-            with contextlib.suppress(Exception):
-                stream.stop()
-            with contextlib.suppress(Exception):
-                stream.close()
-            raise
-
         self._stream = stream
+        try:
+            actual_sample_rate_hz = int(stream.samplerate)
+            self._actual_sample_rate_hz = actual_sample_rate_hz
+            self._progression = PhysicalCaptureProgression(sample_rate_hz=actual_sample_rate_hz)
+            stream.start()
+        except Exception as exc:
+            self._closed = True
+            try:
+                self._close_native()
+            except Exception as cleanup_exc:
+                failure = ExceptionGroup("Audio source open and cleanup failed", [exc, cleanup_exc])
+                raise AudioSourceOpenFailure(self, failure) from failure
+            finally:
+                self._queue.close()
+            self._close_complete = True
+            raise
         self._opened_channels = self.channels
+
+    def opened_input_metadata(self) -> dict:
+        import sounddevice as sd
+
+        actual_device = self._stream.device
+        if isinstance(actual_device, tuple):
+            actual_device = actual_device[0]
+        metadata = sd.query_devices(actual_device, "input")
+        api = sd.query_hostapis(metadata["hostapi"])
+        return dict(
+            device_index=actual_device,
+            name=metadata["name"],
+            host_api=api["name"],
+            sample_rate=self.actual_sample_rate_hz,
+            channels=self.opened_channels,
+        )
 
     @property
     def actual_sample_rate_hz(self) -> int:
@@ -724,24 +756,49 @@ class SoundDeviceAudioSource(AudioSource):
             )
 
     async def close(self) -> None:
-        if self._closed:
+        if self._close_complete:
             return
         self._closed = True
-
-        stream = self._stream
-        with contextlib.suppress(Exception):
-            stream.stop()
-        with contextlib.suppress(Exception):
-            stream.close()
-
         try:
-            self._queue.sync_q.put_nowait(None)
-        except Exception:
-            pass
+            await run_owned_thread_call(self._close_native)
+            self._close_complete = True
+        except asyncio.CancelledError as exc:
+            if self._native_close_error is not None:
+                raise self._native_close_error from exc
+            self._close_complete = self._native_close_complete
+            raise
+        finally:
+            try:
+                self._queue.sync_q.put_nowait(None)
+            except Exception:
+                pass
+            self._queue.close()
+            with contextlib.suppress(Exception):
+                await self._queue.wait_closed()
 
-        self._queue.close()
-        with contextlib.suppress(Exception):
-            await self._queue.wait_closed()
+    def _close_native(self) -> None:
+        self._native_close_error = None
+        if self._native_close_complete:
+            return
+        failures: list[Exception] = []
+        try:
+            self._stream.stop()
+        except Exception as exc:
+            failures.append(exc)
+        try:
+            self._stream.close()
+        except Exception as exc:
+            failures.append(exc)
+        else:
+            self._native_close_complete = True
+        if len(failures) == 1:
+            self._native_close_error = failures[0]
+        elif failures:
+            self._native_close_error = ExceptionGroup(
+                "Audio source native cleanup failed", failures
+            )
+        if self._native_close_error is not None:
+            raise self._native_close_error
 
 
 def resolve_sounddevice_input_device(*, host_api: str = "", device: str = "") -> int | None:

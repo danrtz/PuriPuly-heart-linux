@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Literal
+
+from .furigana import RubySegment, ruby_from_payload
 
 ChannelId = Literal["self", "peer"]
 U64_MAX = (1 << 64) - 1
+NATIVE_SELF_SCENE_TARGET = "scene:self"
 SPEAKER_IDENTITY_STYLES = ("gold", "cyan", "coral", "blue")
 SpeakerStyle = Literal["gray", "gold", "cyan", "coral", "blue"]
 # `active_peer` remains a reserved compatibility/fallback variant. Normal
 # product peer rows are primary-visible only after translation arrival.
 BlockVariant = Literal["active_self", "active_peer", "finalized"]
+
+
+class RuntimeStopReason(StrEnum):
+    RUNTIME_QUIT = "runtime_quit"
+    DRIVER_REQUESTED_QUIT = "driver_requested_quit"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +75,8 @@ class OverlayPresentationBlock:
     publication_order: int | None = None
     publication_index: int | None = None
     speaker_style: SpeakerStyle | None = None
+    primary_ruby: tuple[RubySegment, ...] = ()
+    secondary_ruby: tuple[RubySegment, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -78,6 +89,10 @@ class OverlayPresentationBlock:
             "secondary_text": self.secondary_text,
             "secondary_enabled": self.secondary_enabled,
         }
+        if self.primary_ruby:
+            payload["primary_ruby"] = [segment.to_dict() for segment in self.primary_ruby]
+        if self.secondary_ruby:
+            payload["secondary_ruby"] = [segment.to_dict() for segment in self.secondary_ruby]
         if self.update_id is not None:
             payload["update_id"] = self.update_id
         if self.primary_language is not None:
@@ -146,6 +161,12 @@ class OverlayPresentationBlock:
             publication_order=_optional_non_negative_int_field(data, "publication_order"),
             publication_index=_optional_non_negative_int_field(data, "publication_index"),
             speaker_style=_optional_speaker_style(data),
+            primary_ruby=ruby_from_payload(
+                data.get("primary_ruby"), _require_string_field(data, "primary_text")
+            ),
+            secondary_ruby=ruby_from_payload(
+                data.get("secondary_ruby"), _require_string_field(data, "secondary_text")
+            ),
         )
 
 
@@ -210,6 +231,13 @@ class NativeFreshRenderGenerations:
 class NativeFreshRenderTargets:
     self: str | None = None
     peer: str | None = None
+
+    def __post_init__(self) -> None:
+        for target in (self.self, self.peer):
+            if target is not None and (not isinstance(target, str) or not target.strip()):
+                raise ValueError("native fresh render target must be a non-empty string")
+        if self.peer == NATIVE_SELF_SCENE_TARGET:
+            raise ValueError("SELF scene coverage cannot target the PEER retry channel")
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {}

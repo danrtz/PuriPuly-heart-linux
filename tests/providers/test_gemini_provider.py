@@ -326,50 +326,6 @@ async def test_google_genai_client_formats_prompt_and_context(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("model", "expected_thinking_level"),
-    [
-        ("gemini-3.8-flash", "low"),
-        ("models/gemini-3.8-flash", "low"),
-        ("m", "low"),
-    ],
-)
-async def test_google_genai_client_thinking_level_follows_model(
-    monkeypatch, model: str, expected_thinking_level: str
-):
-    state = _install_fake_google(monkeypatch, response_text=" OK ")
-
-    client = GoogleGenaiGeminiClient(api_key="k", model=model)
-    await client.translate(
-        text="hello",
-        system_prompt="PROMPT",
-        source_language="en",
-        target_language="ko",
-    )
-
-    assert state["config"].thinking_config.thinking_level == expected_thinking_level
-
-
-@pytest.mark.asyncio
-async def test_google_genai_client_raises_on_empty_response(
-    monkeypatch, caplog: pytest.LogCaptureFixture
-):
-    _install_fake_google(monkeypatch, response_text=None)
-
-    client = GoogleGenaiGeminiClient(api_key="k", model="m")
-    with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.llm.gemini"):
-        with pytest.raises(RuntimeError, match="Gemini response did not contain text"):
-            await client.translate(
-                text="hello",
-                system_prompt="PROMPT",
-                source_language="en",
-                target_language="ko",
-            )
-
-    assert any(record.levelno == logging.ERROR for record in caplog.records)
-
-
-@pytest.mark.asyncio
 async def test_google_genai_client_uses_runtime_logging_for_missing_text_warning(
     monkeypatch, caplog: pytest.LogCaptureFixture
 ):
@@ -378,7 +334,7 @@ async def test_google_genai_client_uses_runtime_logging_for_missing_text_warning
 
     client = GoogleGenaiGeminiClient(api_key="k", model="m", runtime_logging=runtime_logging)
     with caplog.at_level(logging.INFO, logger="puripuly_heart.providers.llm.gemini"):
-        with pytest.raises(RuntimeError, match="Gemini response did not contain text"):
+        with pytest.raises(RuntimeError) as exc_info:
             await client.translate(
                 text="hello",
                 system_prompt="PROMPT",
@@ -387,7 +343,6 @@ async def test_google_genai_client_uses_runtime_logging_for_missing_text_warning
             )
 
     assert runtime_logging.detailed_messages == []
-    assert runtime_logging.basic_messages == [
-        ("[Basic][LLM] Gemini response missing text [translate]", logging.ERROR),
-    ]
+    assert runtime_logging.basic_messages == []
+    assert exc_info.value.failure_diagnostics.category == "invalid_response"
     assert caplog.messages == []

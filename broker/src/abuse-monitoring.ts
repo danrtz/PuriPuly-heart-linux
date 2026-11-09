@@ -490,7 +490,7 @@ async function resolveLongestRequestEventWindowMinutes(
     controls.discordOpenrouterIssueIp.windowMinutes,
     controls.discordOpenrouterIssueInstallation.windowMinutes,
     controls.qqAuthAssertIp.windowMinutes,
-    controls.qqAuthStatusIp.windowMinutes,
+    controls.puriTokenIp.windowMinutes,
     controls.pendingDiscordOAuthSessions.windowMinutes,
   ];
   const hookRow = await db

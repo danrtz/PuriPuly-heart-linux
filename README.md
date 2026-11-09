@@ -80,8 +80,8 @@ It works in many environments, including VRChat and Discord.
 - **LLM-Powered Localization** — Slang, colloquialisms, and casual/formal speech, all rendered naturally.
 - **Context Memory** — Keeps the conversation flowing naturally with awareness of prior context.
 - **Two-way Voice Translation** — Translates the other person's voice too, with VR subtitle overlay support.
-- **Start via Discord** — Get going right away without a complex setup process.
-- **The most powerful local full stack** — From Parakeet to Gemma 4 E4B, built with the most efficient models available today.
+- **No setup required** — No need to configure the complicated settings yourself; the built-in agent provides the best experience.
+- **The most powerful local full stack** — From Granite Speech 5.0 to Gemma 4 E4B, built with the most efficient models available today.
 
 ## Q&A
 
@@ -92,10 +92,7 @@ It works in many environments, including VRChat and Discord.
 → Under optimal conditions, latency is around 1 second, measured from when the speaker finishes talking.
 
 - **Does it cost money to use?**
-→ Yes, but only later. New users get a free usage allowance, and even after that the pricing is very cheap; you can translate thousands of times for $1. You can also use it for free by running local models.
-
-- **Do I need to get an API key?**
-→ Yes, but again, only later. At first, just install and authenticate via Discord to start using it.
+→ You can start right away for free. Free options alone already perform well enough. Paid models are also very inexpensive — thousands of uses for $1.
 
 - **Voice recognition is slow.**
 → When using local ASR, processing times can be slow if compute resources are limited. In this case, we recommend switching to a cloud STT service.
@@ -108,11 +105,11 @@ It works in many environments, including VRChat and Discord.
 ---
 
 ## Translation Comparison
-![Mean error penalty per sentence for the full speech recognition and translation pipeline. Korean to EN / JA / ZH-Hans, 216 multi-turn samples, Gemba MQM evaluation; lower is better. Blue bars are combinations available in PuriPuly: Gemini Transcribe → Luna (0.676), Soniox STT → Luna (0.942), Qwen ASR 1.7B → Gemma 26B (1.024), Gemini Transcribe → Gemma 26B (1.084), Soniox STT → Gemma 26B (1.293), Qwen ASR 0.6B → Gemma 26B (2.374). Orange bars are external baselines: Qwen 3.8 Live Translate (2.108), Gemini 3.5 Live Translate (3.754), Soniox Translate (4.989). Judge model: Gemini 3.7 Flash.](docs/images/performance/1.png)
+![Mean error penalty per sentence. Korean to EN / JA / ZH-Hans, 216 multi-turn samples, Gemba MQM evaluation; lower is better. Blue bars are models available in PuriPuly: GPT 6 Luna (0.189), DeepSeek V4.1 Flash (0.452), Gemma 4 26B A4B (0.639), Index-Translate 35B (1.090), Gemma 4 E4B QAT Q4 (1.927). Orange bars are external baselines: Qwen 3.8 Live Translate (1.168), Papago (2.784), Gemini 3.5 Translate (2.969), Soniox Translate (3.501), DeepL (3.938), Google Translation (4.477). Only results with a character error rate (CER) of 5% or less were selected for Qwen 3.8, Gemini 3.5, and Soniox. Judge model: GPT-6 Astra (high reasoning effort).](docs/images/performance/1.png)
 
-![Mean error penalty per sentence. Korean to EN / JA / ZH-Hans, 216 multi-turn samples, Gemba MQM evaluation; lower is better. Blue bars are models available in PuriPuly: GPT 6 Luna (0.130), Gemma 4 26B A4B (0.387), DeepSeek-V4 Flash 0731 (0.571), Gemma 4 E4B QAT Q4 (1.577). Orange bars are external baselines: Qwen 3.8 Live Translate (1.392), Papago (2.699), Gemini 3.5 Translate (2.991), Soniox Translate (3.473), DeepL (3.914), Google Translation (5.731). Only results with a character error rate (CER) of 5% or less were selected for Qwen 3.8, Gemini 3.5, and Soniox. Judge model: Gemini 3.7 Flash.](docs/images/performance/2.png)
+![Mean error penalty per sentence for the full speech recognition and translation pipeline. Korean to EN / JA / ZH-Hans, 216 multi-turn samples, Gemba MQM evaluation; lower is better. Blue bars are the benchmarked PuriPuly configurations: Gemini Transcribe → Luna (0.608), Gemini Transcribe → Gemma 26B (1.083), Soniox STT → Gemma 26B (1.317), Qwen ASR 1.7B → Gemma 26B (1.320), Fun ASR Nano MLT → Gemma 26B (1.494), Gemini Transcribe → Index (1.567), Fun ASR Nano MLT → Index (2.154). Orange bars are external baselines: Qwen 3.8 Translate (1.858), Gemini 3.5 Live Translate (3.526), Soniox Translate (4.665). Judge model: GPT-6 Astra (high reasoning effort).](docs/images/performance/2.png)
 
-- The blue bars are the models available in PuriPuly.
+- Blue bars show PuriPuly configurations at the time of the benchmark.
 - We ran the experiment using Microsoft's Gemba MQM framework.
 - It was set up as a multi-turn environment to better resemble real conversation.
 - For the full results, see [here](https://github.com/kapitalismho/korean-llm-context-translation-benchmark).
@@ -125,15 +122,16 @@ It works in many environments, including VRChat and Discord.
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 E4B (Local)** | Unlimited | Unlimited | 5,000 | 7,260 |
+| **Index-Translate 35B A3B** | Unlimited | Unlimited | 5,000 | 7,260 |
 | **Gemma 4 26B A4B + 31B** | 13,940 | 13,940 | 3,680 | 4,770 |
 | **DeepSeek V4.1 Flash** | 16,800 | 16,800 | 3,860 | 5,070 |
-| **GPT 6 Luna** | 8,680 | 8,680 | 3,170 | 3,950 |
+| **GPT-6 Luna** | 8,680 | 8,680 | 3,170 | 3,950 |
 
 #### Other Models
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **Gemma 4 E4B & 26B (Local)** | Unlimited | Unlimited | 5,000 | 7,260 |
 | **DeepSeek V4 Flash (OpenRouter)** | 17,020 | 17,020 | 3,860 | 5,090 |
 | **Gemini 3.8 Flash** | 1,160 | 1,160 | 940 | 1,000 |
 | **Qwen 3.8 Flash** | 7,460 | 7,460 | 2,990 | 3,680 |
@@ -144,15 +142,16 @@ It works in many environments, including VRChat and Discord.
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
-| **Gemma 4 E4B (Local)** | $0 | $0 | ~$0.0002 | ~$0.00014 |
+| **Index-Translate 35B A3B** | $0 | $0 | ~$0.0002 | ~$0.00014 |
 | **Gemma 4 26B A4B + 31B** | ~$0.00007 | ~$0.00007 | ~$0.0003 | ~$0.00021 |
 | **DeepSeek V4.1 Flash** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
-| **GPT 6 Luna** | ~$0.00012 | ~$0.00012 | ~$0.0003 | ~$0.00025 |
+| **GPT-6 Luna** | ~$0.00012 | ~$0.00012 | ~$0.0003 | ~$0.00025 |
 
 #### Other Models
 
 | LLM \ ASR | Local ASR | Cloud Free Tier ASR | Soniox | Qwen Audio |
 |---|---|---|---|---|
+| **Gemma 4 E4B & 26B (Local)** | $0 | $0 | ~$0.0002 | ~$0.00014 |
 | **DeepSeek V4 Flash (OpenRouter)** | ~$0.00006 | ~$0.00006 | ~$0.0003 | ~$0.00020 |
 | **Gemini 3.8 Flash** | ~$0.0009 | ~$0.0009 | ~$0.0011 | ~$0.0010 |
 | **Qwen 3.8 Flash** | ~$0.0001 | ~$0.0001 | ~$0.0003 | ~$0.00027 |
@@ -161,9 +160,9 @@ It works in many environments, including VRChat and Discord.
 *   *Uses per Dollar is derived from the un-rounded values in the Cost per Utterance table.*
 *   *All costs and usage counts are approximate.*
 *   *DeepSeek V4.1 Flash assumes a 70% cache hit rate; V4 Flash (OpenRouter) assumes 60%.*
-*   *GPT 6 Luna uses OpenAI API pricing with no cache discount assumed; when connected through ChatGPT, it uses your Codex limits instead of API charges.*
+*   *GPT-6 Luna uses OpenAI API pricing with no cache discount assumed; when connected through ChatGPT, it uses your Codex limits instead of API charges.*
 *   *Qwen API costs are based on the Beijing region.*
-*   *Pricing as of September 25, 2026.*
+*   *Pricing as of October 17, 2026.*
 
 ### Free Credits
 
@@ -186,9 +185,11 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 
 | Model | Runtime | Quantization |
 |---|---|---|
-| Parakeet TDT 0.6B v3 | CPU | INT8 |
+| Granite Speech 5.0 Multilingual | CPU | Q8_0 |
+| GigaAM-v3 e2e-CTC | CPU | Q8_0 |
+| Fun-ASR-Nano-2512 | CPU | Q8_0 |
+| Fun-ASR-MLT-Nano-2512 | CPU | Q8_0 |
 | Parakeet TDT-CTC 0.6B (ja) | CPU | INT8 |
-| Qwen3-ASR 0.6B | CPU | INT8 |
 | Qwen3-ASR 1.7B | GPU | Q6_K |
 | OpenAI-compatible API | — | — |
 
@@ -197,6 +198,7 @@ GPU inference runs on Vulkan. It works regardless of the vendor — Radeon or Ar
 | Model | Runtime | Quantization |
 |---|---|---|
 | Gemma 4 E4B IT QAT | CPU / GPU | UD Q4_K_XL |
+| Gemma 4 26B A4B IT QAT | GPU only (Vulkan) | UD Q4_K_XL |
 | OpenAI-compatible API | — | — |
 
 ---
@@ -210,7 +212,7 @@ For Linux-port problems, use [this fork’s issue tracker](https://github.com/da
 1. Download the latest version from the [Download page](https://github.com/kapitalismho/PuriPuly-heart/releases/latest).
 2. Install PuriPuly.
 3. Click the **TALK** button.
-4. Click the **TRANS** button, then authenticate via Discord.
+4. Click **TRANS**. New installations use Index without an API key; complete authentication or setup if prompted.
 5. Click the **CAPTIONS** button to turn on VR subtitles.
 6. (Optional) Click the **LISTEN** button to enable translation of the other person's voice.
 
@@ -219,6 +221,12 @@ For Linux-port problems, use [this fork’s issue tracker](https://github.com/da
 7. Enable OSC in VRChat: Action menu → Settings → OSC → Enable.
 
 For bidirectional control setup and the stable parameter ABI, see [VRChat OSC controls](docs/vrchat-osc.md).
+
+SELF translations can appear in the chatbox while a speech turn is still in progress and update as more speech arrives. The app marks previews separately from completed turns. See [progressive Self chatbox translations](docs/vrchat-osc.md#progressive-self-chatbox-translations) for correction, ordering, and pagination behavior.
+
+On the merged SELF speech route, captions advance with closed-source units or sentence-complete cumulative source whose matching translation is ready. During ongoing speech, source and translation appear together; stable recognition updates, grace restarts, and speculative completions alone are not display boundaries. Existing translated coverage is retained while newer coverage is pending; closed source still has a source-only fallback when translation is disabled, unavailable, or fails. An untranslated successor is staged only when ordinary shared-window selection would evict translated SELF. Eligible late results update retained captions without refocusing newer speech; expired or displaced captions are not revived. Chatbox progression and PEER policy remain independent. Punctuation-free continuous speech can wait for closure, and finite shared slots do not guarantee a minimum reading interval.
+
+Cloud PEER captions do not publish late preview translations after recognition fully retracts the provisional text. Qwen's empty partial updates deliberately retain the last nonempty hypothesis instead. Retraction does not prevent a later valid replacement or authoritative final from being translated.
 
 ### If audio capture does not work
 
@@ -229,7 +237,6 @@ If audio capture does not work, open **Settings > General** and follow these ste
 1. Change **Audio Host API** to **Auto** or **MME**.
 2. Select the correct microphone.
 3. Restart the app.
-
 ---
 
 ### Note for Users in China
@@ -364,17 +371,13 @@ Network, proxy, TLS certificate, and service errors do not mean your key is inva
 6. Click the circled area to copy the key.
    ![step6](docs/images/gemini/6.png)
 
-7. (Recommended) Click the yellow **Set Up Billing** button to upgrade to the paid tier.
-The tier transition may take a moment.
-   ![step7](docs/images/gemini/7.png)
-
 <details>
 <summary><h3>For Gemini paid subscribers</h3></summary>
 
-8. Go to [Google Developer Program](https://developers.google.com/program/my-benefits) and join the program.
+7. Go to [Google Developer Program](https://developers.google.com/program/my-benefits) and join the program.
    ![step8](docs/images/gemini/8.png)
 
-9. Select the paid tier project you set up in step 7.
+8. Select your paid-tier project.
    ![step9](docs/images/gemini/9.png)
 
 </details>
@@ -438,10 +441,6 @@ The tier transition may take a moment.
 
 See [`docs/architecture.md`](docs/architecture.md).
 
-## Roadmap
-
-Upcoming work is tracked publicly on the [PuriPuly project board](https://github.com/users/kapitalismho/projects/2).
-
 ---
 
 ## Development
@@ -451,7 +450,7 @@ For native x86-64 Linux development, follow [the Linux guide](docs/Linux.md). Th
 ### Setup
 
 ```powershell
-uv sync --frozen --extra dev
+uv sync --locked --extra dev --python 3.14.10
 ```
 
 ### GUI
@@ -471,25 +470,18 @@ uv run python -m puripuly_heart.main cli --help
 ### Verification
 
 ```powershell
-uv run black --check src tests
-uv run ruff check src tests
-uv run python -m pytest
+uv run --locked black --check .
+uv run --locked ruff check .
+uv run --locked python scripts/ci/check_test_selection.py
 ```
-
-[Broker development (Linux)](broker/README.md) · [VR overlay development (Windows)](native/overlay/README.md)
-
----
-
-## Developer
-
-[salee](https://github.com/kapitalismho)
 
 ---
 
 ## Contributors
 
-[RICHARDwuxiaofei](https://github.com/RICHARDwuxiaofei)
-[fzcfweasdferttgg-png](https://github.com/fzcfweasdferttgg-png)
+<a href="https://github.com/kapitalismho/PuriPuly-heart/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=kapitalismho/PuriPuly-heart" alt="Contributors" />
+</a>
 
 ---
 

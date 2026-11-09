@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -41,7 +43,12 @@ class _Control:
 
     async def submit(self, name, arguments, *, request_id, expected_revision=None):
         self.calls += 1
-        return {"instance_id": "correct-instance", "operation_id": request_id, "status": "accepted"}
+        return {
+            "instance_id": "correct-instance",
+            "operation_id": request_id,
+            "status": "accepted",
+            "terminal": False,
+        }
 
 
 async def _raw(port: int, message: bytes):
@@ -123,36 +130,48 @@ async def test_client_timeout_does_not_cancel_accepted_server_execution():
         def __init__(self):
             super().__init__()
             self.completed = asyncio.Event()
+            self.entered = asyncio.Event()
+            self.release = asyncio.Event()
 
         async def submit(self, name, arguments, *, request_id, expected_revision=None):
             self.calls += 1
-            await asyncio.sleep(0.15)
+            self.entered.set()
+            await self.release.wait()
             self.completed.set()
             return {
                 "instance_id": "correct-instance",
                 "operation_id": request_id,
                 "status": "accepted",
+                "terminal": False,
             }
 
     control = SlowControl()
     server = ControlServer(control, instance_id="correct-instance", token="local-secret-token")
     port = await server.start()
+    client = asyncio.create_task(
+        request(
+            _Record(port),
+            "submit",
+            {
+                "name": "capture.set",
+                "values": {"channel": "self", "enabled": False},
+                "request_id": "do-not-replay",
+            },
+            timeout=0.1,
+        )
+    )
     try:
+        await asyncio.wait_for(control.entered.wait(), 1)
         with pytest.raises(ControlTransportError) as error:
-            await request(
-                _Record(port),
-                "submit",
-                {
-                    "name": "capture.set",
-                    "values": {"channel": "self", "enabled": False},
-                    "request_id": "do-not-replay",
-                },
-                timeout=0.02,
-            )
+            await client
         assert error.value.code == "unknown_execution"
+        assert not control.completed.is_set()
+        control.release.set()
         await asyncio.wait_for(control.completed.wait(), 1)
         assert control.calls == 1
     finally:
+        control.release.set()
+        await asyncio.gather(client, return_exceptions=True)
         await server.close()
 
 
@@ -169,6 +188,7 @@ async def test_shutdown_waits_until_stop_receipt_is_consumed():
                 "instance_id": "correct-instance",
                 "operation_id": request_id,
                 "status": "accepted",
+                "terminal": False,
             }
 
     control = StopControl()
@@ -292,13 +312,12 @@ async def test_ui_event_subscriptions_project_only_explicit_content_over_loopbac
         masked = await receive()
         assert masked[0]["state"] == STTSessionState.STREAMING.value
         assert "state" not in masked[1]
-        assert masked[2] == {
-            "sequence": 3,
-            "topic": "osc_sent",
-            "channel": "peer",
-            "source": "offline",
-            "utterance_id": str(utterance_id),
-        }
+        assert masked[2]["sequence"] == 3
+        assert masked[2]["topic"] == "osc_sent"
+        assert masked[2]["channel"] == "peer"
+        assert masked[2]["utterance_id"] == str(utterance_id)
+        assert masked[2]["source"] == "unknown"
+        assert masked[2]["instance_id"] is None
         assert "OFFLINE_" not in json.dumps(masked)
 
         transcripts = await receive(include_transcripts=True, include_translations=False)
@@ -356,5 +375,96 @@ async def test_client_rejects_oversized_request_before_dispatch():
             )
         assert error.value.code == "request_too_large"
         assert control.calls == 0
+    finally:
+        await server.close()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows authenticated instance discovery")
+@pytest.mark.asyncio
+async def test_cli_subprocess_discovers_authenticates_and_keeps_valid_queries_after_rejection(
+    tmp_path, monkeypatch
+):
+    from puripuly_heart.core.control_instance import acquire, discover
+
+    profile = tmp_path / "isolated-profile"
+    for name in ("HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA", "XDG_CONFIG_HOME"):
+        directory = profile / name.lower()
+        directory.mkdir(parents=True)
+        monkeypatch.setenv(name, str(directory))
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith(("PURIPULY_HEART_", "PYTHON"))
+    }
+    settings = tmp_path / "synthetic-settings.json"
+    instance_id = "00000000-0000-0000-0000-000000000295"
+    token = "synthetic-control-token-" + "a" * 32
+    control = _Control()
+    server = ControlServer(control, instance_id=instance_id, token=token)
+    port = await server.start()
+
+    async def invoke(*arguments):
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-I",
+            "-B",
+            "-m",
+            "puripuly_heart.main",
+            "cli",
+            "--config",
+            str(settings),
+            *arguments,
+            cwd=tmp_path,
+            env=environment,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), 15)
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+        assert token not in (stdout + stderr).decode("utf-8")
+        return process.returncode, stdout.decode("utf-8"), stderr.decode("utf-8")
+
+    try:
+        with acquire(settings) as lease:
+            lease.publish(port=port, token=token, instance_id=instance_id)
+            code, stdout, stderr = await invoke("capabilities")
+            assert code == 0, stderr
+            assert stderr == ""
+            assert json.loads(stdout) == {"output_version": 1, "queries": ["app.status"]}
+
+            private = "SYNTHETIC_PRIVATE_CREDENTIAL"
+            code, stdout, stderr = await invoke(
+                "command", "auth.login", "--arguments", json.dumps({"credential": private})
+            )
+            assert code == 3
+            assert stdout == ""
+            assert json.loads(stderr)["error"]["code"] == "invalid_input"
+            assert private not in stderr
+            assert control.calls == 1
+
+            code, stdout, stderr = await invoke("app", "status")
+            assert code == 0, stderr
+            assert stderr == ""
+            assert json.loads(stdout) == {
+                "output_version": 1,
+                "instance_id": instance_id,
+                "port": port,
+                "status": "ready",
+                "name": "app.status",
+            }
+            assert control.calls == 2
+        assert discover(settings) is None
+        code, stdout, stderr = await invoke("capabilities")
+        assert code == 3
+        assert stdout == ""
+        assert json.loads(stderr)["error"]["code"] == "instance_not_found"
+        assert control.calls == 2
+        assert not settings.exists()
+        assert not list(profile.rglob("secrets*"))
+        assert not list(profile.rglob("*.log"))
     finally:
         await server.close()

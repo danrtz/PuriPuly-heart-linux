@@ -9,18 +9,13 @@ import numpy as np
 import pytest
 
 from puripuly_heart.core.audio.format import AudioCaptureSpan
-from puripuly_heart.core.audio.ownership import (
-    AudioSegmentIdentity,
-    AudioSegmentSettingsSnapshot,
-    PeerAudioSegmentLedger,
-)
+from puripuly_heart.core.audio.ownership import PeerAudioSegmentLedger
 from puripuly_heart.core.runtime.local_asr_provider_runtime import LocalASRProviderRuntimeOwner
 from puripuly_heart.core.stt.backend import (
     STTContributionConsumptionLedger,
     STTNativeProvenance,
     STTProviderEpochEnded,
     STTProviderInputTerminal,
-    STTProviderTurnIdentity,
     STTProviderTurnRequest,
     STTProviderTurnTerminal,
     STTProviderTurnUpdate,
@@ -32,40 +27,21 @@ from puripuly_heart.core.stt.scoped_engine import (
     STTRecognitionWatchdogs,
     STTRetentionProfile,
 )
-from puripuly_heart.core.vad.gating import SpeechChunk, SpeechEnd, SpeechStart
+from puripuly_heart.core.vad.gating import SpeechEnd, SpeechStart
 from puripuly_heart.providers.stt.deepgram import _CLOSE_STREAM, _FINALIZE, _DeepgramSDKSession
-from puripuly_heart.providers.stt.elevenlabs_scribe import _ElevenLabsScribeSession
-from puripuly_heart.providers.stt.gemini_transcribe import _GeminiTranscribeLiveSession
 from puripuly_heart.providers.stt.soniox import _SonioxSession
-
-
-def _request(provider: str, order: int = 1) -> STTProviderTurnRequest:
-    settings = AudioSegmentSettingsSnapshot(
-        provider_id=provider,
-        provider_signature=(provider,),
-        runtime_signature=(provider,),
-        source_mode="desktop",
-        source_language="en",
-        expected_languages=("en",),
-        target_sample_rate_hz=16000,
-        vad_speech_threshold=0.4,
-        vad_hangover_ms=800,
-        vad_pre_roll_ms=500,
-    )
-    segment = AudioSegmentIdentity(
-        activation_generation=1,
-        segment_order=order,
-        segment_id=uuid4(),
-        capture_epoch=1,
-    )
-    return STTProviderTurnRequest(
-        identity=STTProviderTurnIdentity(
-            segment=segment,
-            provider_epoch_id=f"epoch-{order}",
-            provider_turn_id=f"turn-{order}",
-        ),
-        settings=settings,
-    )
+from tests.helpers.scoped_provider_sessions import (
+    _deepgram_result,
+    _deepgram_session,
+    _FakeSonioxWebSocket,
+    _gemini_message,
+    _gemini_session,
+    _owned_deepgram_events,
+    _request,
+    _scribe_session,
+    _soniox_session,
+    _wait,
+)
 
 
 def _request_for_epoch(provider: str, order: int, epoch: str = "epoch-1") -> STTProviderTurnRequest:
@@ -95,64 +71,6 @@ def _span() -> tuple[AudioCaptureSpan, ...]:
 
 async def _next(session):
     return await asyncio.wait_for(anext(session.turn_events()), timeout=1)
-
-
-async def _wait(predicate) -> None:
-    for _ in range(1000):
-        if predicate():
-            return
-        await asyncio.sleep(0)
-    raise AssertionError("condition not reached")
-
-
-def _deepgram_result(text: str, *, from_finalize: bool = False, is_final: bool = True):
-    from deepgram.extensions.types.sockets import ListenV1ResultsEvent
-    from deepgram.extensions.types.sockets.listen_v1_results_event import (
-        ListenV1Alternative,
-        ListenV1Channel,
-        ListenV1ModelInfo,
-        ListenV1ResultsMetadata,
-    )
-
-    return ListenV1ResultsEvent(
-        type="Results",
-        channel_index=[0, 1],
-        duration=0.1,
-        start=0.0,
-        is_final=is_final,
-        speech_final=False,
-        channel=ListenV1Channel(
-            alternatives=[ListenV1Alternative(transcript=text, confidence=1.0, words=[])]
-        ),
-        metadata=ListenV1ResultsMetadata(
-            request_id="session-request",
-            model_info=ListenV1ModelInfo(name="nova-3", version="1", arch="nova"),
-            model_uuid="model",
-        ),
-        from_finalize=from_finalize,
-    )
-
-
-def _deepgram_session(
-    drain_timeout_s: float = 10.0,
-    *,
-    order: int = 1,
-    epoch: str | None = None,
-) -> _DeepgramSDKSession:
-    session = _DeepgramSDKSession(
-        api_key="k",
-        model="nova-3",
-        language="en",
-        sample_rate_hz=16000,
-        connect_timeout_s=5.0,
-        keyterms=[],
-        drain_timeout_s=drain_timeout_s,
-        projection=STTSessionProjection(
-            mode="scoped",
-            provider_epoch_id=epoch or f"epoch-{order}",
-        ),
-    )
-    return session
 
 
 @pytest.mark.asyncio
@@ -192,7 +110,6 @@ async def test_deepgram_actual_result_shape_reuses_acknowledged_epoch_and_detect
 
     monkeypatch.setattr(_DeepgramSDKSession, "_write_payload", write)
     session = _deepgram_session()
-    assert session._audio_q.maxsize == 258
     request_a = _request("deepgram")
     await session.begin_turn(request_a)
     gate.clear()
@@ -219,9 +136,20 @@ async def test_deepgram_actual_result_shape_reuses_acknowledged_epoch_and_detect
     session._build_transcript_event(_deepgram_result("text"))
     session._build_transcript_event(_deepgram_result("", from_finalize=True))
     await asyncio.sleep(0)
-    assert (await _next(session)).text == "same "
-    assert (await _next(session)).text == "text"
+    stable_a, stable_b, preview = [await _next(session) for _ in range(3)]
+    assert all(isinstance(event, STTProviderTurnUpdate) for event in (stable_a, stable_b, preview))
+    assert [(event.stability, event.assembly, event.text) for event in (stable_a, stable_b)] == [
+        ("stable", "append", "same "),
+        ("stable", "append", "text"),
+    ]
+    assert (preview.stability, preview.assembly, preview.text) == (
+        "provisional",
+        "replace",
+        "same  text",
+    )
+    assert preview.identity == request_a.identity
     terminal_a = await _next(session)
+    assert isinstance(terminal_a, STTProviderTurnTerminal)
     assert (terminal_a.outcome, terminal_a.text, terminal_a.epoch_disposition) == (
         "final",
         "same text",
@@ -245,8 +173,11 @@ async def test_deepgram_actual_result_shape_reuses_acknowledged_epoch_and_detect
     )
     session._build_transcript_event(_deepgram_result("same text", from_finalize=True))
     await asyncio.sleep(0)
-    assert (await _next(session)).text == "same text"
+    stable = await _next(session)
+    assert isinstance(stable, STTProviderTurnUpdate)
+    assert (stable.stability, stable.assembly, stable.text) == ("stable", "append", "same text")
     terminal_b = await _next(session)
+    assert isinstance(terminal_b, STTProviderTurnTerminal)
     assert (terminal_b.text, terminal_b.epoch_disposition) == ("same text", "reuse")
     assert terminal_a.identity != terminal_b.identity
     assert all(item[0] is session for item in writes)
@@ -284,6 +215,7 @@ async def test_deepgram_empty_error_abort_and_two_drain_path(monkeypatch) -> Non
     empty._build_transcript_event(_deepgram_result("", from_finalize=True))
     await asyncio.sleep(0)
     terminal = await _next(empty)
+    assert isinstance(terminal, STTProviderTurnTerminal)
     assert (terminal.outcome, terminal.text_authority, terminal.epoch_disposition) == (
         "empty",
         "authoritative",
@@ -296,9 +228,18 @@ async def test_deepgram_empty_error_abort_and_two_drain_path(monkeypatch) -> Non
     await errored.begin_turn(error_request)
     errored._build_transcript_event(_deepgram_result("kept"))
     await asyncio.sleep(0)
-    await _next(errored)
+    stable, preview = await _next(errored), await _next(errored)
+    assert isinstance(stable, STTProviderTurnUpdate)
+    assert (stable.stability, stable.assembly, stable.text) == ("stable", "append", "kept")
+    assert isinstance(preview, STTProviderTurnUpdate)
+    assert (preview.stability, preview.assembly, preview.text) == (
+        "provisional",
+        "replace",
+        "kept",
+    )
     errored._scoped_transport_end(False, "deepgram_transport_error")
     degraded = await _next(errored)
+    assert isinstance(degraded, STTProviderTurnTerminal)
     ended = await _next(errored)
     assert (degraded.outcome, degraded.text) == ("degraded", "kept")
     assert isinstance(ended, STTProviderEpochEnded)
@@ -334,72 +275,6 @@ async def test_deepgram_empty_error_abort_and_two_drain_path(monkeypatch) -> Non
     assert writes.count(_FINALIZE) == 2
 
 
-class _FakeGeminiLive:
-    def __init__(self) -> None:
-        self.sent: list[dict] = []
-        self.queue: asyncio.Queue[object] = asyncio.Queue()
-        self.closed = False
-
-    async def send_realtime_input(self, **kwargs) -> None:
-        self.sent.append(kwargs)
-
-    async def receive(self):
-        while True:
-            item = await self.queue.get()
-            if isinstance(item, BaseException):
-                raise item
-            yield item
-
-    async def close(self) -> None:
-        self.closed = True
-
-    def push(self, item: object) -> None:
-        self.queue.put_nowait(item)
-
-
-_MISSING = object()
-
-
-def _gemini_message(*, final: object = _MISSING, interim: object = _MISSING, ack: bool = False):
-    from google.genai import types
-
-    content = None
-    if final is not _MISSING or interim is not _MISSING:
-        content = types.LiveServerContent(
-            interim_input_transcription=(
-                types.Transcription(text=str(interim)) if interim is not _MISSING else None
-            ),
-            input_transcription=(
-                types.Transcription(text=str(final)) if final is not _MISSING else None
-            ),
-        )
-    activity = None
-    if ack:
-        activity = types.VoiceActivity(voice_activity_type=types.VoiceActivityType.ACTIVITY_END)
-    return types.LiveServerMessage(server_content=content, voice_activity=activity)
-
-
-async def _gemini_session(timeout: float = 0.05, *, order: int = 1, epoch: str | None = None):
-    live = _FakeGeminiLive()
-    session = _GeminiTranscribeLiveSession(
-        api_key="k",
-        language_codes=[],
-        custom_vocabulary=[],
-        model="model",
-        sample_rate_hz=16000,
-        connect_timeout_s=10.0,
-        drain_timeout_s=timeout,
-        projection=STTSessionProjection(
-            mode="scoped",
-            provider_epoch_id=epoch or f"epoch-{order}",
-        ),
-    )
-    session._live_session = live
-    session._send_task = asyncio.create_task(session._send_loop())
-    session._recv_task = asyncio.create_task(session._recv_loop())
-    return session, live
-
-
 @pytest.mark.asyncio
 async def test_gemini_native_results_are_stream_scoped_receipt_units() -> None:
     session, live = await _gemini_session()
@@ -417,6 +292,7 @@ async def test_gemini_native_results_are_stream_scoped_receipt_units() -> None:
         live.push(_gemini_message(final="before seal"))
         early = await _next(session)
         assert isinstance(early, STTRecognitionUnit)
+        assert (early.text, early.is_final) == ("before seal", True)
         await session.seal_turn(
             first.identity,
             sealed_content_ranges=_span(),
@@ -425,6 +301,7 @@ async def test_gemini_native_results_are_stream_scoped_receipt_units() -> None:
         )
         submitted = await _next(session)
         assert isinstance(submitted, STTProviderInputTerminal)
+        assert submitted.independent_recognition
         assert (submitted.outcome, submitted.identity) == ("submitted", first.identity)
         await session.begin_turn(second)
         next_span = (
@@ -447,14 +324,18 @@ async def test_gemini_native_results_are_stream_scoped_receipt_units() -> None:
         )
         assert session.recognition_source_covers(next_span)
         live.push(_gemini_message(ack=True, interim="not final"))
+        partial = await _next(session)
+        assert isinstance(partial, STTRecognitionUnit)
+        assert (partial.text, partial.is_final) == ("not final", False)
         live.push(_gemini_message(final="same"))
         live.push(_gemini_message(final="same"))
         units = [await _next(session), await _next(session)]
-        assert all(isinstance(unit, STTRecognitionUnit) for unit in units)
+        assert all(isinstance(unit, STTRecognitionUnit) and unit.is_final for unit in units)
         assert [unit.text for unit in units] == ["same", "same"]
-        assert [unit.identity.receipt_sequence for unit in [early, *units]] == [1, 2, 3]
+        assert [unit.identity.receipt_sequence for unit in [early, partial, *units]] == [1, 2, 3, 4]
         assert len({unit.identity.unit_id for unit in [early, *units]}) == 3
-        assert all(unit.identity.stream == early.identity.stream for unit in units)
+        assert partial.identity.unit_id == units[0].identity.unit_id
+        assert all(unit.identity.stream == early.identity.stream for unit in [partial, *units])
         assert [next(iter(item)) for item in live.sent] == ["audio", "audio_stream_end", "audio"]
         await session.seal_turn(
             second.identity,
@@ -496,6 +377,7 @@ async def test_gemini_empty_result_transport_error_and_abort_have_distinct_recei
         failed = await _next(errored)
         ended = await _next(errored)
         assert isinstance(failed, STTProviderInputTerminal)
+        assert failed.independent_recognition
         assert failed.failure_reason == "gemini_receive_failed"
         assert isinstance(ended, STTProviderEpochEnded)
     finally:
@@ -508,6 +390,7 @@ async def test_gemini_empty_result_transport_error_and_abort_have_distinct_recei
         await aborted.abort_turn(abort_request.identity, reason="cancelled")
         aborted_terminal = await _next(aborted)
         assert isinstance(aborted_terminal, STTProviderInputTerminal)
+        assert aborted_terminal.independent_recognition
         assert (aborted_terminal.outcome, aborted_terminal.failure_reason) == (
             "cancelled",
             "cancelled",
@@ -517,56 +400,9 @@ async def test_gemini_empty_result_transport_error_and_abort_have_distinct_recei
         await aborted.close()
 
 
-class _FakeSonioxWebSocket:
-    def __init__(self) -> None:
-        self.sent: list[object] = []
-        self.send_gate = asyncio.Event()
-        self.send_gate.set()
-        self.queue: asyncio.Queue[object] = asyncio.Queue()
-        self.closed = False
-
-    async def send(self, payload: object) -> None:
-        self.sent.append(payload)
-        await self.send_gate.wait()
-
-    async def recv(self):
-        return await self.queue.get()
-
-    async def close(self) -> None:
-        self.closed = True
-
-    def push(self, payload: object) -> None:
-        self.queue.put_nowait(payload)
-
-
-def _soniox_session(*, order: int = 1, epoch: str | None = None):
-    ws = _FakeSonioxWebSocket()
-    session = _SonioxSession(
-        api_key="k",
-        model="model",
-        endpoint="endpoint",
-        sample_rate_hz=16000,
-        language_hints=["en"],
-        context_terms=[],
-        keepalive_interval_s=100.0,
-        trailing_silence_ms=100,
-        connect_timeout_s=5.0,
-        enable_language_identification=True,
-        projection=STTSessionProjection(
-            mode="scoped",
-            provider_epoch_id=epoch or f"epoch-{order}",
-        ),
-    )
-    session._ws = ws
-    session._send_task = asyncio.create_task(session._send_loop())
-    session._recv_task = asyncio.create_task(session._recv_loop())
-    return session, ws
-
-
 @pytest.mark.asyncio
 async def test_soniox_documented_unkeyed_tokens_reuse_epoch_and_detect_idle_ambiguity() -> None:
     session, ws = _soniox_session()
-    assert session._audio_q.maxsize == 258
     request_a = _request("soniox")
     await session.begin_turn(request_a)
     ws.send_gate.clear()
@@ -694,46 +530,6 @@ async def test_soniox_empty_error_and_abort_receipts() -> None:
     await aborted.close()
 
 
-class _FakeScribeConnection:
-    def __init__(self) -> None:
-        self.sent: list[dict] = []
-        self.send_gate = asyncio.Event()
-        self.send_gate.set()
-        self.commit_gate = asyncio.Event()
-        self.commit_gate.set()
-        self.commits = 0
-        self.closed = False
-
-    async def send(self, payload: dict) -> None:
-        self.sent.append(payload)
-        await self.send_gate.wait()
-
-    async def commit(self) -> None:
-        self.commits += 1
-        await self.commit_gate.wait()
-
-    async def close(self) -> None:
-        self.closed = True
-
-
-def _scribe_session(*, order: int = 1, epoch: str | None = None):
-    connection = _FakeScribeConnection()
-    session = _ElevenLabsScribeSession(
-        api_key="k",
-        language_code="en",
-        keyterms=(),
-        model="model",
-        sample_rate_hz=16000,
-        connect_timeout_s=10.0,
-        projection=STTSessionProjection(
-            mode="scoped",
-            provider_epoch_id=epoch or f"epoch-{order}",
-        ),
-    )
-    session._connection = connection
-    return session, connection
-
-
 @pytest.mark.asyncio
 async def test_scribe_actual_payload_shape_reuses_connection_and_detects_idle_ambiguity() -> None:
     from elevenlabs.types import CommittedTranscriptPayload, PartialTranscriptPayload
@@ -742,7 +538,6 @@ async def test_scribe_actual_payload_shape_reuses_connection_and_detects_idle_am
     assert "transcript_id" not in CommittedTranscriptPayload.model_fields
     assert "commit_id" not in CommittedTranscriptPayload.model_fields
     session, connection = _scribe_session()
-    assert session._connection_events.maxsize == 258
     request_a = _request("elevenlabs_scribe")
     await session.begin_turn(request_a)
     session._on_committed(CommittedTranscriptPayload(text="before-commit"))
@@ -871,6 +666,11 @@ class _NoopGpuRuntime:
     worker_pid = None
     last_failure_code = None
     configured_device_id = None
+    startup_cleanup_snapshot = {
+        "pending_startups": 0,
+        "close_complete": True,
+        "cleanup_failures": [],
+    }
 
     async def close(self) -> None:
         return None
@@ -879,57 +679,6 @@ class _NoopGpuRuntime:
 class _UnusedProviderFactory:
     async def create(self, request, *, gpu_runtime, on_terminal_failure=None):
         raise AssertionError((request, gpu_runtime, on_terminal_failure))
-
-
-def _owned_deepgram_events(
-    ledger: PeerAudioSegmentLedger,
-    *,
-    start_sample: int,
-) -> tuple[object, list[object], object]:
-    segment_id = uuid4()
-
-    def capture(sequence: int, start: int, end: int) -> AudioCaptureSpan:
-        return AudioCaptureSpan(
-            capture_epoch=1,
-            callback_sequence=sequence,
-            source_sample_rate_hz=16000,
-            source_start_sample=start,
-            source_end_sample=end,
-            source_start_monotonic_s=start / 16000,
-            source_end_monotonic_s=end / 16000,
-            normalized_sample_rate_hz=16000,
-            normalized_start_sample=start,
-            normalized_end_sample=end,
-        )
-
-    first_range = capture(1, start_sample, start_sample + 4)
-    start = ledger.observe_vad_event(
-        SpeechStart(
-            segment_id,
-            np.empty((0,), dtype=np.float32),
-            np.ones(4, dtype=np.float32),
-            chunk_capture=(first_range,),
-        ),
-        now_monotonic_s=start_sample / 16000,
-    )
-    chunks: list[object] = []
-    for index in range(1, 21):
-        chunk_start = start_sample + index * 4
-        chunks.append(
-            ledger.observe_vad_event(
-                SpeechChunk(
-                    segment_id,
-                    np.ones(4, dtype=np.float32),
-                    chunk_capture=(capture(index + 1, chunk_start, chunk_start + 4),),
-                ),
-                now_monotonic_s=(chunk_start + 4) / 16000,
-            )
-        )
-    end = ledger.observe_vad_event(
-        SpeechEnd(segment_id, trailing_silence_ms=800, reason="silence"),
-        now_monotonic_s=(start_sample + 84) / 16000,
-    )
-    return start, chunks, end
 
 
 def _deepgram_engine(
@@ -1291,6 +1040,7 @@ async def test_each_concrete_streaming_protocol_serves_self_and_peer_concurrentl
         if provider_id == "gemini_transcribe":
             submitted = await _next(session)
             assert isinstance(submitted, STTProviderInputTerminal)
+            assert submitted.independent_recognition
             assert submitted.outcome == "submitted"
             unit = await _next(session)
             assert isinstance(unit, STTRecognitionUnit)

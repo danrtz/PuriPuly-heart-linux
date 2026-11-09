@@ -21,6 +21,24 @@ from puripuly_heart.core.messages import TransactionResult
 
 
 @dataclass(frozen=True, slots=True)
+class SettingsApplyOutcome:
+    saved: bool | None
+    applied: bool
+    transaction: TransactionResult | None = None
+    reverted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LoopbackCaptureSettingsIntent:
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetrySettingsIntent:
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
 class AlibabaCapabilityEvidence:
     capability: Literal["asr", "translation"]
     model: str
@@ -103,7 +121,6 @@ class ProviderSettingsSnapshot:
     openrouter_selected_source: OpenRouterCredentialSource
     openrouter_selection_alias: OpenRouterSelectionAlias | None
     verified: ProviderVerificationSnapshot
-    managed_referral_id: str | None
     qwen_api_host_beijing: str = ""
     qwen_api_host_singapore: str = ""
 
@@ -159,6 +176,7 @@ class OverlaySettingsSnapshot:
     desktop_background_alpha: float
     desktop_swap_caption_languages: bool
     calibration: OverlayCalibrationSnapshot
+    japanese_furigana: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +253,7 @@ class ClipboardSettingsIntent:
 @dataclass(frozen=True, slots=True)
 class PeerExpectedLanguagesIntent:
     languages: tuple[str, ...]
+    recent_languages: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +274,11 @@ class OverlayTranslationSettingsIntent:
 
 @dataclass(frozen=True, slots=True)
 class OverlayPeerOriginalSettingsIntent:
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OverlayFuriganaSettingsIntent:
     enabled: bool
 
 
@@ -300,6 +324,7 @@ ImmediateSettingsIntent: TypeAlias = (
     | OverlayTargetSettingsIntent
     | OverlayTranslationSettingsIntent
     | OverlayPeerOriginalSettingsIntent
+    | OverlayFuriganaSettingsIntent
     | DesktopOverlayBackgroundAlphaIntent
     | DesktopOverlaySwapCaptionLanguagesIntent
     | DesktopOverlaySizeIntent
@@ -395,11 +420,6 @@ class CustomSttExtraEdit:
 
 
 @dataclass(frozen=True, slots=True)
-class ManagedReferralEdit:
-    referral_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class SystemPromptEdit:
     value: str
 
@@ -422,7 +442,6 @@ ProviderSettingsEdit: TypeAlias = (
     | CustomSttEndpointEdit
     | CustomSttModelEdit
     | CustomSttExtraEdit
-    | ManagedReferralEdit
     | SystemPromptEdit
 )
 
@@ -472,12 +491,13 @@ __all__ = [
     "LocalLlmExtraBodyEdit",
     "LocalLlmModelEdit",
     "LocaleSettingsIntent",
-    "ManagedReferralEdit",
+    "LoopbackCaptureSettingsIntent",
     "OpenRouterPkceTarget",
     "OscConnectionSettingsIntent",
     "OverlayCalibrationSnapshot",
     "OverlayCalibrationSettingsIntent",
     "OverlayPeerOriginalSettingsIntent",
+    "OverlayFuriganaSettingsIntent",
     "OverlaySettingsSnapshot",
     "OverlayTargetSettingsIntent",
     "OverlayTranslationSettingsIntent",
@@ -497,8 +517,10 @@ __all__ = [
     "QwenSingaporeApiHostEdit",
     "SelfSttProviderEdit",
     "SelfVadSettingsIntent",
+    "SettingsApplyOutcome",
     "SttGpuDeviceEdit",
     "SystemPromptEdit",
+    "TelemetrySettingsIntent",
     "TranslationSelectionSnapshot",
     "TranslationSelectionEdit",
     "TranslationHttpExtensionEdit",

@@ -5,11 +5,13 @@ from dataclasses import dataclass
 
 import flet as ft
 
+from puripuly_heart.ui.motion import close_modal, show_modal
 from puripuly_heart.ui.theme import (
     COLOR_NEUTRAL_DARK,
     COLOR_ON_BACKGROUND,
     COLOR_PRIMARY,
     COLOR_SURFACE,
+    text_style,
 )
 
 DIALOG_WIDTH = 720
@@ -38,7 +40,7 @@ def _action_button_style() -> ft.ButtonStyle:
         ),
         shape=ft.RoundedRectangleBorder(radius=BUTTON_RADIUS),
         overlay_color=ft.Colors.TRANSPARENT,
-        text_style=ft.TextStyle(size=BUTTON_TEXT_SIZE, weight=ft.FontWeight.BOLD),
+        text_style=text_style(size=BUTTON_TEXT_SIZE, weight=ft.FontWeight.BOLD),
         animation_duration=0,
     )
 
@@ -96,7 +98,7 @@ def open_warm_document_dialog(
 
     def select(action: WarmDocumentDialogAction) -> None:
         if action.close_before_action and dialog is not None:
-            page.pop_dialog()
+            close_modal(page, dialog)
         if action.on_select is not None:
             action.on_select()
 
@@ -211,7 +213,7 @@ def open_warm_document_dialog(
         bgcolor=ft.Colors.TRANSPARENT,
         on_dismiss=None if on_dismiss is None else lambda _: on_dismiss(),
     )
-    page.show_dialog(dialog)
+    show_modal(page, dialog)
     return WarmDocumentDialogResult(
         dialog=dialog,
         primary_button=primary_button,

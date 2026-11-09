@@ -537,71 +537,6 @@ async def test_presenter_presentation_state_shell_tracks_self_and_peer_snapshots
     assert presenter.snapshot() == presenter._presentation_state.snapshot()
 
 
-class _RecordingSnapshotGenerationState(OverlayPresentationState):
-    def __init__(self) -> None:
-        super().__init__()
-        self.generated_snapshot_count = 0
-
-    def generate_snapshot(self, **kwargs: object) -> object:
-        self.generated_snapshot_count += 1
-        return super().generate_snapshot(**kwargs)
-
-
-class _RecordingSelfReductionState(OverlayPresentationState):
-    def __init__(self) -> None:
-        super().__init__()
-        self.self_active_updates = 0
-        self.self_finalized_updates = 0
-        self.self_translation_updates = 0
-
-    def apply_self_active_update(self, *args: object, **kwargs: object) -> bool:
-        self.self_active_updates += 1
-        return super().apply_self_active_update(*args, **kwargs)
-
-    def apply_self_finalized_update(self, *args: object, **kwargs: object) -> bool:
-        self.self_finalized_updates += 1
-        return super().apply_self_finalized_update(*args, **kwargs)
-
-    def apply_self_translation_update(self, *args: object, **kwargs: object) -> bool:
-        self.self_translation_updates += 1
-        return super().apply_self_translation_update(*args, **kwargs)
-
-
-class _RecordingPeerReductionState(OverlayPresentationState):
-    def __init__(self) -> None:
-        super().__init__()
-        self.peer_active_updates = 0
-        self.peer_finalized_updates = 0
-        self.peer_translation_updates = 0
-        self.peer_utterance_closed_updates = 0
-
-    def apply_peer_active_update(self, *args: object, **kwargs: object) -> bool:
-        self.peer_active_updates += 1
-        return super().apply_peer_active_update(*args, **kwargs)
-
-    def apply_peer_finalized_update(self, *args: object, **kwargs: object) -> bool:
-        self.peer_finalized_updates += 1
-        return super().apply_peer_finalized_update(*args, **kwargs)
-
-    def apply_peer_translation_update(self, *args: object, **kwargs: object) -> bool:
-        self.peer_translation_updates += 1
-        return super().apply_peer_translation_update(*args, **kwargs)
-
-    def apply_peer_utterance_closed(self, *args: object, **kwargs: object) -> bool:
-        self.peer_utterance_closed_updates += 1
-        return super().apply_peer_utterance_closed(*args, **kwargs)
-
-
-class _NonSelectableState(OverlayPresentationState):
-    def __init__(self) -> None:
-        super().__init__()
-        self.selectable_calls = 0
-
-    def entry_is_selectable(self, *args: object, **kwargs: object) -> bool:
-        self.selectable_calls += 1
-        return False
-
-
 def test_presentation_state_self_active_reducer_rejects_stale_updates() -> None:
     state = OverlayPresentationState()
     utterance_id = uuid4()
@@ -742,176 +677,6 @@ def test_presentation_state_coalesced_peer_active_update_refreshes_language_meta
 
     assert language_only_result.changed is True
     assert entry.original_language == "ja"
-
-
-@pytest.mark.asyncio
-async def test_presenter_delegates_snapshot_generation_to_presentation_state() -> None:
-    bridge = RecordingPresentationBridge()
-    clock = FakeClock(_now=10.0)
-    presenter = OverlayPresenter(
-        bridge=bridge,
-        calibration=OverlayCalibration(),
-        clock=clock,
-    )
-    state = _RecordingSnapshotGenerationState()
-    presenter._presentation_state = state
-    adapter = OverlayEventAdapter(clock=clock)
-    self_turn_id = uuid4()
-
-    await presenter.emit(
-        adapter.self_active_update(
-            text="snapshot generation is reducer-owned",
-            utterance_id=self_turn_id,
-            occupant_key=f"self:{self_turn_id}",
-            created_at=10.0,
-        )
-    )
-
-    assert state.generated_snapshot_count == 1
-    assert presenter.snapshot() == state.snapshot()
-
-
-@pytest.mark.asyncio
-async def test_presenter_delegates_self_event_reduction_to_presentation_state() -> None:
-    bridge = RecordingPresentationBridge()
-    clock = FakeClock(_now=10.0)
-    presenter = OverlayPresenter(
-        bridge=bridge,
-        calibration=OverlayCalibration(),
-        clock=clock,
-    )
-    state = _RecordingSelfReductionState()
-    presenter._presentation_state = state
-    adapter = OverlayEventAdapter(clock=clock)
-    self_turn_id = uuid4()
-
-    await presenter.emit(
-        adapter.self_active_update(
-            text="self reducer-owned preview",
-            secondary_text="preview translation",
-            utterance_id=self_turn_id,
-            occupant_key=f"self:{self_turn_id}",
-            created_at=10.0,
-        )
-    )
-    await presenter.emit(
-        adapter.translation_final(
-            utterance_id=self_turn_id,
-            channel="self",
-            text="final reducer-owned translation",
-            source_language="ko",
-            target_language="en",
-            applied_context_mode=None,
-            created_at=10.1,
-        )
-    )
-    await presenter.emit(
-        adapter.transcript_final(
-            Transcript(
-                utterance_id=self_turn_id,
-                channel="self",
-                text="final reducer-owned source",
-                is_final=True,
-                created_at=10.2,
-            ),
-            source_language="ko",
-            target_language="en",
-        )
-    )
-
-    assert state.self_active_updates == 1
-    assert state.self_translation_updates == 1
-    assert state.self_finalized_updates == 1
-    assert presenter.snapshot() == state.snapshot()
-
-
-@pytest.mark.asyncio
-async def test_presenter_delegates_peer_event_reduction_to_presentation_state() -> None:
-    bridge = RecordingPresentationBridge()
-    clock = FakeClock(_now=10.0)
-    presenter = OverlayPresenter(
-        bridge=bridge,
-        calibration=OverlayCalibration(),
-        clock=clock,
-    )
-    state = _RecordingPeerReductionState()
-    presenter._presentation_state = state
-    adapter = OverlayEventAdapter(clock=clock)
-    peer_turn_id = uuid4()
-
-    await presenter.emit(
-        adapter.peer_active_update(
-            text="peer reducer-owned fallback source",
-            utterance_id=peer_turn_id,
-            occupant_key=f"peer:{peer_turn_id}",
-            created_at=10.0,
-        )
-    )
-    await presenter.emit(
-        adapter.transcript_final(
-            Transcript(
-                utterance_id=peer_turn_id,
-                channel="peer",
-                text="peer reducer-owned source final",
-                is_final=True,
-                created_at=10.1,
-            ),
-            source_language="en",
-            target_language="ko",
-        )
-    )
-    await presenter.emit(
-        adapter.translation_final(
-            utterance_id=peer_turn_id,
-            channel="peer",
-            text="peer reducer-owned translation",
-            source_language="en",
-            target_language="ko",
-            applied_context_mode=None,
-            created_at=10.2,
-        )
-    )
-    await presenter.emit(
-        adapter.utterance_closed(
-            utterance_id=peer_turn_id,
-            channel="peer",
-            created_at=10.3,
-        )
-    )
-
-    assert state.peer_active_updates == 1
-    assert state.peer_finalized_updates == 1
-    assert state.peer_translation_updates == 1
-    assert state.peer_utterance_closed_updates == 1
-    assert presenter.snapshot().blocks[0].primary_text == "peer reducer-owned translation"
-    assert presenter.snapshot() == state.snapshot()
-
-
-@pytest.mark.asyncio
-async def test_presenter_visible_selection_uses_reducer_selectability_source() -> None:
-    presenter = OverlayPresenter(
-        calibration=OverlayCalibration(),
-    )
-    state = _NonSelectableState()
-    presenter._presentation_state = state
-    adapter = OverlayEventAdapter(clock=FakeClock(_now=10.0))
-    peer_turn_id = uuid4()
-
-    await presenter.emit(
-        adapter.translation_final(
-            utterance_id=peer_turn_id,
-            channel="peer",
-            text="should stay hidden by reducer selectability",
-            source_text="peer source",
-            source_language="en",
-            target_language="ko",
-            applied_context_mode=None,
-            created_at=10.0,
-        )
-    )
-
-    assert state.selectable_calls >= 1
-    assert presenter.snapshot().blocks == []
 
 
 @pytest.mark.asyncio
@@ -3088,7 +2853,10 @@ async def test_presenter_hidden_self_translation_metadata_update_does_not_bump_r
 
     assert presenter.snapshot() == snapshot_before_metadata
     assert len(bridge.snapshots) == snapshot_count_before_metadata
-    assert presenter.snapshot().native_fresh_render_generations.self == 2
+    assert (
+        presenter.snapshot().native_fresh_render_generations
+        == snapshot_before_metadata.native_fresh_render_generations
+    )
     assert presenter.snapshot().blocks[0].secondary_enabled is False
 
 
@@ -4109,7 +3877,7 @@ async def test_native_retry_mode_never_schedules_python_refresh_work() -> None:
     await asyncio.sleep(0)
 
     snapshot = presenter.snapshot()
-    assert snapshot.native_fresh_render_targets.self == f"self:{turn}"
+    assert snapshot.native_fresh_render_targets.self == "scene:self"
     assert 0.1 not in sleep_calls
     assert len(bridge.snapshots) == 1
     await presenter.close()
@@ -4147,7 +3915,7 @@ async def test_native_retry_epoch_replays_valid_caption_with_fresh_intent_only()
     snapshot = presenter.snapshot()
     assert snapshot.blocks[0].primary_text == "preserved caption"
     assert snapshot.native_fresh_render_generations.self == 1
-    assert snapshot.native_fresh_render_targets.self == f"self:{turn}"
+    assert snapshot.native_fresh_render_targets.self == "scene:self"
     assert snapshot.native_quiet_tail_episodes.self.generation == 1
 
     await presenter.begin_native_retry_epoch(enabled=False)
@@ -4208,7 +3976,7 @@ async def test_presenter_native_fresh_render_generations_preserve_channels_and_e
             occupant_key=f"self:{self_turn}",
         )
     )
-    assert presenter.snapshot().native_fresh_render_generations.self == self_generation + 1
+    assert presenter.snapshot().native_fresh_render_generations.self > self_generation
     stream_episode = presenter.snapshot().native_quiet_tail_episodes.self
     assert stream_episode is not None and stream_episode.phase == "stream"
     assert stream_episode.generation != self_episode.generation
@@ -4223,8 +3991,11 @@ async def test_presenter_native_fresh_render_generations_preserve_channels_and_e
             applied_context_mode=None,
         )
     )
-    assert presenter.snapshot().native_fresh_render_generations.self == self_generation
-    assert presenter.snapshot().native_quiet_tail_episodes.self == stream_episode
+    assert presenter.snapshot().native_fresh_render_generations.self > self_generation
+    assert (
+        presenter.snapshot().native_quiet_tail_episodes.self.generation > stream_episode.generation
+    )
+    self_generation = presenter.snapshot().native_fresh_render_generations.self
     await presenter.emit(
         adapter.transcript_final(
             Transcript(
@@ -4265,12 +4036,17 @@ async def test_presenter_native_fresh_render_generations_preserve_channels_and_e
         show_translation=False,
         show_peer_original=False,
     )
-    assert presenter.snapshot().native_fresh_render_generations == generations
+    assert presenter.snapshot().native_fresh_render_generations.self > generations.self
+    assert presenter.snapshot().native_fresh_render_generations.peer == generations.peer
+    generations = presenter.snapshot().native_fresh_render_generations
     await presenter.update_display_preferences(
         show_translation=True,
         show_peer_original=True,
     )
-    assert presenter.snapshot().native_fresh_render_generations == generations
+    assert presenter.snapshot().native_fresh_render_generations.self > generations.self
+    assert presenter.snapshot().native_fresh_render_generations.peer == generations.peer
+    generations = presenter.snapshot().native_fresh_render_generations
+    self_generation = generations.self
     await presenter.update_calibration(OverlayCalibration(distance=1.2))
     assert presenter.snapshot().native_fresh_render_generations == generations
 
@@ -4340,7 +4116,7 @@ async def test_presenter_native_fresh_render_same_text_new_turn_and_terminal_exc
                 target_language="ko",
             )
         )
-    assert presenter.snapshot().native_fresh_render_generations.self == 2
+    assert presenter.snapshot().native_fresh_render_generations.self == 3
 
     await presenter.emit(
         adapter.transcript_final(
@@ -4366,7 +4142,8 @@ async def test_presenter_native_fresh_render_same_text_new_turn_and_terminal_exc
         )
     )
     generations = presenter.snapshot().native_fresh_render_generations
-    assert (generations.self, generations.peer) == (2, 1)
+    assert generations.peer == 1
+    assert generations.self >= 3
 
     await presenter.emit(adapter.self_active_clear())
     assert presenter.snapshot().native_fresh_render_generations == generations

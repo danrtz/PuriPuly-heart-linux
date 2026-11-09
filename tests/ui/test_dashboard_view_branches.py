@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 
@@ -9,6 +10,8 @@ ft = pytest.importorskip("flet")
 
 from puripuly_heart.config.provider_values import STTProviderName
 from puripuly_heart.config.settings_vnext.schema import AppSettingsVNext
+from puripuly_heart.domain.events import SelfTurnPresentation, SelfTurnTargetPresentation
+from puripuly_heart.domain.models import Translation
 from puripuly_heart.ui.dashboard import capture as dashboard_capture_module
 from puripuly_heart.ui.dashboard.contract import (
     DashboardCaptureIntents,
@@ -72,9 +75,22 @@ class FakeDisplayCard:
         self.locale_calls: list[tuple[str | None, str | None]] = []
         self.input_is_focused = False
         self.focus_calls = 0
+        self._showing_status = True
 
-    def set_status(self, status: str, font_family: str | None = None) -> None:
+    def set_status(
+        self,
+        status: str,
+        font_family: str | None = None,
+        *,
+        letter_spacing: float | None = None,
+        replace_content: bool = False,
+    ) -> bool:
+        _ = letter_spacing
         self.statuses.append((status, font_family))
+        if not self._showing_status and not replace_content:
+            return False
+        self._showing_status = True
+        return True
 
     def set_display(
         self,
@@ -82,9 +98,12 @@ class FakeDisplayCard:
         *,
         is_error: bool = False,
         font_family: str | None = None,
+        letter_spacing: float | None = None,
         debug_prefix: str | None = None,
         as_translation: bool = False,
     ) -> None:
+        _ = letter_spacing
+        self._showing_status = False
         self.display_calls.append((text, is_error, font_family))
         self.display_metadata_calls.append(
             {"debug_prefix": debug_prefix, "as_translation": as_translation}
@@ -95,8 +114,11 @@ class FakeDisplayCard:
         text: str | None,
         font_family: str | None = None,
         *,
+        letter_spacing: float | None = None,
         debug_prefix: str | None = None,
     ) -> None:
+        _ = letter_spacing
+        self._showing_status = False
         self.translation_calls.append((text, font_family))
 
     def set_notice(
@@ -112,10 +134,24 @@ class FakeDisplayCard:
         self.notice_actions.append((action_label, on_action))
         self.notice_yields.append(bool(yields_to_content))
 
-    def set_input_font(self, font_family: str | None) -> None:
+    def set_input_font(
+        self,
+        font_family: str | None,
+        *,
+        letter_spacing: float | None = None,
+    ) -> None:
+        _ = letter_spacing
         self.input_fonts.append(font_family)
 
-    def apply_locale(self, display_font_family: str | None, input_font_family: str | None) -> None:
+    def apply_locale(
+        self,
+        display_font_family: str | None,
+        input_font_family: str | None,
+        *,
+        display_letter_spacing: float | None = None,
+        input_letter_spacing: float | None = None,
+    ) -> None:
+        _ = (display_letter_spacing, input_letter_spacing)
         self.locale_calls.append((display_font_family, input_font_family))
 
     def set_input_focus_for_test(self, focused: bool) -> None:
@@ -342,8 +378,7 @@ def test_dashboard_submit_and_language_selection_paths(monkeypatch: pytest.Monke
     view._swap_languages()
 
     assert sends == [("You", "hello")]
-    assert view._recent_source_langs == ["ja"]
-    assert view._recent_target_langs == ["fr"]
+    assert view._recent_langs == ["fr", "ja"]
     assert lang_changes[-1] == ("fr", "ja", "en", "ko")
     assert view.language_card.languages[-1] == ("name-fr", "name-ja", "name-en", "name-ko")
 
@@ -412,16 +447,171 @@ def test_dashboard_recent_languages_are_included_in_language_change(
     view.on_language_change = changes.append
 
     for idx in range(8):
-        view._add_to_recent(f"s{idx}", is_source=True)
-        view._add_to_recent(f"t{idx}", is_source=False)
+        view._add_to_recent(f"s{idx}")
+        view._add_to_recent(f"t{idx}")
 
-    assert len(view._recent_source_langs) == 6
-    assert len(view._recent_target_langs) == 6
-    assert view._recent_source_langs[0] == "s7"
-    assert view._recent_source_langs[-1] == "s2"
+    assert view._recent_langs == ["t7", "s7", "t6"]
     view._notify_language_change()
-    assert changes[-1].recent_source_codes == tuple(view._recent_source_langs)
-    assert changes[-1].recent_target_codes == tuple(view._recent_target_langs)
+    assert changes[-1].recent_source_codes == ("t7", "s7", "t6")
+    assert changes[-1].recent_target_codes == ("t7", "s7", "t6")
+
+
+def test_hint_editor_uses_the_dashboard_recent_language_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from puripuly_heart.ui.components.settings.language_hint_editor import LanguageHintEditor
+
+    view = _make_dashboard(monkeypatch)
+    added: list[str] = []
+    editor = LanguageHintEditor(on_add=added.append)
+    editor.bind_recent_languages(
+        codes=view.recent_language_codes,
+        remember=view.remember_recent_language,
+    )
+
+    view._on_source_select("ja")
+    view._on_target_select("fr")
+    editor._handle_select("de")
+    editor.set_terms(["ko", "en", "zh-CN", "fr"])
+
+    assert view._recent_langs == ["de", "fr", "ja"]
+    assert editor._recent_for_modal() == ["de", "fr", "ja"]
+    assert added == ["de"]
+
+
+def test_hint_editor_remembers_a_language_without_saving_the_language_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from puripuly_heart.ui.components.settings.language_hint_editor import LanguageHintEditor
+
+    view = _make_dashboard(monkeypatch)
+    changes = []
+    view.on_language_change = changes.append
+    order: list[tuple[str, str]] = []
+
+    def remember(code: str) -> None:
+        order.append(("remember", code))
+        view._add_to_recent(code)
+
+    editor = LanguageHintEditor(on_add=lambda code: order.append(("add", code)))
+    editor.bind_recent_languages(
+        codes=view.recent_language_codes,
+        remember=remember,
+    )
+
+    editor._handle_select("ja")
+    editor._handle_select("ar")
+    editor._handle_select("en")
+
+    assert changes == []
+    assert view._recent_langs == ["en", "ar", "ja"]
+    assert order == [
+        ("remember", "ja"),
+        ("add", "ja"),
+        ("remember", "ar"),
+        ("add", "ar"),
+        ("remember", "en"),
+        ("add", "en"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["source", "translation", "error", "self_source", "self_translation"],
+)
+def test_dashboard_background_readiness_preserves_content_until_restore(content: str) -> None:
+    view = dashboard_module.DashboardView()
+    view.set_status("connected")
+    if content.startswith("self_"):
+        utterance_id = uuid4()
+        translation = Translation(utterance_id, content) if content == "self_translation" else None
+        view.set_self_turn(
+            SelfTurnPresentation(
+                utterance_id=utterance_id,
+                turn_generation=1,
+                turn_order=1,
+                revision=1,
+                source_revision=1,
+                source_text=content if translation is None else "self source",
+                source_language="ko",
+                source_closed=True,
+                status="active",
+                targets=(
+                    SelfTurnTargetPresentation(
+                        target_language="en",
+                        source_revision=1,
+                        status="ready" if translation is not None else "pending",
+                        translation=translation,
+                    ),
+                ),
+                created_at=0.0,
+            )
+        )
+    else:
+        view.set_display_text(content, language_code="ko", is_error=content == "error")
+        if content == "translation":
+            view.set_display_translation_text(content, language_code="en")
+    face = view.display_card._display_text.font_family
+    tracking = view.display_card._display_text.style.letter_spacing
+
+    for status in ("connected", "connecting", "stopping", "disconnected", "failed"):
+        view.set_status(status)
+        assert view.display_card._display_text.value == content
+        assert view.display_card._display_text.font_family == face
+        assert view.display_card._display_text.style.letter_spacing == tracking
+
+    view._restore_status_display()
+    assert view.display_card._display_text.value == dashboard_module.t("display.failed")
+
+
+@pytest.mark.parametrize("control", ["stt", "translation"])
+def test_api_key_warning_survives_readiness_and_dismisses_to_latest_state(control: str) -> None:
+    view = dashboard_module.DashboardView()
+    view.set_status("connected")
+    if control == "stt":
+        view.set_stt_needs_key(True)
+        toggle = view._toggle_stt
+        warning = dashboard_module.t("dashboard.warn_stt_key")
+    else:
+        view.set_translation_needs_key(True)
+        toggle = view._toggle_translation
+        warning = dashboard_module.t("dashboard.warn_llm_key")
+    toggle()
+    assert view.display_card._display_text.value == warning
+
+    for status in ("connected", "connecting", "stopping", "disconnected", "failed"):
+        view.set_status(status)
+        assert view.display_card._display_text.value == warning
+
+    toggle()
+    assert view.display_card._display_text.value == dashboard_module.t("display.failed")
+
+
+@pytest.mark.parametrize("source", ["local_stt", "gpu", "managed_auth"])
+def test_specific_notice_survives_readiness_and_clears_to_latest_state(source: str) -> None:
+    view = dashboard_module.DashboardView()
+    view.set_status("connecting")
+    if source == "local_stt":
+        view.set_local_stt_notice("missing")
+    elif source == "gpu":
+        view.set_gpu_notice(GpuDashboardNotice(status="install_failed"))
+    else:
+        view.set_managed_auth_pending(True)
+    notice = view.display_card._display_text.value
+    assert notice
+    assert notice != dashboard_module.t("display.connecting")
+
+    view.set_status("connected")
+    assert view.display_card._display_text.value == notice
+    view.set_status("failed")
+    assert view.display_card._display_text.value == notice
+    if source == "local_stt":
+        view.set_local_stt_notice(None)
+    elif source == "gpu":
+        view.set_gpu_notice(None)
+    else:
+        view.set_managed_auth_pending(False)
+    assert view.display_card._display_text.value == dashboard_module.t("display.failed")
 
 
 def test_dashboard_public_setters_update_components(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -432,7 +622,7 @@ def test_dashboard_public_setters_update_components(monkeypatch: pytest.MonkeyPa
     view.set_stt_enabled(False)
     view.set_translation_needs_key(True, update_ui=True)
     view.set_stt_needs_key(True, update_ui=True)
-    view.set_local_stt_notice_model("qwen3-asr-0.6b-int8-sherpa")
+    view.set_local_stt_notice_model("fun-asr-mlt-nano-2512-q8-0-transcribe-cpu")
     view.set_local_stt_notice("missing")
     view.set_managed_auth_pending(True)
     view.set_display_text("src", language_code="ko")
@@ -446,7 +636,7 @@ def test_dashboard_public_setters_update_components(monkeypatch: pytest.MonkeyPa
     assert view.display_card.notice_calls[-1] == (
         dashboard_module.t(
             "dashboard.local_stt_notice_missing_model",
-            model=dashboard_module.t("local_stt.model.qwen3-asr-0.6b-int8-sherpa"),
+            model=dashboard_module.t("local_stt.model.fun-asr-mlt-nano-2512-q8-0-transcribe-cpu"),
         ),
         "warning",
     )
@@ -473,7 +663,7 @@ def test_dashboard_public_setters_update_components(monkeypatch: pytest.MonkeyPa
     assert view._stt_showing_warning is True
     assert view.trans_button.states[-1]["needs_key"] is True
     assert view.stt_button.states[-1]["needs_key"] is True
-    assert view._recent_source_langs == ["a", "b", "c", "d", "e", "f"]
+    assert view._recent_langs == ["a", "b", "c"]
 
 
 def test_dashboard_projects_osc_state_without_emitting_intents(
@@ -537,7 +727,7 @@ def test_dashboard_projects_osc_state_without_emitting_intents(
             baseline.intent,
             peer_stt=replace(
                 baseline.intent.peer_stt,
-                provider=STTProviderName.LOCAL_PARAKEET_V3.value,
+                provider=STTProviderName.LOCAL_GRANITE.value,
             ),
         ),
     )
@@ -808,14 +998,14 @@ def test_dashboard_managed_auth_pending_restores_local_stt_notice_when_cleared(
 ) -> None:
     view = _make_dashboard(monkeypatch)
 
-    view.set_local_stt_notice_model("qwen3-asr-0.6b-int8-sherpa")
+    view.set_local_stt_notice_model("fun-asr-mlt-nano-2512-q8-0-transcribe-cpu")
     view.set_local_stt_notice("missing")
     view.set_managed_auth_pending(True)
     view.set_managed_auth_pending(False)
 
     missing_notice = dashboard_module.t(
         "dashboard.local_stt_notice_missing_model",
-        model=dashboard_module.t("local_stt.model.qwen3-asr-0.6b-int8-sherpa"),
+        model=dashboard_module.t("local_stt.model.fun-asr-mlt-nano-2512-q8-0-transcribe-cpu"),
     )
     assert view.display_card.notice_calls == [
         (None, None),
@@ -1159,6 +1349,22 @@ async def test_dashboard_gpu_action_runs_as_page_task(
     assert actions == ["install"]
 
 
+@pytest.mark.parametrize("status", ["checking", "downloading", "preparing"])
+def test_dashboard_managed_gemma_progress_notice_has_no_cancel_action(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+) -> None:
+    from puripuly_heart.app.ports.ui_models import ManagedGemmaDashboardNotice
+
+    view = _make_dashboard(monkeypatch)
+    view.set_managed_gemma_notice(
+        ManagedGemmaDashboardNotice(status=status, progress_percent=37, action="cancel")
+    )
+    label, callback = view.display_card.notice_actions[-1]
+    assert label is None
+    assert callback is None
+
+
 def test_dashboard_steamvr_overlay_failure_notice_uses_actionable_reason_without_status_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1224,6 +1430,38 @@ def test_dashboard_overlay_notices_yield_to_content_while_others_block(
     osc_view = _make_dashboard(monkeypatch)
     osc_view.set_vrchat_osc_notice(True)
     assert osc_view.display_card.notice_yields[-1] is False
+
+
+@pytest.mark.parametrize("source", ["local_stt", "gpu", "managed_gemma"])
+def test_model_progress_yields_to_source_and_translation(
+    source: str,
+) -> None:
+    from puripuly_heart.app.ports.ui_models import ManagedGemmaDashboardNotice
+
+    view = dashboard_module.DashboardView()
+
+    def progress(percent: int) -> None:
+        if source == "local_stt":
+            view.set_local_stt_notice("downloading", percent=percent)
+        elif source == "gpu":
+            view.set_gpu_notice(GpuDashboardNotice(status="installing", progress_percent=percent))
+        else:
+            view.set_managed_gemma_notice(
+                ManagedGemmaDashboardNotice(status="downloading", progress_percent=percent)
+            )
+
+    progress(37)
+    assert "37%" in view.display_card._display_text.value
+
+    view.set_display_text("새 인식문")
+    assert view.display_card._display_text.value == "새 인식문"
+    progress(63)
+    assert view.display_card._display_text.value == "새 인식문"
+
+    view.set_display_translation_text("New translation")
+    assert view.display_card._display_text.value == "New translation"
+    progress(100)
+    assert view.display_card._display_text.value == "New translation"
 
 
 def test_dashboard_overlay_failure_notice_relocalizes_on_apply_locale(
@@ -1317,7 +1555,7 @@ def test_dashboard_peer_source_selection_restores_follow_self_blank(
 
     assert view._peer_source_lang_code == ""
     assert view._peer_target_lang_code == "fr"
-    assert view._recent_source_langs == ["ko"]
+    assert view._recent_langs == ["ko"]
     assert changes[-1] == ("ko", "en", "", "fr")
     assert view.language_card.languages[-1] == ("name-ko", "name-en", "name-ko", "name-fr")
 
@@ -1336,7 +1574,7 @@ def test_dashboard_peer_target_selection_restores_follow_self_blank(
 
     assert view._peer_source_lang_code == "ja"
     assert view._peer_target_lang_code == ""
-    assert view._recent_target_langs == ["en"]
+    assert view._recent_langs == ["en"]
     assert changes[-1] == ("ko", "en", "ja", "")
     assert view.language_card.languages[-1] == ("name-ko", "name-en", "name-ja", "name-en")
 
@@ -1423,18 +1661,26 @@ def test_dashboard_peer_and_overlay_button_labels_render_from_i18n(
     assert view.overlay_button.label == "i18n:dashboard.overlay_label"
 
 
+@pytest.mark.parametrize(
+    "model_id",
+    (
+        "fun-asr-mlt-nano-2512-q8-0-transcribe-cpu",
+        "granite-speech-5.0-470m-turboctc-multilingual-q8-0-transcribe-cpu",
+        "gigaam-v3-e2e-ctc-q8-0-transcribe-cpu",
+    ),
+)
 def test_dashboard_local_stt_notice_can_change_and_clear_without_touching_display(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, model_id: str
 ) -> None:
     view = _make_dashboard(monkeypatch)
 
-    view.set_local_stt_notice_model("qwen3-asr-0.6b-int8-sherpa")
+    view.set_local_stt_notice_model(model_id)
     view.set_local_stt_notice("missing")
     view.set_display_text("hello", language_code="ko")
     view.set_local_stt_notice("downloading", percent=63)
     view.set_local_stt_notice(None)
 
-    model_label = dashboard_module.t("local_stt.model.qwen3-asr-0.6b-int8-sherpa")
+    model_label = dashboard_module.t(f"local_stt.model.{model_id}")
     assert view.display_card.display_calls == [("hello", False, "font-ko")]
     assert view.display_card.notice_calls == [
         (None, None),
@@ -1468,6 +1714,7 @@ def test_dashboard_bound_intents_receive_every_owned_interaction(
         "overlay": [],
         "retry_peer": [],
         "gpu": [],
+        "managed_gemma": [],
     }
     view.bind_dashboard_intents(
         translation=DashboardTranslationIntents(
@@ -1482,6 +1729,7 @@ def test_dashboard_bound_intents_receive_every_owned_interaction(
             toggle_overlay=lambda enabled: calls["overlay"].append(enabled),
             retry_peer_process_capture=lambda: calls["retry_peer"].append(True),
             run_gpu_notice_action=lambda action: calls["gpu"].append(action),
+            run_managed_gemma_notice_action=lambda action: calls["managed_gemma"].append(action),
         ),
     )
 
@@ -1502,6 +1750,7 @@ def test_dashboard_bound_intents_receive_every_owned_interaction(
     assert [change.source_code for change in calls["language"]] == ["ja"]
     assert calls["retry_peer"] == []
     assert calls["gpu"] == []
+    assert calls["managed_gemma"] == []
 
 
 def test_dashboard_secondary_target_dialog_offers_none_and_blocks_the_primary(
@@ -1618,6 +1867,41 @@ def test_dashboard_talk_starting_clears_when_stt_becomes_enabled(
     assert view.is_stt_on is True
     assert view._stt_is_starting is False
     assert "is_starting" not in view.stt_button.states[-1]
+
+
+@pytest.mark.parametrize("effective_enabled", (False, True))
+def test_dashboard_trans_loading_click_requests_off_and_clears_starting(
+    monkeypatch: pytest.MonkeyPatch, effective_enabled: bool
+) -> None:
+    view = _make_dashboard(monkeypatch)
+    requests: list[bool] = []
+    view.on_toggle_translation = requests.append
+    view.set_translation_enabled(effective_enabled)
+    view.set_translation_starting(True)
+
+    view.trans_button.on_click()
+
+    assert requests == [False]
+    assert view.is_translation_on is False
+    assert view._translation_is_starting is False
+    assert view.trans_button.states[-1]["is_on"] is False
+    assert "is_starting" not in view.trans_button.states[-1]
+
+
+def test_dashboard_talk_loading_click_requests_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    view = _make_dashboard(monkeypatch)
+    requests: list[bool] = []
+    view.on_toggle_stt = requests.append
+    view.set_stt_enabled(False)
+    view.set_stt_starting(True)
+
+    view.stt_button.on_click()
+
+    assert requests == [False]
+    assert view.is_stt_on is False
+    assert view._stt_is_starting is False
 
 
 def test_dashboard_self_swap_keeps_the_secondary_target(
